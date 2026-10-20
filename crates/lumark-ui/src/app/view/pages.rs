@@ -74,6 +74,7 @@ impl LumarkApp {
                 h_flex()
                     .w_full()
                     .min_h_0()
+                    .flex_shrink_0()
                     .items_stretch()
                     .gap_3()
                     .child(
