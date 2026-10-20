@@ -1,6 +1,6 @@
 use super::*;
 
-/// Creates a themed text input with optional password masking.
+/// 创建带可选密码掩码的主题文本输入框。
 pub(crate) fn new_input(
     window: &mut Window,
     cx: &mut Context<LumarkApp>,
@@ -13,12 +13,12 @@ pub(crate) fn new_input(
     })
 }
 
-/// Reads the current text from an input entity.
+/// 读取输入实体中的当前文本。
 pub(crate) fn input_value(input: &gpui_kit::Entity<InputState>, cx: &gpui_kit::App) -> String {
     input.read(cx).value().to_string()
 }
 
-/// Replaces an input value while preserving the GPUI input selection invariants.
+/// 替换输入框值，同时保持 GPUI 输入选择状态约束。
 pub(crate) fn set_input(
     input: &gpui_kit::Entity<InputState>,
     value: &str,
@@ -28,8 +28,7 @@ pub(crate) fn set_input(
     input.update(cx, |state, cx| state.set_value(value, window, cx));
 }
 
-/// Builds a focused modal card; the application shell supplies the dimming
-/// backdrop and centers this card in the active window.
+/// 构建聚焦的模态卡片；应用外壳负责遮罩背景，并在当前窗口居中显示该卡片。
 pub(crate) fn centered_modal(cx: &mut Context<LumarkApp>, title: &str) -> gpui_kit::Div {
     v_flex()
         .w(px(680.))
@@ -52,7 +51,7 @@ pub(crate) fn centered_modal(cx: &mut Context<LumarkApp>, title: &str) -> gpui_k
         )
 }
 
-/// Collects existing user folders, favorites, and mounted drive roots for the sidebar.
+/// 收集现有用户文件夹、收藏和已挂载磁盘根目录，供侧栏使用。
 pub(crate) fn quick_locations(settings: &Settings) -> Vec<(String, PathBuf)> {
     let mut locations = Vec::new();
     let mut add = |label: &str, path: Option<PathBuf>| {
@@ -87,7 +86,7 @@ pub(crate) fn quick_locations(settings: &Settings) -> Vec<(String, PathBuf)> {
     locations
 }
 
-/// Validates a filename against Windows reserved characters and trailing-dot rules.
+/// 按 Windows 保留字符和尾随点规则校验文件名。
 pub(crate) fn valid_file_name(name: &str) -> bool {
     let name = name.trim();
     !name.is_empty()
@@ -103,7 +102,7 @@ pub(crate) fn valid_file_name(name: &str) -> bool {
         && !name.ends_with(' ')
 }
 
-/// Removes Lumark extraction directories that are older than the startup retention window.
+/// 删除超过启动保留期限的 Lumark 解压临时目录。
 pub(crate) fn cleanup_stale_temp_dirs() {
     let root = std::env::temp_dir().join("Lumark").join("open");
     let Ok(entries) = std::fs::read_dir(&root) else {
@@ -125,12 +124,12 @@ pub(crate) fn cleanup_stale_temp_dirs() {
     }
 }
 
-/// Checks whether a path has an extension understood by the archive service.
+/// 检查路径扩展名是否由归档服务支持。
 pub(crate) fn is_archive_path(path: &Path) -> bool {
     ArchiveService::detect(path) != ArchiveFormat::Unknown
 }
 
-/// Recognizes executable and script extensions that require an explicit open confirmation.
+/// 识别需要显式打开确认的可执行文件和脚本扩展名。
 pub(crate) fn is_executable_like(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
@@ -144,7 +143,7 @@ pub(crate) fn is_executable_like(path: &Path) -> bool {
         })
 }
 
-/// Returns the column widths for compact, standard, or relaxed file-list layouts.
+/// 返回紧凑、标准或宽松文件列表布局的列宽。
 pub(crate) fn column_layout_widths(layout: u8) -> (f32, f32, f32) {
     match layout {
         0 => (64.0, 108.0, 56.0),
@@ -153,7 +152,7 @@ pub(crate) fn column_layout_widths(layout: u8) -> (f32, f32, f32) {
     }
 }
 
-/// Maps the persisted writable format preference to an archive format.
+/// 把持久化的可写格式偏好映射为归档格式。
 pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
     match settings.default_format.to_ascii_lowercase().as_str() {
         "7z" | "sevenzip" => ArchiveFormat::SevenZip,
@@ -172,7 +171,7 @@ pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
     }
 }
 
-/// Maps a user-facing speed or size preset to its compression level.
+/// 把用户可见的速度或体积预设映射为压缩级别。
 pub(crate) fn level_for_preset(preset: SettingsPreset) -> i64 {
     match preset {
         SettingsPreset::Speed => 1,
@@ -181,7 +180,7 @@ pub(crate) fn level_for_preset(preset: SettingsPreset) -> i64 {
     }
 }
 
-/// Maps a settings preset to the archive backend's detailed compression preset.
+/// 把设置预设映射为归档后端的具体压缩预设。
 pub(crate) fn archive_preset(preset: SettingsPreset) -> lumark_archive::CompressionPreset {
     match preset {
         SettingsPreset::Speed => lumark_archive::CompressionPreset::Speed,
@@ -190,7 +189,7 @@ pub(crate) fn archive_preset(preset: SettingsPreset) -> lumark_archive::Compress
     }
 }
 
-/// Advances through the compression presets in display order.
+/// 按显示顺序切换到下一个压缩预设。
 pub(crate) fn next_preset(preset: SettingsPreset) -> SettingsPreset {
     match preset {
         SettingsPreset::Speed => SettingsPreset::Balanced,
@@ -199,7 +198,7 @@ pub(crate) fn next_preset(preset: SettingsPreset) -> SettingsPreset {
     }
 }
 
-/// Advances through formats that Lumark can create.
+/// 按顺序切换到 Lumark 可创建的格式。
 pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     match format {
         ArchiveFormat::Zip => ArchiveFormat::SevenZip,
@@ -218,7 +217,7 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     }
 }
 
-/// Replaces an output file extension when the user changes the archive format.
+/// 用户切换归档格式时替换输出文件扩展名。
 pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> PathBuf {
     let name = path
         .file_name()
@@ -239,7 +238,7 @@ pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> P
     path.with_file_name(format!("{stripped}.{}", format.extension()))
 }
 
-/// Parses a semicolon-separated pattern field into normalized glob patterns.
+/// 把分号分隔的匹配模式字段解析为规范化通配模式。
 pub(crate) fn parse_patterns(value: &str) -> Vec<String> {
     value
         .split([';', '\n'])
@@ -249,7 +248,7 @@ pub(crate) fn parse_patterns(value: &str) -> Vec<String> {
         .collect()
 }
 
-/// Parses human-readable byte sizes such as 64M or 1.5G.
+/// 解析 64M、1.5G 等人类可读字节大小。
 pub(crate) fn parse_size(value: &str) -> Option<u64> {
     let value = value.trim().to_ascii_lowercase();
     if value.is_empty() {
@@ -278,7 +277,7 @@ pub(crate) fn parse_size(value: &str) -> Option<u64> {
         .map(|number| (number * multiplier as f64) as u64)
 }
 
-/// Parses an optional UTC date filter from a compact date field.
+/// 从紧凑日期字段解析可选的 UTC 日期过滤条件。
 pub(crate) fn parse_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     let date = chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").ok()?;
     let time = date.and_hms_opt(0, 0, 0)?;
@@ -288,7 +287,7 @@ pub(crate) fn parse_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     ))
 }
 
-/// Adds a numeric suffix until a new archive output path is unused.
+/// 追加数字后缀，直到得到未占用的归档输出路径。
 pub(crate) fn unique_output_path(path: PathBuf, format: ArchiveFormat) -> PathBuf {
     if !path.exists() {
         return path;
@@ -309,7 +308,7 @@ pub(crate) fn unique_output_path(path: PathBuf, format: ArchiveFormat) -> PathBu
     path
 }
 
-/// Formats a byte count with binary units for compact UI labels.
+/// 使用二进制单位格式化字节数，供紧凑界面标签显示。
 pub(crate) fn format_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
@@ -325,7 +324,7 @@ pub(crate) fn format_size(bytes: u64) -> String {
     }
 }
 
-/// Applies click, Ctrl-toggle, and Shift-range selection semantics to a file row.
+/// 把点击、Ctrl 切换和 Shift 连选语义应用到文件行。
 pub(crate) fn app_select_row(
     app: &mut LumarkApp,
     event: &gpui_kit::MouseDownEvent,

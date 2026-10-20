@@ -1,4 +1,4 @@
-//! Background task orchestration for compression and extraction.
+//! 压缩和解压的后台任务编排。
 
 pub mod manager;
 pub mod progress;

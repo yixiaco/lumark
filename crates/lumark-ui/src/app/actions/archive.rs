@@ -1,7 +1,7 @@
 use super::super::*;
 
 impl LumarkApp {
-    /// Extracts one archive entry to a managed temporary directory before opening it.
+    /// 先把一个归档条目解压到受控临时目录，再打开它。
     pub(crate) fn open_archive_entry(
         &mut self,
         entry: BrowserEntry,
@@ -40,7 +40,7 @@ impl LumarkApp {
         self.open_archive_entry_with_password(archive, relative, password, window, cx);
     }
 
-    /// Extracts one entry using an already resolved password.
+    /// 使用已解析的密码解压一个条目。
     pub(crate) fn open_archive_entry_with_password(
         &mut self,
         archive: PathBuf,
@@ -77,7 +77,7 @@ impl LumarkApp {
         let _ = cx;
     }
 
-    /// Opens a temporary extraction result and schedules cleanup when appropriate.
+    /// 打开临时解压结果，并在适当时候安排清理。
     pub(crate) fn open_extracted_target(&mut self, target: PathBuf, temporary: &Path) {
         if is_executable_like(&target) {
             self.pending_open_target = Some(target);
@@ -94,7 +94,7 @@ impl LumarkApp {
         self.status = format!("已解压到临时目录：{}", temporary.display());
     }
 
-    /// Executes a previously confirmed archive executable or script.
+    /// 执行此前已确认的归档可执行文件或脚本。
     pub(crate) fn confirm_open_executable(
         &mut self,
         _window: &mut Window,
@@ -109,7 +109,7 @@ impl LumarkApp {
         self.show_open_executable_confirm = false;
     }
 
-    /// Builds a default output name and resets compression fields for the selected sources.
+    /// 为所选源生成默认输出名，并重置压缩字段。
     pub(crate) fn open_compress_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let sources = self.selected_sources();
         let Some(first) = sources.first() else {
@@ -169,7 +169,7 @@ impl LumarkApp {
         self.status = format!("准备压缩 {} 个项目", sources.len());
     }
 
-    /// Validates compression inputs and submits a background compression task.
+    /// 校验压缩输入并提交后台压缩任务。
     pub(crate) fn start_compress(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let output = PathBuf::from(input_value(&self.compress_output, cx));
         if output.as_os_str().is_empty() {
@@ -233,7 +233,7 @@ impl LumarkApp {
         let _ = cx;
     }
 
-    /// Opens extraction for the selected archive, probing encryption before prompting.
+    /// 为所选归档打开解压流程，并在提示前探测加密状态。
     pub(crate) fn open_extract_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(archive) = self.selected_archive() else {
             self.status = "请选择一个压缩包".to_string();
@@ -246,7 +246,7 @@ impl LumarkApp {
         self.prepare_extract_dialog(archive, password.is_none(), password.as_deref(), window, cx);
     }
 
-    /// Prepares extraction destination and selection state after password resolution.
+    /// 在密码解析后准备解压目标目录和选择状态。
     pub(crate) fn prepare_extract_dialog(
         &mut self,
         archive: PathBuf,
@@ -318,7 +318,7 @@ impl LumarkApp {
         }
     }
 
-    /// Starts vault-based password matching or requests an unlock first.
+    /// 启动基于密码库的密码匹配，或在需要时先请求解锁。
     pub(crate) fn begin_vault_password_resolution(
         &mut self,
         archive: &Path,
@@ -335,7 +335,7 @@ impl LumarkApp {
         self.submit_password_candidates(archive, action, primary, extras)
     }
 
-    /// Validates ordered password candidates on a worker thread without writing output.
+    /// 在工作线程中校验有序候选密码，不写入输出。
     pub(crate) fn submit_password_candidates(
         &mut self,
         archive: &Path,
@@ -373,7 +373,7 @@ impl LumarkApp {
         true
     }
 
-    /// Continues with candidates beyond the initial automatic-attempt limit.
+    /// 继续尝试超出首次自动尝试上限的候选密码。
     pub(crate) fn try_extra_password_candidates(
         &mut self,
         window: &mut Window,
@@ -400,7 +400,7 @@ impl LumarkApp {
         }
     }
 
-    /// Stops automatic attempts and falls back to manual password entry.
+    /// 停止自动尝试并回退到手动密码输入。
     pub(crate) fn decline_extra_password_candidates(
         &mut self,
         window: &mut Window,
@@ -413,7 +413,7 @@ impl LumarkApp {
         }
     }
 
-    /// Dispatches a successfully resolved password to the pending archive action.
+    /// 把成功解析的密码分发给待处理的归档操作。
     pub(crate) fn apply_resolved_password(
         &mut self,
         action: PendingPasswordAction,
@@ -444,7 +444,7 @@ impl LumarkApp {
         }
     }
 
-    /// Falls back to manual password entry after all recorded candidates fail.
+    /// 所有记录密码失败后回退到手动输入。
     pub(crate) fn apply_password_failure(
         &mut self,
         action: PendingPasswordAction,
@@ -466,7 +466,7 @@ impl LumarkApp {
         }
     }
 
-    /// Opens or extracts an archive after probing encryption and matching recorded passwords.
+    /// 探测加密并匹配记录密码后打开或解压归档。
     pub(crate) fn open_archive_with_auto_password(
         &mut self,
         archive: PathBuf,
@@ -514,7 +514,7 @@ impl LumarkApp {
         }
     }
 
-    /// Queues archive enumeration on a background worker.
+    /// 在后台工作线程中排队枚举归档。
     pub(crate) fn begin_archive_load(
         &mut self,
         archive: PathBuf,
@@ -532,7 +532,7 @@ impl LumarkApp {
         self.status = "正在读取归档目录…".to_string();
     }
 
-    /// Installs a loaded archive into the browser and completes the pending action.
+    /// 把已加载归档安装到浏览器，并完成待处理操作。
     pub(crate) fn apply_loaded_archive(
         &mut self,
         action: PendingPasswordAction,
@@ -552,7 +552,7 @@ impl LumarkApp {
         }
     }
 
-    /// Completes archive opening or extraction after password resolution.
+    /// 在密码解析完成后完成归档打开或解压。
     pub(crate) fn open_archive_now(
         &mut self,
         archive: PathBuf,
@@ -602,7 +602,7 @@ impl LumarkApp {
         }
     }
 
-    /// Validates extraction options and submits a cancellable extraction task.
+    /// 校验解压选项并提交可取消的解压任务。
     pub(crate) fn start_extract(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(archive) = self.selected_archive() else {
             self.status = "请选择一个压缩包".to_string();
@@ -684,7 +684,7 @@ impl LumarkApp {
         let _ = cx;
     }
 
-    /// Tests the selected archive, resolving a saved password when encryption is detected.
+    /// 测试所选归档，并在检测到加密时解析已保存密码。
     pub(crate) fn start_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(archive) = self.selected_archive() else {
             self.status = "请选择一个压缩包".to_string();
@@ -711,7 +711,7 @@ impl LumarkApp {
         let _ = cx;
     }
 
-    /// Submits an archive integrity test as a background task.
+    /// 把归档完整性测试提交为后台任务。
     pub(crate) fn submit_archive_test(&mut self, archive: PathBuf, password: Option<String>) {
         let id = self.tasks.submit(TaskRequest::Test {
             archive: archive.clone(),
@@ -722,7 +722,7 @@ impl LumarkApp {
         self.status = format!("开始测试：{}", archive.display());
     }
 
-    /// Persists a newly successful extraction password into the encrypted vault.
+    /// 把新验证成功的解压密码写入加密密码库。
     pub(crate) fn save_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let label = input_value(&self.password_label, cx);
         let password = input_value(&self.password_value, cx);

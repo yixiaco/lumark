@@ -1,4 +1,4 @@
-//! Filesystem and archive browsing models.
+//! 文件系统和归档浏览模型。
 
 pub mod model;
 pub mod selection;

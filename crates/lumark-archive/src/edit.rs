@@ -43,8 +43,7 @@ pub struct EditReport {
 }
 
 impl ArchiveService {
-    /// Rewrites a ZIP/7Z archive into a same-directory temporary file and
-    /// atomically replaces the original only after the result validates.
+    /// 把 ZIP/7Z 归档重写到同目录临时文件，并仅在结果校验通过后原子替换原文件。
     pub fn edit<F>(
         path: &Path,
         options: &EditOptions,

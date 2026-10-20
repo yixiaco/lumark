@@ -197,8 +197,8 @@ impl ArchiveService {
                     if entry.is_directory() || !entry.has_stream() || entry.size() == 0 {
                         return Ok(true);
                     }
-                    // 7z AES verifies its MAC/CRC while the entry stream is drained.
-                    // Reading only one byte can therefore accept an incorrect password.
+                    // 7z AES 会在条目数据流读取完毕时校验 MAC/CRC。
+                    // 因此只读取一个字节可能错误接受密码。
                     io::copy(input, &mut io::sink())?;
                     verified = true;
                     Ok(false)

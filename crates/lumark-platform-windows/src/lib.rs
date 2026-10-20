@@ -1,4 +1,4 @@
-//! Windows shell and desktop integration.
+//! Windows Shell 和桌面集成。
 
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,7 @@ pub enum PlatformError {
     EmptyPaths,
 }
 
-/// Open a folder, or reveal a file in Explorer.
+/// 打开文件夹，或在资源管理器中定位文件。
 pub fn reveal(path: &Path) -> Result<(), PlatformError> {
     let mut command = std::process::Command::new("explorer.exe");
     if path.is_file() {
@@ -24,7 +24,7 @@ pub fn reveal(path: &Path) -> Result<(), PlatformError> {
     command.spawn().map(|_| ()).map_err(PlatformError::Windows)
 }
 
-/// Open a path with the user's default application.
+/// 使用用户默认应用打开路径。
 pub fn open_default(path: &Path) -> Result<(), PlatformError> {
     std::process::Command::new("explorer.exe")
         .arg(path)
@@ -33,7 +33,7 @@ pub fn open_default(path: &Path) -> Result<(), PlatformError> {
         .map_err(PlatformError::Windows)
 }
 
-/// Open the Windows default-apps page.
+/// 打开 Windows 默认应用设置页。
 pub fn open_default_apps() -> Result<(), PlatformError> {
     std::process::Command::new("explorer.exe")
         .arg("ms-settings:defaultapps")
@@ -42,7 +42,7 @@ pub fn open_default_apps() -> Result<(), PlatformError> {
         .map_err(PlatformError::Windows)
 }
 
-/// Delete files or directories through the Windows Recycle Bin when possible.
+/// 尽可能通过 Windows 回收站删除文件或目录。
 pub fn recycle(paths: &[PathBuf]) -> Result<(), PlatformError> {
     if paths.is_empty() {
         return Err(PlatformError::EmptyPaths);
@@ -90,7 +90,7 @@ pub fn recycle(paths: &[PathBuf]) -> Result<(), PlatformError> {
     }
 }
 
-/// A process-wide named instance guard. The handle lives for the app lifetime.
+/// 进程级命名实例守卫；句柄在应用生命周期内保持有效。
 pub struct InstanceGuard {
     #[cfg(windows)]
     handle: windows_sys::Win32::Foundation::HANDLE,

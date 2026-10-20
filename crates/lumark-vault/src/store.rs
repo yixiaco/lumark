@@ -260,7 +260,7 @@ impl VaultStore {
         save_inner(&self.path, &mut inner)
     }
 
-    /// Replace the whole in-memory entry list in one encrypted write.
+    /// 在一次加密写入中替换整份内存条目列表。
     pub fn replace_entries(&self, entries: Vec<PasswordEntry>) -> Result<(), VaultError> {
         self.ensure_unlocked()?;
         for entry in &entries {

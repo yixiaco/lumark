@@ -17,7 +17,7 @@ pub enum VaultState {
 pub struct VaultSettings {
     pub auto_extract: bool,
     pub prompt_save: bool,
-    /// 0 means never lock because of idle time.
+    /// 0 表示不因空闲时间自动锁定。
     pub auto_lock_minutes: u32,
 }
 
@@ -105,9 +105,9 @@ pub struct PasswordEntry {
     pub id: Uuid,
     pub label: String,
     pub password: SecretString,
-    /// Optional exact path, basename, or glob used to narrow matching.
+    /// 用于缩小匹配范围的可选精确路径、文件名或通配符。
     pub archive_pattern: Option<String>,
-    /// Optional archive fingerprint (size + first/last bytes hash).
+    /// 可选的归档指纹（大小 + 首尾字节哈希）。
     pub archive_fingerprint: Option<String>,
     pub note: String,
     pub created_at: DateTime<Utc>,

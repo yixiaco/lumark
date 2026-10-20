@@ -3,12 +3,10 @@ use super::components::{AppIcon, card, entry_icon, icon_button};
 use gpui_kit::base::TestSupportExt as _;
 
 impl LumarkApp {
-    /// Renders the main file browser, including the virtualized list and the
-    /// optional details inspector.
+    /// 渲染主文件浏览器，包括虚拟列表和可选的详情检查器。
     ///
-    /// Selection is tracked by stable entry IDs rather than row indexes, so
-    /// sorting, filtering, and virtual-list recycling cannot silently move the
-    /// selection to another file.
+    /// 选择按稳定条目 ID 跟踪，而不是行索引，因此排序、过滤和虚拟列表回收
+    /// 都不会让选择静默跳到其他文件。
     pub(crate) fn render_browser(
         &self,
         window: &Window,
@@ -316,8 +314,7 @@ impl LumarkApp {
             )
     }
 
-    /// Renders the selected item's metadata, compression information, and
-    /// encryption state without blocking on any filesystem reads.
+    /// 渲染所选项目的元数据、压缩信息和加密状态，不阻塞文件系统读取。
     pub(crate) fn render_details(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.selected_entry();
         let has_selection = selected.is_some();
@@ -461,10 +458,10 @@ impl LumarkApp {
             })
     }
 
-    /// Renders the right-click menu for a file row.
+    /// 渲染文件行右键菜单。
     ///
-    /// The transparent full-window layer dismisses the menu on an outside
-    /// click; the menu itself occludes that handler so commands remain usable.
+    /// 透明全窗口层会在外部点击时关闭菜单；菜单自身会遮挡该处理器，
+    /// 确保命令仍可操作。
     pub(crate) fn render_file_context_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let position = self
             .context_menu_position
@@ -577,7 +574,7 @@ impl LumarkApp {
     }
 }
 
-/// Renders one detailed-list virtual row.
+/// 渲染详情列表中的一个虚拟行。
 fn render_file_row(
     app: &mut LumarkApp,
     cx: &mut Context<LumarkApp>,
@@ -698,7 +695,7 @@ fn render_file_row(
         .into_any_element()
 }
 
-/// Renders one row of tiles, each representing a file or folder.
+/// 渲染一行平铺项目，每项对应文件或文件夹。
 fn render_tile_row(
     app: &mut LumarkApp,
     cx: &mut Context<LumarkApp>,
@@ -806,7 +803,7 @@ fn render_tile_row(
         }))
 }
 
-/// Renders a labeled value in the details panel.
+/// 渲染详情面板中的带标签值。
 fn detail_line(cx: &Context<LumarkApp>, label: &str, value: &str) -> gpui_kit::Div {
     v_flex()
         .gap_1()
@@ -825,7 +822,7 @@ fn detail_line(cx: &Context<LumarkApp>, label: &str, value: &str) -> gpui_kit::D
         )
 }
 
-/// Builds one icon-backed context-menu action with a consistent hit target.
+/// 构建带图标且点击区域一致的右键菜单操作。
 fn context_action(
     id: &'static str,
     icon: AppIcon,

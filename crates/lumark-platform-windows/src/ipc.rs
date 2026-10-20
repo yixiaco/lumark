@@ -9,8 +9,8 @@ fn request_dir() -> PathBuf {
         .join("requests")
 }
 
-/// Persist a second-instance request for the primary process to consume.
-/// The request directory inherits the current user's local-app-data ACL.
+/// 持久化第二实例请求，供主进程消费。
+/// 请求目录继承当前用户的本地应用数据 ACL。
 pub fn send_request(arguments: &[String]) -> std::io::Result<()> {
     let directory = request_dir();
     std::fs::create_dir_all(&directory)?;

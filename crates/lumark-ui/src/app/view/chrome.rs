@@ -4,11 +4,10 @@ use super::components::{
 };
 
 impl LumarkApp {
-    /// Renders the custom title bar and product identity.
+    /// 渲染自绘标题栏和产品标识。
     ///
-    /// `TitleBar` owns the Windows drag region and system buttons. The content
-    /// here is deliberately compact so the working area remains dominant on
-    /// laptops while still giving Lumark a recognizable local-tool identity.
+    /// `TitleBar` 负责 Windows 拖拽区域和系统按钮。标题栏内容刻意保持紧凑，
+    /// 以便在笔记本屏幕上让工作区保持主导，同时保留 Lumark 作为本地工具的品牌感。
     fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         TitleBar::new()
             .h(px(50.))
@@ -55,7 +54,7 @@ impl LumarkApp {
             )
     }
 
-    /// Renders one navigation row in the global sidebar.
+    /// 渲染全局侧栏中的一个导航行。
     fn navigation_item(
         &self,
         id: &'static str,
@@ -101,7 +100,7 @@ impl LumarkApp {
             }))
     }
 
-    /// Renders one quick-access location in the sidebar.
+    /// 渲染侧栏中的一个快捷访问位置。
     fn location_item(
         &self,
         index: usize,
@@ -138,7 +137,7 @@ impl LumarkApp {
             }))
     }
 
-    /// Renders one lazily discovered directory-tree row.
+    /// 渲染一个懒加载目录树行。
     fn tree_item(
         &self,
         index: usize,
@@ -193,11 +192,10 @@ impl LumarkApp {
             )
     }
 
-    /// Renders the persistent left sidebar shared by all application screens.
+    /// 渲染所有页面共享的持久左侧栏。
     ///
-    /// Filesystem shortcuts and the lazy directory tree appear only while the
-    /// browser is active. Password and settings screens keep the same navigation
-    /// rail, which avoids reorienting users when they switch tools.
+    /// 文件系统快捷入口和懒加载目录树仅在文件浏览器激活时显示。
+    /// 密码与设置页面共用同一侧栏，避免用户在切换工具时重新适应导航位置。
     fn render_navigation_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let locations = quick_locations(&self.settings.get());
         let tree_rows = if self.screen == Screen::Browser {
@@ -404,9 +402,8 @@ impl LumarkApp {
             )
     }
 
-    /// Chooses the single-row command bar on wide windows and the two-row
-    /// compact layout when DPI scaling or window size would otherwise clip the
-    /// path, search field, and primary actions.
+    /// 根据窗口宽度选择单行命令栏；在 DPI 缩放或窗口较窄时使用双行紧凑布局，
+    /// 避免路径、搜索框和主操作被裁切。
     fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let logical_width = window
             .inner_window_bounds()
@@ -421,7 +418,7 @@ impl LumarkApp {
         }
     }
 
-    /// Renders the two-row browser command bar used at common laptop widths.
+    /// 渲染常见笔记本宽度下的双行浏览器命令栏。
     fn render_toolbar_compact(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let search_active = self.search_results.is_some();
         v_flex()
@@ -710,7 +707,7 @@ impl LumarkApp {
             )
     }
 
-    /// Renders the full single-row command bar for wide windows.
+    /// 渲染宽窗口使用的完整单行命令栏。
     fn render_toolbar_wide(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let browser = self.screen == Screen::Browser;
         let search_active = self.search_results.is_some();
@@ -1019,7 +1016,7 @@ impl LumarkApp {
             })
     }
 
-    /// Renders the bottom status strip and compact task controls.
+    /// 渲染底部状态栏和紧凑任务控件。
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let running = self.active_task.is_some();
         let progress_text = self
@@ -1120,7 +1117,7 @@ impl LumarkApp {
 }
 
 impl Render for LumarkApp {
-    /// Composes the shared application shell, active page, and modal layers.
+    /// 组合共享应用外壳、当前页面和模态层。
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.pending_requests.is_empty() {
             let request = self.pending_requests.remove(0);
@@ -1241,7 +1238,7 @@ impl Render for LumarkApp {
     }
 }
 
-/// Wraps a modal card in a dimming layer that absorbs clicks outside it.
+/// 把模态卡片放入吸收外部点击的遮罩层。
 fn dialog_layer(content: impl IntoElement) -> gpui_kit::Div {
     div()
         .absolute()

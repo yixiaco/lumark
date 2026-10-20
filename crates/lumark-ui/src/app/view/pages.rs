@@ -2,11 +2,10 @@ use super::super::*;
 use super::components::{AppIcon, card, icon_button, section_heading};
 
 impl LumarkApp {
-    /// Renders the password workspace.
+    /// 渲染密码工作区。
     ///
-    /// Records live in a draft until the user commits, so accidental edits can
-    /// be discarded as a single transaction. The page never exposes a password
-    /// unless the user explicitly reveals or copies one.
+    /// 用户在提交前以草稿形式编辑记录，因此可以整体丢弃未确认的修改。
+    /// 页面不会主动暴露密码，除非用户明确显示或复制密码。
     pub(crate) fn render_passwords(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let search = input_value(&self.password_search, cx).to_lowercase();
         let entries: Vec<PasswordEntry> = self
@@ -759,8 +758,7 @@ impl LumarkApp {
             )
     }
 
-    /// Renders the settings workspace as grouped cards with short,
-    /// action-oriented rows instead of a long undifferentiated form.
+    /// 使用分组卡片和简洁的面向操作设置行，而不是冗长且缺乏层次的表单。
     pub(crate) fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = self.settings.get();
         let theme_label = match settings.theme {
@@ -1098,7 +1096,7 @@ impl LumarkApp {
             )
     }
 
-    /// Renders the non-modal task center sheet.
+    /// 渲染非模态任务中心面板。
     pub(crate) fn render_task_center(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let ratio = self
             .task_progress
@@ -1207,7 +1205,7 @@ impl LumarkApp {
     }
 }
 
-/// Renders a compact metric tile above content pages.
+/// 渲染内容页上方的紧凑指标卡片。
 fn password_stat(
     cx: &Context<LumarkApp>,
     icon: AppIcon,
@@ -1243,7 +1241,7 @@ fn password_stat(
     )
 }
 
-/// Renders a small field caption above an input.
+/// 渲染输入框上方的小号字段标题。
 fn form_label(cx: &Context<LumarkApp>, label: &str) -> gpui_kit::Div {
     div()
         .text_xs()
@@ -1252,7 +1250,7 @@ fn form_label(cx: &Context<LumarkApp>, label: &str) -> gpui_kit::Div {
         .child(label.to_string())
 }
 
-/// Renders a two-column settings row with an explanatory caption.
+/// 渲染带说明文字的双栏设置行。
 fn settings_row(
     cx: &Context<LumarkApp>,
     title: &str,

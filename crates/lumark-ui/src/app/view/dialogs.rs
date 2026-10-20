@@ -2,8 +2,8 @@ use super::super::*;
 use super::components::AppIcon;
 
 impl LumarkApp {
-    /// Renders the quick-compression dialog with all advanced options grouped
-    /// into tabs. Secrets are read only when the user starts the task.
+    /// 渲染快速压缩对话框，把高级选项分组到不同选项卡。
+    /// 只有用户开始任务时才读取密码。
     pub(crate) fn render_compress_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let tab = self.compress_tab;
         let format_label = self.compress_format.label();
@@ -298,8 +298,7 @@ impl LumarkApp {
             )
     }
 
-    /// Renders the extraction target, optional manual password, and
-    /// selection-only control.
+    /// 渲染解压目标、可选手动密码和仅解压所选条目的控件。
     pub(crate) fn render_extract_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "解压")
             .child(
@@ -357,7 +356,7 @@ impl LumarkApp {
             )
     }
 
-    /// Offers to persist a password that successfully opened an archive.
+    /// 提示保存成功打开归档的密码。
     pub(crate) fn render_save_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "保存解压密码")
             .child(
@@ -404,8 +403,7 @@ impl LumarkApp {
             )
     }
 
-    /// Prompts for the vault master password before automatic password
-    /// attempts can begin.
+    /// 在自动密码尝试开始前请求密码库主密码。
     pub(crate) fn render_unlock_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "解锁密码库")
             .child(
@@ -444,8 +442,7 @@ impl LumarkApp {
             )
     }
 
-    /// Asks before expanding the automatic password search beyond the first
-    /// 32 candidates.
+    /// 自动密码搜索超过前 32 个候选密码时请求确认。
     pub(crate) fn render_extra_password_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self
             .pending_extra_password
@@ -479,8 +476,7 @@ impl LumarkApp {
             )
     }
 
-    /// Confirms execution of an executable or script extracted from an
-    /// archive into the managed temporary directory.
+    /// 确认是否执行从归档解压到受控临时目录的可执行文件或脚本。
     pub(crate) fn render_open_executable_confirm(
         &self,
         cx: &mut Context<Self>,
@@ -519,8 +515,7 @@ impl LumarkApp {
             )
     }
 
-    /// Confirms permanent removal from an archive or recycling for a regular
-    /// filesystem item.
+    /// 确认从归档中永久删除，或把普通文件系统项目移入回收站。
     pub(crate) fn render_delete_confirm(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let archive = matches!(&self.browser.location, BrowserLocation::Archive { .. });
         centered_modal(
@@ -570,7 +565,7 @@ impl LumarkApp {
         )
     }
 
-    /// Collects the name for a new folder in the current location.
+    /// 收集当前位置中新文件夹的名称。
     pub(crate) fn render_new_folder(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "新建文件夹")
             .child(
@@ -601,7 +596,7 @@ impl LumarkApp {
             )
     }
 
-    /// Collects a replacement name for the selected file or archive entry.
+    /// 收集所选文件或归档条目的新名称。
     pub(crate) fn render_rename(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "重命名")
             .child(Input::new(&self.rename_name).id("rename-name").w_full())
@@ -629,7 +624,7 @@ impl LumarkApp {
             )
     }
 
-    /// Imports or exports the encrypted vault using an independent passphrase.
+    /// 使用独立口令导入或导出加密密码库。
     pub(crate) fn render_vault_transfer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "加密密码库导入 / 导出")
             .child(
@@ -692,8 +687,7 @@ impl LumarkApp {
             )
     }
 
-    /// Verifies the current master password before removing it and returning
-    /// the vault to DPAPI wrapping.
+    /// 删除主密码前验证当前主密码，并让密码库恢复 DPAPI 包裹。
     pub(crate) fn render_confirm_remove_master(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "删除主密码")
             .child("删除后密码库将改由当前 Windows 用户的 DPAPI 保护。请输入当前主密码确认。")
@@ -725,7 +719,7 @@ impl LumarkApp {
             )
     }
 
-    /// Warns that clearing the vault is irreversible.
+    /// 警告清除密码库不可恢复。
     pub(crate) fn render_confirm_clear_vault(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "清除密码库")
             .child("此操作会删除密码库中的所有记录，无法撤销。建议先加密导出备份。")
@@ -752,8 +746,7 @@ impl LumarkApp {
             )
     }
 
-    /// Prevents accidental loss of uncommitted password edits when leaving
-    /// the password workspace.
+    /// 离开密码工作区时防止未提交的密码修改意外丢失。
     pub(crate) fn render_discard_password_draft(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "放弃未保存的密码修改？")
             .child("密码管理中的添加、编辑和删除尚未写入密码库。离开前可以继续编辑或丢弃草稿。")

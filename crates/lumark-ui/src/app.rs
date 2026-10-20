@@ -192,7 +192,7 @@ pub struct LumarkApp {
 }
 
 impl LumarkApp {
-    /// Creates the production application using the default vault and settings locations.
+    /// 使用默认密码库和设置路径创建生产应用。
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self::new_with_stores(
             window,
@@ -203,7 +203,7 @@ impl LumarkApp {
         )
     }
 
-    /// Creates the application with a custom vault path, primarily for integration tests.
+    /// 使用自定义密码库路径创建应用，主要用于集成测试。
     pub fn new_with_paths(
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -219,7 +219,7 @@ impl LumarkApp {
         )
     }
 
-    /// Builds the application state, applies persisted preferences, and starts background task polling.
+    /// 构建应用状态，应用持久化偏好，并启动后台任务轮询。
     pub fn new_with_stores(
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -452,12 +452,12 @@ impl LumarkApp {
         app
     }
 
-    /// Exposes the vault store for integration tests without revealing secret material.
+    /// 为集成测试暴露密码库存储，同时不泄漏密钥材料。
     pub fn vault(&self) -> &VaultStore {
         &self.vault
     }
 
-    /// Starts the background task-event bridge that coalesces progress before notifying the UI.
+    /// 启动后台任务事件桥；它先合并进度，再通知界面。
     fn start_task_polling(&self, cx: &mut Context<Self>) {
         let tasks = self.tasks.clone();
         cx.spawn(async move |this, cx| {
@@ -700,9 +700,8 @@ mod util;
 mod view;
 
 pub(crate) use util::*;
-/// Applies Lumark's low-saturation teal palette on top of the gpui-kit base
-/// theme. Semantic colors are refreshed together so native controls and custom
-/// surfaces never drift between light and dark modes.
+/// 在 gpui-kit 基础主题上应用 Lumark 的低饱和青绿色调。
+/// 语义颜色会同步刷新，确保原生控件与自定义表面在浅色和深色模式之间保持一致。
 fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Context<LumarkApp>) {
     let mode = match preference {
         ThemePreference::Light => ThemeMode::Light,
@@ -894,7 +893,7 @@ fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Contex
     });
 }
 
-/// Starts the GPUI application and routes shell integration requests before opening the main window.
+/// 启动 GPUI 应用，并在打开主窗口前处理 Shell 集成请求。
 pub fn run() -> anyhow::Result<()> {
     if std::env::args().any(|argument| argument == "--register-shell") {
         lumark_platform_windows::shell::register_current_user()?;
@@ -945,7 +944,7 @@ mod ui_tests {
     use tempfile::tempdir;
 
     #[gpui_kit::test]
-    /// Verifies that virtual file rows and tile cards both expose the expected test targets.
+    /// 验证虚拟文件行和平铺卡片都暴露预期的测试目标。
     fn browser_renders_virtual_rows_and_tile_view(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);
         let directory = tempdir().unwrap();

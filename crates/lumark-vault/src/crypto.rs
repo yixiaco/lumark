@@ -63,7 +63,7 @@ pub struct KdfParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedBlob {
-    /// Empty for legacy version-1 files, which used AES-256-GCM.
+    /// 旧版 1 格式文件此字段为空，当时使用 AES-256-GCM。
     #[serde(default)]
     pub algorithm: String,
     pub nonce: String,

@@ -1,10 +1,10 @@
 use super::super::*;
 
-/// IconPark symbols used by Lumark's chrome and file rows.
+/// Lumark 标题栏和文件行使用的 IconPark 图标。
 ///
-/// The SVGs are bundled at compile time so the interface never needs network
-/// access at runtime. Every symbol uses `currentColor`, which lets the theme
-/// tint it for light and dark modes without per-icon variants.
+/// SVG 在编译时打包，因此界面运行时无需访问网络。
+/// 每个图标使用 `currentColor`，便于主题为浅色和深色模式着色，
+/// 无需维护多套图标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AppIcon {
     Add,
@@ -44,7 +44,7 @@ pub(super) enum AppIcon {
 }
 
 impl AppIcon {
-    /// Returns the embedded SVG bytes for one IconPark symbol.
+    /// 返回一个 IconPark 图标的嵌入 SVG 字节。
     pub(super) fn bytes(self) -> &'static [u8] {
         match self {
             Self::Add => include_bytes!("../../../assets/icons/iconpark/add.svg"),
@@ -86,7 +86,7 @@ impl AppIcon {
         }
     }
 
-    /// Builds a scalable icon that inherits the surrounding text color.
+    /// 构建继承周围文字颜色的可缩放图标。
     pub(super) fn element(self, size: f32) -> gpui_kit::component::Icon {
         gpui_kit::component::Icon::default()
             .data(self.bytes())
@@ -94,7 +94,7 @@ impl AppIcon {
     }
 }
 
-/// Creates a compact, tooltip-backed command button.
+/// 创建紧凑且带提示的命令按钮。
 pub(super) fn icon_button(
     id: impl Into<gpui_kit::ElementId>,
     icon: AppIcon,
@@ -108,7 +108,7 @@ pub(super) fn icon_button(
         .accessibility_label(tooltip)
 }
 
-/// Creates a primary command button with an IconPark glyph.
+/// 创建带 IconPark 图标的主命令按钮。
 pub(super) fn primary_icon_button(
     id: impl Into<gpui_kit::ElementId>,
     icon: AppIcon,
@@ -121,7 +121,7 @@ pub(super) fn primary_icon_button(
         .accessibility_label(label)
 }
 
-/// Creates a secondary command button with an IconPark glyph.
+/// 创建带 IconPark 图标的次要命令按钮。
 pub(super) fn secondary_icon_button(
     id: impl Into<gpui_kit::ElementId>,
     icon: AppIcon,
@@ -134,7 +134,7 @@ pub(super) fn secondary_icon_button(
         .accessibility_label(label)
 }
 
-/// Standard card surface used by the file list and settings groups.
+/// 文件列表和设置分组使用的标准卡片表面。
 pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
     v_flex()
         .w_full()
@@ -145,7 +145,7 @@ pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
         .overflow_hidden()
 }
 
-/// A section heading with an optional trailing caption.
+/// 带可选尾部说明的分区标题。
 pub(super) fn section_heading(
     cx: &Context<LumarkApp>,
     icon: AppIcon,
@@ -178,7 +178,7 @@ pub(super) fn section_heading(
         })
 }
 
-/// Maps a file row to a recognizable IconPark symbol.
+/// 把文件行映射为易识别的 IconPark 图标。
 pub(super) fn entry_icon(entry: &BrowserEntry) -> AppIcon {
     if entry.is_dir {
         return AppIcon::FolderOpen;
@@ -216,7 +216,7 @@ pub(super) fn entry_icon(entry: &BrowserEntry) -> AppIcon {
     AppIcon::Doc
 }
 
-/// Maps a quick-access location to an IconPark symbol.
+/// 把快捷位置映射为 IconPark 图标。
 pub(super) fn location_icon(label: &str) -> AppIcon {
     match label {
         "桌面" | "主文件夹" => AppIcon::Home,

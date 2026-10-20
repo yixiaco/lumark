@@ -1,4 +1,4 @@
-//! Archive format adapters and safe extraction primitives.
+//! 归档格式适配器和安全解压基础能力。
 
 pub mod edit;
 pub mod error;

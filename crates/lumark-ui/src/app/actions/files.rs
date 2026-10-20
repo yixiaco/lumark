@@ -1,7 +1,7 @@
 use super::super::*;
 
 impl LumarkApp {
-    /// Reloads the active filesystem or archive location and clears stale search results.
+    /// 重新加载当前文件系统或归档位置，并清除过期搜索结果。
     pub(crate) fn refresh(&mut self) {
         self.dropped_sources = None;
         if matches!(&self.browser.location, BrowserLocation::FileSystem(_)) {
@@ -16,14 +16,14 @@ impl LumarkApp {
         }
     }
 
-    /// Returns the filtered search result or the browser's current entries.
+    /// 返回过滤后的搜索结果或浏览器当前条目。
     pub(crate) fn displayed_entries(&self) -> Vec<BrowserEntry> {
         self.search_results
             .clone()
             .unwrap_or_else(|| self.browser.entries.clone())
     }
 
-    /// Returns the number of rows currently visible to the virtual list.
+    /// 返回虚拟列表当前可见的行数。
     pub(crate) fn displayed_count(&self) -> usize {
         self.search_results
             .as_ref()
@@ -31,7 +31,7 @@ impl LumarkApp {
             .unwrap_or(self.browser.entries.len())
     }
 
-    /// Returns a cloned display entry for a stable virtual-row index.
+    /// 为稳定的虚拟行索引返回克隆后的显示条目。
     pub(crate) fn displayed_entry_at(&self, index: usize) -> Option<BrowserEntry> {
         self.search_results
             .as_ref()
@@ -42,7 +42,7 @@ impl LumarkApp {
             .cloned()
     }
 
-    /// Returns stable IDs in display order for range selection.
+    /// 按显示顺序返回用于范围选择的稳定 ID。
     pub(crate) fn displayed_ids(&self) -> Vec<String> {
         self.search_results
             .as_ref()
@@ -52,13 +52,13 @@ impl LumarkApp {
             .collect()
     }
 
-    /// Selects every item in the current filtered view.
+    /// 选择当前过滤视图中的全部项目。
     pub(crate) fn select_all_displayed(&mut self) {
         let ids = self.displayed_ids();
         self.browser.selection.select_all(&ids);
     }
 
-    /// Navigates to the path entered in the location field.
+    /// 导航到位置输入框中输入的路径。
     pub(crate) fn go_location(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = input_value(&self.location_input, cx);
         let trimmed = value.trim().trim_matches('"');
@@ -91,7 +91,7 @@ impl LumarkApp {
         );
     }
 
-    /// Navigates to a directory or archive path and synchronizes the location input.
+    /// 导航到目录或归档路径，并同步位置输入框。
     pub(crate) fn navigate_to(
         &mut self,
         path: PathBuf,
@@ -115,7 +115,7 @@ impl LumarkApp {
         }
     }
 
-    /// Flattens the expanded directory tree into rows for the sidebar.
+    /// 把已展开的目录树铺平为侧栏行。
     pub(crate) fn tree_rows(&self) -> Vec<TreeRow> {
         let mut roots = Vec::new();
         for letter in b'A'..=b'Z' {
@@ -131,7 +131,7 @@ impl LumarkApp {
         rows
     }
 
-    /// Appends visible descendants of one expanded tree node.
+    /// 追加一个已展开树节点的可见后代。
     pub(crate) fn append_tree_rows(&self, path: &Path, depth: usize, rows: &mut Vec<TreeRow>) {
         let label = path
             .file_name()
@@ -152,7 +152,7 @@ impl LumarkApp {
         }
     }
 
-    /// Expands or collapses a directory node and lazily loads its children.
+    /// 展开或折叠目录节点，并按需加载子目录。
     pub(crate) fn toggle_tree_path(&mut self, path: PathBuf) {
         if self.tree_expanded.remove(&path) {
             return;
@@ -192,7 +192,7 @@ impl LumarkApp {
         self.tree_expanded.insert(path);
     }
 
-    /// Executes the current name search against the active filesystem or archive.
+    /// 对当前文件系统或归档执行名称搜索。
     pub(crate) fn run_search(&mut self, cx: &mut Context<Self>) {
         let pattern = input_value(&self.search_input, cx);
         if pattern.trim().is_empty() {
@@ -211,13 +211,13 @@ impl LumarkApp {
         self.search_results = Some(results);
     }
 
-    /// Clears the active search result and returns to the normal browser listing.
+    /// 清除当前搜索结果并恢复正常文件列表。
     pub(crate) fn clear_search(&mut self) {
         self.search_results = None;
         self.status = format!("{} 个项目", self.browser.entries.len());
     }
 
-    /// Toggles the details inspector and persists the preference.
+    /// 切换详情检查器并持久化偏好。
     pub(crate) fn toggle_details(&mut self) {
         self.details_visible = !self.details_visible;
         let visible = self.details_visible;
@@ -226,7 +226,7 @@ impl LumarkApp {
             .update(|settings| settings.details_visible = visible);
     }
 
-    /// Cycles file-list column widths and persists the chosen layout.
+    /// 循环切换文件列表列宽并持久化所选布局。
     pub(crate) fn cycle_column_layout(&mut self) {
         self.column_layout = (self.column_layout + 1) % 3;
         let layout = self.column_layout;
@@ -235,7 +235,7 @@ impl LumarkApp {
             .update(|settings| settings.column_layout = layout);
     }
 
-    /// Routes dropped files to open, compress, or copy actions based on their count and type.
+    /// 根据数量与类型，把拖入文件路由到打开、压缩或复制操作。
     pub(crate) fn handle_external_drop(
         &mut self,
         paths: &[PathBuf],
@@ -265,7 +265,7 @@ impl LumarkApp {
         }
     }
 
-    /// Processes a command request forwarded by the single-instance shell integration.
+    /// 处理单实例 Shell 集成转发的命令请求。
     pub(crate) fn process_request(
         &mut self,
         arguments: Vec<String>,
@@ -296,7 +296,7 @@ impl LumarkApp {
         }
     }
 
-    /// Adds dropped files to the open archive through the background edit pipeline.
+    /// 通过后台编辑流程把拖入文件添加到当前归档。
     pub(crate) fn add_files_to_current_archive(&mut self, paths: &[PathBuf]) {
         let BrowserLocation::Archive { archive, .. } = &self.browser.location else {
             return;
@@ -324,7 +324,7 @@ impl LumarkApp {
         self.submit_archive_edit(archive, options, PendingEditAction::Add);
     }
 
-    /// Queues an archive edit and keeps the original file intact until the replacement succeeds.
+    /// 把归档编辑加入队列，并在替换成功前保持原文件不变。
     pub(crate) fn submit_archive_edit(
         &mut self,
         archive: PathBuf,
@@ -355,7 +355,7 @@ impl LumarkApp {
         self.status = "正在重建归档…".to_string();
     }
 
-    /// Reports a completed archive edit and refreshes the archive view.
+    /// 报告归档编辑完成并刷新归档视图。
     pub(crate) fn finish_edit_action(&mut self, action: PendingEditAction) {
         match action {
             PendingEditAction::Add => {}
@@ -371,7 +371,7 @@ impl LumarkApp {
         }
     }
 
-    /// Returns the distinct paths represented by the current selection.
+    /// 返回当前选择对应的去重路径集合。
     pub(crate) fn selected_paths(&self) -> Vec<PathBuf> {
         let ids = self.browser.selection.selected_ids();
         self.displayed_entries()
@@ -381,7 +381,7 @@ impl LumarkApp {
             .collect()
     }
 
-    /// Opens the appropriate recycle-bin or archive-removal confirmation.
+    /// 根据位置打开回收站删除或归档删除确认框。
     pub(crate) fn request_delete(&mut self) {
         let paths = self.selected_paths();
         if paths.is_empty() {
@@ -392,7 +392,7 @@ impl LumarkApp {
         self.show_delete_confirm = true;
     }
 
-    /// Selects the clicked row and opens its context menu at the pointer.
+    /// 选择被点击的行并在指针位置打开右键菜单。
     pub(crate) fn show_file_context_menu(
         &mut self,
         target_id: &str,
@@ -405,7 +405,7 @@ impl LumarkApp {
         self.show_context_menu = true;
     }
 
-    /// Deletes files through the recycle bin or submits an archive removal edit.
+    /// 通过回收站删除文件，或提交归档删除编辑。
     pub(crate) fn confirm_delete(&mut self) {
         if self.pending_delete_paths.is_empty() {
             self.show_delete_confirm = false;
@@ -439,7 +439,7 @@ impl LumarkApp {
         }
     }
 
-    /// Opens the new-folder dialog with a clean name field.
+    /// 打开新建文件夹对话框并清空名称输入框。
     pub(crate) fn start_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !matches!(&self.browser.location, BrowserLocation::FileSystem(_)) {
             self.status = "只能在文件系统目录中新建文件夹".to_string();
@@ -449,7 +449,7 @@ impl LumarkApp {
         self.show_new_folder = true;
     }
 
-    /// Creates a validated folder in a filesystem location or the current archive.
+    /// 在文件系统位置或当前归档中创建经过校验的文件夹。
     pub(crate) fn create_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = input_value(&self.new_folder_name, cx);
         let Some(parent) = self.current_directory() else {
@@ -476,7 +476,7 @@ impl LumarkApp {
         }
     }
 
-    /// Opens the rename dialog prefilled with the selected item's name.
+    /// 打开重命名对话框并预填所选项目名称。
     pub(crate) fn start_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(entry) = self.selected_entry() else {
             self.status = "请先选择要重命名的项目".to_string();
@@ -494,7 +494,7 @@ impl LumarkApp {
         self.show_rename = true;
     }
 
-    /// Validates and applies a filesystem rename or archive-entry rename.
+    /// 校验并应用文件系统重命名或归档条目重命名。
     pub(crate) fn confirm_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(target) = self.rename_target.clone() else {
             self.show_rename = false;
@@ -542,7 +542,7 @@ impl LumarkApp {
         }
     }
 
-    /// Copies the selected filesystem paths or archive-internal paths to the clipboard.
+    /// 把所选文件系统路径或归档内部路径复制到剪贴板。
     pub(crate) fn copy_selected_path(&mut self, cx: &mut Context<Self>) {
         let path = self
             .selected_entry()
@@ -558,7 +558,7 @@ impl LumarkApp {
         }
     }
 
-    /// Reveals the selected filesystem item in Windows Explorer.
+    /// 在 Windows 资源管理器中定位所选文件系统项目。
     pub(crate) fn reveal_selected(&mut self) {
         let path = match &self.browser.location {
             BrowserLocation::FileSystem(directory) => self
@@ -573,7 +573,7 @@ impl LumarkApp {
         }
     }
 
-    /// Returns the active filesystem directory when the browser is not inside an archive.
+    /// 当浏览器不在归档内时返回当前文件系统目录。
     pub(crate) fn current_directory(&self) -> Option<PathBuf> {
         match &self.browser.location {
             BrowserLocation::FileSystem(path) => Some(path.clone()),
@@ -581,7 +581,7 @@ impl LumarkApp {
         }
     }
 
-    /// Persists the current directory as the next session's starting location.
+    /// 把当前目录保存为下次会话的起始位置。
     pub(crate) fn remember_directory(&self) {
         if let BrowserLocation::FileSystem(path) = &self.browser.location {
             let _ = self.settings.update(|settings| {
@@ -590,7 +590,7 @@ impl LumarkApp {
         }
     }
 
-    /// Adds a bounded diagnostic line to the task-center log.
+    /// 向任务中心日志追加一条有长度限制的诊断记录。
     pub(crate) fn push_task_log(&mut self, message: String) {
         self.task_log.push(message);
         if self.task_log.len() > 100 {
@@ -598,7 +598,7 @@ impl LumarkApp {
         }
     }
 
-    /// Navigates to the parent directory or the archive root.
+    /// 导航到父目录或归档根目录。
     pub(crate) fn go_parent(&mut self) {
         if let Err(error) = self.browser.go_parent() {
             self.status = error.to_string();
@@ -607,7 +607,7 @@ impl LumarkApp {
         }
     }
 
-    /// Opens the selected directory, archive, archive entry, or regular file.
+    /// 打开所选目录、归档、归档条目或普通文件。
     pub(crate) fn open_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(entry) = self.selected_entry() else {
             self.status = "请先选择一个项目".to_string();
@@ -640,7 +640,7 @@ impl LumarkApp {
             .spawn();
     }
 
-    /// Returns the focused browser entry when exactly one item is selected.
+    /// 仅选中一个项目时返回聚焦的浏览器条目。
     pub(crate) fn selected_entry(&self) -> Option<BrowserEntry> {
         let id = self.browser.selection.focus()?;
         self.displayed_entries()
@@ -649,7 +649,7 @@ impl LumarkApp {
             .cloned()
     }
 
-    /// Returns the archive path selected by the user, if any.
+    /// 返回用户选择的归档路径（如果有）。
     pub(crate) fn selected_archive(&self) -> Option<PathBuf> {
         if let BrowserLocation::Archive { archive, .. } = &self.browser.location {
             return Some(archive.clone());
@@ -659,7 +659,7 @@ impl LumarkApp {
             .map(|entry| entry.path)
     }
 
-    /// Returns compressible source paths from the current selection.
+    /// 返回当前选择中可压缩的源路径。
     pub(crate) fn selected_sources(&self) -> Vec<PathBuf> {
         if let Some(paths) = &self.dropped_sources {
             return paths.clone();
@@ -679,7 +679,7 @@ impl LumarkApp {
         paths
     }
 
-    /// Changes the workspace screen while guarding uncommitted password edits.
+    /// 切换工作区页面，并在离开前保护未提交的密码修改。
     pub(crate) fn switch_screen(&mut self, screen: Screen) {
         if self.screen == Screen::Passwords
             && self.password_draft_dirty

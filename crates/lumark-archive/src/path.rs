@@ -63,9 +63,8 @@ pub fn safe_join(dest: &Path, entry_name: &str) -> Result<PathBuf, ArchiveError>
     Ok(result)
 }
 
-/// Reject writes that would traverse a symlink already present in the target tree.
-/// This prevents an archive from escaping through a pre-existing link even when
-/// every member path is lexically safe.
+/// 拒绝写入会穿过目标目录树中已有符号链接的路径。
+/// 即使所有成员路径在词法上安全，也能阻止归档通过预先存在的链接逃逸。
 pub fn ensure_no_symlink_components(root: &Path, destination: &Path) -> Result<(), ArchiveError> {
     let relative = destination
         .strip_prefix(root)

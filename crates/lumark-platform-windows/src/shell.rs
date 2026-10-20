@@ -114,8 +114,7 @@ pub fn unregister_current_user() -> Result<(), PlatformError> {
 }
 
 pub fn copy_to_send_to(_executable: &Path) -> Result<(), PlatformError> {
-    // Shortcut creation needs the Shell Link COM interface. The caller can
-    // still use the classic verbs above; this is intentionally a no-op until
-    // the installer owns the shortcut lifecycle.
+    // 创建快捷方式需要 Shell Link COM 接口。调用方仍可使用上述经典命令；
+    // 在安装器接管快捷方式生命周期前，这里刻意保持无操作。
     Ok(())
 }

@@ -1,7 +1,7 @@
 use super::super::*;
 
 impl LumarkApp {
-    /// Initializes an editable password draft when the vault is unlocked.
+    /// 密码库解锁后初始化可编辑的密码草稿。
     pub(crate) fn ensure_password_draft(&mut self) {
         if self.password_draft.is_none() && self.vault.state() == VaultState::Unlocked {
             self.password_draft = Some(self.vault.entries());
@@ -9,7 +9,7 @@ impl LumarkApp {
         }
     }
 
-    /// Looks up a record in the draft first and falls back to the persisted vault.
+    /// 优先在草稿中查找记录，未找到时回退到持久化密码库。
     pub(crate) fn find_password(&self, id: Uuid) -> Option<PasswordEntry> {
         match &self.password_draft {
             Some(entries) => entries.iter().find(|entry| entry.id == id).cloned(),
@@ -17,7 +17,7 @@ impl LumarkApp {
         }
     }
 
-    /// Validates and creates or updates a password record in the in-memory draft.
+    /// 校验并在内存草稿中创建或更新密码记录。
     pub(crate) fn draft_save_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.ensure_password_draft();
         let Some(entries) = self.password_draft.as_mut() else {
@@ -71,7 +71,7 @@ impl LumarkApp {
         self.status = "密码修改已加入草稿，点击“确定”后写入密码库".to_string();
     }
 
-    /// Removes the selected record from the draft without touching the vault yet.
+    /// 从草稿中移除所选记录，此时不修改密码库。
     pub(crate) fn draft_delete_password(&mut self) {
         self.ensure_password_draft();
         let Some(entries) = self.password_draft.as_mut() else {
@@ -88,7 +88,7 @@ impl LumarkApp {
         self.status = "密码已从草稿删除，点击“确定”生效".to_string();
     }
 
-    /// Persists the draft as one vault transaction and reports validation failures.
+    /// 把草稿作为一次密码库事务持久化，并报告校验失败。
     pub(crate) fn commit_password_draft(&mut self) {
         let Some(entries) = self.password_draft.clone() else {
             return;
@@ -103,7 +103,7 @@ impl LumarkApp {
         }
     }
 
-    /// Drops all uncommitted password edits and reloads the persisted records.
+    /// 丢弃全部未提交的密码修改并重新加载持久化记录。
     pub(crate) fn discard_password_draft(&mut self) {
         self.password_draft = None;
         self.password_draft_dirty = false;
@@ -111,7 +111,7 @@ impl LumarkApp {
         self.status = "已取消密码修改".to_string();
     }
 
-    /// Discards the draft and resumes a previously requested screen change.
+    /// 丢弃草稿并恢复此前请求的页面切换。
     pub(crate) fn discard_draft_and_switch(&mut self) {
         self.discard_password_draft();
         self.show_discard_password_draft = false;
@@ -123,7 +123,7 @@ impl LumarkApp {
         }
     }
 
-    /// Copies a selected password and schedules clipboard clearing after 30 seconds.
+    /// 复制所选密码，并在 30 秒后清理剪贴板。
     pub(crate) fn copy_password(&self, cx: &mut Context<Self>) {
         let Some(id) = self.selected_password else {
             return;
@@ -149,7 +149,7 @@ impl LumarkApp {
         }
     }
 
-    /// Temporarily reveals one password for ten seconds, then masks it again.
+    /// 临时显示一个密码十秒，随后重新掩码。
     pub(crate) fn toggle_password_reveal(&mut self, id: Uuid, cx: &mut Context<Self>) {
         if self.revealed_password == Some(id) {
             self.revealed_password = None;
@@ -170,7 +170,7 @@ impl LumarkApp {
         .detach();
     }
 
-    /// Unlocks the vault with the entered master password and loads a fresh draft.
+    /// 使用输入的主密码解锁密码库并加载新草稿。
     pub(crate) fn unlock_vault(&mut self, cx: &mut Context<Self>) {
         let password = input_value(&self.master_current, cx);
         match self.vault.unlock(&password) {
@@ -183,7 +183,7 @@ impl LumarkApp {
         }
     }
 
-    /// Unlocks the vault and resumes the pending automatic archive-password attempt.
+    /// 解锁密码库并恢复待处理的归档自动密码尝试。
     pub(crate) fn unlock_for_extract(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let password = input_value(&self.master_current, cx);
         match self.vault.unlock(&password) {
@@ -214,7 +214,7 @@ impl LumarkApp {
         }
     }
 
-    /// Sets or rotates the vault master password without re-encrypting every entry.
+    /// 设置或轮换密码库主密码，无需重新加密每条记录。
     pub(crate) fn set_master_password(&mut self, cx: &mut Context<Self>) {
         let current = input_value(&self.master_current, cx);
         let new = input_value(&self.master_new, cx);
@@ -226,7 +226,7 @@ impl LumarkApp {
         let _ = cx;
     }
 
-    /// Toggles automatic password attempts and mirrors the preference into app settings.
+    /// 切换自动密码尝试，并把偏好同步到应用设置。
     pub(crate) fn toggle_auto_extract(&mut self, _cx: &mut Context<Self>) {
         let mut settings = self.vault.settings();
         settings.auto_extract = !settings.auto_extract;
@@ -242,7 +242,7 @@ impl LumarkApp {
         }
     }
 
-    /// Toggles the post-extraction password save prompt.
+    /// 切换解压后的密码保存提示。
     pub(crate) fn toggle_prompt_save(&mut self, _cx: &mut Context<Self>) {
         let mut settings = self.vault.settings();
         settings.prompt_save = !settings.prompt_save;
@@ -258,7 +258,7 @@ impl LumarkApp {
         }
     }
 
-    /// Cycles the idle lock timeout configured for the vault.
+    /// 循环切换密码库空闲锁定时间。
     pub(crate) fn toggle_auto_lock(&mut self, _cx: &mut Context<Self>) {
         let mut settings = self.vault.settings();
         settings.auto_lock_minutes = match settings.auto_lock_minutes {
@@ -283,7 +283,7 @@ impl LumarkApp {
         }
     }
 
-    /// Exports an encrypted vault snapshot using an independent passphrase.
+    /// 使用独立口令导出加密密码库快照。
     pub(crate) fn export_vault(&mut self, cx: &mut Context<Self>) {
         let path = PathBuf::from(input_value(&self.vault_transfer_path, cx));
         let passphrase = input_value(&self.vault_transfer_passphrase, cx);
@@ -297,7 +297,7 @@ impl LumarkApp {
         }
     }
 
-    /// Imports an encrypted vault snapshot with merge or replace semantics.
+    /// 按合并或替换语义导入加密密码库快照。
     pub(crate) fn import_vault(&mut self, cx: &mut Context<Self>) {
         let path = PathBuf::from(input_value(&self.vault_transfer_path, cx));
         let passphrase = input_value(&self.vault_transfer_passphrase, cx);
@@ -319,7 +319,7 @@ impl LumarkApp {
         }
     }
 
-    /// Verifies the current master password and returns the vault to DPAPI wrapping.
+    /// 验证当前主密码，并让密码库恢复 DPAPI 包裹。
     pub(crate) fn confirm_remove_master(&mut self, cx: &mut Context<Self>) {
         let current = input_value(&self.master_current, cx);
         match self.vault.remove_master_password(&current) {
@@ -331,7 +331,7 @@ impl LumarkApp {
         }
     }
 
-    /// Clears all vault records after the confirmation dialog has been accepted.
+    /// 确认对话框通过后清除密码库全部记录。
     pub(crate) fn clear_vault(&mut self, _cx: &mut Context<Self>) {
         match self.vault.clear_entries() {
             Ok(()) => {

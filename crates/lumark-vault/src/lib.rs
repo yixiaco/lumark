@@ -1,4 +1,4 @@
-//! Encrypted archive-password vault for Lumark.
+//! Lumark 的加密归档密码库。
 
 pub mod crypto;
 pub mod model;

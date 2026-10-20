@@ -217,8 +217,8 @@ pub struct CompressionOptions {
     pub level: Option<i64>,
     pub preset: CompressionPreset,
     pub solid: bool,
-    /// 7z: encrypt the archive header as well as entry streams when a password is set.
-    /// ZIP ignores this flag.
+    /// 7z：设置密码时同时加密归档文件头和条目数据流。
+    /// ZIP 忽略此标志。
     pub encrypt_header: bool,
     pub dictionary_size: Option<u32>,
     pub threads: u32,
