@@ -13,6 +13,7 @@ pub(crate) struct ExtractWindowView {
     archive: PathBuf,
     output: Entity<InputState>,
     password: Entity<InputState>,
+    password_visible: bool,
     selection_only: bool,
     error: Option<String>,
 }
@@ -32,6 +33,7 @@ impl ExtractWindowView {
             archive,
             output,
             password,
+            password_visible: false,
             selection_only: false,
             error: None,
         }
@@ -40,6 +42,7 @@ impl ExtractWindowView {
     /// 切换到新的压缩包，并清除上一轮的校验错误和选择状态。
     fn set_archive(&mut self, archive: PathBuf, cx: &mut Context<Self>) {
         self.archive = archive;
+        self.password_visible = false;
         self.selection_only = false;
         self.error = None;
         cx.notify();
@@ -186,9 +189,40 @@ impl ExtractWindowView {
             .child(classic_field(
                 "密码:",
                 60.,
-                Input::new(&self.password)
-                    .id("extract-window-password")
-                    .w_full(),
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        Input::new(&self.password)
+                            .id("extract-window-password")
+                            .flex_1()
+                            .min_w_0(),
+                    )
+                    .child(
+                        Button::new("extract-window-password-toggle")
+                            .secondary()
+                            .small()
+                            .rounded(px(6.))
+                            .label(if self.password_visible {
+                                "隐藏密码"
+                            } else {
+                                "显示密码"
+                            })
+                            .tooltip(if self.password_visible {
+                                "以掩码显示解压密码"
+                            } else {
+                                "以明文显示解压密码"
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.password_visible = !this.password_visible;
+                                let masked = !this.password_visible;
+                                this.password.update(cx, |state, cx| {
+                                    state.set_masked(masked, window, cx);
+                                });
+                                cx.notify();
+                            })),
+                    ),
             ))
             .child(
                 Checkbox::new("extract-window-selection-only")

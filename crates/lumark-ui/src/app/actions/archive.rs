@@ -372,6 +372,8 @@ impl LumarkApp {
             window,
             cx,
         );
+        self.extract_password
+            .update(cx, |state, cx| state.set_masked(true, window, cx));
         self.open_extract_window(archive.clone(), window, cx);
         if password.is_some() {
             self.archive_password = Some(zeroize::Zeroizing::new(

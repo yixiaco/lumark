@@ -62,7 +62,7 @@ cargo test --workspace
 | `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
 | `app/view/pages.rs` | 密码库、设置和任务中心 |
 | `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
-| `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码和仅解压选中条目 |
+| `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
 | `app/view/dialogs.rs` | 解压对话框和确认对话框 |
 | `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
 | `app/view/components.rs` | IconPark 图标、渐变横幅、经典分组框、单复选控件和通用按钮 |
