@@ -1,5 +1,4 @@
 use super::super::*;
-use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_kit::component::radio::Radio;
 
@@ -112,8 +111,9 @@ pub(super) fn icon_button(
     tooltip: &'static str,
 ) -> Button {
     Button::new(id)
-        .ghost()
+        .secondary()
         .small()
+        .rounded(px(6.))
         .icon(icon.element(17.))
         .tooltip(tooltip)
         .accessibility_label(tooltip)
@@ -333,26 +333,6 @@ pub(super) fn option_radio(
     handler: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
 ) -> gpui_kit::AnyElement {
     Radio::new(id)
-        .label(label)
-        .checked(checked)
-        .on_click(cx.listener(move |this, _, window, cx| {
-            handler(this, window, cx);
-            cx.notify();
-        }))
-        .into_any_element()
-}
-
-/// 渲染官方复选按钮。
-///
-/// 勾选框图形、焦点环和标签点击区域由组件库提供。
-pub(super) fn option_check(
-    cx: &Context<LumarkApp>,
-    id: &'static str,
-    label: String,
-    checked: bool,
-    handler: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
-) -> gpui_kit::AnyElement {
-    Checkbox::new(id)
         .label(label)
         .checked(checked)
         .on_click(cx.listener(move |this, _, window, cx| {

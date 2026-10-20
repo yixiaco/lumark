@@ -103,7 +103,6 @@ pub struct LumarkApp {
     screen: Screen,
     status: String,
     show_compress: bool,
-    show_extract: bool,
     compress_output: gpui_kit::Entity<InputState>,
     compress_password: gpui_kit::Entity<InputState>,
     compress_comment: gpui_kit::Entity<InputState>,
@@ -143,6 +142,8 @@ pub struct LumarkApp {
     progress_view: Option<gpui_kit::Entity<view::windows::ProgressWindowView>>,
     progress_window: Option<gpui_kit::AnyWindowHandle>,
     compress_window: Option<gpui_kit::AnyWindowHandle>,
+    extract_window: Option<gpui_kit::AnyWindowHandle>,
+    extract_view: Option<gpui_kit::Entity<view::extract_window::ExtractWindowView>>,
     pending_save: Option<PathBuf>,
     show_save_prompt: bool,
     pending_unlock_archive: Option<PathBuf>,
@@ -151,7 +152,6 @@ pub struct LumarkApp {
     settings_error: Option<String>,
     vault_error: Option<String>,
     pending_open_dir: Option<PathBuf>,
-    extract_selection_only: bool,
     location_input: gpui_kit::Entity<InputState>,
     search_input: gpui_kit::Entity<InputState>,
     search_results: Option<Vec<BrowserEntry>>,
@@ -324,7 +324,6 @@ impl LumarkApp {
             screen: Screen::Browser,
             status: "就绪".to_string(),
             show_compress: false,
-            show_extract: false,
             compress_output,
             compress_password,
             compress_comment,
@@ -363,6 +362,8 @@ impl LumarkApp {
             progress_view: None,
             progress_window: None,
             compress_window: None,
+            extract_window: None,
+            extract_view: None,
             pending_save: None,
             show_save_prompt: false,
             pending_unlock_archive: None,
@@ -371,7 +372,6 @@ impl LumarkApp {
             settings_error,
             vault_error,
             pending_open_dir: None,
-            extract_selection_only: false,
             location_input,
             search_input,
             search_results: None,
@@ -896,7 +896,7 @@ fn apply_theme(
         } else {
             hsla(356. / 360., 0.66, 0.38, 1.)
         };
-        theme.radius = px(10.);
+        theme.radius = px(6.);
         theme.radius_lg = px(14.);
         theme.font_size = px(13.5);
         theme.shadow = true;

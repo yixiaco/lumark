@@ -5,6 +5,7 @@ use super::components::{
 use gpui_kit::component::input::{
     InputGroup, InputGroupAddon, InputGroupAddonAlignment, InputGroupButton, InputGroupInput,
 };
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 
 impl LumarkApp {
     /// 渲染自绘标题栏：当前位置、工作区切换和全局工具入口。
@@ -103,8 +104,9 @@ impl LumarkApp {
     ) -> impl IntoElement + use<> {
         let active = self.screen == target;
         Button::new(id)
-            .ghost()
+            .secondary()
             .small()
+            .rounded(px(6.))
             .selected(active)
             .occlude()
             .icon(icon.element(14.))
@@ -298,6 +300,10 @@ impl LumarkApp {
             SearchMode::Wildcard => "通配",
             SearchMode::Regex => "正则",
         };
+        let contains_checked = self.search_mode == SearchMode::Contains;
+        let wildcard_checked = self.search_mode == SearchMode::Wildcard;
+        let regex_checked = self.search_mode == SearchMode::Regex;
+        let app = cx.entity();
         h_flex()
             .id("command-bar")
             .h(px(42.))
@@ -491,21 +497,59 @@ impl LumarkApp {
                 Button::new("search-mode")
                     .secondary()
                     .small()
+                    .rounded(px(6.))
                     .label(if narrow {
                         "高级".to_string()
                     } else {
                         format!("高级 · {mode_label}")
                     })
-                    .tooltip("切换搜索匹配方式：包含、通配符、正则")
+                    .dropdown_caret(true)
+                    .tooltip("选择搜索匹配方式：包含、通配符、正则")
                     .accessibility_label("高级搜索模式")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.search_mode = match this.search_mode {
-                            SearchMode::Contains => SearchMode::Wildcard,
-                            SearchMode::Wildcard => SearchMode::Regex,
-                            SearchMode::Regex => SearchMode::Contains,
-                        };
-                        cx.notify();
-                    })),
+                    .dropdown_menu_with_anchor(
+                        gpui_kit::Anchor::TopRight,
+                        move |menu, window, _| {
+                            let app_contains = app.clone();
+                            let app_wildcard = app.clone();
+                            let app_regex = app.clone();
+                            menu.item(
+                                PopupMenuItem::new("包含")
+                                    .checked(contains_checked)
+                                    .on_click(window.listener_for(
+                                        &app_contains,
+                                        |app, _: &gpui_kit::ClickEvent, _, cx| {
+                                            app.search_mode = SearchMode::Contains;
+                                            app.status = "搜索匹配方式：包含".to_string();
+                                            cx.notify();
+                                        },
+                                    )),
+                            )
+                            .item(
+                                PopupMenuItem::new("通配符")
+                                    .checked(wildcard_checked)
+                                    .on_click(window.listener_for(
+                                        &app_wildcard,
+                                        |app, _: &gpui_kit::ClickEvent, _, cx| {
+                                            app.search_mode = SearchMode::Wildcard;
+                                            app.status = "搜索匹配方式：通配符".to_string();
+                                            cx.notify();
+                                        },
+                                    )),
+                            )
+                            .item(
+                                PopupMenuItem::new("正则表达式")
+                                    .checked(regex_checked)
+                                    .on_click(window.listener_for(
+                                        &app_regex,
+                                        |app, _: &gpui_kit::ClickEvent, _, cx| {
+                                            app.search_mode = SearchMode::Regex;
+                                            app.status = "搜索匹配方式：正则表达式".to_string();
+                                            cx.notify();
+                                        },
+                                    )),
+                            )
+                        },
+                    ),
             )
             .when(search_active, |this| {
                 this.child(
@@ -988,10 +1032,6 @@ impl Render for LumarkApp {
                     ),
             )
             .child(self.render_status_bar(cx))
-            .when(self.show_extract, |this| {
-                let dialog = self.render_extract_dialog(cx);
-                this.child(dialog_layer(dialog))
-            })
             .when(self.show_save_prompt, |this| {
                 let dialog = self.render_save_prompt(cx);
                 this.child(dialog_layer(dialog))

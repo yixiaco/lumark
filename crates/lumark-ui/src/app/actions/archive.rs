@@ -238,36 +238,6 @@ impl LumarkApp {
         .detach();
     }
 
-    /// 打开系统目录选择器，把解压目标切换到用户选中的目录。
-    pub(crate) fn choose_extract_output_dir(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("选择解压目标目录".into()),
-        });
-        cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = receiver.await
-                && let Some(directory) = paths.into_iter().next()
-            {
-                let _ = this.update_in(cx, |app, window, cx| {
-                    set_input(
-                        &app.extract_output,
-                        directory.to_string_lossy().as_ref(),
-                        window,
-                        cx,
-                    );
-                    cx.notify();
-                });
-            }
-        })
-        .detach();
-    }
-
     /// 提交独立压缩窗口构建好的任务参数。
     ///
     /// 对话框窗口只负责收集参数；任务和进度窗口仍由主应用统一管理，
@@ -376,8 +346,8 @@ impl LumarkApp {
 
     /// 在密码解析后准备解压目标目录和选择状态。
     ///
-    /// 只有真正可以显示对话框时才把 `show_extract` 置为 true；需要自动尝试
-    /// 密码或先解锁密码库时，等待后续结果再打开独立解压窗口。
+    /// 窗口先立即打开，加密探测放到后台线程，避免打开大压缩包时卡住界面；
+    /// 探测结果再决定是否自动尝试密码库记录或提示手动输入。
     pub(crate) fn prepare_extract_dialog(
         &mut self,
         archive: PathBuf,
@@ -402,61 +372,78 @@ impl LumarkApp {
             window,
             cx,
         );
-        self.extract_selection_only = false;
+        self.open_extract_window(archive.clone(), window, cx);
         if password.is_some() {
             self.archive_password = Some(zeroize::Zeroizing::new(
                 password.unwrap_or_default().to_string(),
             ));
             self.status = "已从密码管理中找到可用密码".to_string();
-            self.show_extract = true;
             return;
         }
         if !auto_resolve {
             self.status = format!("准备解压：{}（加密包请输入密码）", archive.display());
-            self.show_extract = true;
             return;
         }
-        let encryption = ArchiveService::probe_encryption(&archive);
+        self.status = format!("正在检查压缩包：{}", archive.display());
+        let probe_archive = archive.clone();
+        cx.spawn(async move |this, cx| {
+            let encryption = cx
+                .background_executor()
+                .spawn(async move { ArchiveService::probe_encryption(&probe_archive) })
+                .await;
+            let _ = this.update_in(cx, |app, window, cx| {
+                app.apply_extract_probe(archive, encryption, window, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// 应用后台加密探测结果，并继续密码库自动匹配流程。
+    fn apply_extract_probe(
+        &mut self,
+        archive: PathBuf,
+        encryption: Result<lumark_archive::EncryptionInfo, lumark_archive::ArchiveError>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match encryption {
             Ok(info) if info.encrypted => {
                 if !self.vault.settings().auto_extract {
                     self.status = "压缩包已加密，请输入密码".to_string();
-                    self.show_extract = true;
-                    return;
-                }
-                match self.vault.state() {
-                    VaultState::Unlocked => {
-                        if !self.begin_vault_password_resolution(
-                            &archive,
-                            PendingPasswordAction::ExtractDialog {
-                                archive: archive.clone(),
-                            },
-                        ) {
-                            self.status = "没有可用的记录密码，请手动输入".to_string();
-                            self.show_extract = true;
+                } else {
+                    match self.vault.state() {
+                        VaultState::Unlocked => {
+                            if !self.begin_vault_password_resolution(
+                                &archive,
+                                PendingPasswordAction::ExtractDialog {
+                                    archive: archive.clone(),
+                                },
+                            ) {
+                                self.status = "没有可用的记录密码，请手动输入".to_string();
+                            }
                         }
-                    }
-                    VaultState::Locked => {
-                        self.pending_unlock_archive = Some(archive);
-                        self.show_unlock_for_extract = true;
-                        self.unlock_for_browse = false;
-                        self.status = "密码库已锁定，解锁后将自动尝试记录密码".to_string();
-                    }
-                    VaultState::Uninitialized => {
-                        self.status = "压缩包已加密，请输入密码".to_string();
-                        self.show_extract = true;
+                        VaultState::Locked => {
+                            self.dismiss_extract_window(cx);
+                            self.pending_unlock_archive = Some(archive);
+                            self.show_unlock_for_extract = true;
+                            self.unlock_for_browse = false;
+                            self.status = "密码库已锁定，解锁后将自动尝试记录密码".to_string();
+                        }
+                        VaultState::Uninitialized => {
+                            self.status = "压缩包已加密，请输入密码".to_string();
+                        }
                     }
                 }
             }
             Ok(_) => {
                 self.status = format!("准备解压：{}", archive.display());
-                self.show_extract = true;
             }
             Err(error) => {
                 self.status = error.to_string();
-                self.show_extract = true;
             }
         }
+        let _ = window;
+        cx.notify();
     }
 
     /// 启动基于密码库的密码匹配，或在需要时先请求解锁。
@@ -744,15 +731,21 @@ impl LumarkApp {
     }
 
     /// 校验解压选项并提交可取消的解压任务。
-    pub(crate) fn start_extract(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(archive) = self.selected_archive() else {
-            self.status = "请选择一个压缩包".to_string();
-            return;
-        };
+    ///
+    /// 归档路径和“仅解压选中条目”由独立解压窗口固定传入，避免窗口打开后
+    /// 主窗口选择变化影响任务目标；目录和密码仍读取共享输入框。
+    pub(crate) fn start_extract_for(
+        &mut self,
+        archive: PathBuf,
+        selection_only: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         let output = PathBuf::from(input_value(&self.extract_output, cx));
         if output.as_os_str().is_empty() {
-            self.status = "请输入解压目录".to_string();
-            return;
+            let message = "请输入解压目录".to_string();
+            self.status = message.clone();
+            return Err(message);
         }
         let mut password = input_value(&self.extract_password, cx);
         if password.is_empty()
@@ -794,7 +787,7 @@ impl LumarkApp {
             output_dir: output,
             overwrite: overwrite_policy != ArchiveOverwritePolicy::Skip,
             overwrite_policy,
-            selected_paths: if self.extract_selection_only {
+            selected_paths: if selection_only {
                 self.browser
                     .selection
                     .selected_ids()
@@ -819,10 +812,8 @@ impl LumarkApp {
         });
         self.active_task = Some(id);
         self.task_progress = None;
-        self.show_extract = false;
         self.status = format!("开始解压：{}", archive.display());
-        let _ = window;
-        let _ = cx;
+        Ok(())
     }
 
     /// 测试所选归档，并在检测到加密时解析已保存密码。

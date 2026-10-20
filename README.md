@@ -46,7 +46,7 @@ cargo test --workspace
 - 密码库候选密码自动解压加密 ZIP/7Z/RAR。
 - 多选、范围选择、历史导航和高级搜索过滤。
 - `gpui-kit::test` 真实窗口测试覆盖虚拟文件行和平铺视图切换。
-- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、解压对话框、独立进度窗口、密码库和设置的视觉验收，截图位于 `artifacts/`。
+- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、独立进度窗口、密码库和设置的视觉验收，截图位于 `artifacts/`。
 
 ## 界面结构
 
@@ -62,6 +62,7 @@ cargo test --workspace
 | `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
 | `app/view/pages.rs` | 密码库、设置和任务中心 |
 | `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
+| `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码和仅解压选中条目 |
 | `app/view/dialogs.rs` | 解压对话框和确认对话框 |
 | `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
 | `app/view/components.rs` | IconPark 图标、渐变横幅、经典分组框、单复选控件和通用按钮 |
@@ -71,6 +72,8 @@ cargo test --workspace
 
 ![窄窗口布局](artifacts/ui-narrow.png)
 
+![高级搜索匹配菜单](artifacts/ui-search-menu.png)
+
 ![轻巧压缩窗口](artifacts/ui-compress-light.png)
 
 ![经典压缩窗口](artifacts/ui-compress-dialog.png)
@@ -79,7 +82,7 @@ cargo test --workspace
 
 ![文件右键菜单](artifacts/ui-context-menu.png)
 
-![解压对话框](artifacts/ui-extract-dialog.png)
+![独立解压窗口](artifacts/ui-extract-window.png)
 
 ![任务进度窗口](artifacts/ui-progress-window.png)
 
