@@ -132,20 +132,34 @@ pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
 
 /// 顶部动作带按钮的语义色调。
 ///
-/// 使用组件库的 primary、secondary、warning 和 danger 变体表达主操作、
-/// 辅助操作和破坏性操作，不再自绘图标底板。
+/// 所有动作统一使用官方默认 Button 表面，只让图标按动作类别着色，
+/// 避免五种彩色填充在横幅上互相争夺注意力。
 #[derive(Clone, Copy, Debug)]
 pub(super) enum BannerTone {
     Primary,
-    Accent,
+    Success,
     Warning,
     Danger,
+    Neutral,
 }
 
-/// 渲染顶部动作带中的官方 Button。
+impl BannerTone {
+    /// 返回动作图标在当前主题下的颜色。
+    fn icon_color(self, cx: &gpui_kit::App) -> gpui_kit::Hsla {
+        match self {
+            Self::Primary => cx.theme().primary,
+            Self::Success => cx.theme().success_foreground,
+            Self::Warning => cx.theme().warning_foreground,
+            Self::Danger => cx.theme().danger_foreground,
+            Self::Neutral => cx.theme().muted_foreground,
+        }
+    }
+}
+
+/// 渲染顶部动作带中的纵向官方 Button。
 ///
-/// 大尺寸按钮自带图标与标签间距、悬停和焦点样式，图标和文字颜色
-/// 由 Button 的语义变体统一决定。
+/// 图标和文字由同一个 v_flex 提供，Button 仍负责圆角、边框、悬停、
+/// 焦点环和键盘激活；固定尺寸让五个动作在宽窄窗口下保持同一基线。
 pub(super) fn banner_action(
     cx: &Context<LumarkApp>,
     id: &'static str,
@@ -154,16 +168,23 @@ pub(super) fn banner_action(
     tone: BannerTone,
     handler: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
 ) -> gpui_kit::AnyElement {
-    let button = match tone {
-        BannerTone::Primary => Button::new(id).primary(),
-        BannerTone::Accent => Button::new(id).secondary(),
-        BannerTone::Warning => Button::new(id).warning(),
-        BannerTone::Danger => Button::new(id).danger(),
-    };
-    button
-        .large()
-        .icon(icon.element(18.))
-        .label(label)
+    let icon_color = tone.icon_color(cx);
+    let label_color = cx.theme().foreground;
+    Button::new(id)
+        .rounded(px(8.))
+        .w(px(68.))
+        .h(px(56.))
+        .px_0()
+        .tooltip(label)
+        .accessibility_label(label)
+        .child(
+            v_flex()
+                .items_center()
+                .justify_center()
+                .gap_1()
+                .child(div().text_color(icon_color).child(icon.element(22.)))
+                .child(div().text_xs().text_color(label_color).child(label)),
+        )
         .on_click(cx.listener(move |this, _, window, cx| {
             handler(this, window, cx);
             cx.notify();

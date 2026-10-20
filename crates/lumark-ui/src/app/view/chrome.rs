@@ -2,6 +2,9 @@ use super::super::*;
 use super::components::{
     AppIcon, BannerTone, banner_action, banner_gradient, brand_lockup, icon_button, location_icon,
 };
+use gpui_kit::component::input::{
+    InputGroup, InputGroupAddon, InputGroupAddonAlignment, InputGroupButton, InputGroupInput,
+};
 
 impl LumarkApp {
     /// 渲染自绘标题栏：当前位置、工作区切换和全局工具入口。
@@ -155,7 +158,7 @@ impl LumarkApp {
                         "extract",
                         AppIcon::Zip,
                         "解压到",
-                        BannerTone::Accent,
+                        BannerTone::Success,
                         |this, window, cx| this.open_extract_dialog(window, cx),
                     ))
                     .child(banner_action(
@@ -179,7 +182,7 @@ impl LumarkApp {
                         "task-center",
                         AppIcon::List,
                         "任务",
-                        BannerTone::Accent,
+                        BannerTone::Neutral,
                         |this, _, _| this.show_task_center = !this.show_task_center,
                     )),
             )
@@ -425,69 +428,63 @@ impl LumarkApp {
                     ),
             )
             .child(
-                h_flex()
+                InputGroup::new("location-group")
                     .flex_1()
                     .min_w(px(150.))
-                    .h(px(30.))
-                    .px_2()
-                    .gap_1()
-                    .rounded(px(6.))
-                    .bg(cx.theme().popover)
-                    .border_1()
-                    .border_color(cx.theme().input)
-                    .child(
-                        div()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(AppIcon::FolderOpen.element(15.)),
-                    )
-                    .child(
-                        Input::new(&self.location_input)
+                    .input(
+                        InputGroupInput::new(&self.location_input)
                             .id("location-input")
-                            .flex_1()
-                            .min_w_0(),
+                            .aria_label("当前路径"),
                     )
-                    .child(
-                        Button::new("go-location")
-                            .secondary()
-                            .xsmall()
-                            .label("转到")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.go_location(window, cx);
-                                cx.notify();
-                            })),
+                    .addon(
+                        InputGroupAddon::new("location-icon").child(
+                            div()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(AppIcon::FolderOpen.element(15.)),
+                        ),
+                    )
+                    .addon(
+                        InputGroupAddon::new("location-go")
+                            .align(InputGroupAddonAlignment::InlineEnd)
+                            .child(
+                                InputGroupButton::new("go-location")
+                                    .label("转到")
+                                    .tooltip("打开输入的路径")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.go_location(window, cx);
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             )
             .child(
-                h_flex()
+                InputGroup::new("search-group")
                     .w(px(if narrow { 210. } else { 286. }))
-                    .h(px(30.))
-                    .px_2()
-                    .gap_1()
                     .flex_shrink_0()
-                    .rounded(px(6.))
-                    .bg(cx.theme().popover)
-                    .border_1()
-                    .border_color(cx.theme().input)
-                    .child(
-                        div()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(AppIcon::Search.element(14.)),
-                    )
-                    .child(
-                        Input::new(&self.search_input)
+                    .input(
+                        InputGroupInput::new(&self.search_input)
                             .id("search-input")
-                            .flex_1()
-                            .min_w_0(),
+                            .aria_label("搜索名称或通配符"),
                     )
-                    .child(
-                        Button::new("search-run")
-                            .secondary()
-                            .xsmall()
-                            .label("搜索")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.run_search(cx);
-                                cx.notify();
-                            })),
+                    .addon(
+                        InputGroupAddon::new("search-icon").child(
+                            div()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(AppIcon::Search.element(14.)),
+                        ),
+                    )
+                    .addon(
+                        InputGroupAddon::new("search-run-addon")
+                            .align(InputGroupAddonAlignment::InlineEnd)
+                            .child(
+                                InputGroupButton::new("search-run")
+                                    .label("搜索")
+                                    .tooltip("在当前目录搜索")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.run_search(cx);
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             )
             .child(
