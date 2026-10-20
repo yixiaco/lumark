@@ -223,6 +223,9 @@ impl TaskManager {
                                 current: progress.current,
                                 bytes_done: progress.bytes_done,
                                 bytes_total: progress.bytes_total,
+                                current_file_done: progress.current_bytes_done,
+                                current_file_total: progress.current_bytes_total,
+                                output_bytes: progress.output_bytes,
                                 entries_done: progress.entries_done,
                                 entries_total: progress.entries_total,
                                 speed_bps: speed(
@@ -260,6 +263,9 @@ impl TaskManager {
                                 current: progress.current,
                                 bytes_done: progress.bytes_done,
                                 bytes_total: progress.bytes_total,
+                                current_file_done: 0,
+                                current_file_total: 0,
+                                output_bytes: 0,
                                 entries_done: progress.entries_done,
                                 entries_total: progress.entries_total,
                                 speed_bps: speed(
@@ -284,6 +290,9 @@ impl TaskManager {
                                 current: progress.current,
                                 bytes_done: progress.bytes_done,
                                 bytes_total: progress.bytes_total,
+                                current_file_done: 0,
+                                current_file_total: 0,
+                                output_bytes: 0,
                                 entries_done: progress.entries_done,
                                 entries_total: progress.entries_total,
                                 speed_bps: speed(
@@ -372,6 +381,9 @@ impl TaskManager {
                                 current: progress.current,
                                 bytes_done: progress.bytes_done,
                                 bytes_total: 0,
+                                current_file_done: 0,
+                                current_file_total: 0,
+                                output_bytes: 0,
                                 entries_done: progress.entries_done,
                                 entries_total: progress.entries_total,
                                 speed_bps: speed(

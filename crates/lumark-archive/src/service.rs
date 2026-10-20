@@ -3,12 +3,14 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use geezipx_core::archive::ArchiveReader as LegacyReader;
-use sevenz_rust2::encoder_options::Lzma2Options;
-use sevenz_rust2::{ArchiveReader, ArchiveWriter, EncoderConfiguration, Password, SourceReader};
+use sevenz_rust2::encoder_options::{Bzip2Options, Lzma2Options, LzmaOptions, PpmdOptions};
+use sevenz_rust2::{
+    ArchiveReader, ArchiveWriter, EncoderConfiguration, NtTime, Password, SourceReader,
+};
 use unrar::Archive as UnrarArchive;
 use walkdir::WalkDir;
 use zeroize::Zeroizing;
@@ -37,6 +39,9 @@ pub struct CreateProgress {
     pub current: String,
     pub bytes_done: u64,
     pub bytes_total: u64,
+    pub current_bytes_done: u64,
+    pub current_bytes_total: u64,
+    pub output_bytes: u64,
     pub entries_done: usize,
     pub entries_total: usize,
 }
@@ -1530,6 +1535,13 @@ impl ArchiveService {
         let plan = build_source_plan(sources, options)?;
         let bytes_total = plan.total_bytes;
         let entries_total = plan.files.len();
+        let fixed_time = match options.archive_time {
+            crate::format::ArchiveTimeSource::Current => Some(SystemTime::now()),
+            crate::format::ArchiveTimeSource::Original => None,
+            crate::format::ArchiveTimeSource::Latest => {
+                plan.latest_modified.or_else(|| Some(SystemTime::now()))
+            }
+        };
         let mut report = CreateReport {
             output: output.to_path_buf(),
             ..Default::default()
@@ -1559,15 +1571,51 @@ impl ArchiveService {
                     }
                 };
             }
+            let entry_time = fixed_time.or_else(|| {
+                fs::metadata(&source)
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
+            });
+            if let Some(time) = entry_time.and_then(zip_datetime) {
+                file_options = file_options.last_modified_time(time);
+            }
             writer.start_file(relative.clone(), file_options)?;
             let mut input = File::open(&source)?;
-            let copied = io::copy(&mut input, &mut writer)?;
+            let file_total = input.metadata()?.len();
+            let mut file_done = 0u64;
+            let mut buffer = vec![0u8; 1024 * 1024];
+            let mut last_report = Instant::now() - Duration::from_secs(1);
+            loop {
+                ensure_not_cancelled(&options.cancel)?;
+                let read = input.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                writer.write_all(&buffer[..read])?;
+                file_done += read as u64;
+                report.bytes += read as u64;
+                if last_report.elapsed() >= Duration::from_millis(100) {
+                    last_report = Instant::now();
+                    progress(CreateProgress {
+                        current: relative.clone(),
+                        bytes_done: report.bytes,
+                        bytes_total,
+                        current_bytes_done: file_done,
+                        current_bytes_total: file_total,
+                        output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
+                        entries_done: report.files,
+                        entries_total,
+                    });
+                }
+            }
             report.files += 1;
-            report.bytes += copied;
             progress(CreateProgress {
                 current: relative,
                 bytes_done: report.bytes,
                 bytes_total,
+                current_bytes_done: file_total,
+                current_bytes_total: file_total,
+                output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
                 entries_done: report.files,
                 entries_total,
             });
@@ -1591,15 +1639,42 @@ impl ArchiveService {
         let mut writer = ArchiveWriter::create(output)
             .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
         let level = options.level.unwrap_or(6).clamp(0, 9) as u32;
-        let mut lzma2 = if options.threads > 1 {
-            Lzma2Options::from_level_mt(level, options.threads, 64 * 1024 * 1024)
-        } else {
-            Lzma2Options::from_level(level)
+        let mut methods = match options.sevenz_compression {
+            crate::format::SevenZCompression::Lzma2 => {
+                let mut lzma2 = if options.threads > 1 {
+                    Lzma2Options::from_level_mt(level, options.threads, 64 * 1024 * 1024)
+                } else {
+                    Lzma2Options::from_level(level)
+                };
+                if let Some(dictionary_size) = options.dictionary_size {
+                    lzma2.set_dictionary_size(dictionary_size);
+                }
+                if let Some(word_size) = options.word_size {
+                    lzma2.set_nice_len(word_size);
+                }
+                vec![EncoderConfiguration::from(lzma2)]
+            }
+            crate::format::SevenZCompression::Lzma => {
+                let mut lzma = LzmaOptions::from_level(level);
+                if let Some(dictionary_size) = options.dictionary_size {
+                    lzma.set_dictionary_size(dictionary_size);
+                }
+                if let Some(word_size) = options.word_size {
+                    lzma.set_nice_len(word_size);
+                }
+                vec![EncoderConfiguration::from(lzma)]
+            }
+            crate::format::SevenZCompression::Ppmd => {
+                let ppmd = PpmdOptions::from_order_memory_size(
+                    options.word_size.unwrap_or(32),
+                    options.dictionary_size.unwrap_or(16 * 1024 * 1024),
+                );
+                vec![EncoderConfiguration::from(ppmd)]
+            }
+            crate::format::SevenZCompression::Bzip2 => {
+                vec![EncoderConfiguration::from(Bzip2Options::from_level(level))]
+            }
         };
-        if let Some(dictionary_size) = options.dictionary_size {
-            lzma2.set_dictionary_size(dictionary_size);
-        }
-        let mut methods = vec![EncoderConfiguration::from(lzma2)];
         if let Some(password) = options.password.as_deref() {
             methods.push(
                 sevenz_rust2::encoder_options::AesEncoderOptions::new(Password::from(
@@ -1613,6 +1688,13 @@ impl ArchiveService {
         let plan = build_source_plan(sources, options)?;
         let bytes_total = plan.total_bytes;
         let entries_total = plan.files.len();
+        let fixed_time = match options.archive_time {
+            crate::format::ArchiveTimeSource::Current => Some(SystemTime::now()),
+            crate::format::ArchiveTimeSource::Original => None,
+            crate::format::ArchiveTimeSource::Latest => {
+                plan.latest_modified.or_else(|| Some(SystemTime::now()))
+            }
+        };
         let mut report = CreateReport {
             output: output.to_path_buf(),
             ..Default::default()
@@ -1622,17 +1704,22 @@ impl ArchiveService {
             let mut readers = Vec::with_capacity(plan.files.len());
             for (relative, source) in plan.files {
                 ensure_not_cancelled(&options.cancel)?;
-                entries.push(sevenz_rust2::ArchiveEntry::from_path(
-                    &source,
-                    relative.clone(),
-                ));
+                let mut entry = sevenz_rust2::ArchiveEntry::from_path(&source, relative.clone());
+                if let Some(time) = fixed_time {
+                    apply_entry_time(&mut entry, time);
+                }
+                entries.push(entry);
                 readers.push(SourceReader::new(File::open(&source)?));
                 report.files += 1;
-                report.bytes += fs::metadata(&source)?.len();
+                let file_bytes = fs::metadata(&source)?.len();
+                report.bytes += file_bytes;
                 progress(CreateProgress {
                     current: relative,
                     bytes_done: report.bytes,
                     bytes_total,
+                    current_bytes_done: file_bytes,
+                    current_bytes_total: file_bytes,
+                    output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
                     entries_done: report.files,
                     entries_total,
                 });
@@ -1643,17 +1730,39 @@ impl ArchiveService {
         } else {
             for (relative, source) in plan.files {
                 ensure_not_cancelled(&options.cancel)?;
-                let entry = sevenz_rust2::ArchiveEntry::from_path(&source, relative.clone());
-                let mut input = File::open(&source)?;
-                writer
-                    .push_archive_entry(entry, Some(&mut input))
-                    .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+                let mut entry = sevenz_rust2::ArchiveEntry::from_path(&source, relative.clone());
+                if let Some(time) = fixed_time {
+                    apply_entry_time(&mut entry, time);
+                }
+                let file_bytes = fs::metadata(&source)?.len();
+                {
+                    let mut reader = ProgressReader {
+                        inner: File::open(&source)?,
+                        current: relative.clone(),
+                        total: file_bytes,
+                        done: 0,
+                        overall_base: report.bytes,
+                        bytes_total,
+                        entries_done: report.files,
+                        entries_total,
+                        output: output.to_path_buf(),
+                        cancel: options.cancel.clone(),
+                        progress: &mut *progress,
+                        last_report: Instant::now() - Duration::from_secs(1),
+                    };
+                    writer
+                        .push_archive_entry(entry, Some(&mut reader))
+                        .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+                }
                 report.files += 1;
-                report.bytes += fs::metadata(&source)?.len();
+                report.bytes += file_bytes;
                 progress(CreateProgress {
                     current: relative,
                     bytes_done: report.bytes,
                     bytes_total,
+                    current_bytes_done: file_bytes,
+                    current_bytes_total: file_bytes,
+                    output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
                     entries_done: report.files,
                     entries_total,
                 });
@@ -1809,10 +1918,76 @@ impl ArchiveService {
     }
 }
 
+/// 在 7Z 编码器读取源文件时按块上报当前文件进度并响应取消。
+struct ProgressReader<'a, F>
+where
+    F: FnMut(CreateProgress),
+{
+    inner: File,
+    current: String,
+    total: u64,
+    done: u64,
+    overall_base: u64,
+    bytes_total: u64,
+    entries_done: usize,
+    entries_total: usize,
+    output: PathBuf,
+    cancel: Option<Arc<AtomicBool>>,
+    progress: &'a mut F,
+    last_report: Instant,
+}
+
+impl<F> Read for ProgressReader<'_, F>
+where
+    F: FnMut(CreateProgress),
+{
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if is_cancelled(&self.cancel) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "compression cancelled",
+            ));
+        }
+        let read = self.inner.read(buffer)?;
+        self.done += read as u64;
+        if self.last_report.elapsed() >= Duration::from_millis(100) {
+            self.last_report = Instant::now();
+            (self.progress)(CreateProgress {
+                current: self.current.clone(),
+                bytes_done: self.overall_base + self.done,
+                bytes_total: self.bytes_total,
+                current_bytes_done: self.done,
+                current_bytes_total: self.total,
+                output_bytes: fs::metadata(&self.output)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0),
+                entries_done: self.entries_done,
+                entries_total: self.entries_total,
+            });
+        }
+        Ok(read)
+    }
+}
+
+/// 把系统时间转换为 ZIP 可写入的本地时间。
+fn zip_datetime(time: SystemTime) -> Option<zip::DateTime> {
+    let local: DateTime<chrono::Local> = time.into();
+    zip::DateTime::try_from(local.naive_local()).ok()
+}
+
+/// 把系统时间写入 7Z 条目的修改时间字段。
+fn apply_entry_time(entry: &mut sevenz_rust2::ArchiveEntry, time: SystemTime) {
+    if let Ok(date) = NtTime::try_from(time) {
+        entry.last_modified_date = date;
+        entry.has_last_modified_date = true;
+    }
+}
+
 fn zip_method(options: &CompressionOptions) -> CompressionMethod {
-    match options.format {
-        ArchiveFormat::Zip => CompressionMethod::Deflated,
-        _ => CompressionMethod::Deflated,
+    match options.zip_compression {
+        crate::format::ZipCompression::Deflate => CompressionMethod::Deflated,
+        crate::format::ZipCompression::Bzip2 => CompressionMethod::Bzip2,
+        crate::format::ZipCompression::Lzma => CompressionMethod::Lzma,
     }
 }
 
@@ -1845,6 +2020,7 @@ fn selected(name: &str, selected_paths: &[String]) -> bool {
 struct SourcePlan {
     files: Vec<(String, PathBuf)>,
     total_bytes: u64,
+    latest_modified: Option<SystemTime>,
 }
 
 fn build_source_plan(
@@ -1854,6 +2030,7 @@ fn build_source_plan(
     let base = common_base(sources);
     let mut files = Vec::new();
     let mut total_bytes = 0;
+    let mut latest_modified: Option<SystemTime> = None;
     for source in sources {
         for entry in WalkDir::new(source).follow_links(false) {
             let entry = entry.map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
@@ -1886,10 +2063,15 @@ fn build_source_plan(
                 continue;
             }
             let metadata = entry.metadata().ok();
-            let modified = metadata
+            let raw_modified = metadata
                 .as_ref()
-                .and_then(|metadata| metadata.modified().ok())
-                .map(DateTime::<Utc>::from);
+                .and_then(|metadata| metadata.modified().ok());
+            if let Some(time) = raw_modified
+                && latest_modified.is_none_or(|latest| time > latest)
+            {
+                latest_modified = Some(time);
+            }
+            let modified = raw_modified.map(DateTime::<Utc>::from);
             if options
                 .modified_after
                 .is_some_and(|after| modified.is_none_or(|value| value < after))
@@ -1903,7 +2085,11 @@ fn build_source_plan(
             files.push((relative, path.to_path_buf()));
         }
     }
-    Ok(SourcePlan { files, total_bytes })
+    Ok(SourcePlan {
+        files,
+        total_bytes,
+        latest_modified,
+    })
 }
 
 fn common_base(sources: &[PathBuf]) -> PathBuf {
@@ -1966,13 +2152,17 @@ where
     for (relative, source) in plan.files {
         ensure_not_cancelled(&options.cancel)?;
         builder.append_path_with_name(&source, &relative)?;
-        done += fs::metadata(&source)?.len();
+        let file_bytes = fs::metadata(&source)?.len();
+        done += file_bytes;
         report.files += 1;
         report.bytes = done;
         progress(CreateProgress {
             current: relative,
             bytes_done: done,
             bytes_total: plan.total_bytes,
+            current_bytes_done: file_bytes,
+            current_bytes_total: file_bytes,
+            output_bytes: 0,
             entries_done: report.files,
             entries_total,
         });
@@ -2003,6 +2193,9 @@ where
             current: name.display().to_string(),
             bytes_done: done,
             bytes_total: total,
+            current_bytes_done: done,
+            current_bytes_total: total,
+            output_bytes: 0,
             entries_done: 0,
             entries_total: 1,
         });

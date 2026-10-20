@@ -5,18 +5,20 @@ use std::sync::Arc;
 
 use gpui_kit::base::{StyledExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{ActiveTheme, Sizable, Theme, ThemeMode, TitleBar};
+use gpui_kit::component::{ActiveTheme, Selectable, Sizable, Theme, ThemeMode, TitleBar};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    ClipboardItem, Context, FocusHandle, IntoElement, ParentElement, Render, Styled, Window, div,
-    hsla, px,
+    ClipboardItem, Context, FocusHandle, IntoElement, ParentElement, Render, Styled, Subscription,
+    Window, div, hsla, px,
 };
 use uuid::Uuid;
 
 use lumark_archive::{
-    ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, ExtractionOptions,
-    OverwritePolicy as ArchiveOverwritePolicy, PathMode, ZipEncryption,
+    ArchiveFormat, ArchiveService, ArchiveTimeSource, CompressionOptions, EditOptions,
+    ExtractionOptions, FileTimeFilter, OverwritePolicy as ArchiveOverwritePolicy, PathMode,
+    SevenZCompression, ZipCompression, ZipEncryption,
 };
 use lumark_browser::{BrowserEntry, BrowserLocation, BrowserModel, SearchMode};
 use lumark_platform_windows as platform;
@@ -121,6 +123,10 @@ pub struct LumarkApp {
     compress_delete_source: bool,
     compress_path_mode: PathMode,
     compress_tab: u8,
+    #[allow(dead_code)]
+    compress_classic: bool,
+    compress_password_visible: bool,
+    sidebar_visible: bool,
     extract_output: gpui_kit::Entity<InputState>,
     extract_password: gpui_kit::Entity<InputState>,
     password_label: gpui_kit::Entity<InputState>,
@@ -132,6 +138,11 @@ pub struct LumarkApp {
     selected_password: Option<Uuid>,
     active_task: Option<u64>,
     task_progress: Option<TaskProgress>,
+    active_task_kind: Option<TaskKind>,
+    active_task_label: Option<String>,
+    progress_view: Option<gpui_kit::Entity<view::windows::ProgressWindowView>>,
+    progress_window: Option<gpui_kit::AnyWindowHandle>,
+    compress_window: Option<gpui_kit::AnyWindowHandle>,
     pending_save: Option<PathBuf>,
     show_save_prompt: bool,
     pending_unlock_archive: Option<PathBuf>,
@@ -186,9 +197,9 @@ pub struct LumarkApp {
     show_open_executable_confirm: bool,
     tree_expanded: HashSet<PathBuf>,
     tree_children: HashMap<PathBuf, Vec<PathBuf>>,
-    context_menu_position: Option<gpui_kit::Point<gpui_kit::Pixels>>,
-    show_context_menu: bool,
     file_list_scroll: gpui_kit::base::VirtualListScrollHandle,
+    theme_color_picker: Option<gpui_kit::Entity<ColorPickerState>>,
+    theme_color_subscription: Option<Subscription>,
 }
 
 impl LumarkApp {
@@ -242,7 +253,12 @@ impl LumarkApp {
             }
         };
         let settings_snapshot = settings.get();
-        apply_theme(settings_snapshot.theme, window, cx);
+        apply_theme(
+            settings_snapshot.theme,
+            &settings_snapshot.accent_color,
+            window,
+            cx,
+        );
         let remembered_dir = settings_snapshot
             .last_directory
             .clone()
@@ -288,7 +304,7 @@ impl LumarkApp {
         let master_current = new_input(window, cx, "当前主密码", true);
         let master_new = new_input(window, cx, "新主密码（至少 8 位）", true);
         let location_input = new_input(window, cx, "输入路径后按“转到”", false);
-        let search_input = new_input(window, cx, "搜索名称（支持 * ? 通配符）", false);
+        let search_input = new_input(window, cx, "搜索名称或通配符", false);
         let new_folder_name = new_input(window, cx, "新文件夹名称", false);
         let rename_name = new_input(window, cx, "新名称", false);
         let password_search = new_input(window, cx, "搜索名称、备注或匹配规则", false);
@@ -328,6 +344,9 @@ impl LumarkApp {
             compress_delete_source: false,
             compress_path_mode: PathMode::Relative,
             compress_tab: 0,
+            compress_classic: false,
+            compress_password_visible: false,
+            sidebar_visible: true,
             extract_output,
             extract_password,
             password_label,
@@ -339,6 +358,11 @@ impl LumarkApp {
             selected_password: None,
             active_task: None,
             task_progress: None,
+            active_task_kind: None,
+            active_task_label: None,
+            progress_view: None,
+            progress_window: None,
+            compress_window: None,
             pending_save: None,
             show_save_prompt: false,
             pending_unlock_archive: None,
@@ -396,9 +420,9 @@ impl LumarkApp {
             show_open_executable_confirm: false,
             tree_expanded: HashSet::new(),
             tree_children: HashMap::new(),
-            context_menu_position: None,
-            show_context_menu: false,
             file_list_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
+            theme_color_picker: None,
+            theme_color_subscription: None,
         };
         set_input(
             &app.location_input,
@@ -448,6 +472,7 @@ impl LumarkApp {
                 cx,
             );
         }
+        app.ensure_theme_color_picker(window, cx);
         app.start_task_polling(cx);
         app
     }
@@ -488,12 +513,24 @@ impl LumarkApp {
                             TaskEvent::Queued { id, kind, label } => {
                                 if kind != TaskKind::PasswordResolve {
                                     app.active_task = Some(id);
+                                    app.task_progress = None;
+                                    if matches!(
+                                        kind,
+                                        TaskKind::Compress | TaskKind::Extract | TaskKind::Test
+                                    ) {
+                                        app.active_task_kind = Some(kind);
+                                        app.active_task_label = Some(label.clone());
+                                        cx.defer_in(window, |app, window, cx| {
+                                            app.open_progress_window(window, cx);
+                                        });
+                                    }
                                 }
                                 app.push_task_log(format!("排队：{label}"));
                                 app.status = label;
                             }
                             TaskEvent::Progress { id, progress } => {
                                 if app.active_task == Some(id) {
+                                    app.update_progress_window(progress.clone(), cx);
                                     app.task_progress = Some(progress);
                                 }
                             }
@@ -621,6 +658,9 @@ impl LumarkApp {
                                 if app.active_task == Some(id) {
                                     app.active_task = None;
                                     app.task_progress = None;
+                                    app.active_task_kind = None;
+                                    app.active_task_label = None;
+                                    app.dismiss_progress_window(cx);
                                 }
                                 app.push_task_log(format!("完成：{message}"));
                                 app.status = message;
@@ -651,6 +691,9 @@ impl LumarkApp {
                                 if app.active_task == Some(id) {
                                     app.active_task = None;
                                     app.task_progress = None;
+                                    app.active_task_kind = None;
+                                    app.active_task_label = None;
+                                    app.dismiss_progress_window(cx);
                                 }
                                 app.push_task_log(format!("失败：{message}"));
                                 app.status = format!("失败：{message}");
@@ -672,6 +715,9 @@ impl LumarkApp {
                                 if app.active_task == Some(id) {
                                     app.active_task = None;
                                     app.task_progress = None;
+                                    app.active_task_kind = None;
+                                    app.active_task_label = None;
+                                    app.dismiss_progress_window(cx);
                                 }
                                 app.push_task_log("任务已取消".to_string());
                                 app.status = "任务已取消".to_string();
@@ -700,9 +746,19 @@ mod util;
 mod view;
 
 pub(crate) use util::*;
-/// 在 gpui-kit 基础主题上应用 Lumark 的低饱和青绿色调。
-/// 语义颜色会同步刷新，确保原生控件与自定义表面在浅色和深色模式之间保持一致。
-fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Context<LumarkApp>) {
+/// 默认强调色：蓝色。
+const DEFAULT_ACCENT_COLOR: &str = "#2563eb";
+
+/// 在 gpui-kit 基础主题上应用 Lumark 的中性表面和用户强调色。
+///
+/// 语义颜色会同步刷新，确保原生控件与自定义表面在浅色和深色模式之间保持一致；
+/// 强调色来自设置，默认蓝色，修改后无需重启即可刷新所有窗口。
+fn apply_theme(
+    preference: ThemePreference,
+    accent_color: &str,
+    window: &mut Window,
+    cx: &mut Context<LumarkApp>,
+) {
     let mode = match preference {
         ThemePreference::Light => ThemeMode::Light,
         ThemePreference::Dark => ThemeMode::Dark,
@@ -741,16 +797,6 @@ fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Contex
         } else {
             hsla(214. / 360., 0.32, 0.91, 1.)
         };
-        let primary = if dark {
-            hsla(173. / 360., 0.65, 0.52, 1.)
-        } else {
-            hsla(174. / 360., 0.80, 0.30, 1.)
-        };
-        let accent = if dark {
-            hsla(174. / 360., 0.42, 0.16, 1.)
-        } else {
-            hsla(177. / 360., 0.46, 0.91, 1.)
-        };
 
         theme.background = background;
         theme.foreground = foreground;
@@ -776,29 +822,6 @@ fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Contex
             hsla(216. / 360., 0.27, 0.90, 1.)
         };
         theme.secondary_foreground = foreground;
-        theme.accent = accent;
-        theme.accent_foreground = if dark {
-            hsla(173. / 360., 0.66, 0.72, 1.)
-        } else {
-            hsla(174. / 360., 0.78, 0.25, 1.)
-        };
-        theme.selection = accent;
-        theme.primary = primary;
-        theme.primary_foreground = if dark {
-            hsla(217. / 360., 0.25, 0.08, 1.)
-        } else {
-            hsla(0., 0., 1., 1.)
-        };
-        theme.primary_hover = if dark {
-            hsla(173. / 360., 0.68, 0.58, 1.)
-        } else {
-            hsla(174. / 360., 0.82, 0.25, 1.)
-        };
-        theme.primary_active = if dark {
-            hsla(173. / 360., 0.62, 0.46, 1.)
-        } else {
-            hsla(174. / 360., 0.84, 0.22, 1.)
-        };
         theme.button = if dark {
             hsla(217. / 360., 0.19, 0.16, 1.)
         } else {
@@ -807,14 +830,6 @@ fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Contex
         theme.button_hover = theme.secondary_hover;
         theme.button_active = theme.secondary_active;
         theme.button_foreground = foreground;
-        theme.button_primary = primary;
-        theme.button_primary_hover = theme.primary_hover;
-        theme.button_primary_active = theme.primary_active;
-        theme.button_primary_foreground = if dark {
-            hsla(217. / 360., 0.25, 0.08, 1.)
-        } else {
-            hsla(0., 0., 1., 1.)
-        };
         theme.title_bar = if dark {
             hsla(217. / 360., 0.25, 0.09, 1.)
         } else {
@@ -833,10 +848,6 @@ fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Contex
         } else {
             hsla(218. / 360., 0.31, 0.955, 1.)
         };
-        theme.sidebar_accent = accent;
-        theme.sidebar_accent_foreground = theme.accent_foreground;
-        theme.list_active = accent;
-        theme.list_active_border = primary;
         theme.list_hover = if dark {
             hsla(217. / 360., 0.19, 0.16, 1.)
         } else {
@@ -849,7 +860,6 @@ fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Contex
         };
         theme.table = surface;
         theme.table_head = theme.list_head;
-        theme.table_active = accent;
         theme.table_hover = theme.list_hover;
         theme.status_bar = theme.title_bar;
         theme.status_bar_border = border;
@@ -890,7 +900,144 @@ fn apply_theme(preference: ThemePreference, window: &mut Window, cx: &mut Contex
         theme.radius_lg = px(14.);
         theme.font_size = px(13.5);
         theme.shadow = true;
+        theme.scrollbar_mode = gpui_kit::component::scroll::ScrollbarMode::Always;
+        apply_accent_color(theme, accent_color);
     });
+}
+
+/// 只刷新强调色相关的语义 token，供设置页颜色选择器实时调用。
+fn apply_theme_accent(accent_color: &str, cx: &mut Context<LumarkApp>) {
+    Theme::update(cx, |theme| apply_accent_color(theme, accent_color));
+}
+
+/// 从用户选定的主题色派生主色、悬停色、选中底色和前景色。
+///
+/// 只保留用户选择的色相和饱和度，明度按浅色/深色模式收敛到可读区间，
+/// 再用相对亮度决定主按钮文字使用白色还是深色，避免浅黄色等主题失去对比度。
+fn apply_accent_color(theme: &mut Theme, accent_color: &str) {
+    let dark = theme.mode.is_dark();
+    let base = gpui_kit::component::try_parse_color(accent_color)
+        .or_else(|_| gpui_kit::component::try_parse_color(DEFAULT_ACCENT_COLOR))
+        .unwrap_or_else(|_| hsla(221. / 360., 0.83, 0.53, 1.));
+    let saturation = base.s.clamp(0.12, 0.92);
+    let lightness = if dark {
+        base.l.clamp(0.56, 0.76)
+    } else {
+        base.l.clamp(0.34, 0.68)
+    };
+    let primary = hsla(base.h, saturation, lightness, 1.);
+    let primary_hover = hsla(
+        base.h,
+        saturation,
+        (lightness + if dark { 0.05 } else { 0.06 }).min(0.82),
+        1.,
+    );
+    let primary_active = hsla(
+        base.h,
+        saturation,
+        (lightness - if dark { 0.05 } else { 0.07 }).max(0.24),
+        1.,
+    );
+    let rgba = gpui_kit::Rgba::from(primary);
+    let luminance = 0.2126 * rgba.r + 0.7152 * rgba.g + 0.0722 * rgba.b;
+    let primary_foreground = if luminance > 0.56 {
+        hsla(base.h, 0.25, 0.12, 1.)
+    } else {
+        hsla(0., 0., 1., 1.)
+    };
+    let accent = if dark {
+        hsla(base.h, (saturation * 0.38).clamp(0.12, 0.36), 0.19, 1.)
+    } else {
+        hsla(base.h, (saturation * 0.50).clamp(0.18, 0.52), 0.94, 1.)
+    };
+    let accent_foreground = if dark {
+        hsla(base.h, (saturation * 0.55).clamp(0.20, 0.55), 0.80, 1.)
+    } else {
+        hsla(base.h, (saturation * 0.70).clamp(0.25, 0.75), 0.32, 1.)
+    };
+
+    theme.primary = primary;
+    theme.primary_hover = primary_hover;
+    theme.primary_active = primary_active;
+    theme.primary_foreground = primary_foreground;
+    theme.button_primary = primary;
+    theme.button_primary_hover = primary_hover;
+    theme.button_primary_active = primary_active;
+    theme.button_primary_foreground = primary_foreground;
+    theme.accent = accent;
+    theme.accent_foreground = accent_foreground;
+    theme.selection = accent;
+    theme.ring = primary;
+    theme.link = primary;
+    theme.link_hover = primary_hover;
+    theme.link_active = primary_active;
+    theme.list_active = accent;
+    theme.list_active_border = primary;
+    theme.sidebar_accent = accent;
+    theme.sidebar_accent_foreground = accent_foreground;
+    theme.table_active = accent;
+}
+
+/// 将颜色选择器返回的 Hsla 转成可持久化的十六进制字符串。
+fn hsla_to_hex(color: gpui_kit::Hsla) -> String {
+    let rgba = gpui_kit::Rgba::from(color);
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (rgba.r.clamp(0., 1.) * 255.).round() as u8,
+        (rgba.g.clamp(0., 1.) * 255.).round() as u8,
+        (rgba.b.clamp(0., 1.) * 255.).round() as u8
+    )
+}
+
+/// 设置页颜色选择器提供的快捷主题色。
+fn theme_accent_presets() -> Vec<gpui_kit::Hsla> {
+    [
+        "#2563eb", "#0d9488", "#16a34a", "#7c3aed", "#ea580c", "#e11d48",
+    ]
+    .iter()
+    .filter_map(|hex| gpui_kit::component::try_parse_color(hex).ok())
+    .collect()
+}
+
+impl LumarkApp {
+    /// 创建设置页的主题色选择器，并把用户选择实时写回设置和当前主题。
+    ///
+    /// 选择器只在启动时创建一次；它持有自己的输入和弹层状态，
+    /// 不参与主界面渲染借用，因此切换颜色时不需要重建窗口。
+    fn ensure_theme_color_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.theme_color_picker.is_some() {
+            return;
+        }
+        let accent_color = self.settings.get().accent_color;
+        let picker = cx.new(|cx| {
+            let mut state = ColorPickerState::new(window, cx);
+            if let Ok(color) = gpui_kit::component::try_parse_color(&accent_color) {
+                state.set_value(color, window, cx);
+            }
+            state
+        });
+        self.theme_color_subscription = Some(cx.subscribe(
+            &picker,
+            |this, _, event: &ColorPickerEvent, cx| {
+                let ColorPickerEvent::Change(Some(color)) = event else {
+                    return;
+                };
+                let hex = hsla_to_hex(*color);
+                match this
+                    .settings
+                    .update(|settings| settings.accent_color = hex.clone())
+                {
+                    Ok(()) => {
+                        apply_theme_accent(&hex, cx);
+                        this.status = format!("主题色：{hex}");
+                    }
+                    Err(error) => this.status = error.to_string(),
+                }
+                cx.notify();
+            },
+        ));
+        self.theme_color_picker = Some(picker);
+    }
 }
 
 /// 启动 GPUI 应用，并在打开主窗口前处理 Shell 集成请求。

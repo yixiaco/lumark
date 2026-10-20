@@ -1,12 +1,15 @@
 use super::super::*;
-use super::components::{AppIcon, card, entry_icon, icon_button};
+use super::components::{AppIcon, entry_icon, entry_icon_color, hint_text, icon_button};
 use gpui_kit::base::TestSupportExt as _;
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
+use gpui_kit::component::scroll::ScrollableElement as _;
 
 impl LumarkApp {
-    /// 渲染主文件浏览器，包括虚拟列表和可选的详情检查器。
+    /// 渲染主文件表，并在搜索结果激活时显示一条结果摘要。
     ///
     /// 选择按稳定条目 ID 跟踪，而不是行索引，因此排序、过滤和虚拟列表回收
-    /// 都不会让选择静默跳到其他文件。
+    /// 都不会让选择静默跳到其他文件。详细信息已移到侧栏下半部分，
+    /// 文件表因此可以使用窗口的全部剩余宽度。
     pub(crate) fn render_browser(
         &self,
         window: &Window,
@@ -20,8 +23,8 @@ impl LumarkApp {
             .size
             .width
             .as_f32();
-        let details = self.details_visible && window_width >= 1180.;
-        let main_width = (window_width - 220. - 32. - if details { 252. } else { 0. }).max(420.);
+        let sidebar_width = if self.sidebar_visible { 252. } else { 0. };
+        let main_width = (window_width - sidebar_width - 24.).max(420.);
         let (size_width, modified_width, kind_width) = column_layout_widths(self.column_layout);
         let tile_view = self.tile_view;
         let tile_columns = if tile_view {
@@ -34,19 +37,11 @@ impl LumarkApp {
         } else {
             entry_count
         };
-        let row_height = if tile_view { px(92.) } else { px(34.) };
+        let row_height = if tile_view { px(92.) } else { px(31.) };
         let item_sizes = Rc::new(vec![
             gpui_kit::size(px(main_width), row_height);
             virtual_rows
         ]);
-        let selected_count = self.browser.selection.count();
-        let overflow_target = self
-            .browser
-            .selection
-            .focus()
-            .map(str::to_owned)
-            .or_else(|| self.displayed_entry_at(0).map(|entry| entry.id))
-            .unwrap_or_default();
         let total_size = self
             .displayed_entries()
             .iter()
@@ -60,6 +55,7 @@ impl LumarkApp {
             .min_w_0()
             .min_h_0()
             .overflow_hidden()
+            .bg(cx.theme().table)
             .track_focus(&self.browser_focus)
             .on_key_down(
                 cx.listener(move |this, event: &gpui_kit::KeyDownEvent, window, cx| {
@@ -94,487 +90,315 @@ impl LumarkApp {
                 }),
             )
             .flex_1()
-            .p_4()
-            .gap_3()
+            .when(search_active, |this| {
+                this.child(
+                    h_flex()
+                        .h(px(30.))
+                        .w_full()
+                        .flex_shrink_0()
+                        .px_3()
+                        .gap_2()
+                        .items_center()
+                        .bg(cx.theme().accent)
+                        .text_color(cx.theme().accent_foreground)
+                        .text_xs()
+                        .child(AppIcon::Search.element(13.))
+                        .child(format!(
+                            "搜索结果 · {entry_count} 项 · {}",
+                            format_size(total_size)
+                        ))
+                        .child(
+                            Button::new("search-result-clear")
+                                .link()
+                                .xsmall()
+                                .ml_auto()
+                                .label("清除搜索")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.clear_search();
+                                    cx.notify();
+                                })),
+                        ),
+                )
+            })
             .child(
                 h_flex()
                     .w_full()
-                    .items_center()
+                    .h(px(30.))
+                    .flex_shrink_0()
                     .gap_2()
-                    .child(
-                        v_flex()
-                            .gap(px(0.))
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(div().text_lg().font_semibold().child("文件"))
-                                    .child(
-                                        div()
-                                            .px_2()
-                                            .py(px(1.))
-                                            .rounded_full()
-                                            .bg(cx.theme().muted)
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(format!("{entry_count} 项")),
-                                    )
-                                    .when(selected_count > 0, |this| {
-                                        this.child(
-                                            div()
-                                                .px_2()
-                                                .py(px(1.))
-                                                .rounded_full()
-                                                .bg(cx.theme().accent)
-                                                .text_color(cx.theme().accent_foreground)
-                                                .text_xs()
-                                                .child(format!("已选 {selected_count}")),
-                                        )
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(if search_active {
-                                        format!("搜索结果 · {total_size} 字节")
-                                    } else {
-                                        self.browser.current_display()
-                                    }),
-                            ),
-                    )
-                    .child(
+                    .px_3()
+                    .items_center()
+                    .bg(cx.theme().list_head)
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .text_xs()
+                    .font_semibold()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(div().w(px(22.)).flex_shrink_0())
+                    .child(if tile_view {
+                        div().flex_1().child("名称与类型").into_any_element()
+                    } else {
                         h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_2()
+                            .child(div().flex_1().min_w_0().child("名称"))
+                            .child(div().w(px(size_width)).child("大小"))
+                            .child(div().w(px(modified_width)).child("修改时间"))
+                            .child(div().w(px(kind_width)).child("类型"))
+                            .into_any_element()
+                    }),
+            )
+            .when(entry_count == 0, |this| {
+                this.child(
+                    v_flex()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .p_8()
+                        .child(
+                            div()
+                                .size(px(52.))
+                                .rounded_full()
+                                .bg(cx.theme().muted)
+                                .text_color(cx.theme().muted_foreground)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(AppIcon::FolderOpen.element(24.)),
+                        )
+                        .child(div().font_semibold().child(if search_active {
+                            "没有匹配的项目"
+                        } else {
+                            "此文件夹为空"
+                        }))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("拖入文件即可开始压缩，或切换到其他位置。"),
+                        ),
+                )
+            })
+            .when(entry_count > 0, |this| {
+                let scroll = self.file_list_scroll.clone();
+                this.child(
+                    v_flex()
+                        .flex_1()
+                        .w_full()
+                        .min_h_0()
+                        .relative()
+                        .overflow_hidden()
+                        .child(
+                            gpui_kit::base::v_virtual_list(
+                                cx.entity(),
+                                "file-list",
+                                item_sizes,
+                                move |app, range, _window, cx| {
+                                    range
+                                        .map(|virtual_index| {
+                                            if tile_view {
+                                                render_tile_row(
+                                                    app,
+                                                    cx,
+                                                    virtual_index,
+                                                    tile_columns,
+                                                    row_height,
+                                                )
+                                                .into_any_element()
+                                            } else {
+                                                render_file_row(
+                                                    app,
+                                                    cx,
+                                                    virtual_index,
+                                                    row_height,
+                                                    size_width,
+                                                    modified_width,
+                                                    kind_width,
+                                                )
+                                                .into_any_element()
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                },
+                            )
+                            .track_scroll(&scroll),
+                        )
+                        .vertical_scrollbar(&scroll),
+                )
+            })
+    }
+
+    /// 渲染侧栏下半部分的信息检查器。
+    ///
+    /// 选中项目时显示大小、时间、路径和归档条目元数据；未选中时显示
+    /// 当前文件夹摘要，对应参考图片中“详细信息”区域的两种状态。
+    pub(crate) fn render_details(
+        &self,
+        max_height: f32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = self.selected_entry();
+        let has_selection = selected.is_some();
+        let display = self.browser.current_display();
+        let folder_name = Path::new(&display)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| display.clone());
+        let entry_count = self.displayed_count();
+        let total_size = self
+            .displayed_entries()
+            .iter()
+            .map(|entry| entry.size)
+            .sum::<u64>();
+        v_flex()
+            .id("details-panel")
+            .w_full()
+            .flex_shrink_0()
+            .max_h(px(max_height))
+            .overflow_hidden()
+            .bg(cx.theme().popover)
+            .border_t_1()
+            .border_color(cx.theme().sidebar_border)
+            .child(
+                h_flex()
+                    .h(px(28.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .gap_1()
+                    .items_center()
+                    .bg(cx.theme().sidebar_primary)
+                    .text_color(cx.theme().sidebar_foreground)
+                    .child(AppIcon::Doc.element(13.))
+                    .child(div().text_xs().font_semibold().child("详细信息"))
+                    .child(
+                        icon_button("details-hide", AppIcon::Close, "隐藏详细信息")
                             .ml_auto()
-                            .gap_1()
-                            .child(
-                                Button::new("column-layout")
-                                    .ghost()
-                                    .small()
-                                    .label(match self.column_layout {
-                                        0 => "紧凑列",
-                                        2 => "宽松列",
-                                        _ => "标准列",
-                                    })
-                                    .tooltip("切换列宽")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.cycle_column_layout();
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                icon_button("browser-delete", AppIcon::Delete, "删除所选")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.request_delete();
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                icon_button("browser-more", AppIcon::More, "更多操作").on_click(
-                                    cx.listener(
-                                        move |this, event: &gpui_kit::ClickEvent, _, cx| {
-                                            this.show_file_context_menu(
-                                                &overflow_target,
-                                                event.position(),
-                                            );
-                                            cx.notify();
-                                        },
-                                    ),
-                                ),
-                            ),
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_details();
+                                cx.notify();
+                            })),
                     ),
             )
             .child(
-                h_flex()
-                    .flex_1()
-                    .w_full()
-                    .min_h_0()
-                    .min_w_0()
-                    .items_stretch()
-                    .gap_3()
-                    .child(
-                        card(cx)
-                            .w(px((main_width - 12.).max(360.)))
-                            .flex_shrink_0()
-                            .h_full()
-                            .min_w_0()
-                            .min_h_0()
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .h(px(38.))
-                                    .px_4()
-                                    .gap_2()
-                                    .items_center()
-                                    .bg(cx.theme().list_head)
-                                    .border_b_1()
-                                    .border_color(cx.theme().border)
-                                    .text_xs()
-                                    .font_semibold()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(if tile_view {
-                                        div().child("名称与类型")
-                                    } else {
-                                        h_flex()
-                                            .w_full()
-                                            .gap_2()
-                                            .child(div().flex_1().child("名称"))
-                                            .child(div().w(px(size_width)).child("大小"))
-                                            .child(div().w(px(modified_width)).child("修改时间"))
-                                            .child(div().w(px(kind_width)).child("类型"))
-                                    }),
-                            )
-                            .when(entry_count == 0, |this| {
-                                this.child(
-                                    v_flex()
-                                        .flex_1()
-                                        .items_center()
-                                        .justify_center()
-                                        .gap_2()
-                                        .p_8()
-                                        .child(
-                                            div()
-                                                .size(px(52.))
-                                                .rounded_full()
-                                                .bg(cx.theme().muted)
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .child(AppIcon::FolderOpen.element(24.)),
-                                        )
-                                        .child(div().font_semibold().child(if search_active {
-                                            "没有匹配的项目"
-                                        } else {
-                                            "此文件夹为空"
-                                        }))
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child("拖入文件即可开始压缩，或切换到其他位置。"),
-                                        ),
-                                )
-                            })
-                            .when(entry_count > 0, |this| {
-                                let scroll = self.file_list_scroll.clone();
-                                this.child(
-                                    v_flex()
-                                        .flex_1()
-                                        .w_full()
-                                        .min_h_0()
-                                        .overflow_hidden()
-                                        .child(
-                                            gpui_kit::base::v_virtual_list(
-                                                cx.entity(),
-                                                "file-list",
-                                                item_sizes,
-                                                move |app, range, _window, cx| {
-                                                    range
-                                                        .map(|virtual_index| {
-                                                            if tile_view {
-                                                                render_tile_row(
-                                                                    app,
-                                                                    cx,
-                                                                    virtual_index,
-                                                                    tile_columns,
-                                                                    row_height,
-                                                                )
-                                                                .into_any_element()
-                                                            } else {
-                                                                render_file_row(
-                                                                    app,
-                                                                    cx,
-                                                                    virtual_index,
-                                                                    row_height,
-                                                                    size_width,
-                                                                    modified_width,
-                                                                    kind_width,
-                                                                )
-                                                                .into_any_element()
-                                                            }
-                                                        })
-                                                        .collect::<Vec<_>>()
-                                                },
-                                            )
-                                            .track_scroll(&scroll),
-                                        )
-                                        .child(
-                                            div()
-                                                .absolute()
-                                                .bottom_0()
-                                                .left_0()
-                                                .right_0()
-                                                .h(px(1.))
-                                                .bg(cx.theme().border),
-                                        ),
-                                )
-                            }),
-                    )
-                    .when(details, |this| this.child(self.render_details(cx))),
-            )
-    }
-
-    /// 渲染所选项目的元数据、压缩信息和加密状态，不阻塞文件系统读取。
-    pub(crate) fn render_details(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.selected_entry();
-        let has_selection = selected.is_some();
-        v_flex()
-            .id("details-panel")
-            .w(px(252.))
-            .flex_shrink_0()
-            .min_h_0()
-            .overflow_y_scroll()
-            .bg(cx.theme().popover)
-            .border_1()
-            .border_color(cx.theme().border)
-            .rounded_lg()
-            .child(
-                h_flex()
-                    .px_4()
-                    .py_3()
+                v_flex()
+                    .id("details-body")
+                    .p_3()
                     .gap_2()
-                    .items_center()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(AppIcon::Doc.element(16.))
-                    .child(div().text_sm().font_semibold().child("详细信息")),
-            )
-            .when_some(selected, |this, entry| {
-                this.child(
-                    v_flex()
-                        .p_4()
-                        .gap_3()
-                        .child(
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .when_some(selected, |this, entry| {
+                        let icon_color = entry_icon_color(cx, &entry);
+                        this.child(
                             h_flex()
-                                .gap_3()
-                                .items_center()
+                                .w_full()
+                                .gap_2()
+                                .items_start()
                                 .child(
                                     div()
-                                        .size(px(48.))
                                         .flex_shrink_0()
-                                        .rounded_lg()
-                                        .bg(cx.theme().accent)
-                                        .text_color(cx.theme().accent_foreground)
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .child(entry_icon(&entry).element(26.)),
+                                        .text_color(icon_color)
+                                        .child(entry_icon(&entry).element(17.)),
                                 )
                                 .child(
-                                    v_flex()
+                                    div()
+                                        .flex_1()
                                         .min_w_0()
-                                        .gap_1()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .font_semibold()
-                                                .child(entry.name.clone()),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(entry.kind.clone()),
-                                        ),
+                                        .text_sm()
+                                        .font_semibold()
+                                        .whitespace_normal()
+                                        .child(entry.name.clone()),
                                 ),
                         )
-                        .child(div().h(px(1.)).bg(cx.theme().border))
-                        .child(detail_line(cx, "位置", &entry.path.display().to_string()))
-                        .child(detail_line(cx, "大小", &format_size(entry.size)))
+                        .child(detail_row(cx, "类型", &entry.kind))
+                        .child(detail_row(cx, "大小", &format_size(entry.size)))
                         .when_some(entry.modified, |this, modified| {
-                            this.child(detail_line(
+                            this.child(detail_row(
                                 cx,
                                 "修改时间",
                                 &modified.format("%Y-%m-%d %H:%M:%S").to_string(),
                             ))
                         })
+                        .child(detail_row(cx, "位置", &entry.path.display().to_string()))
                         .when(entry.encrypted, |this| {
                             this.child(
                                 h_flex()
-                                    .gap_2()
+                                    .gap_1()
                                     .items_center()
-                                    .rounded_md()
+                                    .rounded_sm()
                                     .bg(cx.theme().warning)
                                     .text_color(cx.theme().warning_foreground)
-                                    .p_2()
-                                    .child(AppIcon::FileLock.element(15.))
-                                    .child(div().text_xs().font_semibold().child("加密条目")),
+                                    .px_2()
+                                    .py_1()
+                                    .child(AppIcon::FileLock.element(12.))
+                                    .child(div().text_xs().child("加密条目")),
                             )
                         })
-                        .when_some(entry.archive_entry.as_ref(), |this, archive| {
-                            this.child(div().h(px(1.)).bg(cx.theme().border))
-                                .child(detail_line(
-                                    cx,
-                                    "压缩后",
-                                    &archive
-                                        .compressed_size
-                                        .map(format_size)
-                                        .unwrap_or_else(|| "—".to_string()),
-                                ))
-                                .child(detail_line(cx, "压缩方法", &archive.method))
-                                .child(detail_line(
-                                    cx,
-                                    "CRC32",
-                                    &archive
-                                        .crc32
-                                        .map(|value| format!("{value:08X}"))
-                                        .unwrap_or_else(|| "—".to_string()),
-                                ))
-                                .child(detail_line(
-                                    cx,
-                                    "加密",
-                                    if archive.encrypted { "是" } else { "否" },
-                                ))
-                        }),
-                )
-            })
-            .when(!has_selection, |this| {
-                this.child(
-                    v_flex()
-                        .flex_1()
-                        .p_5()
-                        .items_center()
-                        .justify_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .size(px(44.))
-                                .rounded_full()
-                                .bg(cx.theme().muted)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(AppIcon::Search.element(20.)),
+                        .when_some(
+                            entry.archive_entry.as_ref(),
+                            |this, archive| {
+                                this.child(div().h(px(1.)).bg(cx.theme().border))
+                                    .child(detail_row(
+                                        cx,
+                                        "压缩后",
+                                        &archive
+                                            .compressed_size
+                                            .map(format_size)
+                                            .unwrap_or_else(|| "—".to_string()),
+                                    ))
+                                    .child(detail_row(cx, "压缩方法", &archive.method))
+                                    .child(detail_row(
+                                        cx,
+                                        "CRC32",
+                                        &archive
+                                            .crc32
+                                            .map(|value| format!("{value:08X}"))
+                                            .unwrap_or_else(|| "—".to_string()),
+                                    ))
+                                    .child(detail_row(
+                                        cx,
+                                        "加密",
+                                        if archive.encrypted { "是" } else { "否" },
+                                    ))
+                            },
                         )
-                        .child(div().text_sm().font_semibold().child("选择一个项目"))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .text_center()
-                                .child("这里会显示大小、时间、CRC 和压缩方法。"),
-                        ),
-                )
-            })
-    }
-
-    /// 渲染文件行右键菜单。
-    ///
-    /// 透明全窗口层会在外部点击时关闭菜单；菜单自身会遮挡该处理器，
-    /// 确保命令仍可操作。
-    pub(crate) fn render_file_context_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let position = self
-            .context_menu_position
-            .unwrap_or_else(|| gpui_kit::point(px(120.), px(120.)));
-        div()
-            .absolute()
-            .inset_0()
-            .on_mouse_down(
-                gpui_kit::MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.show_context_menu = false;
-                    cx.notify();
-                }),
-            )
-            .child(
-                v_flex()
-                    .absolute()
-                    .left(position.x)
-                    .top(position.y)
-                    .w(px(208.))
-                    .p_1()
-                    .gap(px(2.))
-                    .occlude()
-                    .bg(cx.theme().popover)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .rounded_lg()
-                    .shadow_lg()
-                    .on_mouse_down(gpui_kit::MouseButton::Left, cx.listener(|_, _, _, _| {}))
-                    .child(context_action(
-                        "context-open",
-                        AppIcon::FolderOpen,
-                        "打开",
-                        false,
-                        cx,
-                        |this, window, cx| {
-                            this.show_context_menu = false;
-                            this.open_selected(window, cx);
-                        },
-                    ))
-                    .child(context_action(
-                        "context-extract",
-                        AppIcon::Zip,
-                        "解压到…",
-                        false,
-                        cx,
-                        |this, window, cx| {
-                            this.show_context_menu = false;
-                            this.open_extract_dialog(window, cx);
-                        },
-                    ))
-                    .child(context_action(
-                        "context-compress",
-                        AppIcon::Compression,
-                        "压缩所选项目",
-                        false,
-                        cx,
-                        |this, window, cx| {
-                            this.show_context_menu = false;
-                            this.open_compress_dialog(window, cx);
-                        },
-                    ))
-                    .child(div().mx_2().my_1().h(px(1.)).bg(cx.theme().border))
-                    .child(context_action(
-                        "context-rename",
-                        AppIcon::Edit,
-                        "重命名",
-                        false,
-                        cx,
-                        |this, window, cx| {
-                            this.show_context_menu = false;
-                            this.start_rename(window, cx);
-                        },
-                    ))
-                    .child(context_action(
-                        "context-copy-path",
-                        AppIcon::Copy,
-                        "复制路径",
-                        false,
-                        cx,
-                        |this, _window, cx| {
-                            this.show_context_menu = false;
-                            this.copy_selected_path(cx);
-                        },
-                    ))
-                    .child(context_action(
-                        "context-reveal",
-                        AppIcon::Search,
-                        "在资源管理器中显示",
-                        false,
-                        cx,
-                        |this, _window, _cx| {
-                            this.show_context_menu = false;
-                            this.reveal_selected();
-                        },
-                    ))
-                    .child(div().mx_2().my_1().h(px(1.)).bg(cx.theme().border))
-                    .child(context_action(
-                        "context-delete",
-                        AppIcon::Delete,
-                        "删除",
-                        true,
-                        cx,
-                        |this, _window, _cx| {
-                            this.show_context_menu = false;
-                            this.request_delete();
-                        },
-                    )),
+                    })
+                    .when(!has_selection, |this| {
+                        this.child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .items_start()
+                                .child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_color(cx.theme().warning_foreground)
+                                        .child(AppIcon::Folder.element(17.)),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_sm()
+                                        .font_semibold()
+                                        .whitespace_normal()
+                                        .child(folder_name),
+                                ),
+                        )
+                        .child(detail_row(cx, "类型", "文件夹"))
+                        .child(detail_row(cx, "项目", &format!("{entry_count} 项")))
+                        .child(detail_row(cx, "总计", &format_size(total_size)))
+                        .child(detail_row(cx, "位置", &display))
+                        .child(hint_text(cx, "选择一个项目可查看 CRC 和压缩方法。"))
+                    }),
             )
     }
 }
 
-/// 渲染详情列表中的一个虚拟行。
+/// 渲染详情列表中的一个紧凑虚拟行。
 fn render_file_row(
     app: &mut LumarkApp,
     cx: &mut Context<LumarkApp>,
@@ -590,11 +414,11 @@ fn render_file_row(
             .into_any_element();
     };
     let id = entry.id.clone();
-    let row_id = id.clone();
     let mouse_id = id.clone();
     let double_id = id.clone();
     let context_id = id.clone();
     let selected = app.browser.selection.is_selected(&id);
+    let icon_color = entry_icon_color(cx, &entry);
     let modified = entry
         .modified
         .map(|value| value.format("%Y-%m-%d %H:%M").to_string())
@@ -605,7 +429,7 @@ fn render_file_row(
         .w_full()
         .h(row_height)
         .gap_2()
-        .px_4()
+        .px_3()
         .border_b_1()
         .border_color(cx.theme().border)
         .cursor_pointer()
@@ -615,23 +439,13 @@ fn render_file_row(
         })
         .child(
             div()
-                .size(px(24.))
+                .w(px(22.))
                 .flex_shrink_0()
-                .rounded_md()
-                .bg(if selected {
-                    cx.theme().accent
-                } else {
-                    cx.theme().muted
-                })
-                .text_color(if selected {
-                    cx.theme().accent_foreground
-                } else {
-                    cx.theme().muted_foreground
-                })
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(entry_icon(&entry).element(14.)),
+                .text_color(icon_color)
+                .child(entry_icon(&entry).element(15.)),
         )
         .child(
             div()
@@ -640,19 +454,21 @@ fn render_file_row(
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_sm()
-                .font_semibold()
                 .child(entry.name.clone()),
         )
         .child(
             div()
                 .w(px(size_width))
+                .flex_shrink_0()
                 .text_xs()
+                .whitespace_nowrap()
                 .text_color(cx.theme().muted_foreground)
                 .child(format_size(entry.size)),
         )
         .child(
             div()
                 .w(px(modified_width))
+                .flex_shrink_0()
                 .text_xs()
                 .whitespace_nowrap()
                 .text_color(cx.theme().muted_foreground)
@@ -661,6 +477,7 @@ fn render_file_row(
         .child(
             div()
                 .w(px(kind_width))
+                .flex_shrink_0()
                 .text_xs()
                 .whitespace_nowrap()
                 .overflow_hidden()
@@ -686,12 +503,14 @@ fn render_file_row(
         )
         .on_mouse_down(
             gpui_kit::MouseButton::Right,
-            cx.listener(move |this, event: &gpui_kit::MouseDownEvent, _, cx| {
-                this.browser.selection.select_only(&context_id);
-                this.show_file_context_menu(&row_id, event.position);
+            cx.listener(move |this, _: &gpui_kit::MouseDownEvent, _, cx| {
+                if !this.browser.selection.is_selected(&context_id) {
+                    this.browser.selection.select_only(&context_id);
+                }
                 cx.notify();
             }),
         )
+        .context_menu(file_context_menu(cx.entity()))
         .into_any_element()
 }
 
@@ -718,6 +537,7 @@ fn render_tile_row(
             let double_id = id.clone();
             let context_id = id.clone();
             let selected = app.browser.selection.is_selected(&id);
+            let icon_color = entry_icon_color(cx, &entry);
             Some(
                 v_flex()
                     .id(format!("file-tile-{id}"))
@@ -746,14 +566,9 @@ fn render_tile_row(
                             .items_center()
                             .child(
                                 div()
-                                    .size(px(28.))
-                                    .rounded_md()
-                                    .bg(cx.theme().accent)
-                                    .text_color(cx.theme().accent_foreground)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(entry_icon(&entry).element(16.)),
+                                    .flex_shrink_0()
+                                    .text_color(icon_color)
+                                    .child(entry_icon(&entry).element(17.)),
                             )
                             .child(
                                 div()
@@ -793,55 +608,118 @@ fn render_tile_row(
                     )
                     .on_mouse_down(
                         gpui_kit::MouseButton::Right,
-                        cx.listener(move |this, event: &gpui_kit::MouseDownEvent, _, cx| {
-                            this.browser.selection.select_only(&context_id);
-                            this.show_file_context_menu(&id, event.position);
+                        cx.listener(move |this, _: &gpui_kit::MouseDownEvent, _, cx| {
+                            if !this.browser.selection.is_selected(&context_id) {
+                                this.browser.selection.select_only(&context_id);
+                            }
                             cx.notify();
                         }),
-                    ),
+                    )
+                    .context_menu(file_context_menu(cx.entity())),
             )
         }))
 }
 
-/// 渲染详情面板中的带标签值。
-fn detail_line(cx: &Context<LumarkApp>, label: &str, value: &str) -> gpui_kit::Div {
-    v_flex()
-        .gap_1()
+/// 构建文件行使用的官方右键菜单。
+///
+/// 菜单项通过 `PopupMenuItem::on_click` 直接调用应用动作，避免再维护一套
+/// 自绘菜单和透明关闭层；菜单的定位、键盘导航、分隔线和阴影由组件库负责。
+fn file_context_menu(
+    app: gpui_kit::Entity<LumarkApp>,
+) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+    move |menu, window, _| {
+        menu.item(popup_action(
+            "打开",
+            AppIcon::FolderOpen,
+            &app,
+            window,
+            |app, window, cx| app.open_selected(window, cx),
+        ))
+        .item(popup_action(
+            "解压到…",
+            AppIcon::Zip,
+            &app,
+            window,
+            |app, window, cx| app.open_extract_dialog(window, cx),
+        ))
+        .item(popup_action(
+            "压缩所选项目",
+            AppIcon::Compression,
+            &app,
+            window,
+            |app, window, cx| app.open_compress_dialog(window, cx),
+        ))
+        .separator()
+        .item(popup_action(
+            "重命名",
+            AppIcon::Edit,
+            &app,
+            window,
+            |app, window, cx| app.start_rename(window, cx),
+        ))
+        .item(popup_action(
+            "复制路径",
+            AppIcon::Copy,
+            &app,
+            window,
+            |app, _, cx| app.copy_selected_path(cx),
+        ))
+        .item(popup_action(
+            "在资源管理器中显示",
+            AppIcon::Search,
+            &app,
+            window,
+            |app, _, _| app.reveal_selected(),
+        ))
+        .separator()
+        .item(popup_action(
+            "删除",
+            AppIcon::Delete,
+            &app,
+            window,
+            |app, _, _| app.request_delete(),
+        ))
+    }
+}
+
+/// 创建一个带图标、点击后调用应用动作的官方菜单项。
+fn popup_action(
+    label: &'static str,
+    icon: AppIcon,
+    app: &gpui_kit::Entity<LumarkApp>,
+    window: &mut Window,
+    action: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
+) -> PopupMenuItem {
+    PopupMenuItem::new(label)
+        .icon(icon.element(14.))
+        .on_click(
+            window.listener_for(app, move |app, _: &gpui_kit::ClickEvent, window, cx| {
+                action(app, window, cx);
+                cx.notify();
+            }),
+        )
+}
+
+/// 渲染详情检查器中的带标签值，标签固定宽度保证多行值对齐。
+fn detail_row(cx: &Context<LumarkApp>, label: &str, value: &str) -> gpui_kit::Div {
+    h_flex()
+        .w_full()
+        .gap_2()
+        .items_start()
         .child(
             div()
+                .w(px(44.))
+                .flex_shrink_0()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
                 .child(label.to_string()),
         )
         .child(
             div()
-                .text_sm()
-                .overflow_hidden()
+                .flex_1()
+                .min_w_0()
+                .text_xs()
                 .whitespace_normal()
                 .child(value.to_string()),
         )
-}
-
-/// 构建带图标且点击区域一致的右键菜单操作。
-fn context_action(
-    id: &'static str,
-    icon: AppIcon,
-    label: &'static str,
-    danger: bool,
-    cx: &mut Context<LumarkApp>,
-    action: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
-) -> impl IntoElement {
-    let mut button = Button::new(id)
-        .ghost()
-        .w_full()
-        .justify_start()
-        .icon(icon.element(15.))
-        .label(label);
-    if danger {
-        button = button.danger();
-    }
-    button.on_click(cx.listener(move |this, _, window, cx| {
-        action(this, window, cx);
-        cx.notify();
-    }))
 }

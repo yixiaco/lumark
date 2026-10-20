@@ -158,18 +158,146 @@ impl LumarkApp {
         set_input(&self.compress_store, "", window, cx);
         set_input(&self.compress_split, "", window, cx);
         set_input(&self.compress_dictionary, "", window, cx);
-        set_input(&self.compress_threads, "1", window, cx);
+        set_input(
+            &self.compress_threads,
+            &default_compress_threads().to_string(),
+            window,
+            cx,
+        );
         set_input(&self.compress_after, "", window, cx);
         set_input(&self.compress_before, "", window, cx);
         self.compress_tab = 0;
         self.compress_test_after = false;
         self.compress_delete_source = false;
         self.compress_zipcrypto = false;
-        self.show_compress = true;
+        self.compress_password_visible = false;
+        self.show_compress = false;
         self.status = format!("准备压缩 {} 个项目", sources.len());
+        self.open_compress_window(window, cx);
+    }
+
+    /// 切换压缩格式，并把输出输入框的扩展名同步为新格式。
+    ///
+    /// 输出路径为空时只记录格式，避免生成以 "." 开头的怪文件名。
+    #[allow(dead_code)]
+    pub(crate) fn set_compress_format(
+        &mut self,
+        format: ArchiveFormat,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.compress_format = format;
+        let current = PathBuf::from(input_value(&self.compress_output, cx));
+        if !current.as_os_str().is_empty() {
+            let replacement = replace_archive_extension(&current, format);
+            set_input(
+                &self.compress_output,
+                replacement.to_string_lossy().as_ref(),
+                window,
+                cx,
+            );
+        }
+    }
+
+    /// 打开系统目录选择器，把压缩包输出位置切换到用户选中的目录。
+    ///
+    /// 保留原文件名，只替换父目录；用户取消选择时输入框保持不变。
+    #[allow(dead_code)]
+    pub(crate) fn choose_compress_output_dir(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = PathBuf::from(input_value(&self.compress_output, cx));
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("选择压缩包输出目录".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(directory) = paths.into_iter().next()
+            {
+                let _ = this.update_in(cx, |app, window, cx| {
+                    let name = current
+                        .file_name()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("archive.zip");
+                    let target = directory.join(name);
+                    set_input(
+                        &app.compress_output,
+                        target.to_string_lossy().as_ref(),
+                        window,
+                        cx,
+                    );
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 打开系统目录选择器，把解压目标切换到用户选中的目录。
+    pub(crate) fn choose_extract_output_dir(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("选择解压目标目录".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(directory) = paths.into_iter().next()
+            {
+                let _ = this.update_in(cx, |app, window, cx| {
+                    set_input(
+                        &app.extract_output,
+                        directory.to_string_lossy().as_ref(),
+                        window,
+                        cx,
+                    );
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 提交独立压缩窗口构建好的任务参数。
+    ///
+    /// 对话框窗口只负责收集参数；任务和进度窗口仍由主应用统一管理，
+    /// 因此关闭对话框不会影响已经提交的后台任务。
+    pub(crate) fn start_compress_from_options(
+        &mut self,
+        output: PathBuf,
+        sources: Vec<PathBuf>,
+        options: CompressionOptions,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if sources.is_empty() {
+            self.status = "当前没有可压缩的项目".to_string();
+            return;
+        }
+        let id = self.tasks.submit(lumark_tasks::TaskRequest::Compress {
+            output: output.clone(),
+            sources,
+            options,
+        });
+        self.active_task = Some(id);
+        self.task_progress = None;
+        self.show_compress = false;
+        self.status = format!("开始压缩：{}", output.display());
+        cx.notify();
     }
 
     /// 校验压缩输入并提交后台压缩任务。
+    #[allow(dead_code)]
     pub(crate) fn start_compress(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let output = PathBuf::from(input_value(&self.compress_output, cx));
         if output.as_os_str().is_empty() {
@@ -191,7 +319,7 @@ impl LumarkApp {
         let threads = input_value(&self.compress_threads, cx)
             .trim()
             .parse::<u32>()
-            .unwrap_or(1)
+            .unwrap_or_else(|_| default_compress_threads())
             .clamp(1, 64);
         let modified_after = parse_date(&input_value(&self.compress_after, cx));
         let modified_before = parse_date(&input_value(&self.compress_before, cx));
@@ -247,6 +375,9 @@ impl LumarkApp {
     }
 
     /// 在密码解析后准备解压目标目录和选择状态。
+    ///
+    /// 只有真正可以显示对话框时才把 `show_extract` 置为 true；需要自动尝试
+    /// 密码或先解锁密码库时，等待后续结果再打开独立解压窗口。
     pub(crate) fn prepare_extract_dialog(
         &mut self,
         archive: PathBuf,
@@ -272,16 +403,17 @@ impl LumarkApp {
             cx,
         );
         self.extract_selection_only = false;
-        self.show_extract = true;
         if password.is_some() {
             self.archive_password = Some(zeroize::Zeroizing::new(
                 password.unwrap_or_default().to_string(),
             ));
             self.status = "已从密码管理中找到可用密码".to_string();
+            self.show_extract = true;
             return;
         }
         if !auto_resolve {
             self.status = format!("准备解压：{}（加密包请输入密码）", archive.display());
+            self.show_extract = true;
             return;
         }
         let encryption = ArchiveService::probe_encryption(&archive);
@@ -289,6 +421,7 @@ impl LumarkApp {
             Ok(info) if info.encrypted => {
                 if !self.vault.settings().auto_extract {
                     self.status = "压缩包已加密，请输入密码".to_string();
+                    self.show_extract = true;
                     return;
                 }
                 match self.vault.state() {
@@ -300,6 +433,7 @@ impl LumarkApp {
                             },
                         ) {
                             self.status = "没有可用的记录密码，请手动输入".to_string();
+                            self.show_extract = true;
                         }
                     }
                     VaultState::Locked => {
@@ -310,11 +444,18 @@ impl LumarkApp {
                     }
                     VaultState::Uninitialized => {
                         self.status = "压缩包已加密，请输入密码".to_string();
+                        self.show_extract = true;
                     }
                 }
             }
-            Ok(_) => self.status = format!("准备解压：{}", archive.display()),
-            Err(error) => self.status = error.to_string(),
+            Ok(_) => {
+                self.status = format!("准备解压：{}", archive.display());
+                self.show_extract = true;
+            }
+            Err(error) => {
+                self.status = error.to_string();
+                self.show_extract = true;
+            }
         }
     }
 
@@ -802,4 +943,15 @@ impl LumarkApp {
             Err(error) => self.status = error.to_string(),
         }
     }
+}
+
+/// 返回适合当前机器的默认压缩线程数。
+///
+/// 7Z 的 LZMA2 多线程编码会按线程数分配工作缓冲，这里限制在 8 以内，
+/// 兼顾速度与内存占用；ZIP 的 Deflate 仍由压缩库决定是否并行。
+fn default_compress_threads() -> u32 {
+    std::thread::available_parallelism()
+        .map(|count| count.get() as u32)
+        .unwrap_or(1)
+        .clamp(1, 8)
 }

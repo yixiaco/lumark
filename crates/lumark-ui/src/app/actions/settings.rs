@@ -12,7 +12,8 @@ impl LumarkApp {
             self.status = error.to_string();
             return;
         }
-        apply_theme(next, window, cx);
+        let accent_color = self.settings.get().accent_color;
+        apply_theme(next, &accent_color, window, cx);
         self.status = match next {
             ThemePreference::System => "主题：跟随系统",
             ThemePreference::Light => "主题：浅色",

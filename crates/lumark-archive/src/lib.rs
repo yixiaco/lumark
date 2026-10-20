@@ -9,8 +9,9 @@ pub mod service;
 pub use edit::{EditOptions, EditProgress, EditReport};
 pub use error::ArchiveError;
 pub use format::{
-    ArchiveEntry, ArchiveFormat, ArchiveInfo, CompressionOptions, CompressionPreset, CreateReport,
-    EncryptionInfo, ExtractReport, ExtractionOptions, OverwritePolicy, PathMode, ZipEncryption,
+    ArchiveEntry, ArchiveFormat, ArchiveInfo, ArchiveTimeSource, CompressionOptions,
+    CompressionPreset, CreateReport, EncryptionInfo, ExtractReport, ExtractionOptions,
+    FileTimeFilter, OverwritePolicy, PathMode, SevenZCompression, ZipCompression, ZipEncryption,
 };
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
 pub use service::ArchiveService;

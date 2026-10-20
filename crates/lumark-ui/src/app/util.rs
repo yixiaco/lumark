@@ -23,35 +23,43 @@ pub(crate) fn set_input(
     input: &gpui_kit::Entity<InputState>,
     value: &str,
     window: &mut Window,
-    cx: &mut Context<LumarkApp>,
+    cx: &mut gpui_kit::App,
 ) {
     input.update(cx, |state, cx| state.set_value(value, window, cx));
 }
 
 /// 构建聚焦的模态卡片；应用外壳负责遮罩背景，并在当前窗口居中显示该卡片。
+///
+/// 标题行使用浅色衬底和分隔线，与参考图片的窗体标题区保持同一层级感，
+/// 同时让确认类对话框不必各自复制标题样式。
 pub(crate) fn centered_modal(cx: &mut Context<LumarkApp>, title: &str) -> gpui_kit::Div {
     v_flex()
-        .w(px(680.))
-        .max_h(px(720.))
+        .w(px(560.))
+        .max_h(px(680.))
         .overflow_hidden()
         .gap_4()
-        .p_6()
+        .p_5()
         .bg(cx.theme().popover)
         .border_1()
         .border_color(cx.theme().border)
-        .rounded(px(16.))
+        .rounded(px(10.))
         .shadow_xl()
         .child(
             h_flex()
                 .w_full()
                 .items_center()
                 .gap_2()
+                .pb_2()
+                .border_b_1()
+                .border_color(cx.theme().border)
                 .child(div().size(px(8.)).rounded_full().bg(cx.theme().primary))
-                .child(div().text_lg().font_semibold().child(title.to_string())),
+                .child(div().text_base().font_semibold().child(title.to_string())),
         )
 }
 
-/// 收集现有用户文件夹、收藏和已挂载磁盘根目录，供侧栏使用。
+/// 收集现有用户文件夹和收藏，供侧栏常用位置列表使用。
+///
+/// 磁盘根目录由下方可展开的目录树负责，避免同一位置在侧栏出现两次。
 pub(crate) fn quick_locations(settings: &Settings) -> Vec<(String, PathBuf)> {
     let mut locations = Vec::new();
     let mut add = |label: &str, path: Option<PathBuf>| {
@@ -76,12 +84,6 @@ pub(crate) fn quick_locations(settings: &Settings) -> Vec<(String, PathBuf)> {
                 .unwrap_or("收藏"),
             Some(path.clone()),
         );
-    }
-    for letter in b'A'..=b'Z' {
-        let path = PathBuf::from(format!("{}:\\", letter as char));
-        if path.is_dir() {
-            add(&format!("{}:", letter as char), Some(path));
-        }
     }
     locations
 }
@@ -146,9 +148,9 @@ pub(crate) fn is_executable_like(path: &Path) -> bool {
 /// 返回紧凑、标准或宽松文件列表布局的列宽。
 pub(crate) fn column_layout_widths(layout: u8) -> (f32, f32, f32) {
     match layout {
-        0 => (64.0, 108.0, 56.0),
-        2 => (108.0, 168.0, 88.0),
-        _ => (80.0, 132.0, 70.0),
+        0 => (72.0, 126.0, 56.0),
+        2 => (110.0, 160.0, 92.0),
+        _ => (88.0, 142.0, 72.0),
     }
 }
 
@@ -189,16 +191,8 @@ pub(crate) fn archive_preset(preset: SettingsPreset) -> lumark_archive::Compress
     }
 }
 
-/// 按显示顺序切换到下一个压缩预设。
-pub(crate) fn next_preset(preset: SettingsPreset) -> SettingsPreset {
-    match preset {
-        SettingsPreset::Speed => SettingsPreset::Balanced,
-        SettingsPreset::Balanced => SettingsPreset::Size,
-        SettingsPreset::Size => SettingsPreset::Speed,
-    }
-}
-
 /// 按顺序切换到 Lumark 可创建的格式。
+#[allow(dead_code)]
 pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     match format {
         ArchiveFormat::Zip => ArchiveFormat::SevenZip,
@@ -322,6 +316,16 @@ pub(crate) fn format_size(bytes: u64) -> String {
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
+}
+
+/// 把秒数格式化为 HH:MM:SS，供任务进度窗口显示。
+pub(crate) fn format_duration(seconds: u64) -> String {
+    format!(
+        "{:02}:{:02}:{:02}",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
 }
 
 /// 把点击、Ctrl 切换和 Shift 连选语义应用到文件行。

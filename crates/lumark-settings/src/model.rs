@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub struct Settings {
     pub version: u32,
     pub theme: ThemePreference,
+    /// 界面强调色的十六进制值，默认蓝色。
+    pub accent_color: String,
     pub language: String,
     pub default_format: String,
     pub default_preset: CompressionPreset,
@@ -33,6 +35,7 @@ impl Default for Settings {
         Self {
             version: 1,
             theme: ThemePreference::System,
+            accent_color: "#2563eb".to_string(),
             language: "zh-CN".to_string(),
             default_format: "zip".to_string(),
             default_preset: CompressionPreset::Balanced,
@@ -43,7 +46,7 @@ impl Default for Settings {
             last_directory: None,
             recent_paths: Vec::new(),
             favorites: Vec::new(),
-            details_visible: false,
+            details_visible: true,
             column_layout: 1,
             window_width: 1280.0,
             window_height: 800.0,
@@ -76,4 +79,22 @@ pub enum OverwritePolicy {
     Overwrite,
     Skip,
     Rename,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 确认新安装默认使用蓝色强调色。
+    #[test]
+    fn default_accent_color_is_blue() {
+        assert_eq!(Settings::default().accent_color, "#2563eb");
+    }
+
+    /// 确认缺少新字段的旧设置文件会回落到默认蓝色。
+    #[test]
+    fn legacy_settings_default_to_blue_accent() {
+        let settings: Settings = serde_json::from_str("{}").expect("empty settings");
+        assert_eq!(settings.accent_color, "#2563eb");
+    }
 }

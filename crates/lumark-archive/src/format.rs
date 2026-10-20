@@ -211,6 +211,40 @@ pub enum OverwritePolicy {
     Rename,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ZipCompression {
+    #[default]
+    Deflate,
+    Bzip2,
+    Lzma,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SevenZCompression {
+    #[default]
+    Lzma2,
+    Lzma,
+    Ppmd,
+    Bzip2,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ArchiveTimeSource {
+    #[default]
+    Current,
+    Original,
+    Latest,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FileTimeFilter {
+    #[default]
+    Any,
+    Before,
+    After,
+    Range,
+}
+
 #[derive(Debug, Clone)]
 pub struct CompressionOptions {
     pub format: ArchiveFormat,
@@ -222,6 +256,12 @@ pub struct CompressionOptions {
     pub encrypt_header: bool,
     pub dictionary_size: Option<u32>,
     pub threads: u32,
+    pub zip_compression: ZipCompression,
+    pub sevenz_compression: SevenZCompression,
+    pub word_size: Option<u32>,
+    pub solid_block_size: Option<u64>,
+    pub archive_time: ArchiveTimeSource,
+    pub file_time_filter: FileTimeFilter,
     pub modified_after: Option<DateTime<Utc>>,
     pub modified_before: Option<DateTime<Utc>>,
     pub path_mode: PathMode,
@@ -246,6 +286,12 @@ impl Default for CompressionOptions {
             encrypt_header: true,
             dictionary_size: None,
             threads: 1,
+            zip_compression: ZipCompression::Deflate,
+            sevenz_compression: SevenZCompression::Lzma2,
+            word_size: None,
+            solid_block_size: None,
+            archive_time: ArchiveTimeSource::Original,
+            file_time_filter: FileTimeFilter::Any,
             modified_after: None,
             modified_before: None,
             path_mode: PathMode::Relative,

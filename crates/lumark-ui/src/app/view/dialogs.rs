@@ -1,357 +1,120 @@
 use super::super::*;
-use super::components::AppIcon;
+use super::components::{
+    AppIcon, classic_field, dialog_banner, hint_text, icon_button, option_check,
+};
 
 impl LumarkApp {
-    /// 渲染快速压缩对话框，把高级选项分组到不同选项卡。
-    /// 只有用户开始任务时才读取密码。
-    pub(crate) fn render_compress_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let tab = self.compress_tab;
-        let format_label = self.compress_format.label();
-        let preset_label = match self.compress_preset {
-            SettingsPreset::Speed => "速度优先",
-            SettingsPreset::Balanced => "平衡",
-            SettingsPreset::Size => "体积优先",
-        };
-        centered_modal(cx, "压缩")
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!(
-                                "将 {} 个项目压缩",
-                                self.browser.selection.count().max(1)
-                            )),
-                    )
-                    .child(
-                        Button::new("compress-format")
-                            .secondary()
-                            .small()
-                            .icon(AppIcon::Compression.element(14.))
-                            .label(format_label)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.compress_format = next_writable_format(this.compress_format);
-                                let current = PathBuf::from(input_value(&this.compress_output, cx));
-                                let replacement =
-                                    replace_archive_extension(&current, this.compress_format);
-                                set_input(
-                                    &this.compress_output,
-                                    replacement.to_string_lossy().as_ref(),
-                                    window,
-                                    cx,
-                                );
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("compress-preset")
-                            .secondary()
-                            .small()
-                            .icon(AppIcon::Tool.element(14.))
-                            .label(preset_label)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.compress_preset = next_preset(this.compress_preset);
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_1()
-                    .p_1()
-                    .rounded_md()
-                    .bg(cx.theme().muted)
-                    .children(
-                        ["常规", "密码", "文件", "算法", "时间", "注释"]
-                            .into_iter()
-                            .enumerate()
-                            .map(|(index, label)| {
-                                Button::new(format!("compress-tab-{index}"))
-                                    .small()
-                                    .label(label)
-                                    .when(index as u8 == tab, |this| this.primary())
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.compress_tab = index as u8;
-                                        cx.notify();
-                                    }))
-                            }),
-                    ),
-            )
-            .when(tab == 0, |this| {
-                this.child(
-                    Input::new(&self.compress_output)
-                        .id("compress-output")
-                        .w_full(),
-                )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Button::new("compress-solid")
-                                .small()
-                                .label(if self.compress_solid {
-                                    "固实压缩：开"
-                                } else {
-                                    "固实压缩：关"
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.compress_solid = !this.compress_solid;
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("compress-header")
-                                .small()
-                                .label(if self.compress_encrypt_header {
-                                    "加密文件名：开"
-                                } else {
-                                    "加密文件名：关"
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.compress_encrypt_header = !this.compress_encrypt_header;
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .child(
-                    Input::new(&self.compress_split)
-                        .id("compress-split")
-                        .w_full(),
-                )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Button::new("compress-test-after")
-                                .small()
-                                .label(if self.compress_test_after {
-                                    "完成后测试：开"
-                                } else {
-                                    "完成后测试：关"
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.compress_test_after = !this.compress_test_after;
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("compress-delete-source")
-                                .small()
-                                .label(if self.compress_delete_source {
-                                    "删除源文件：开"
-                                } else {
-                                    "删除源文件：关"
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.compress_delete_source = !this.compress_delete_source;
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .when(self.compress_delete_source, |this| {
-                    this.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().danger)
-                            .child("删除源文件仅在归档成功写入并通过测试（若启用）后执行。"),
-                    )
-                })
-            })
-            .when(tab == 1, |this| {
-                this.child(
-                    Input::new(&self.compress_password)
-                        .id("compress-password")
-                        .w_full(),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("ZIP/7Z 使用 AES-256；密码只保存在当前任务内存或加密密码库。"),
-                )
-                .when(self.compress_format == ArchiveFormat::Zip, |this| {
-                    this.child(
-                        Button::new("compress-zipcrypto")
-                            .small()
-                            .label(if self.compress_zipcrypto {
-                                "ZIP 加密：ZipCrypto（兼容）"
-                            } else {
-                                "ZIP 加密：AES-256"
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.compress_zipcrypto = !this.compress_zipcrypto;
-                                cx.notify();
-                            })),
-                    )
-                    .when(self.compress_zipcrypto, |this| {
-                        this.child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().danger)
-                                .child("ZipCrypto 不安全，只应在旧软件无法读取 AES ZIP 时启用。"),
-                        )
-                    })
-                })
-            })
-            .when(tab == 2, |this| {
-                this.child(
-                    Input::new(&self.compress_exclude)
-                        .id("compress-exclude")
-                        .w_full(),
-                )
-                .child(
-                    Input::new(&self.compress_store)
-                        .id("compress-store")
-                        .w_full(),
-                )
-                .child(
-                    Button::new("compress-path-mode")
-                        .small()
-                        .label(match self.compress_path_mode {
-                            PathMode::Relative => "路径：保留相对路径",
-                            PathMode::NoRoot => "路径：不保留顶层目录",
-                            PathMode::Flatten => "路径：平铺文件",
-                        })
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.compress_path_mode = match this.compress_path_mode {
-                                PathMode::Relative => PathMode::NoRoot,
-                                PathMode::NoRoot => PathMode::Flatten,
-                                PathMode::Flatten => PathMode::Relative,
-                            };
-                            cx.notify();
-                        })),
-                )
-            })
-            .when(tab == 3, |this| {
-                this.child(format!(
-                    "压缩级别：{}；固实：{}；文件头加密：{}",
-                    level_for_preset(self.compress_preset),
-                    if self.compress_solid { "开" } else { "关" },
-                    if self.compress_encrypt_header {
-                        "开"
-                    } else {
-                        "关"
-                    }
-                ))
-                .child(
-                    Input::new(&self.compress_dictionary)
-                        .id("compress-dictionary")
-                        .w_full(),
-                )
-                .child(
-                    Input::new(&self.compress_threads)
-                        .id("compress-threads")
-                        .w_full(),
-                )
-                .child("7Z 当前使用 LZMA2；字典和线程参数会传入压缩后端。")
-            })
-            .when(tab == 4, |this| {
-                this.child(
-                    Input::new(&self.compress_after)
-                        .id("compress-after")
-                        .w_full(),
-                )
-                .child(
-                    Input::new(&self.compress_before)
-                        .id("compress-before")
-                        .w_full(),
-                )
-                .child("只纳入修改时间落在区间内的文件；留空表示不限。")
-            })
-            .when(tab == 5, |this| {
-                this.child(
-                    Input::new(&self.compress_comment)
-                        .id("compress-comment")
-                        .w_full(),
-                )
-                .child("TAR 不支持注释；ZIP 注释会写入归档。")
-            })
-            .child(
-                h_flex()
-                    .w_full()
-                    .justify_end()
-                    .gap_2()
-                    .pt_2()
-                    .child(
-                        Button::new("compress-cancel")
-                            .ghost()
-                            .icon(AppIcon::Close.element(15.))
-                            .label("取消")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_compress = false;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("compress-start")
-                            .primary()
-                            .icon(AppIcon::Compression.element(16.))
-                            .label("立即压缩")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.start_compress(window, cx);
-                                cx.notify();
-                            })),
-                    ),
-            )
-    }
-
     /// 渲染解压目标、可选手动密码和仅解压所选条目的控件。
     pub(crate) fn render_extract_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        centered_modal(cx, "解压")
+        let archive = self
+            .selected_archive()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| self.browser.current_display());
+        dialog_frame(cx, 620.)
+            .child(dialog_caption(
+                cx,
+                "extract-close",
+                AppIcon::Zip,
+                "解压文件",
+                |this, _, _| {
+                    this.show_extract = false;
+                    this.status = "已取消解压".to_string();
+                },
+            ))
+            .child(dialog_banner(cx, 56.))
             .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("记录密码会自动尝试，失败后可手动输入"),
-            )
-            .child(
-                Input::new(&self.extract_output)
-                    .id("extract-output")
-                    .w_full(),
-            )
-            .child(
-                Input::new(&self.extract_password)
-                    .id("extract-password")
-                    .w_full(),
-            )
-            .child(
-                Button::new("extract-selection-only")
-                    .small()
-                    .label(if self.extract_selection_only {
-                        "仅解压选中条目：开"
-                    } else {
-                        "仅解压选中条目：关"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.extract_selection_only = !this.extract_selection_only;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
+                v_flex()
+                    .p_5()
+                    .gap_4()
                     .child(
-                        Button::new("extract-cancel")
-                            .ghost()
-                            .icon(AppIcon::Close.element(15.))
-                            .label("取消")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_extract = false;
-                                cx.notify();
-                            })),
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .items_center()
+                            .rounded(px(5.))
+                            .bg(cx.theme().muted)
+                            .px_3()
+                            .py_2()
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_color(cx.theme().accent_foreground)
+                                    .child(AppIcon::Zip.element(16.)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_sm()
+                                    .child(archive),
+                            ),
                     )
+                    .child(classic_field(
+                        "解压到:",
+                        66.,
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                Input::new(&self.extract_output)
+                                    .id("extract-output")
+                                    .flex_1()
+                                    .min_w_0(),
+                            )
+                            .child(
+                                Button::new("extract-choose-dir")
+                                    .small()
+                                    .label("浏览…")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.choose_extract_output_dir(window, cx);
+                                        cx.notify();
+                                    })),
+                            ),
+                    ))
+                    .child(classic_field(
+                        "密码:",
+                        66.,
+                        Input::new(&self.extract_password)
+                            .id("extract-password")
+                            .w_full(),
+                    ))
+                    .child(h_flex().w_full().gap_2().items_center().child(option_check(
+                        cx,
+                        "extract-selection-only",
+                        "仅解压选中的归档条目".to_string(),
+                        self.extract_selection_only,
+                        |this, _, _| this.extract_selection_only = !this.extract_selection_only,
+                    )))
+                    .child(hint_text(
+                        cx,
+                        "记录密码会自动尝试，失败后可手动输入；密码不会显示在界面中。",
+                    ))
                     .child(
-                        Button::new("extract-start")
-                            .primary()
-                            .icon(AppIcon::Zip.element(16.))
-                            .label("开始解压")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.start_extract(window, cx);
-                                cx.notify();
-                            })),
+                        h_flex()
+                            .w_full()
+                            .justify_end()
+                            .gap_2()
+                            .pt_1()
+                            .child(Button::new("extract-cancel").label("取消").on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.show_extract = false;
+                                    this.status = "已取消解压".to_string();
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(
+                                Button::new("extract-start")
+                                    .primary()
+                                    .icon(AppIcon::Zip.element(15.))
+                                    .label("开始解压")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.start_extract(window, cx);
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             )
     }
@@ -382,7 +145,7 @@ impl LumarkApp {
                     .gap_2()
                     .child(
                         Button::new("save-dismiss")
-                            .ghost()
+                            .secondary()
                             .label("不保存")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_save_prompt = false;
@@ -773,4 +536,49 @@ impl LumarkApp {
                     ),
             )
     }
+}
+
+/// 构建压缩和解压对话框共用的分类外框。
+fn dialog_frame(cx: &Context<LumarkApp>, width: f32) -> gpui_kit::Div {
+    v_flex()
+        .w(px(width))
+        .max_h(px(700.))
+        .overflow_hidden()
+        .bg(cx.theme().popover)
+        .border_1()
+        .border_color(cx.theme().border)
+        .rounded(px(8.))
+        .shadow_xl()
+}
+
+/// 构建对话框顶部的窗体标题行和关闭按钮。
+fn dialog_caption(
+    cx: &Context<LumarkApp>,
+    close_id: &'static str,
+    icon: AppIcon,
+    title: &str,
+    close: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
+) -> gpui_kit::AnyElement {
+    h_flex()
+        .h(px(32.))
+        .w_full()
+        .flex_shrink_0()
+        .px_4()
+        .gap_2()
+        .items_center()
+        .bg(cx.theme().title_bar)
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .text_color(cx.theme().foreground)
+        .child(icon.element(13.))
+        .child(div().text_sm().font_semibold().child(title.to_string()))
+        .child(
+            icon_button(close_id, AppIcon::Close, "关闭")
+                .ml_auto()
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    close(this, window, cx);
+                    cx.notify();
+                })),
+        )
+        .into_any_element()
 }

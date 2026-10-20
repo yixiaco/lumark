@@ -4,7 +4,13 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 
 ## 当前功能
 
-- 现代工作台界面：自绘标题栏、全局侧栏、响应式双行命令栏、虚拟化文件列表、平铺视图、列宽预设、详情面板、分组设置页和统一弹窗层级。
+- 参考经典归档器的界面布局：自绘标题栏与工作区切换、渐变动作带、全宽路径与搜索导航行、常用位置和目录树合并的文件夹侧栏、底部详细信息检查器、全宽状态栏和统一模态层；宽窗口显示品牌标语，窄窗口自动收缩搜索框和模式标签。
+- 界面优先使用 gpui-kit 官方组件：动作带和标题栏导航使用官方 Button 变体，格式、压缩方法、字典、单词、固实块、线程和时间筛选统一使用官方 Select 下拉框，文件右键菜单使用官方 ContextMenu/PopupMenu，文件表使用官方 Scrollbar，经典压缩窗口使用官方 Tabs、GroupBox、Radio 和 Checkbox，注释使用官方多行 Textarea。
+- 主题色可在设置页通过官方 ColorPicker 自定义，默认蓝色；主按钮、动作带、选中态、进度条和状态栏会同步换色，并持久化到设置文件。
+- 独立压缩窗口：轻巧模式为 600×390 的紧凑表单，经典模式为 780×650 的六选项卡布局；窗口独立于主界面，不置顶，轻巧/经典切换时保留全部已填参数。
+- 独立任务进度窗口：压缩、解压和测试任务启动后自动弹出，显示目标路径、当前文件进度、总进度、已用/剩余时间、总大小、已压缩、压缩后、压缩率、文件数、处理速度和暂停、继续、取消、后台；取消需要二次确认，确认后立即停止并清理临时文件，关闭窗口不中断任务。
+- 压缩后端使用 zlib-ng 和新版 ZIP/7Z 编码器，ZIP 按 1 MiB 分块读写并按块检查取消；7Z 通过进度读取器报告当前文件进度。
+- 标题栏工作区按钮和模态遮罩使用阻塞命中区域，右上角密码库/设置按钮不再被拖拽区域吞掉，压缩/解压设置对话框也不会把鼠标事件穿透到下层文件表。
 - IconPark 官方 SVG 图标已本地打包并按主题着色，运行时不依赖网络；来源与许可保存在 `crates/lumark-ui/assets/icons/iconpark/`。
 - ZIP、7Z、TAR、TAR.GZ/BZ2/XZ/ZST；GZ、BZ2、XZ、ZSTD、Brotli、LZ4；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩。
 - RAR 只读列表、密码验证和解压（UnRAR 后端，保留许可声明）；Unix `.Z` 与 AES `.enc` 只读解压。
@@ -13,7 +19,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - `.001` 原始分卷创建、列表和解压；失败时保留旧卷并清理半成品。
 - 密码管理：草稿式添加/编辑/删除、名称/备注/匹配规则、掩码与 10 秒显示、Windows DPAPI、可选主密码、加密导入导出。
 - 解压加密 ZIP/7Z/RAR 时从密码库生成候选密码并在后台逐个验证；主密码锁定时提供解锁入口。
-- 后台任务：归档加载、压缩、解压、测试、编辑、记录密码验证、进度、暂停/继续、取消和状态栏。
+- 后台任务：归档加载、压缩、解压、测试、编辑、记录密码验证、进度、暂停/继续、取消、状态栏和独立进度窗口。
 - 压缩后可测试归档并在成功时删除源文件。
 - Windows 当前用户经典右键菜单、Send To、单实例、回收站删除、默认应用设置入口和安装/卸载脚本。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
@@ -40,7 +46,7 @@ cargo test --workspace
 - 密码库候选密码自动解压加密 ZIP/7Z/RAR。
 - 多选、范围选择、历史导航和高级搜索过滤。
 - `gpui-kit::test` 真实窗口测试覆盖虚拟文件行和平铺视图切换。
-- 真实 Windows 窗口已完成主界面、密码库、设置和压缩对话框的视觉验收，截图位于 `artifacts/`。
+- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、解压对话框、独立进度窗口、密码库和设置的视觉验收，截图位于 `artifacts/`。
 
 ## 界面结构
 
@@ -49,23 +55,39 @@ cargo test --workspace
 | 文件 | 职责 |
 |---|---|
 | `app/actions/files.rs` | 导航、选择、搜索、目录树和文件操作 |
-| `app/actions/archive.rs` | 归档打开、压缩、解压、测试和密码验证流程 |
+| `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程 |
 | `app/actions/passwords.rs` | 密码草稿、解锁、主密码和导入导出 |
 | `app/actions/settings.rs` | 主题、默认压缩参数和 Shell 集成 |
-| `app/view/chrome.rs` | 标题栏、侧栏、命令栏、状态栏和模态层 |
-| `app/view/browser.rs` | 文件表和详情面板 |
+| `app/view/chrome.rs` | 标题栏、渐变动作带、导航行、文件夹侧栏、状态栏和模态层 |
+| `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
 | `app/view/pages.rs` | 密码库、设置和任务中心 |
-| `app/view/dialogs.rs` | 压缩、解压和确认对话框 |
-| `app/view/components.rs` | IconPark 图标、卡片和通用控件 |
+| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
+| `app/view/dialogs.rs` | 解压对话框和确认对话框 |
+| `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
+| `app/view/components.rs` | IconPark 图标、渐变横幅、经典分组框、单复选控件和通用按钮 |
 | `app/util.rs` | 路径、大小、日期、格式和界面格式化辅助函数 |
 
 ![Lumark 主界面](artifacts/ui-main-final.png)
 
+![窄窗口布局](artifacts/ui-narrow.png)
+
+![轻巧压缩窗口](artifacts/ui-compress-light.png)
+
+![经典压缩窗口](artifacts/ui-compress-dialog.png)
+
+![官方 Select 下拉菜单](artifacts/ui-compress-select.png)
+
+![文件右键菜单](artifacts/ui-context-menu.png)
+
+![解压对话框](artifacts/ui-extract-dialog.png)
+
+![任务进度窗口](artifacts/ui-progress-window.png)
+
+![取消任务二次确认](artifacts/ui-progress-cancel.png)
+
 ![密码管理](artifacts/ui-passwords-final.png)
 
-![设置](artifacts/ui-settings-final.png)
-
-![压缩对话框](artifacts/ui-compress-dialog.png)
+![设置与主题色选择](artifacts/ui-theme-color.png)
 
 ## 工作区
 

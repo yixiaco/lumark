@@ -1,61 +1,96 @@
 use super::super::*;
 use super::components::{
-    AppIcon, icon_button, location_icon, primary_icon_button, secondary_icon_button,
+    AppIcon, BannerTone, banner_action, banner_gradient, brand_lockup, icon_button, location_icon,
 };
 
 impl LumarkApp {
-    /// 渲染自绘标题栏和产品标识。
+    /// 渲染自绘标题栏：当前位置、工作区切换和全局工具入口。
     ///
-    /// `TitleBar` 负责 Windows 拖拽区域和系统按钮。标题栏内容刻意保持紧凑，
-    /// 以便在笔记本屏幕上让工作区保持主导，同时保留 Lumark 作为本地工具的品牌感。
+    /// `TitleBar` 负责 Windows 拖拽区域和系统按钮，因此标题内容保持单行，
+    /// 长路径会收缩而不是把工作区入口挤出窗口。
     fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let title = match self.screen {
+            Screen::Browser => format!("{} - Lumark", self.browser.current_display()),
+            Screen::Passwords => "密码库 - Lumark".to_string(),
+            Screen::Settings => "设置 - Lumark".to_string(),
+        };
         TitleBar::new()
-            .h(px(50.))
+            .h(px(38.))
             .bg(cx.theme().title_bar)
             .border_b_1()
             .border_color(cx.theme().title_bar_border)
             .child(
                 h_flex()
+                    .w_full()
                     .items_center()
                     .gap_2()
                     .child(
                         div()
-                            .size(px(30.))
-                            .rounded_md()
+                            .size(px(24.))
+                            .rounded(px(7.))
                             .bg(cx.theme().button_primary)
                             .text_color(cx.theme().button_primary_foreground)
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(AppIcon::Compression.element(18.)),
-                    )
-                    .child(
-                        v_flex()
-                            .gap(px(0.))
-                            .child(div().text_sm().font_semibold().child("Lumark"))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("本地归档工作台"),
-                            ),
+                            .child(AppIcon::Compression.element(14.)),
                     )
                     .child(
                         div()
-                            .ml_2()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_sm()
+                            .font_semibold()
+                            .child(title),
+                    )
+                    .child(
+                        div()
                             .px_2()
-                            .py(px(2.))
+                            .py(px(1.))
                             .rounded_full()
                             .bg(cx.theme().success)
                             .text_color(cx.theme().success_foreground)
                             .text_xs()
-                            .child("AES-256 就绪"),
+                            .child("AES-256"),
+                    )
+                    .child(div().w(px(1.)).h(px(20.)).bg(cx.theme().border))
+                    .child(self.top_nav_button(
+                        "title-nav-files",
+                        AppIcon::FileZip,
+                        "文件",
+                        Screen::Browser,
+                        cx,
+                    ))
+                    .child(self.top_nav_button(
+                        "title-nav-passwords",
+                        AppIcon::Key,
+                        "密码库",
+                        Screen::Passwords,
+                        cx,
+                    ))
+                    .child(self.top_nav_button(
+                        "title-nav-settings",
+                        AppIcon::Setting,
+                        "设置",
+                        Screen::Settings,
+                        cx,
+                    ))
+                    .child(div().w(px(1.)).h(px(20.)).bg(cx.theme().border))
+                    .child(
+                        icon_button("title-theme", AppIcon::Tool, "切换主题")
+                            .occlude()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.cycle_theme(window, cx);
+                                cx.notify();
+                            })),
                     ),
             )
     }
 
-    /// 渲染全局侧栏中的一个导航行。
-    fn navigation_item(
+    /// 渲染标题栏中的一个工作区切换按钮。
+    fn top_nav_button(
         &self,
         id: &'static str,
         icon: AppIcon,
@@ -64,506 +99,288 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let active = self.screen == target;
-        h_flex()
-            .id(id)
-            .role(gpui_kit::Role::Button)
-            .aria_label(label)
-            .h(px(38.))
-            .w_full()
-            .gap_2()
-            .px_3()
-            .rounded_md()
-            .cursor_pointer()
-            .when(active, |this| {
-                this.bg(cx.theme().sidebar_accent)
-                    .text_color(cx.theme().sidebar_accent_foreground)
-            })
-            .when(!active, |this| {
-                this.text_color(cx.theme().sidebar_foreground)
-                    .hover(|style| style.bg(cx.theme().sidebar_primary))
-            })
-            .child(icon.element(17.))
-            .child(div().text_sm().font_semibold().child(label))
-            .when(active, |this| {
-                this.child(
-                    div()
-                        .ml_auto()
-                        .w(px(3.))
-                        .h(px(18.))
-                        .rounded_full()
-                        .bg(cx.theme().primary),
-                )
-            })
+        Button::new(id)
+            .ghost()
+            .small()
+            .selected(active)
+            .occlude()
+            .icon(icon.element(14.))
+            .label(label)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.switch_screen(target);
                 cx.notify();
             }))
     }
 
-    /// 渲染侧栏中的一个快捷访问位置。
-    fn location_item(
-        &self,
-        index: usize,
-        label: &str,
-        path: &Path,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let active = self.browser.current_display() == path.display().to_string();
-        let path = path.to_path_buf();
-        h_flex()
-            .id(("sidebar-location", index))
-            .role(gpui_kit::Role::Button)
-            .aria_label(label.to_string())
-            .h(px(32.))
-            .w_full()
-            .gap_2()
-            .px_3()
-            .rounded_md()
-            .cursor_pointer()
-            .text_color(if active {
-                cx.theme().sidebar_accent_foreground
-            } else {
-                cx.theme().sidebar_foreground
-            })
-            .when(active, |this| this.bg(cx.theme().sidebar_accent))
-            .when(!active, |this| {
-                this.hover(|style| style.bg(cx.theme().sidebar_primary))
-            })
-            .child(location_icon(label).element(15.))
-            .child(div().text_sm().child(label.to_string()))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.navigate_to(path.clone(), window, cx);
-                cx.notify();
-            }))
-    }
-
-    /// 渲染一个懒加载目录树行。
-    fn tree_item(
-        &self,
-        index: usize,
-        row: &TreeRow,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let expand_path = row.path.clone();
-        let open_path = row.path.clone();
-        h_flex()
-            .id(("sidebar-tree", index))
-            .role(gpui_kit::Role::Button)
-            .aria_label(row.label.clone())
-            .h(px(28.))
-            .w_full()
-            .gap_1()
-            .pl(px(8. + row.depth as f32 * 12.))
-            .pr_2()
-            .rounded_md()
-            .cursor_pointer()
-            .text_color(cx.theme().sidebar_foreground)
-            .hover(|style| style.bg(cx.theme().sidebar_primary))
-            .child(
-                div()
-                    .id(("tree-expand", index))
-                    .size(px(18.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_sm()
-                    .text_xs()
-                    .hover(|style| style.bg(cx.theme().secondary))
-                    .child(if row.expanded { "▾" } else { "▸" })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_tree_path(expand_path.clone());
-                        cx.notify();
-                    })),
-            )
-            .child(AppIcon::FolderOpen.element(14.))
-            .child(
-                div()
-                    .id(("tree-open", index))
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_sm()
-                    .child(row.label.clone())
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.navigate_to(open_path.clone(), window, cx);
-                        cx.notify();
-                    })),
-            )
-    }
-
-    /// 渲染所有页面共享的持久左侧栏。
+    /// 渲染参考经典归档器的大图标渐变动作带。
     ///
-    /// 文件系统快捷入口和懒加载目录树仅在文件浏览器激活时显示。
-    /// 密码与设置页面共用同一侧栏，避免用户在切换工具时重新适应导航位置。
-    fn render_navigation_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let locations = quick_locations(&self.settings.get());
-        let tree_rows = if self.screen == Screen::Browser {
-            self.tree_rows()
-        } else {
-            Vec::new()
-        };
-        let vault_locked = self.vault.state() == VaultState::Locked;
-        let vault_caption = if vault_locked {
-            "密码库已锁定"
-        } else {
-            "密码库已解锁"
-        };
-        v_flex()
-            .id("global-sidebar")
-            .w(px(220.))
-            .h_full()
-            .flex_shrink_0()
-            .bg(cx.theme().sidebar)
-            .border_r_1()
-            .border_color(cx.theme().sidebar_border)
-            .text_color(cx.theme().sidebar_foreground)
-            .child(
-                v_flex()
-                    .p_3()
-                    .gap_1()
-                    .child(
-                        div()
-                            .px_3()
-                            .pb_2()
-                            .text_xs()
-                            .font_semibold()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("工作区"),
-                    )
-                    .child(self.navigation_item(
-                        "nav-files",
-                        AppIcon::FileZip,
-                        "文件",
-                        Screen::Browser,
-                        cx,
-                    ))
-                    .child(self.navigation_item(
-                        "nav-passwords",
-                        AppIcon::Key,
-                        "密码库",
-                        Screen::Passwords,
-                        cx,
-                    ))
-                    .child(self.navigation_item(
-                        "nav-settings",
-                        AppIcon::Setting,
-                        "设置",
-                        Screen::Settings,
-                        cx,
-                    )),
-            )
-            .child(div().mx_3().h(px(1.)).bg(cx.theme().sidebar_border))
-            .child(
-                v_flex()
-                    .id("sidebar-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px_3()
-                    .py_3()
-                    .gap_1()
-                    .when(self.screen == Screen::Browser, |this| {
-                        this.child(
-                            div()
-                                .px_3()
-                                .pb_1()
-                                .text_xs()
-                                .font_semibold()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("快速访问"),
-                        )
-                        .children(locations.iter().enumerate().map(|(index, (label, path))| {
-                            self.location_item(index, label, path, cx)
-                        }))
-                        .child(
-                            div()
-                                .mt_2()
-                                .mb_1()
-                                .mx_3()
-                                .h(px(1.))
-                                .bg(cx.theme().sidebar_border),
-                        )
-                        .child(
-                            h_flex()
-                                .px_3()
-                                .pb_1()
-                                .items_center()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .font_semibold()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child("文件夹"),
-                                )
-                                .child(
-                                    icon_button(
-                                        "sidebar-refresh-tree",
-                                        AppIcon::Refresh,
-                                        "刷新目录树",
-                                    )
-                                    .ml_auto()
-                                    .on_click(cx.listener(
-                                        |this, _, _, cx| {
-                                            this.tree_children.clear();
-                                            this.status = "目录树已刷新".to_string();
-                                            cx.notify();
-                                        },
-                                    )),
-                                ),
-                        )
-                        .children(
-                            tree_rows
-                                .iter()
-                                .enumerate()
-                                .map(|(index, row)| self.tree_item(index, row, cx)),
-                        )
-                    })
-                    .when(self.screen != Screen::Browser, |this| {
-                        this.child(
-                            v_flex()
-                                .p_3()
-                                .gap_2()
-                                .child(AppIcon::Shield.element(22.))
-                                .child(div().text_sm().font_semibold().child("隐私优先"))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child("密码与归档记录仅保存在本机，不参与云同步。"),
-                                ),
-                        )
-                    }),
-            )
-            .child(
-                div()
-                    .m_3()
-                    .p_3()
-                    .rounded_lg()
-                    .bg(cx.theme().sidebar_primary)
-                    .border_1()
-                    .border_color(cx.theme().sidebar_border)
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .size(px(30.))
-                                    .rounded_md()
-                                    .bg(if vault_locked {
-                                        cx.theme().warning
-                                    } else {
-                                        cx.theme().success
-                                    })
-                                    .text_color(if vault_locked {
-                                        cx.theme().warning_foreground
-                                    } else {
-                                        cx.theme().success_foreground
-                                    })
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(
-                                        if vault_locked {
-                                            AppIcon::Lock
-                                        } else {
-                                            AppIcon::Unlock
-                                        }
-                                        .element(16.),
-                                    ),
-                            )
-                            .child(
-                                v_flex()
-                                    .gap(px(0.))
-                                    .child(div().text_xs().font_semibold().child(vault_caption))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(format!("{} 条记录", self.vault.entry_count())),
-                                    ),
-                            )
-                            .child(
-                                icon_button(
-                                    "sidebar-vault-open",
-                                    AppIcon::ArrowRight,
-                                    "打开密码库",
-                                )
-                                .ml_auto()
-                                .on_click(cx.listener(
-                                    |this, _, _, cx| {
-                                        this.switch_screen(Screen::Passwords);
-                                        cx.notify();
-                                    },
-                                )),
-                            ),
-                    ),
-            )
-    }
-
-    /// 根据窗口宽度选择单行命令栏；在 DPI 缩放或窗口较窄时使用双行紧凑布局，
-    /// 避免路径、搜索框和主操作被裁切。
-    fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 主操作、破坏性操作和任务入口被分隔线分组；窄窗口只隐藏品牌标语，
+    /// 不隐藏任何动作，避免功能在笔记本宽度下消失。
+    fn render_action_band(&self, window: &Window, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        if self.screen != Screen::Browser {
+            return self.render_page_band(cx).into_any_element();
+        }
         let logical_width = window
             .inner_window_bounds()
             .get_bounds()
             .size
             .width
             .as_f32();
-        if self.screen == Screen::Browser && logical_width < 1500. {
-            self.render_toolbar_compact(cx).into_any_element()
-        } else {
-            self.render_toolbar_wide(cx).into_any_element()
-        }
-    }
-
-    /// 渲染常见笔记本宽度下的双行浏览器命令栏。
-    fn render_toolbar_compact(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let search_active = self.search_results.is_some();
-        v_flex()
+        let wide = logical_width >= 1100.;
+        banner_gradient(cx)
+            .id("action-band")
             .w_full()
-            .min_w_0()
+            .h(px(if wide { 72. } else { 68. }))
             .flex_shrink_0()
-            .overflow_hidden()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_3()
             .border_b_1()
             .border_color(cx.theme().border)
             .child(
                 h_flex()
-                    .id("command-bar")
-                    .h(px(52.))
-                    .w_full()
-                    .min_w_0()
                     .items_center()
                     .gap_2()
-                    .px_4()
+                    .child(banner_action(
+                        cx,
+                        "compress",
+                        AppIcon::Compression,
+                        "压缩",
+                        BannerTone::Primary,
+                        |this, window, cx| this.open_compress_dialog(window, cx),
+                    ))
+                    .child(banner_action(
+                        cx,
+                        "extract",
+                        AppIcon::Zip,
+                        "解压到",
+                        BannerTone::Accent,
+                        |this, window, cx| this.open_extract_dialog(window, cx),
+                    ))
+                    .child(banner_action(
+                        cx,
+                        "browser-delete",
+                        AppIcon::Delete,
+                        "删除",
+                        BannerTone::Danger,
+                        |this, _, _| this.request_delete(),
+                    ))
+                    .child(banner_action(
+                        cx,
+                        "test-archive",
+                        AppIcon::Shield,
+                        "测试",
+                        BannerTone::Warning,
+                        |this, window, cx| this.start_test(window, cx),
+                    ))
+                    .child(banner_action(
+                        cx,
+                        "task-center",
+                        AppIcon::List,
+                        "任务",
+                        BannerTone::Accent,
+                        |this, _, _| this.show_task_center = !this.show_task_center,
+                    )),
+            )
+            .child(h_flex().ml_auto().pr_2().child(brand_lockup(cx, wide)))
+            .into_any_element()
+    }
+
+    /// 渲染密码库和设置页共享的页头横幅。
+    fn render_page_band(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (icon, title, caption) = match self.screen {
+            Screen::Passwords => (
+                AppIcon::Key,
+                "密码管理",
+                format!(
+                    "{} 条加密记录 · {}",
+                    self.vault.entry_count(),
+                    if self.vault.state() == VaultState::Locked {
+                        "已锁定"
+                    } else {
+                        "已解锁"
+                    }
+                ),
+            ),
+            Screen::Settings => (
+                AppIcon::Setting,
+                "设置",
+                "外观、压缩偏好与本机安全".to_string(),
+            ),
+            Screen::Browser => unreachable!(),
+        };
+        banner_gradient(cx)
+            .w_full()
+            .h(px(78.))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_5()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                div()
+                    .size(px(38.))
+                    .rounded(px(10.))
+                    .bg(cx.theme().button_primary)
+                    .text_color(cx.theme().button_primary_foreground)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .shadow_sm()
+                    .child(icon.element(20.)),
+            )
+            .child(
+                v_flex()
+                    .gap(px(0.))
+                    .child(div().text_lg().font_semibold().child(title))
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .child(
-                                icon_button("browser-back", AppIcon::ArrowLeft, "后退").on_click(
-                                    cx.listener(|this, _, window, cx| {
-                                        if let Err(error) = this.browser.go_back() {
-                                            this.status = error.to_string();
-                                        } else {
-                                            this.search_results = None;
-                                            set_input(
-                                                &this.location_input,
-                                                this.browser.current_display().as_str(),
-                                                window,
-                                                cx,
-                                            );
-                                        }
-                                        cx.notify();
-                                    }),
-                                ),
-                            )
-                            .child(
-                                icon_button("browser-forward", AppIcon::ArrowRight, "前进")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        if let Err(error) = this.browser.go_forward() {
-                                            this.status = error.to_string();
-                                        } else {
-                                            this.search_results = None;
-                                            set_input(
-                                                &this.location_input,
-                                                this.browser.current_display().as_str(),
-                                                window,
-                                                cx,
-                                            );
-                                        }
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(icon_button("up", AppIcon::ArrowUp, "上一级").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.go_parent();
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(caption),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .ml_auto()
+                    .gap_2()
+                    .child(
+                        Button::new("banner-back-files")
+                            .secondary()
+                            .small()
+                            .icon(AppIcon::ArrowLeft.element(15.))
+                            .label("返回文件")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.switch_screen(Screen::Browser);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        icon_button("banner-tasks", AppIcon::List, "任务中心").on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.show_task_center = !this.show_task_center;
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(
+                        icon_button("banner-theme", AppIcon::Tool, "切换主题").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.cycle_theme(window, cx);
+                                cx.notify();
+                            }),
+                        ),
+                    ),
+            )
+    }
+
+    /// 渲染全宽导航行：浏览按钮、路径栏、搜索栏和视图开关。
+    ///
+    /// 参考图片把地址栏与搜索框放在同一行，这里按窗口宽度收缩搜索框和
+    /// 搜索模式标签，保证 960 像素最小窗口下主操作仍然可见。
+    fn render_navigation_bar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let logical_width = window
+            .inner_window_bounds()
+            .get_bounds()
+            .size
+            .width
+            .as_f32();
+        let narrow = logical_width < 1100.;
+        let search_active = self.search_results.is_some();
+        let mode_label = match self.search_mode {
+            SearchMode::Contains => "包含",
+            SearchMode::Wildcard => "通配",
+            SearchMode::Regex => "正则",
+        };
+        h_flex()
+            .id("command-bar")
+            .h(px(42.))
+            .flex_shrink_0()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .bg(cx.theme().background)
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                h_flex()
+                    .gap_1()
+                    .flex_shrink_0()
+                    .child(
+                        icon_button(
+                            "sidebar-toggle",
+                            if self.sidebar_visible {
+                                AppIcon::MenuFold
+                            } else {
+                                AppIcon::MenuUnfold
+                            },
+                            if self.sidebar_visible {
+                                "隐藏文件夹栏"
+                            } else {
+                                "显示文件夹栏"
+                            },
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.sidebar_visible = !this.sidebar_visible;
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        icon_button("browser-back", AppIcon::ArrowLeft, "后退").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                if let Err(error) = this.browser.go_back() {
+                                    this.status = error.to_string();
+                                } else {
+                                    this.search_results = None;
                                     set_input(
                                         &this.location_input,
                                         this.browser.current_display().as_str(),
                                         window,
                                         cx,
                                     );
-                                    cx.notify();
-                                }),
-                            )),
+                                }
+                                cx.notify();
+                            }),
+                        ),
                     )
                     .child(
-                        h_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .h(px(34.))
-                            .px_2()
-                            .gap_2()
-                            .overflow_hidden()
-                            .rounded_md()
-                            .bg(cx.theme().secondary)
-                            .border_1()
-                            .border_color(cx.theme().input)
-                            .child(AppIcon::FolderOpen.element(15.))
-                            .child(
-                                Input::new(&self.location_input)
-                                    .id("location-input")
-                                    .flex_1()
-                                    .min_w_0(),
-                            )
-                            .child(
-                                Button::new("go-location")
-                                    .ghost()
-                                    .small()
-                                    .label("转到")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.go_location(window, cx);
-                                        cx.notify();
-                                    })),
-                            ),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .h(px(38.))
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_1()
-                    .px_4()
-                    .bg(cx.theme().secondary)
-                    .child(
-                        h_flex()
-                            .w(px(210.))
-                            .h(px(30.))
-                            .px_2()
-                            .gap_1()
-                            .rounded_md()
-                            .bg(cx.theme().background)
-                            .border_1()
-                            .border_color(cx.theme().input)
-                            .child(AppIcon::Search.element(14.))
-                            .child(
-                                Input::new(&self.search_input)
-                                    .id("search-input")
-                                    .flex_1()
-                                    .min_w_0(),
-                            )
-                            .child(
-                                Button::new("search-run")
-                                    .ghost()
-                                    .small()
-                                    .label("搜索")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.run_search(cx);
-                                        cx.notify();
-                                    })),
-                            ),
+                        icon_button("browser-forward", AppIcon::ArrowRight, "前进").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                if let Err(error) = this.browser.go_forward() {
+                                    this.status = error.to_string();
+                                } else {
+                                    this.search_results = None;
+                                    set_input(
+                                        &this.location_input,
+                                        this.browser.current_display().as_str(),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                                cx.notify();
+                            }),
+                        ),
                     )
                     .child(
-                        div()
-                            .mr_2()
-                            .text_xs()
-                            .font_semibold()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("快速操作"),
+                        icon_button("up", AppIcon::ArrowUp, "上一级").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.go_parent();
+                                set_input(
+                                    &this.location_input,
+                                    this.browser.current_display().as_str(),
+                                    window,
+                                    cx,
+                                );
+                                cx.notify();
+                            },
+                        )),
                     )
+                    .child(div().w(px(1.)).h(px(20.)).mx_1().bg(cx.theme().border))
                     .child(
                         icon_button("refresh", AppIcon::Refresh, "刷新").on_click(cx.listener(
                             |this, _, _, cx| {
@@ -605,418 +422,383 @@ impl LumarkApp {
                                 this.toggle_details();
                                 cx.notify();
                             })),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_w(px(150.))
+                    .h(px(30.))
+                    .px_2()
+                    .gap_1()
+                    .rounded(px(6.))
+                    .bg(cx.theme().popover)
+                    .border_1()
+                    .border_color(cx.theme().input)
+                    .child(
+                        div()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(AppIcon::FolderOpen.element(15.)),
                     )
                     .child(
-                        icon_button("test-archive", AppIcon::Shield, "测试压缩包").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.start_test(window, cx);
-                                cx.notify();
-                            }),
-                        ),
+                        Input::new(&self.location_input)
+                            .id("location-input")
+                            .flex_1()
+                            .min_w_0(),
                     )
                     .child(
-                        icon_button("task-center", AppIcon::List, "任务中心").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.show_task_center = !this.show_task_center;
-                                cx.notify();
-                            }),
-                        ),
-                    )
-                    .child(
-                        icon_button("browser-delete", AppIcon::Delete, "删除所选").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.request_delete();
-                                cx.notify();
-                            }),
-                        ),
-                    )
-                    .child(
-                        Button::new("column-layout")
-                            .ghost()
-                            .small()
-                            .label(match self.column_layout {
-                                0 => "紧凑列",
-                                2 => "宽松列",
-                                _ => "标准列",
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.cycle_column_layout();
+                        Button::new("go-location")
+                            .secondary()
+                            .xsmall()
+                            .label("转到")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.go_location(window, cx);
                                 cx.notify();
                             })),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .w(px(if narrow { 210. } else { 286. }))
+                    .h(px(30.))
+                    .px_2()
+                    .gap_1()
+                    .flex_shrink_0()
+                    .rounded(px(6.))
+                    .bg(cx.theme().popover)
+                    .border_1()
+                    .border_color(cx.theme().input)
+                    .child(
+                        div()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(AppIcon::Search.element(14.)),
                     )
                     .child(
-                        Button::new("search-mode")
-                            .ghost()
-                            .small()
-                            .label(match self.search_mode {
-                                SearchMode::Contains => "包含",
-                                SearchMode::Wildcard => "通配",
-                                SearchMode::Regex => "正则",
-                            })
+                        Input::new(&self.search_input)
+                            .id("search-input")
+                            .flex_1()
+                            .min_w_0(),
+                    )
+                    .child(
+                        Button::new("search-run")
+                            .secondary()
+                            .xsmall()
+                            .label("搜索")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.search_mode = match this.search_mode {
-                                    SearchMode::Contains => SearchMode::Wildcard,
-                                    SearchMode::Wildcard => SearchMode::Regex,
-                                    SearchMode::Regex => SearchMode::Contains,
-                                };
+                                this.run_search(cx);
                                 cx.notify();
                             })),
-                    )
-                    .when(search_active, |this| {
-                        this.child(
-                            Button::new("search-clear")
-                                .ghost()
-                                .small()
-                                .icon(AppIcon::Close.element(14.))
-                                .label("清除搜索")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.search_results = None;
-                                    cx.notify();
-                                })),
-                        )
+                    ),
+            )
+            .child(
+                Button::new("search-mode")
+                    .secondary()
+                    .small()
+                    .label(if narrow {
+                        "高级".to_string()
+                    } else {
+                        format!("高级 · {mode_label}")
                     })
-                    .child(div().flex_1())
+                    .tooltip("切换搜索匹配方式：包含、通配符、正则")
+                    .accessibility_label("高级搜索模式")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.search_mode = match this.search_mode {
+                            SearchMode::Contains => SearchMode::Wildcard,
+                            SearchMode::Wildcard => SearchMode::Regex,
+                            SearchMode::Regex => SearchMode::Contains,
+                        };
+                        cx.notify();
+                    })),
+            )
+            .when(search_active, |this| {
+                this.child(
+                    Button::new("search-clear")
+                        .ghost()
+                        .small()
+                        .icon(AppIcon::Close.element(14.))
+                        .tooltip("清除搜索")
+                        .accessibility_label("清除搜索")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.search_results = None;
+                            cx.notify();
+                        })),
+                )
+            })
+    }
+
+    /// 渲染持久文件侧栏：常用位置、文件夹树、详细信息区和密码库状态。
+    ///
+    /// 常用位置和磁盘树合并为一个列表，对应参考图片中单一的“文件夹”区域；
+    /// 窗口较矮时压缩详细信息区的高度，保证目录树仍有一行以上可见。
+    fn render_sidebar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let locations = quick_locations(&self.settings.get());
+        let tree_rows = self.tree_rows();
+        let vault_locked = self.vault.state() == VaultState::Locked;
+        let window_height = window
+            .inner_window_bounds()
+            .get_bounds()
+            .size
+            .height
+            .as_f32();
+        let details_max_height = if window_height < 720. { 170. } else { 200. };
+        v_flex()
+            .id("global-sidebar")
+            .w(px(252.))
+            .h_full()
+            .flex_shrink_0()
+            .min_h_0()
+            .bg(cx.theme().sidebar)
+            .border_r_1()
+            .border_color(cx.theme().sidebar_border)
+            .text_color(cx.theme().sidebar_foreground)
+            .child(
+                h_flex()
+                    .h(px(34.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .gap_1()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(cx.theme().sidebar_border)
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_semibold()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("文件夹"),
+                    )
                     .child(
                         h_flex()
+                            .ml_auto()
                             .gap_1()
                             .child(
-                                Button::new("compress")
-                                    .primary()
-                                    .small()
-                                    .icon(AppIcon::Compression.element(16.))
-                                    .tooltip("压缩")
-                                    .accessibility_label("压缩")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_compress_dialog(window, cx);
+                                icon_button("sidebar-refresh-tree", AppIcon::Refresh, "刷新目录树")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.tree_children.clear();
+                                        this.status = "目录树已刷新".to_string();
                                         cx.notify();
                                     })),
                             )
                             .child(
-                                Button::new("extract")
-                                    .secondary()
-                                    .small()
-                                    .icon(AppIcon::Zip.element(16.))
-                                    .tooltip("解压")
-                                    .accessibility_label("解压")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_extract_dialog(window, cx);
+                                icon_button("sidebar-close", AppIcon::Close, "隐藏文件夹栏")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.sidebar_visible = false;
                                         cx.notify();
                                     })),
                             ),
                     ),
             )
+            .child(
+                v_flex()
+                    .id("sidebar-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .py_2()
+                    .children(locations.iter().enumerate().map(|(index, (label, path))| {
+                        self.sidebar_location_item(index, label, path, cx)
+                    }))
+                    .child(div().mx_3().my_2().h(px(1.)).bg(cx.theme().sidebar_border))
+                    .children(
+                        tree_rows
+                            .iter()
+                            .enumerate()
+                            .map(|(index, row)| self.sidebar_tree_item(index, row, cx)),
+                    ),
+            )
+            .when(self.details_visible, |this| {
+                this.child(self.render_details(details_max_height, cx))
+            })
+            .child(
+                h_flex()
+                    .m_2()
+                    .p_2()
+                    .flex_shrink_0()
+                    .gap_2()
+                    .items_center()
+                    .rounded_md()
+                    .bg(cx.theme().sidebar_primary)
+                    .border_1()
+                    .border_color(cx.theme().sidebar_border)
+                    .child(
+                        div()
+                            .size(px(26.))
+                            .rounded_md()
+                            .bg(if vault_locked {
+                                cx.theme().warning
+                            } else {
+                                cx.theme().success
+                            })
+                            .text_color(if vault_locked {
+                                cx.theme().warning_foreground
+                            } else {
+                                cx.theme().success_foreground
+                            })
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                if vault_locked {
+                                    AppIcon::Lock
+                                } else {
+                                    AppIcon::Unlock
+                                }
+                                .element(14.),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .gap(px(0.))
+                            .min_w_0()
+                            .child(div().text_xs().font_semibold().child(if vault_locked {
+                                "密码库已锁定"
+                            } else {
+                                "密码库已解锁"
+                            }))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("{} 条记录", self.vault.entry_count())),
+                            ),
+                    )
+                    .child(
+                        icon_button("sidebar-vault-open", AppIcon::ArrowRight, "打开密码库")
+                            .ml_auto()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.switch_screen(Screen::Passwords);
+                                cx.notify();
+                            })),
+                    ),
+            )
     }
 
-    /// 渲染宽窗口使用的完整单行命令栏。
-    fn render_toolbar_wide(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let browser = self.screen == Screen::Browser;
-        let search_active = self.search_results.is_some();
+    /// 渲染侧栏中的一个快捷位置行。
+    fn sidebar_location_item(
+        &self,
+        index: usize,
+        label: &str,
+        path: &Path,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let active = self.browser.current_display() == path.display().to_string();
+        let path = path.to_path_buf();
         h_flex()
-            .id("command-bar")
-            .h(px(58.))
-            .flex_shrink_0()
+            .id(("sidebar-location", index))
+            .role(gpui_kit::Role::Button)
+            .aria_label(label.to_string())
+            .h(px(25.))
             .w_full()
-            .items_center()
             .gap_2()
-            .px_4()
-            .bg(cx.theme().background)
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .when(browser, |this| {
-                this.child(
-                    h_flex()
-                        .gap_1()
-                        .child(
-                            icon_button("browser-back", AppIcon::ArrowLeft, "后退").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    if let Err(error) = this.browser.go_back() {
-                                        this.status = error.to_string();
-                                    } else {
-                                        this.search_results = None;
-                                        set_input(
-                                            &this.location_input,
-                                            this.browser.current_display().as_str(),
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(
-                            icon_button("browser-forward", AppIcon::ArrowRight, "前进").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    if let Err(error) = this.browser.go_forward() {
-                                        this.status = error.to_string();
-                                    } else {
-                                        this.search_results = None;
-                                        set_input(
-                                            &this.location_input,
-                                            this.browser.current_display().as_str(),
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(icon_button("up", AppIcon::ArrowUp, "上一级").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.go_parent();
-                                set_input(
-                                    &this.location_input,
-                                    this.browser.current_display().as_str(),
-                                    window,
-                                    cx,
-                                );
-                                cx.notify();
-                            }),
-                        )),
-                )
-                .child(
-                    h_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .h(px(36.))
-                        .px_2()
-                        .gap_2()
-                        .rounded_md()
-                        .bg(cx.theme().secondary)
-                        .border_1()
-                        .border_color(cx.theme().input)
-                        .child(
-                            div()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(AppIcon::FolderOpen.element(16.)),
-                        )
-                        .child(
-                            Input::new(&self.location_input)
-                                .id("location-input")
-                                .flex_1()
-                                .min_w_0(),
-                        )
-                        .child(
-                            Button::new("go-location")
-                                .ghost()
-                                .small()
-                                .label("转到")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.go_location(window, cx);
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .child(
-                    h_flex()
-                        .w(px(232.))
-                        .h(px(36.))
-                        .px_2()
-                        .gap_2()
-                        .rounded_md()
-                        .bg(cx.theme().secondary)
-                        .border_1()
-                        .border_color(cx.theme().input)
-                        .child(AppIcon::Search.element(15.))
-                        .child(
-                            Input::new(&self.search_input)
-                                .id("search-input")
-                                .flex_1()
-                                .min_w_0(),
-                        )
-                        .child(
-                            Button::new("search-mode")
-                                .ghost()
-                                .small()
-                                .label(match self.search_mode {
-                                    SearchMode::Contains => "包含",
-                                    SearchMode::Wildcard => "通配",
-                                    SearchMode::Regex => "正则",
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.search_mode = match this.search_mode {
-                                        SearchMode::Contains => SearchMode::Wildcard,
-                                        SearchMode::Wildcard => SearchMode::Regex,
-                                        SearchMode::Regex => SearchMode::Contains,
-                                    };
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("search-run")
-                                .ghost()
-                                .small()
-                                .label("搜索")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.run_search(cx);
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .child(
-                    h_flex()
-                        .gap_1()
-                        .child(icon_button("refresh", AppIcon::Refresh, "刷新").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.refresh();
-                                cx.notify();
-                            }),
-                        ))
-                        .child(
-                            icon_button("new-folder", AppIcon::FolderPlus, "新建文件夹").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.start_new_folder(window, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(
-                            icon_button(
-                                "view-toggle",
-                                if self.tile_view {
-                                    AppIcon::List
-                                } else {
-                                    AppIcon::Grid
-                                },
-                                if self.tile_view {
-                                    "详细视图"
-                                } else {
-                                    "平铺视图"
-                                },
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.tile_view = !this.tile_view;
-                                cx.notify();
-                            })),
-                        )
-                        .child(
-                            icon_button("details-toggle-panel", AppIcon::Doc, "显示或隐藏详情")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toggle_details();
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            icon_button("test-archive", AppIcon::Shield, "测试压缩包").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.start_test(window, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(
-                            icon_button("task-center", AppIcon::List, "任务中心").on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    this.show_task_center = !this.show_task_center;
-                                    cx.notify();
-                                }),
-                            ),
-                        ),
-                )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            primary_icon_button("compress", AppIcon::Compression, "压缩").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.open_compress_dialog(window, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(
-                            secondary_icon_button("extract", AppIcon::Zip, "解压").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.open_extract_dialog(window, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                        ),
-                )
-                .when(search_active, |this| {
-                    this.child(
-                        Button::new("search-clear")
-                            .ghost()
-                            .small()
-                            .icon(AppIcon::Close.element(14.))
-                            .tooltip("清除搜索")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.search_results = None;
-                                cx.notify();
-                            })),
+            .px_3()
+            .cursor_pointer()
+            .text_sm()
+            .text_color(if active {
+                cx.theme().sidebar_accent_foreground
+            } else {
+                cx.theme().sidebar_foreground
+            })
+            .when(active, |this| this.bg(cx.theme().sidebar_accent))
+            .when(!active, |this| {
+                this.hover(|style| style.bg(cx.theme().sidebar_primary))
+            })
+            .child(location_icon(label).element(14.))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(label.to_string()),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.navigate_to(path.clone(), window, cx);
+                cx.notify();
+            }))
+    }
+
+    /// 渲染侧栏目录树中的一个懒加载节点。
+    fn sidebar_tree_item(
+        &self,
+        index: usize,
+        row: &TreeRow,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let expand_path = row.path.clone();
+        let open_path = row.path.clone();
+        let active = self.browser.current_display() == row.path.display().to_string();
+        h_flex()
+            .id(("sidebar-tree", index))
+            .role(gpui_kit::Role::Button)
+            .aria_label(row.label.clone())
+            .h(px(25.))
+            .w_full()
+            .gap_1()
+            .pl(px(6. + row.depth as f32 * 12.))
+            .pr_2()
+            .cursor_pointer()
+            .text_sm()
+            .text_color(if active {
+                cx.theme().sidebar_accent_foreground
+            } else {
+                cx.theme().sidebar_foreground
+            })
+            .when(active, |this| this.bg(cx.theme().sidebar_accent))
+            .when(!active, |this| {
+                this.hover(|style| style.bg(cx.theme().sidebar_primary))
+            })
+            .child(
+                div()
+                    .id(("tree-expand", index))
+                    .size(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .hover(|style| style.bg(cx.theme().secondary))
+                    .child(
+                        if row.expanded {
+                            AppIcon::Down
+                        } else {
+                            AppIcon::Right
+                        }
+                        .element(11.),
                     )
-                })
-            })
-            .when(!browser, |this| {
-                let (icon, title, caption) = match self.screen {
-                    Screen::Passwords => (
-                        AppIcon::Key,
-                        "密码管理",
-                        format!(
-                            "{} 条加密记录 · {}",
-                            self.vault.entry_count(),
-                            if self.vault.state() == VaultState::Locked {
-                                "已锁定"
-                            } else {
-                                "已解锁"
-                            }
-                        ),
-                    ),
-                    Screen::Settings => (
-                        AppIcon::Setting,
-                        "设置",
-                        "外观、压缩偏好与本机安全".to_string(),
-                    ),
-                    Screen::Browser => unreachable!(),
-                };
-                this.child(
-                    h_flex()
-                        .flex_1()
-                        .gap_3()
-                        .child(
-                            div()
-                                .size(px(34.))
-                                .rounded_md()
-                                .bg(cx.theme().accent)
-                                .text_color(cx.theme().accent_foreground)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(icon.element(18.)),
-                        )
-                        .child(
-                            v_flex()
-                                .gap(px(0.))
-                                .child(div().text_lg().font_semibold().child(title))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(caption),
-                                ),
-                        ),
-                )
-                .child(
-                    icon_button("command-tasks", AppIcon::List, "任务中心").on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.show_task_center = !this.show_task_center;
-                            cx.notify();
-                        },
-                    )),
-                )
-                .child(
-                    icon_button("command-theme", AppIcon::Tool, "切换主题").on_click(cx.listener(
-                        |this, _, window, cx| {
-                            this.cycle_theme(window, cx);
-                            cx.notify();
-                        },
-                    )),
-                )
-            })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_tree_path(expand_path.clone());
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div().text_color(cx.theme().warning_foreground).child(
+                    if row.expanded {
+                        AppIcon::FolderOpen
+                    } else {
+                        AppIcon::Folder
+                    }
+                    .element(14.),
+                ),
+            )
+            .child(
+                div()
+                    .id(("tree-open", index))
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(row.label.clone())
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.navigate_to(open_path.clone(), window, cx);
+                        cx.notify();
+                    })),
+            )
     }
 
     /// 渲染底部状态栏和紧凑任务控件。
+    ///
+    /// 参考图片的状态栏横跨整个窗口；这里同时保留运行状态、暂停/取消
+    /// 和当前目录的总项目数与字节数。
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let running = self.active_task.is_some();
         let progress_text = self
@@ -1037,9 +819,10 @@ impl LumarkApp {
             .map(|entry| entry.size)
             .sum::<u64>();
         h_flex()
-            .h(px(30.))
+            .h(px(28.))
             .flex_shrink_0()
-            .px_4()
+            .w_full()
+            .px_3()
             .gap_2()
             .border_t_1()
             .border_color(cx.theme().status_bar_border)
@@ -1053,7 +836,7 @@ impl LumarkApp {
             }))
             .child(
                 div()
-                    .max_w(px(560.))
+                    .max_w(px(620.))
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .child(progress_text),
@@ -1066,13 +849,13 @@ impl LumarkApp {
                     .clamp(0.0, 1.0);
                 this.child(
                     div()
-                        .w(px(120.))
+                        .w(px(110.))
                         .h(px(5.))
                         .rounded_full()
                         .bg(cx.theme().muted)
                         .child(
                             div()
-                                .w(px(120. * ratio))
+                                .w(px(110. * ratio))
                                 .h_full()
                                 .rounded_full()
                                 .bg(cx.theme().primary),
@@ -1106,18 +889,47 @@ impl LumarkApp {
                         },
                     )),
                 )
+                .child(
+                    Button::new("show-progress")
+                        .ghost()
+                        .xsmall()
+                        .icon(AppIcon::List.element(13.))
+                        .label("进度")
+                        .tooltip("显示任务进度窗口")
+                        .on_click(cx.listener(|_, _, window, cx| {
+                            cx.defer_in(window, |app, window, cx| {
+                                app.open_progress_window(window, cx);
+                            });
+                            cx.notify();
+                        })),
+                )
             })
-            .child(div().ml_auto().child(format!(
-                "{} 项 · {}",
-                self.displayed_count(),
-                format_size(total_size)
-            )))
-            .child(div().child("v0.1.0"))
+            .child(
+                div()
+                    .ml_auto()
+                    .whitespace_nowrap()
+                    .child(if self.screen == Screen::Browser {
+                        format!(
+                            "总计 {} 个项目 · {}",
+                            self.displayed_count(),
+                            format_size(total_size)
+                        )
+                    } else {
+                        String::new()
+                    }),
+            )
+            .child(
+                div()
+                    .pl_3()
+                    .border_l_1()
+                    .border_color(cx.theme().border)
+                    .child("v0.1.0"),
+            )
     }
 }
 
 impl Render for LumarkApp {
-    /// 组合共享应用外壳、当前页面和模态层。
+    /// 组合标题栏、动作带、导航行、侧栏、当前页面、状态栏和模态层。
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.pending_requests.is_empty() {
             let request = self.pending_requests.remove(0);
@@ -1138,17 +950,26 @@ impl Render for LumarkApp {
             self.last_size_save = std::time::Instant::now();
         }
 
+        if self.active_task.is_none() && self.progress_window.is_some() {
+            self.dismiss_progress_window(cx);
+        }
+
         let content = match self.screen {
             Screen::Browser => self.render_browser(window, cx).into_any_element(),
             Screen::Passwords => self.render_passwords(cx).into_any_element(),
             Screen::Settings => self.render_settings(cx).into_any_element(),
         };
+        let browser = self.screen == Screen::Browser;
 
         v_flex()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
+            .child(self.render_action_band(window, cx))
+            .when(browser, |this| {
+                this.child(self.render_navigation_bar(window, cx))
+            })
             .child(
                 h_flex()
                     .flex_1()
@@ -1156,7 +977,9 @@ impl Render for LumarkApp {
                     .min_h_0()
                     .min_w_0()
                     .items_stretch()
-                    .child(self.render_navigation_sidebar(cx))
+                    .when(browser && self.sidebar_visible, |this| {
+                        this.child(self.render_sidebar(window, cx))
+                    })
                     .child(
                         v_flex()
                             .flex_1()
@@ -1164,26 +987,10 @@ impl Render for LumarkApp {
                             .min_w_0()
                             .min_h_0()
                             .overflow_hidden()
-                            .child(self.render_toolbar(window, cx))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .w_full()
-                                    .min_w_0()
-                                    .min_h_0()
-                                    .overflow_hidden()
-                                    .child(content),
-                            )
-                            .child(self.render_status_bar(cx)),
+                            .child(content),
                     ),
             )
-            .when(self.show_context_menu, |this| {
-                this.child(self.render_file_context_menu(cx))
-            })
-            .when(self.show_compress, |this| {
-                let dialog = self.render_compress_dialog(cx);
-                this.child(dialog_layer(dialog))
-            })
+            .child(self.render_status_bar(cx))
             .when(self.show_extract, |this| {
                 let dialog = self.render_extract_dialog(cx);
                 this.child(dialog_layer(dialog))
@@ -1243,10 +1050,12 @@ fn dialog_layer(content: impl IntoElement) -> gpui_kit::Div {
     div()
         .absolute()
         .inset_0()
+        .occlude()
         .flex()
         .items_center()
         .justify_center()
         .bg(hsla(222. / 360., 0.18, 0.08, 0.42))
         .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, _| {})
+        .on_mouse_down(gpui_kit::MouseButton::Right, |_, _, _| {})
         .child(content)
 }

@@ -26,6 +26,12 @@ pub struct TaskProgress {
     pub current: String,
     pub bytes_done: u64,
     pub bytes_total: u64,
+    /// 当前文件已处理的字节数。
+    pub current_file_done: u64,
+    /// 当前文件总字节数。
+    pub current_file_total: u64,
+    /// 已写入压缩包输出文件的字节数。
+    pub output_bytes: u64,
     pub entries_done: usize,
     pub entries_total: usize,
     pub speed_bps: f64,
@@ -39,6 +45,20 @@ impl TaskProgress {
         } else {
             (self.bytes_done as f32 / self.bytes_total as f32).clamp(0.0, 1.0)
         }
+    }
+
+    /// 返回当前处理文件的完成比例。
+    pub fn current_file_ratio(&self) -> f32 {
+        if self.current_file_total == 0 {
+            0.0
+        } else {
+            (self.current_file_done as f32 / self.current_file_total as f32).clamp(0.0, 1.0)
+        }
+    }
+
+    /// 返回输出大小与已处理源字节的比值。
+    pub fn compression_ratio(&self) -> Option<f32> {
+        (self.bytes_done > 0).then(|| self.output_bytes as f32 / self.bytes_done as f32)
     }
 
     pub fn eta_seconds(&self) -> Option<u64> {

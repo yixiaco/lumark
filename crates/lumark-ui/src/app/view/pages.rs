@@ -746,16 +746,6 @@ impl LumarkApp {
                             ),
                     ),
             )
-            .child(
-                Button::new("back-password")
-                    .ghost()
-                    .icon(AppIcon::ArrowLeft.element(15.))
-                    .label("返回文件")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.switch_screen(Screen::Browser);
-                        cx.notify();
-                    })),
-            )
     }
 
     /// 使用分组卡片和简洁的面向操作设置行，而不是冗长且缺乏层次的表单。
@@ -839,13 +829,39 @@ impl LumarkApp {
                                 cx.notify();
                             })),
                     ))
+                    .when_some(self.theme_color_picker.as_ref(), |this, picker| {
+                        this.child(
+                            div().h(px(1.)).bg(cx.theme().border),
+                        )
+                        .child(settings_row(
+                            cx,
+                            "主题色",
+                            "强调色默认蓝色，点击色块可选择任意颜色。",
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    ColorPicker::new(picker)
+                                        .featured_colors(theme_accent_presets())
+                                        .small()
+                                        .accessibility_label("主题色"),
+                                )
+                                .child(
+                                    div()
+                                        .w(px(64.))
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(settings.accent_color.clone()),
+                                ),
+                        ))
+                    })
                     .child(
                         div().h(px(1.)).bg(cx.theme().border),
                     )
                     .child(settings_row(
                         cx,
-                        "显示详情面板",
-                        "浏览文件时显示 CRC、压缩方法和加密状态。",
+                        "显示详细信息区",
+                        "在文件侧栏底部显示大小、时间、CRC 和压缩方法。",
                         Button::new("toggle-details-visible")
                             .label(if settings.details_visible {
                                 "已显示"
@@ -854,6 +870,21 @@ impl LumarkApp {
                             })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.toggle_details();
+                                cx.notify();
+                            })),
+                    ))
+                    .child(settings_row(
+                        cx,
+                        "文件列表列宽",
+                        "在紧凑、标准和宽松三档列宽之间切换。",
+                        Button::new("cycle-column-layout")
+                            .label(match self.column_layout {
+                                0 => "紧凑列",
+                                2 => "宽松列",
+                                _ => "标准列",
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cycle_column_layout();
                                 cx.notify();
                             })),
                     )),
@@ -1084,16 +1115,6 @@ impl LumarkApp {
                             .child(format!("设置文件：{}", self.settings.path().display())),
                     ),
             )
-            .child(
-                Button::new("back-settings")
-                    .ghost()
-                    .icon(AppIcon::ArrowLeft.element(15.))
-                    .label("返回文件")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.switch_screen(Screen::Browser);
-                        cx.notify();
-                    })),
-            )
     }
 
     /// 渲染非模态任务中心面板。
@@ -1105,10 +1126,10 @@ impl LumarkApp {
             .clamp(0.0, 1.0);
         v_flex()
             .absolute()
-            .top(px(64.))
+            .top(px(170.))
             .right(px(16.))
             .w(px(360.))
-            .max_h(px(480.))
+            .max_h(px(400.))
             .gap_3()
             .p_4()
             .bg(cx.theme().popover)

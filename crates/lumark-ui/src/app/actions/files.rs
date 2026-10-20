@@ -392,19 +392,6 @@ impl LumarkApp {
         self.show_delete_confirm = true;
     }
 
-    /// 选择被点击的行并在指针位置打开右键菜单。
-    pub(crate) fn show_file_context_menu(
-        &mut self,
-        target_id: &str,
-        position: gpui_kit::Point<gpui_kit::Pixels>,
-    ) {
-        if !self.browser.selection.is_selected(target_id) {
-            self.browser.selection.select_only(target_id);
-        }
-        self.context_menu_position = Some(position);
-        self.show_context_menu = true;
-    }
-
     /// 通过回收站删除文件，或提交归档删除编辑。
     pub(crate) fn confirm_delete(&mut self) {
         if self.pending_delete_paths.is_empty() {
@@ -660,10 +647,10 @@ impl LumarkApp {
     }
 
     /// 返回当前选择中可压缩的源路径。
+    ///
+    /// 当前文件表选择优先于拖放/命令行预留的源列表，避免上一次拖放留下的
+    /// 单文件源覆盖用户新选中的多个项目。
     pub(crate) fn selected_sources(&self) -> Vec<PathBuf> {
-        if let Some(paths) = &self.dropped_sources {
-            return paths.clone();
-        }
         let ids = self.browser.selection.selected_ids();
         let mut paths: Vec<PathBuf> = self
             .displayed_entries()
@@ -671,9 +658,13 @@ impl LumarkApp {
             .filter(|entry| ids.contains(&entry.id))
             .map(|entry| entry.path.clone())
             .collect();
-        if paths.is_empty()
-            && let BrowserLocation::FileSystem(path) = &self.browser.location
-        {
+        if !paths.is_empty() {
+            return paths;
+        }
+        if let Some(paths) = &self.dropped_sources {
+            return paths.clone();
+        }
+        if let BrowserLocation::FileSystem(path) = &self.browser.location {
             paths.push(path.clone());
         }
         paths

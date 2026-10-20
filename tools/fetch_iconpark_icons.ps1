@@ -14,10 +14,12 @@ $icons = @(
     "copy",
     "delete",
     "doc-detail",
+    "down",
     "download",
     "edit",
     "file-lock",
     "file-zip",
+    "folder",
     "folder-open",
     "folder-plus",
     "grid-four",
@@ -25,9 +27,12 @@ $icons = @(
     "key",
     "list",
     "lock",
+    "menu-fold",
+    "menu-unfold",
     "more",
     "music",
     "refresh",
+    "right",
     "save",
     "search",
     "setting",
@@ -49,7 +54,7 @@ foreach ($name in $icons) {
         }
     }) -join ""
     $uri = "$base/$pascal.js"
-    $source = (Invoke-WebRequest -Uri $uri -TimeoutSec 30).Content
+    $source = (Invoke-WebRequest -Uri $uri -TimeoutSec 30 -UseBasicParsing).Content
 
     $temporarySource = Join-Path ([System.IO.Path]::GetTempPath()) "lumark-iconpark-$([Guid]::NewGuid()).js"
     [System.IO.File]::WriteAllText(
@@ -84,7 +89,7 @@ foreach ($name in $icons) {
     Write-Host "saved $name.svg"
 }
 
-$license = (Invoke-WebRequest -Uri "https://cdn.jsdelivr.net/npm/@icon-park/svg@1.4.2/LICENSE" -TimeoutSec 30).Content
+$license = (Invoke-WebRequest -Uri "https://cdn.jsdelivr.net/npm/@icon-park/svg@1.4.2/LICENSE" -TimeoutSec 30 -UseBasicParsing).Content
 [System.IO.File]::WriteAllText(
     (Join-Path $assetRoot "LICENSE"),
     $license,
