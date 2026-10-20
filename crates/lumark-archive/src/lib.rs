@@ -1,0 +1,16 @@
+//! Archive format adapters and safe extraction primitives.
+
+pub mod edit;
+pub mod error;
+pub mod format;
+pub mod path;
+pub mod service;
+
+pub use edit::{EditOptions, EditProgress, EditReport};
+pub use error::ArchiveError;
+pub use format::{
+    ArchiveEntry, ArchiveFormat, ArchiveInfo, CompressionOptions, CompressionPreset, CreateReport,
+    EncryptionInfo, ExtractReport, ExtractionOptions, OverwritePolicy, PathMode, ZipEncryption,
+};
+pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
+pub use service::ArchiveService;

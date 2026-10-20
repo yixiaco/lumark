@@ -1,0 +1,33 @@
+[package]
+name = "lumark-archive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+crc32fast.workspace = true
+bzip2.workspace = true
+brotli.workspace = true
+encoding_rs.workspace = true
+filetime.workspace = true
+flate2.workspace = true
+globset.workspace = true
+geezipx-core.workspace = true
+lz4_flex.workspace = true
+serde.workspace = true
+sevenz-rust2.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+unrar.workspace = true
+unarc-rs.workspace = true
+walkdir.workspace = true
+windows-sys.workspace = true
+xz2.workspace = true
+zip.workspace = true
+zstd.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

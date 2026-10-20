@@ -1,0 +1,8 @@
+/target
+.idea/
+*.iml
+/.vscode/
+*.pdb
+*.ilk
+*.log
+.DS_Store

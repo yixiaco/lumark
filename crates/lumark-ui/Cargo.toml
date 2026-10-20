@@ -1,0 +1,28 @@
+[package]
+name = "lumark-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+gpui-kit.workspace = true
+lumark-archive = { path = "../lumark-archive" }
+lumark-browser = { path = "../lumark-browser" }
+ lumark-platform-windows = { path = "../lumark-platform-windows" }
+lumark-settings = { path = "../lumark-settings" }
+lumark-tasks = { path = "../lumark-tasks" }
+lumark-vault = { path = "../lumark-vault" }
+serde.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+# `test-support` resolves gpui-fast's macOS backend alongside gpui-pre on macOS.
+cocoa = "=0.26.0"

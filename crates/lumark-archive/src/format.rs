@@ -1,0 +1,451 @@
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ArchiveFormat {
+    Zip,
+    SevenZip,
+    Tar,
+    TarGz,
+    TarBz2,
+    TarXz,
+    TarZst,
+    Gzip,
+    Bzip2,
+    Xz,
+    Zstd,
+    Brotli,
+    Lz4,
+    Rar,
+    Iso,
+    Udf,
+    Cab,
+    Arj,
+    Ace,
+    Arc,
+    Alz,
+    UnixCompress,
+    Lzh,
+    Cpio,
+    Wim,
+    Isz,
+    Deb,
+    Asar,
+    Zpaq,
+    Uu,
+    Img,
+    Bin,
+    Enc,
+    Lzip,
+    Unknown,
+}
+
+impl ArchiveFormat {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Zip => "ZIP 压缩文件",
+            Self::SevenZip => "7Z 压缩文件",
+            Self::Tar => "TAR 归档",
+            Self::TarGz => "TAR.GZ 归档",
+            Self::TarBz2 => "TAR.BZ2 归档",
+            Self::TarXz => "TAR.XZ 归档",
+            Self::TarZst => "TAR.ZST 归档",
+            Self::Gzip => "GZIP 文件",
+            Self::Bzip2 => "BZIP2 文件",
+            Self::Xz => "XZ 文件",
+            Self::Zstd => "ZSTD 文件",
+            Self::Brotli => "BROTLI 文件",
+            Self::Lz4 => "LZ4 文件",
+            Self::Rar => "RAR 压缩文件",
+            Self::Iso => "ISO 镜像",
+            Self::Udf => "UDF 镜像",
+            Self::Cab => "CAB 压缩文件",
+            Self::Arj => "ARJ 压缩文件",
+            Self::Ace => "ACE 压缩文件",
+            Self::Arc => "ARC 压缩文件",
+            Self::Alz => "ALZ 压缩文件",
+            Self::UnixCompress => "Z 压缩文件",
+            Self::Lzh => "LZH 压缩文件",
+            Self::Cpio => "CPIO 归档",
+            Self::Wim => "WIM 镜像",
+            Self::Isz => "ISZ 镜像",
+            Self::Deb => "DEB 包",
+            Self::Asar => "ASAR 归档",
+            Self::Zpaq => "ZPAQ 压缩文件",
+            Self::Uu => "UU 编码文件",
+            Self::Img => "IMG 镜像",
+            Self::Bin => "BIN 镜像",
+            Self::Enc => "AES 加密容器",
+            Self::Lzip => "LZIP 文件",
+            Self::Unknown => "文件",
+        }
+    }
+
+    pub fn is_writable(self) -> bool {
+        matches!(
+            self,
+            Self::Zip
+                | Self::SevenZip
+                | Self::Tar
+                | Self::TarGz
+                | Self::TarBz2
+                | Self::TarXz
+                | Self::TarZst
+                | Self::Gzip
+                | Self::Bzip2
+                | Self::Xz
+                | Self::Zstd
+                | Self::Brotli
+                | Self::Lz4
+        )
+    }
+
+    pub fn supports_password(self) -> bool {
+        matches!(self, Self::Zip | Self::SevenZip | Self::Rar | Self::Enc)
+    }
+
+    pub fn supports_comment(self) -> bool {
+        matches!(self, Self::Zip | Self::SevenZip)
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Zip => "zip",
+            Self::SevenZip => "7z",
+            Self::Tar => "tar",
+            Self::TarGz => "tar.gz",
+            Self::TarBz2 => "tar.bz2",
+            Self::TarXz => "tar.xz",
+            Self::TarZst => "tar.zst",
+            Self::Gzip => "gz",
+            Self::Bzip2 => "bz2",
+            Self::Xz => "xz",
+            Self::Zstd => "zst",
+            Self::Brotli => "br",
+            Self::Lz4 => "lz4",
+            Self::Rar => "rar",
+            Self::Iso => "iso",
+            Self::Udf => "udf",
+            Self::Cab => "cab",
+            Self::Arj => "arj",
+            Self::Ace => "ace",
+            Self::Arc => "arc",
+            Self::Alz => "alz",
+            Self::UnixCompress => "Z",
+            Self::Lzh => "lzh",
+            Self::Cpio => "cpio",
+            Self::Wim => "wim",
+            Self::Isz => "isz",
+            Self::Deb => "deb",
+            Self::Asar => "asar",
+            Self::Zpaq => "zpaq",
+            Self::Uu => "uu",
+            Self::Img => "img",
+            Self::Bin => "bin",
+            Self::Enc => "enc",
+            Self::Lzip => "lz",
+            Self::Unknown => "",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ArchiveEntry {
+    pub id: u64,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub compressed_size: Option<u64>,
+    pub modified: Option<DateTime<Utc>>,
+    pub crc32: Option<u32>,
+    pub method: String,
+    pub encrypted: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ArchiveInfo {
+    pub format: Option<ArchiveFormat>,
+    pub id: u64,
+    pub entries: Vec<ArchiveEntry>,
+    pub encrypted: bool,
+    pub header_encrypted: bool,
+    pub solid: bool,
+    pub comment: Option<String>,
+    pub total_size: u64,
+    pub compressed_size: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompressionPreset {
+    Speed,
+    Balanced,
+    Size,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PathMode {
+    #[default]
+    Relative,
+    NoRoot,
+    Flatten,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ZipEncryption {
+    #[default]
+    Aes256,
+    ZipCrypto,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OverwritePolicy {
+    #[default]
+    Ask,
+    Overwrite,
+    Skip,
+    Rename,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompressionOptions {
+    pub format: ArchiveFormat,
+    pub level: Option<i64>,
+    pub preset: CompressionPreset,
+    pub solid: bool,
+    /// 7z: encrypt the archive header as well as entry streams when a password is set.
+    /// ZIP ignores this flag.
+    pub encrypt_header: bool,
+    pub dictionary_size: Option<u32>,
+    pub threads: u32,
+    pub modified_after: Option<DateTime<Utc>>,
+    pub modified_before: Option<DateTime<Utc>>,
+    pub path_mode: PathMode,
+    pub password: Option<Zeroizing<String>>,
+    pub zip_encryption: ZipEncryption,
+    pub comment: Option<String>,
+    pub split_size: Option<u64>,
+    pub test_after: bool,
+    pub delete_source: bool,
+    pub exclude_patterns: Vec<String>,
+    pub store_only_patterns: Vec<String>,
+    pub cancel: Option<Arc<AtomicBool>>,
+}
+
+impl Default for CompressionOptions {
+    fn default() -> Self {
+        Self {
+            format: ArchiveFormat::Zip,
+            level: Some(6),
+            preset: CompressionPreset::Balanced,
+            solid: false,
+            encrypt_header: true,
+            dictionary_size: None,
+            threads: 1,
+            modified_after: None,
+            modified_before: None,
+            path_mode: PathMode::Relative,
+            password: None,
+            zip_encryption: ZipEncryption::Aes256,
+            comment: None,
+            split_size: None,
+            test_after: false,
+            delete_source: false,
+            exclude_patterns: Vec::new(),
+            store_only_patterns: Vec::new(),
+            cancel: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ExtractionOptions {
+    pub output_dir: std::path::PathBuf,
+    pub selected_paths: Vec<String>,
+    pub overwrite: bool,
+    pub overwrite_policy: OverwritePolicy,
+    pub password: Option<Zeroizing<String>>,
+    pub preserve_paths: bool,
+    pub cancel: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ExtractReport {
+    pub files: usize,
+    pub bytes: u64,
+    pub skipped: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CreateReport {
+    pub files: usize,
+    pub bytes: u64,
+    pub output: std::path::PathBuf,
+    pub cleanup_errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EncryptionInfo {
+    pub encrypted: bool,
+    pub header_encrypted: bool,
+    pub format: Option<ArchiveFormat>,
+}
+
+pub fn detect_format(path: &Path) -> ArchiveFormat {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+        return ArchiveFormat::TarGz;
+    }
+    if name.ends_with(".tar.bz2") || name.ends_with(".tbz2") || name.ends_with(".tbz") {
+        return ArchiveFormat::TarBz2;
+    }
+    if name.ends_with(".tar.xz") || name.ends_with(".txz") {
+        return ArchiveFormat::TarXz;
+    }
+    if name.ends_with(".tar.zst") || name.ends_with(".tzst") {
+        return ArchiveFormat::TarZst;
+    }
+    if name.ends_with(".zip")
+        || name.ends_with(".zipx")
+        || name.ends_with(".jar")
+        || name.ends_with(".war")
+        || name.ends_with(".apk")
+        || name.ends_with(".ipa")
+        || name.ends_with(".xpi")
+    {
+        return ArchiveFormat::Zip;
+    }
+    if name.ends_with(".7z") {
+        return ArchiveFormat::SevenZip;
+    }
+    if name.ends_with(".tar") {
+        return ArchiveFormat::Tar;
+    }
+    if name.ends_with(".gz") || name.ends_with(".gzip") {
+        return ArchiveFormat::Gzip;
+    }
+    if name.ends_with(".bz2") || name.ends_with(".bzip2") {
+        return ArchiveFormat::Bzip2;
+    }
+    if name.ends_with(".xz") {
+        return ArchiveFormat::Xz;
+    }
+    if name.ends_with(".zst") || name.ends_with(".zstd") {
+        return ArchiveFormat::Zstd;
+    }
+    if name.ends_with(".br") || name.ends_with(".brotli") {
+        return ArchiveFormat::Brotli;
+    }
+    if name.ends_with(".lz4") {
+        return ArchiveFormat::Lz4;
+    }
+    if name.ends_with(".rar") {
+        return ArchiveFormat::Rar;
+    }
+    if name.ends_with(".iso") {
+        return ArchiveFormat::Iso;
+    }
+    if name.ends_with(".udf") {
+        return ArchiveFormat::Udf;
+    }
+    if name.ends_with(".cab") {
+        return ArchiveFormat::Cab;
+    }
+    if name.ends_with(".arj") {
+        return ArchiveFormat::Arj;
+    }
+    if name.ends_with(".ace") {
+        return ArchiveFormat::Ace;
+    }
+    if name.ends_with(".arc") || name.ends_with(".pak") {
+        return ArchiveFormat::Arc;
+    }
+    if name.ends_with(".alz") {
+        return ArchiveFormat::Alz;
+    }
+    if name.ends_with(".z") {
+        return ArchiveFormat::UnixCompress;
+    }
+    if name.ends_with(".lzh") || name.ends_with(".lha") {
+        return ArchiveFormat::Lzh;
+    }
+    if name.ends_with(".cpio") {
+        return ArchiveFormat::Cpio;
+    }
+    if name.ends_with(".wim") || name.ends_with(".swm") {
+        return ArchiveFormat::Wim;
+    }
+    if name.ends_with(".isz") {
+        return ArchiveFormat::Isz;
+    }
+    if name.ends_with(".deb") {
+        return ArchiveFormat::Deb;
+    }
+    if name.ends_with(".asar") {
+        return ArchiveFormat::Asar;
+    }
+    if name.ends_with(".zpaq") || name.ends_with(".zpq") {
+        return ArchiveFormat::Zpaq;
+    }
+    if name.ends_with(".uu") || name.ends_with(".uue") || name.ends_with(".xxe") {
+        return ArchiveFormat::Uu;
+    }
+    if name.ends_with(".img") || name.ends_with(".ima") {
+        return ArchiveFormat::Img;
+    }
+    if name.ends_with(".bin") {
+        return ArchiveFormat::Bin;
+    }
+    if name.ends_with(".enc") {
+        return ArchiveFormat::Enc;
+    }
+    if name.ends_with(".lz") || name.ends_with(".lzma") {
+        return ArchiveFormat::Lzip;
+    }
+    ArchiveFormat::Unknown
+}
+
+pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
+    if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06") {
+        return ArchiveFormat::Zip;
+    }
+    if bytes.starts_with(b"7z\xbc\xaf\x27\x1c") {
+        return ArchiveFormat::SevenZip;
+    }
+    if bytes.starts_with(b"Rar!\x1a\x07") {
+        return ArchiveFormat::Rar;
+    }
+    if bytes.starts_with(b"\x1f\x8b") {
+        return ArchiveFormat::Gzip;
+    }
+    if bytes.starts_with(b"\x1f\x9d") {
+        return ArchiveFormat::UnixCompress;
+    }
+    if bytes.starts_with(b"BZh") {
+        return ArchiveFormat::Bzip2;
+    }
+    if bytes.starts_with(b"\xfd7zXZ\x00") {
+        return ArchiveFormat::Xz;
+    }
+    if bytes.starts_with(b"\x28\xb5\x2f\xfd") {
+        return ArchiveFormat::Zstd;
+    }
+    if bytes.starts_with(b"MSCF") {
+        return ArchiveFormat::Cab;
+    }
+    if bytes.starts_with(b"!<arch>\n") {
+        return ArchiveFormat::Deb;
+    }
+    if bytes.starts_with(b"070701") || bytes.starts_with(b"070702") {
+        return ArchiveFormat::Cpio;
+    }
+    ArchiveFormat::Unknown
+}

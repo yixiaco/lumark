@@ -1,0 +1,10 @@
+[package]
+name = "lumark-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+gpui-kit.workspace = true
+lumark-ui = { path = "../lumark-ui" }

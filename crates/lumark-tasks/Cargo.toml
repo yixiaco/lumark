@@ -1,0 +1,22 @@
+[package]
+name = "lumark-tasks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+rayon.workspace = true
+serde.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+lumark-archive = { path = "../lumark-archive" }
+
+[dev-dependencies]
+tempfile.workspace = true
+lumark-vault = { path = "../lumark-vault" }

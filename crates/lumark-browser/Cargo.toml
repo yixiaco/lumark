@@ -1,0 +1,18 @@
+[package]
+name = "lumark-browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+globset.workspace = true
+natord.workspace = true
+parking_lot.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+walkdir.workspace = true
+lumark-archive = { path = "../lumark-archive" }
+
+[dev-dependencies]
+tempfile.workspace = true
