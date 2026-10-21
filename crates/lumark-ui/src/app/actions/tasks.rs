@@ -64,6 +64,26 @@ impl LumarkApp {
         }
     }
 
+    /// 当前任务结束后，把焦点切到最近一个仍在运行的任务。
+    pub(crate) fn focus_next_running_task(&mut self, finished_id: u64) {
+        self.active_task = None;
+        self.task_progress = None;
+        self.active_task_kind = None;
+        self.active_task_label = None;
+        if let Some(next) = self
+            .task_records
+            .iter()
+            .rev()
+            .find(|record| record.id != finished_id && !is_terminal_task_state(record.state))
+            .cloned()
+        {
+            self.active_task = Some(next.id);
+            self.task_progress = Some(next.progress);
+            self.active_task_kind = Some(next.kind);
+            self.active_task_label = Some(next.label);
+        }
+    }
+
     /// 限制历史记录数量，优先淘汰最早结束的任务。
     fn prune_task_records(&mut self) {
         while self.task_records.len() > 80 {

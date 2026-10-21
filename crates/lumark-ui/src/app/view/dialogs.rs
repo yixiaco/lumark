@@ -29,7 +29,6 @@ impl LumarkApp {
                     .child(button("save-dismiss").secondary().label("不保存").on_click(
                         cx.listener(|this, _, _, cx| {
                             this.show_save_prompt = false;
-                            this.pending_save = None;
                             cx.notify();
                         }),
                     ))

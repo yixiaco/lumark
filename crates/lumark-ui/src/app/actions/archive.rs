@@ -740,7 +740,7 @@ impl LumarkApp {
         &mut self,
         archive: PathBuf,
         selection_only: bool,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let output = PathBuf::from(input_value(&self.extract_output, cx));
@@ -755,30 +755,9 @@ impl LumarkApp {
         {
             password = known.to_string();
         }
-        if password.is_empty() {
-            self.pending_save = None;
-        } else {
-            self.pending_save = Some(archive.clone());
-            let label = archive
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("压缩包密码")
-                .to_string();
-            set_input(&self.password_label, &label, window, cx);
-            set_input(&self.password_value, &password, window, cx);
-            set_input(&self.password_confirm, &password, window, cx);
-            set_input(
-                &self.password_pattern,
-                archive.to_string_lossy().as_ref(),
-                window,
-                cx,
-            );
-        }
-        self.pending_open_dir = self
-            .settings
-            .get()
-            .open_after_extract
-            .then(|| output.clone());
+        let save_password = !password.is_empty();
+        let open_after = self.settings.get().open_after_extract;
+        let open_dir = output.clone();
         let overwrite_policy = match self.settings.get().overwrite_policy {
             lumark_settings::OverwritePolicy::Ask => ArchiveOverwritePolicy::Ask,
             lumark_settings::OverwritePolicy::Overwrite => ArchiveOverwritePolicy::Overwrite,
@@ -805,13 +784,20 @@ impl LumarkApp {
             } else {
                 Vec::new()
             },
-            password: (!password.is_empty()).then(|| zeroize::Zeroizing::new(password)),
+            password: (!password.is_empty()).then(|| zeroize::Zeroizing::new(password.clone())),
             ..Default::default()
         };
         let id = self.tasks.submit(lumark_tasks::TaskRequest::Extract {
             archive: archive.clone(),
             options,
         });
+        if save_password {
+            self.pending_extract_saves
+                .insert(id, (archive.clone(), zeroize::Zeroizing::new(password)));
+        }
+        if open_after {
+            self.pending_extract_open_dirs.insert(id, open_dir);
+        }
         self.active_task = Some(id);
         self.task_progress = None;
         self.status = format!("开始解压：{}", archive.display());
@@ -922,7 +908,6 @@ impl LumarkApp {
                 self.status = "密码已保存到加密密码库".to_string();
                 self.selected_password = None;
                 self.show_save_prompt = false;
-                self.pending_save = None;
                 set_input(&self.password_label, "", window, cx);
                 set_input(&self.password_value, "", window, cx);
                 set_input(&self.password_confirm, "", window, cx);
@@ -947,7 +932,6 @@ impl LumarkApp {
                         Ok(()) => {
                             self.status = "密码已存在，已将当前压缩包关联到该条目".to_string();
                             self.show_save_prompt = false;
-                            self.pending_save = None;
                         }
                         Err(error) => self.status = error.to_string(),
                     }

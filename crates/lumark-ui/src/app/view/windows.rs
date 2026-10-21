@@ -520,6 +520,12 @@ impl Render for ProgressWindowView {
     }
 }
 
+/// 一个任务对应的进度窗口句柄和视图。
+pub(crate) struct ProgressWindowEntry {
+    pub(crate) handle: gpui_kit::AnyWindowHandle,
+    pub(crate) view: gpui_kit::Entity<ProgressWindowView>,
+}
+
 impl LumarkApp {
     /// 打开当前活动任务的独立进度窗口。
     pub(crate) fn open_progress_window(&mut self, parent: &Window, cx: &mut Context<Self>) {
@@ -530,8 +536,8 @@ impl LumarkApp {
 
     /// 打开或激活指定任务的进度窗口，包括已结束任务的结果窗口。
     ///
-    /// 后台任务关闭窗口后仍保留任务记录，用户在任务中心点击同一任务即可
-    /// 重新打开它的实时进度或最终结果。
+    /// 每个任务维护独立窗口，多个压缩/解压任务并行时不会互相覆盖；
+    /// 后台任务关闭窗口后仍保留任务记录，从任务中心点击即可重新打开。
     pub(crate) fn open_progress_window_for(
         &mut self,
         task_id: u64,
@@ -541,15 +547,19 @@ impl LumarkApp {
         let Some(record) = self.task_record(task_id).cloned() else {
             return;
         };
-        if self.progress_task == Some(task_id)
-            && let Some(handle) = self.progress_window
-            && handle
+        if let Some(entry) = self.progress_windows.get(&task_id)
+            && entry
+                .handle
                 .update(cx, |_, window, _| window.activate_window())
                 .is_ok()
         {
             return;
         }
-        self.dismiss_progress_window(cx);
+        if let Some(entry) = self.progress_windows.remove(&task_id) {
+            let _ = entry
+                .handle
+                .update(cx, |_, window, _| window.remove_window());
+        }
         if !is_terminal_task_state(record.state) {
             self.active_task = Some(task_id);
             self.task_progress = Some(record.progress.clone());
@@ -568,15 +578,16 @@ impl LumarkApp {
             view.set_progress(record.progress.clone());
             view
         });
-        self.progress_view = Some(view.clone());
-        self.progress_task = Some(task_id);
         let size = gpui_kit::size(px(560.), px(470.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
+        let cascade = (self.progress_windows.len() as f32 * 24.0).min(120.0);
         let origin = gpui_kit::point(
             px(parent_bounds.origin.x.as_f32()
-                + (parent_bounds.size.width.as_f32() - size.width.as_f32()) / 2.0),
+                + (parent_bounds.size.width.as_f32() - size.width.as_f32()) / 2.0
+                + cascade),
             px(parent_bounds.origin.y.as_f32()
-                + (parent_bounds.size.height.as_f32() - size.height.as_f32()) / 2.0),
+                + (parent_bounds.size.height.as_f32() - size.height.as_f32()) / 2.0
+                + cascade),
         );
         let options = gpui_kit::WindowOptions {
             window_bounds: Some(gpui_kit::WindowBounds::Windowed(gpui_kit::Bounds {
@@ -598,8 +609,9 @@ impl LumarkApp {
             ..TitleBar::window_options()
         };
         match gpui_kit::open_window(options, cx, |_, _| view) {
-            Ok((handle, _view)) => {
-                self.progress_window = Some(handle);
+            Ok((handle, view)) => {
+                self.progress_windows
+                    .insert(task_id, ProgressWindowEntry { handle, view });
             }
             Err(error) => {
                 self.status = format!("无法打开进度窗口：{error}");
@@ -607,19 +619,24 @@ impl LumarkApp {
         }
     }
 
-    /// 关闭进度窗口并释放进度视图；后台任务不会被取消。
-    pub(crate) fn dismiss_progress_window(&mut self, cx: &mut Context<Self>) {
-        if let Some(handle) = self.progress_window.take() {
-            let _ = handle.update(cx, |_, window, _| window.remove_window());
+    /// 关闭指定任务的进度窗口；后台任务本身不会被取消。
+    pub(crate) fn dismiss_progress_window_for(&mut self, task_id: u64, cx: &mut Context<Self>) {
+        if let Some(entry) = self.progress_windows.remove(&task_id) {
+            let _ = entry
+                .handle
+                .update(cx, |_, window, _| window.remove_window());
         }
-        self.progress_view = None;
-        self.progress_task = None;
     }
 
-    /// 刷新进度视图中的最新进度。
-    pub(crate) fn update_progress_window(&self, progress: TaskProgress, cx: &mut Context<Self>) {
-        if let Some(view) = &self.progress_view {
-            view.update(cx, |view, cx| {
+    /// 刷新指定任务进度窗口中的最新进度。
+    pub(crate) fn update_progress_window_for(
+        &self,
+        task_id: u64,
+        progress: TaskProgress,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.progress_windows.get(&task_id) {
+            entry.view.update(cx, |view, cx| {
                 view.set_progress(progress);
                 cx.notify();
             });

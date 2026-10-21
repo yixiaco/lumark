@@ -154,21 +154,19 @@ pub struct LumarkApp {
     task_progress: Option<TaskProgress>,
     active_task_kind: Option<TaskKind>,
     active_task_label: Option<String>,
-    progress_view: Option<gpui_kit::Entity<view::windows::ProgressWindowView>>,
-    progress_window: Option<gpui_kit::AnyWindowHandle>,
-    progress_task: Option<u64>,
+    progress_windows: HashMap<u64, view::windows::ProgressWindowEntry>,
     task_records: Vec<TaskRecord>,
     compress_window: Option<gpui_kit::AnyWindowHandle>,
     extract_window: Option<gpui_kit::AnyWindowHandle>,
     extract_view: Option<gpui_kit::Entity<view::extract_window::ExtractWindowView>>,
-    pending_save: Option<PathBuf>,
+    pending_extract_saves: HashMap<u64, (PathBuf, zeroize::Zeroizing<String>)>,
+    pending_extract_open_dirs: HashMap<u64, PathBuf>,
     show_save_prompt: bool,
     pending_unlock_archive: Option<PathBuf>,
     show_unlock_for_extract: bool,
     unlock_for_browse: bool,
     settings_error: Option<String>,
     vault_error: Option<String>,
-    pending_open_dir: Option<PathBuf>,
     location_input: gpui_kit::Entity<InputState>,
     search_input: gpui_kit::Entity<InputState>,
     search_results: Option<Vec<BrowserEntry>>,
@@ -376,21 +374,19 @@ impl LumarkApp {
             task_progress: None,
             active_task_kind: None,
             active_task_label: None,
-            progress_view: None,
-            progress_window: None,
-            progress_task: None,
+            progress_windows: HashMap::new(),
             task_records: Vec::new(),
             compress_window: None,
             extract_window: None,
             extract_view: None,
-            pending_save: None,
+            pending_extract_saves: HashMap::new(),
+            pending_extract_open_dirs: HashMap::new(),
             show_save_prompt: false,
             pending_unlock_archive: None,
             show_unlock_for_extract: false,
             unlock_for_browse: false,
             settings_error,
             vault_error,
-            pending_open_dir: None,
             location_input,
             search_input,
             search_results: None,
@@ -540,8 +536,8 @@ impl LumarkApp {
                                     ) {
                                         app.active_task_kind = Some(kind);
                                         app.active_task_label = Some(label.clone());
-                                        cx.defer_in(window, |app, window, cx| {
-                                            app.open_progress_window(window, cx);
+                                        cx.defer_in(window, move |app, window, cx| {
+                                            app.open_progress_window_for(id, window, cx);
                                         });
                                     }
                                 }
@@ -549,8 +545,8 @@ impl LumarkApp {
                             }
                             TaskEvent::Progress { id, progress } => {
                                 app.record_task_progress(id, progress.clone());
+                                app.update_progress_window_for(id, progress.clone(), cx);
                                 if app.active_task == Some(id) {
-                                    app.update_progress_window(progress.clone(), cx);
                                     app.task_progress = Some(progress);
                                 }
                             }
@@ -670,29 +666,41 @@ impl LumarkApp {
                                     }
                                     continue;
                                 }
+                                app.dismiss_progress_window_for(id, cx);
                                 if app.active_task == Some(id) {
-                                    app.active_task = None;
-                                    app.task_progress = None;
-                                    app.active_task_kind = None;
-                                    app.active_task_label = None;
-                                    if app.progress_task == Some(id) {
-                                        app.dismiss_progress_window(cx);
-                                    }
+                                    app.focus_next_running_task(id);
                                 }
                                 app.status = message;
-                                if let Some(directory) = app.pending_open_dir.take() {
+                                if let Some(directory) = app.pending_extract_open_dirs.remove(&id) {
                                     let _ = std::process::Command::new("explorer.exe")
                                         .arg(directory)
                                         .spawn();
                                 }
-                                if app.pending_save.take().is_some()
+                                if let Some((archive, password)) =
+                                    app.pending_extract_saves.remove(&id)
                                     && app.vault.settings().prompt_save
                                 {
+                                    let label = archive
+                                        .file_name()
+                                        .and_then(|value| value.to_str())
+                                        .unwrap_or("压缩包密码")
+                                        .to_string();
+                                    set_input(&app.password_label, &label, window, cx);
+                                    set_input(&app.password_value, password.as_str(), window, cx);
+                                    set_input(&app.password_confirm, password.as_str(), window, cx);
+                                    set_input(
+                                        &app.password_pattern,
+                                        archive.to_string_lossy().as_ref(),
+                                        window,
+                                        cx,
+                                    );
                                     app.show_save_prompt = true;
                                 }
                             }
                             TaskEvent::Failed { id, message } => {
                                 app.record_task_failed(id, message.clone());
+                                app.pending_extract_saves.remove(&id);
+                                app.pending_extract_open_dirs.remove(&id);
                                 if app.pending_password_jobs.remove(&id).is_some() {
                                     app.vault.release_lease();
                                 }
@@ -705,20 +713,16 @@ impl LumarkApp {
                                 {
                                     app.pending_open_entry = None;
                                 }
+                                app.dismiss_progress_window_for(id, cx);
                                 if app.active_task == Some(id) {
-                                    app.active_task = None;
-                                    app.task_progress = None;
-                                    app.active_task_kind = None;
-                                    app.active_task_label = None;
-                                    if app.progress_task == Some(id) {
-                                        app.dismiss_progress_window(cx);
-                                    }
+                                    app.focus_next_running_task(id);
                                 }
                                 app.status = format!("失败：{message}");
-                                app.pending_save = None;
                             }
                             TaskEvent::Cancelled { id } => {
                                 app.record_task_cancelled(id);
+                                app.pending_extract_saves.remove(&id);
+                                app.pending_extract_open_dirs.remove(&id);
                                 if app.pending_password_jobs.remove(&id).is_some() {
                                     app.vault.release_lease();
                                 }
@@ -731,17 +735,11 @@ impl LumarkApp {
                                 {
                                     app.pending_open_entry = None;
                                 }
+                                app.dismiss_progress_window_for(id, cx);
                                 if app.active_task == Some(id) {
-                                    app.active_task = None;
-                                    app.task_progress = None;
-                                    app.active_task_kind = None;
-                                    app.active_task_label = None;
-                                    if app.progress_task == Some(id) {
-                                        app.dismiss_progress_window(cx);
-                                    }
+                                    app.focus_next_running_task(id);
                                 }
                                 app.status = "任务已取消".to_string();
-                                app.pending_save = None;
                             }
                             TaskEvent::PasswordAttempt { id, index, total } => {
                                 if app.pending_password_jobs.contains_key(&id) {
