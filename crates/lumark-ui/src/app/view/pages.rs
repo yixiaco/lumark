@@ -41,9 +41,7 @@ impl LumarkApp {
             .w_full()
             .h_full()
             .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.password_page_scroll)
-            .vertical_scrollbar(&self.password_page_scroll)
+            .overflow_y_scrollbar()
             .p_4()
             .gap_3()
             .child(
@@ -84,7 +82,7 @@ impl LumarkApp {
                         card(cx)
                             .flex_1()
                             .min_w(px(420.))
-                            .min_h(px(430.))
+                            .min_h_0()
                             .child(
                                 h_flex()
                                     .p_4()
@@ -152,7 +150,7 @@ impl LumarkApp {
                                 this.child(
                                     v_flex()
                                         .flex_1()
-                                        .min_h(px(310.))
+                                        .min_h_0()
                                         .items_center()
                                         .justify_center()
                                         .gap_3()
@@ -207,7 +205,8 @@ impl LumarkApp {
                                     v_flex()
                                         .id("password-list")
                                         .flex_1()
-                                        .min_h(px(310.))
+                                        .min_h_0()
+                                        .overflow_y_scrollbar()
                                         .when(entries.is_empty(), |this| {
                                             this.child(
                                                 v_flex()
@@ -240,6 +239,8 @@ impl LumarkApp {
                                                 .archive_pattern
                                                 .clone()
                                                 .unwrap_or_else(|| "通用密码".to_string());
+                                            let updated_label =
+                                                format_record_time(entry.updated_at);
                                             let selected =
                                                 self.selected_password == Some(id);
                                             let revealed =
@@ -314,12 +315,17 @@ impl LumarkApp {
                                                                 ),
                                                         )
                                                         .child(
-                                                            div()
+                                                            h_flex()
+                                                                .gap_1()
+                                                                .items_center()
                                                                 .text_xs()
                                                                 .text_color(
                                                                     cx.theme().muted_foreground,
                                                                 )
-                                                                .child(pattern_label),
+                                                                .child(pattern_label)
+                                                                .child(div().child("·"))
+                                                                .child(AppIcon::Time.element(11.))
+                                                                .child(updated_label),
                                                         ),
                                                 )
                                                 .child(
@@ -941,9 +947,7 @@ impl LumarkApp {
             .w_full()
             .h_full()
             .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.settings_page_scroll)
-            .vertical_scrollbar(&self.settings_page_scroll)
+            .overflow_y_scrollbar()
             .p_4()
             .gap_3()
             .child(
@@ -1373,9 +1377,7 @@ impl LumarkApp {
                             .id("task-center-list")
                             .flex_1()
                             .min_h_0()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.task_list_scroll)
-                            .vertical_scrollbar(&self.task_list_scroll)
+                            .overflow_y_scrollbar()
                             .when(self.task_records.is_empty(), |this| {
                                 this.child(
                                     v_flex()

@@ -1006,6 +1006,19 @@ impl Render for LumarkApp {
             Screen::Settings => self.render_settings(cx).into_any_element(),
             Screen::Tasks => self.render_task_center(cx).into_any_element(),
         };
+        // 设置和密码库的整页滚动条向窗口内侧留出空间，避免与 Windows
+        // 窗口缩放边框重叠而无法拖动。
+        let content = if matches!(self.screen, Screen::Passwords | Screen::Settings) {
+            v_flex()
+                .w_full()
+                .h_full()
+                .min_h_0()
+                .pr_3()
+                .child(content)
+                .into_any_element()
+        } else {
+            content
+        };
         let browser = self.screen == Screen::Browser;
 
         v_flex()

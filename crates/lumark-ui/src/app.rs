@@ -212,9 +212,6 @@ pub struct LumarkApp {
     tree_expanded: HashSet<PathBuf>,
     tree_children: HashMap<PathBuf, Vec<PathBuf>>,
     file_list_scroll: gpui_kit::base::VirtualListScrollHandle,
-    password_page_scroll: gpui_kit::ScrollHandle,
-    settings_page_scroll: gpui_kit::ScrollHandle,
-    task_list_scroll: gpui_kit::ScrollHandle,
     theme_color_picker: Option<gpui_kit::Entity<ColorPickerState>>,
     theme_color_subscription: Option<Subscription>,
 }
@@ -437,9 +434,6 @@ impl LumarkApp {
             tree_expanded: HashSet::new(),
             tree_children: HashMap::new(),
             file_list_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
-            password_page_scroll: gpui_kit::ScrollHandle::default(),
-            settings_page_scroll: gpui_kit::ScrollHandle::default(),
-            task_list_scroll: gpui_kit::ScrollHandle::default(),
             theme_color_picker: None,
             theme_color_subscription: None,
         };

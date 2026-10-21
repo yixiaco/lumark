@@ -328,6 +328,14 @@ pub(crate) fn format_duration(seconds: u64) -> String {
     )
 }
 
+/// 把密码记录时间转换为本地时区的紧凑文本。
+pub(crate) fn format_record_time(value: chrono::DateTime<chrono::Utc>) -> String {
+    value
+        .with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M")
+        .to_string()
+}
+
 /// 把点击、Ctrl 切换和 Shift 连选语义应用到文件行。
 pub(crate) fn app_select_row(
     app: &mut LumarkApp,
