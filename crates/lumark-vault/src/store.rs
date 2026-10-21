@@ -48,7 +48,7 @@ impl VaultStore {
         };
 
         if path.exists() {
-            let file = match VaultCrypto::read_file(&path) {
+            let mut file = match VaultCrypto::read_file(&path) {
                 Ok(file) => file,
                 Err(_) => recover_corrupt_vault(&path)?,
             };
@@ -59,6 +59,22 @@ impl VaultStore {
                 inner.settings = settings;
                 inner.entries = entries;
                 inner.key = Some(key);
+                if matches!(
+                    file.key_wrap,
+                    crate::crypto::KeyWrap::Dpapi {
+                        machine_bound: false,
+                        ..
+                    }
+                ) {
+                    // 旧版 DPAPI 仅绑定当前用户；升级后改为计算机绑定并原子重写。
+                    // 迁移失败时保留旧文件继续使用，避免只读目录导致密码库不可用。
+                    match VaultCrypto::set_dpapi(&mut file, &key)
+                        .and_then(|()| VaultCrypto::write_file(&path, &file))
+                    {
+                        Ok(()) => inner.file_stamp = file_stamp(&path),
+                        Err(error) => eprintln!("vault DPAPI migration failed: {error}"),
+                    }
+                }
             } else {
                 inner.state = VaultState::Locked;
             }

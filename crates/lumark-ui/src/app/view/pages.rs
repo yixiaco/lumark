@@ -131,10 +131,11 @@ impl LumarkApp {
                                     .when(!locked, |this| {
                                         this.child(
                                             button("password-add-new")
-                                                .ghost()
+                                                .primary()
                                                 .small()
                                                 .cursor_pointer()
                                                 .icon(AppIcon::Add.element(15.))
+                                                .label("新建")
                                                 .tooltip("新建密码记录")
                                                 .on_click(cx.listener(
                                                     |this, _, window, cx| {
@@ -207,9 +208,6 @@ impl LumarkApp {
                                         .id("password-list")
                                         .flex_1()
                                         .min_h(px(310.))
-                                        .overflow_y_scroll()
-                                        .track_scroll(&self.password_list_scroll)
-                                        .vertical_scrollbar(&self.password_list_scroll)
                                         .when(entries.is_empty(), |this| {
                                             this.child(
                                                 v_flex()
@@ -290,7 +288,14 @@ impl LumarkApp {
                                                         .cursor_pointer()
                                                         .on_click(cx.listener(
                                                             move |this, _, _, cx| {
-                                                                this.selected_password = Some(id);
+                                                                if this.selected_password
+                                                                    == Some(id)
+                                                                {
+                                                                    this.selected_password = None;
+                                                                } else {
+                                                                    this.selected_password =
+                                                                        Some(id);
+                                                                }
                                                                 this.revealed_password = None;
                                                                 cx.notify();
                                                             },
@@ -395,7 +400,24 @@ impl LumarkApp {
                                                         .text_sm()
                                                         .font_semibold()
                                                         .child("记录详情"),
-                                                ),
+                                                )
+                                                .when(selected.is_some(), |this| {
+                                                    this.child(
+                                                        icon_button(
+                                                            "clear-password-selection",
+                                                            AppIcon::Close,
+                                                            "取消选择",
+                                                        )
+                                                        .ml_auto()
+                                                        .on_click(cx.listener(
+                                                            |this, _, _, cx| {
+                                                                this.selected_password = None;
+                                                                this.revealed_password = None;
+                                                                cx.notify();
+                                                            },
+                                                        )),
+                                                    )
+                                                }),
                                         )
                                         .child(match selected.as_ref() {
                                             Some(entry) => {
@@ -705,7 +727,7 @@ impl LumarkApp {
                                                                 .child(if has_master {
                                                                     "已设置"
                                                                 } else {
-                                                                    "DPAPI 保护"
+                                                                    "计算机绑定"
                                                                 }),
                                                         )
                                                         .child(
@@ -718,7 +740,7 @@ impl LumarkApp {
                                                                 .child(if has_master {
                                                                     "由 Argon2id 派生密钥保护"
                                                                 } else {
-                                                                    "仅当前 Windows 用户可解锁"
+                                                                    "与当前计算机绑定"
                                                                 }),
                                                         ),
                                                 )
@@ -1153,7 +1175,7 @@ impl LumarkApp {
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(
-                                "密码库使用 XChaCha20-Poly1305 加密；未设置主密码时由 Windows DPAPI 包裹。设置主密码后会移除 DPAPI 包裹，忘记主密码无法恢复。",
+                                "密码库使用 XChaCha20-Poly1305 加密；未设置主密码时由与当前计算机绑定的 Windows DPAPI 包裹。设置主密码后会移除 DPAPI 包裹，忘记主密码无法恢复。",
                             ),
                     )
                     .child(settings_row(

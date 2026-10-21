@@ -294,7 +294,8 @@ impl LumarkApp {
             Ok(()) => {
                 set_input(&self.master_remove, "", window, cx);
                 self.show_confirm_remove_master = false;
-                self.status = "主密码已删除，密码库改由 Windows DPAPI 保护".to_string();
+                self.status =
+                    "主密码已删除，密码库改由与当前计算机绑定的 Windows DPAPI 保护".to_string();
             }
             Err(error) => self.status = error.to_string(),
         }

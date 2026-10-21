@@ -17,7 +17,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM、ASAR、ZPAQ、LZH/LHA、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA 等 30+ 只读格式适配。
 - ZIP/7Z 归档内浏览、选择性解压、删除/重命名/添加文件，同名添加按替换处理，临时重建后原子替换；可选 `.lumark.bak`。
 - `.001` 原始分卷创建、列表和解压；失败时保留旧卷并清理半成品。
-- 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI、可选主密码、加密导入导出。
+- 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI（计算机绑定）、可选主密码、加密导入导出。
 - 解压加密 ZIP/7Z/RAR 时从密码库生成候选密码并在后台逐个验证；主密码锁定时提供解锁入口。
 - 后台任务：归档加载、压缩、解压、测试、编辑、记录密码验证、进度、暂停/继续、取消、状态栏和独立进度窗口。
 - 压缩后可测试归档并在成功时删除源文件。
@@ -88,6 +88,8 @@ cargo test --workspace
 
 ![删除确认](artifacts/ui-delete-confirm.png)
 
+![删除密码记录](artifacts/ui-delete-password.png)
+
 ![独立解压窗口](artifacts/ui-extract-window.png)
 
 ![任务中心](artifacts/ui-task-center.png)
@@ -119,7 +121,7 @@ cargo test --workspace
 
 ## 设计取舍
 
-- 密码库默认由 Windows DPAPI 保护；设置主密码后改用 Argon2id + XChaCha20-Poly1305，并移除 DPAPI 包裹。主密码无法找回。
+- 密码库默认由与当前计算机绑定的 Windows DPAPI 保护；设置主密码后改用 Argon2id + XChaCha20-Poly1305，并移除 DPAPI 包裹。主密码无法找回。
 - 密码列表默认掩码，单条显示 10 秒；复制后 30 秒只在剪贴板内容仍匹配时清空。
 - 当前原生读写格式为 ZIP、7Z、TAR 系列、常用单文件流、Brotli/LZ4；其余 30+ 扩展名已纳入格式识别和界面类型判断，具体只读解码仍按 `IMPLEMENTATION_STATUS.md` 推进。
 - SFX、Windows 11 稀疏 MSIX/新版菜单、托盘、会话锁定和 UI 自动化测试仍在后续阶段。

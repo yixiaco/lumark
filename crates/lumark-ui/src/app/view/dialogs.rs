@@ -177,135 +177,39 @@ impl LumarkApp {
         } else {
             "删除后可以在回收站中还原；清空回收站后将无法恢复。"
         };
-        v_flex()
-            .w(px(460.))
-            .overflow_hidden()
-            .bg(cx.theme().popover)
-            .border_1()
-            .border_color(cx.theme().border)
-            .rounded(px(14.))
-            .shadow_xl()
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_3()
-                    .items_center()
-                    .p_5()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .size(px(40.))
-                            .flex_shrink_0()
-                            .rounded(px(12.))
-                            .bg(cx.theme().danger.opacity(0.14))
-                            .text_color(cx.theme().danger_foreground)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(AppIcon::Delete.element(20.)),
-                    )
-                    .child(
-                        v_flex()
-                            .min_w_0()
-                            .gap(px(2.))
-                            .child(div().text_lg().font_semibold().child(title))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .whitespace_normal()
-                                    .child(subtitle),
-                            ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .p_5()
-                    .gap_3()
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .gap_1()
-                            .p_3()
-                            .rounded(px(8.))
-                            .bg(cx.theme().muted)
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(
-                                        div()
-                                            .text_color(cx.theme().danger_foreground)
-                                            .child(AppIcon::Delete.element(14.)),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_semibold()
-                                            .child(format!("{count} 个项目")),
-                                    ),
-                            )
-                            .children(names.into_iter().map(|name| {
-                                div()
-                                    .w_full()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("· {name}"))
-                            }))
-                            .when(count > 3, |this| {
-                                this.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(format!("还有 {} 个项目…", count - 3)),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .whitespace_normal()
-                            .child(description),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .justify_end()
-                    .gap_2()
-                    .p_4()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        button("delete-cancel")
-                            .secondary()
-                            .label("取消")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_delete_confirm = false;
-                                this.pending_delete_paths.clear();
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        button("delete-confirm")
-                            .danger()
-                            .icon(AppIcon::Delete.element(14.))
-                            .label(if archive {
-                                "从归档删除"
-                            } else {
-                                "移入回收站"
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.confirm_delete();
-                                cx.notify();
-                            })),
-                    ),
-            )
+        destructive_confirm_card(cx, title, subtitle, "个项目", count, names, description).child(
+            h_flex()
+                .w_full()
+                .justify_end()
+                .gap_2()
+                .p_4()
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .child(
+                    button("delete-cancel")
+                        .secondary()
+                        .label("取消")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_delete_confirm = false;
+                            this.pending_delete_paths.clear();
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("delete-confirm")
+                        .danger()
+                        .icon(AppIcon::Delete.element(14.))
+                        .label(if archive {
+                            "从归档删除"
+                        } else {
+                            "移入回收站"
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.confirm_delete();
+                            cx.notify();
+                        })),
+                ),
+        )
     }
 
     /// 收集当前位置中新文件夹的名称。
@@ -429,7 +333,9 @@ impl LumarkApp {
     /// 删除主密码前验证当前主密码，并让密码库恢复 DPAPI 包裹。
     pub(crate) fn render_confirm_remove_master(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "删除主密码")
-            .child("删除后密码库将改由当前 Windows 用户的 DPAPI 保护。请输入当前主密码确认。")
+            .child(
+                "删除后密码库将改由与当前计算机绑定的 Windows DPAPI 保护。请输入当前主密码确认。",
+            )
             .child(
                 Input::new(&self.master_remove)
                     .id("confirm-remove-master")
@@ -496,31 +402,155 @@ impl LumarkApp {
             .and_then(|id| self.find_password(id))
             .map(|entry| entry.display_name().to_string())
             .unwrap_or_else(|| "所选密码".to_string());
-        centered_modal(cx, "删除密码记录")
-            .child(format!(
-                "将从本地加密密码库永久删除“{label}”。删除后无法恢复，但不会影响已经解压的文件。"
-            ))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        button("cancel-delete-password")
-                            .label("取消")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_confirm_delete_password = false;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        button("confirm-delete-password")
-                            .danger()
-                            .icon(AppIcon::Delete.element(15.))
-                            .label("删除记录")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.confirm_delete_password();
-                                cx.notify();
-                            })),
-                    ),
-            )
+        destructive_confirm_card(
+            cx,
+            "删除密码记录",
+            "记录将从本地加密密码库移除",
+            "条记录",
+            1,
+            vec![label],
+            "删除后无法恢复，但不会影响已经解压的文件。",
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .justify_end()
+                .gap_2()
+                .p_4()
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .child(
+                    button("cancel-delete-password")
+                        .secondary()
+                        .label("取消")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_confirm_delete_password = false;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("confirm-delete-password")
+                        .danger()
+                        .icon(AppIcon::Delete.element(14.))
+                        .label("删除记录")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.confirm_delete_password();
+                            cx.notify();
+                        })),
+                ),
+        )
     }
+}
+
+/// 构建文件或密码删除共用的危险确认卡片。
+///
+/// 顶部按危险级别着色的图标、待删除项目清单和底部操作区保持一致，
+/// 避免“移入回收站”和“删除密码记录”出现两种不同的确认样式。
+fn destructive_confirm_card(
+    cx: &Context<LumarkApp>,
+    title: &str,
+    subtitle: &str,
+    unit: &str,
+    count: usize,
+    names: Vec<String>,
+    description: &str,
+) -> gpui_kit::Div {
+    let names: Vec<String> = names.into_iter().take(3).collect();
+    let hidden = count.saturating_sub(names.len());
+    v_flex()
+        .w(px(460.))
+        .overflow_hidden()
+        .bg(cx.theme().popover)
+        .border_1()
+        .border_color(cx.theme().border)
+        .rounded(px(14.))
+        .shadow_xl()
+        .child(
+            h_flex()
+                .w_full()
+                .gap_3()
+                .items_center()
+                .p_5()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .child(
+                    div()
+                        .size(px(40.))
+                        .flex_shrink_0()
+                        .rounded(px(12.))
+                        .bg(cx.theme().danger.opacity(0.14))
+                        .text_color(cx.theme().danger_foreground)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(AppIcon::Delete.element(20.)),
+                )
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .gap(px(2.))
+                        .child(div().text_lg().font_semibold().child(title.to_string()))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .whitespace_normal()
+                                .child(subtitle.to_string()),
+                        ),
+                ),
+        )
+        .child(
+            v_flex()
+                .w_full()
+                .p_5()
+                .gap_3()
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_1()
+                        .p_3()
+                        .rounded(px(8.))
+                        .bg(cx.theme().muted)
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().danger_foreground)
+                                        .child(AppIcon::Delete.element(14.)),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_semibold()
+                                        .child(format!("{count} {unit}")),
+                                ),
+                        )
+                        .children(names.into_iter().map(|name| {
+                            div()
+                                .w_full()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("· {name}"))
+                        }))
+                        .when(hidden > 0, |this| {
+                            this.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("还有 {hidden} {unit}…")),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .whitespace_normal()
+                        .child(description.to_string()),
+                ),
+        )
 }

@@ -96,9 +96,31 @@ mod tests {
             .unwrap();
         assert_eq!(store.entry_count(), 2);
         assert!(path.exists());
+        let file = VaultCrypto::read_file(&path).unwrap();
+        assert!(matches!(
+            &file.key_wrap,
+            crypto::KeyWrap::Dpapi {
+                machine_bound: true,
+                ..
+            }
+        ));
+        // 模拟升级前的用户绑定文件，确认再次打开会重写为计算机绑定。
+        let mut legacy = file;
+        if let crypto::KeyWrap::Dpapi { machine_bound, .. } = &mut legacy.key_wrap {
+            *machine_bound = false;
+        }
+        VaultCrypto::write_file(&path, &legacy).unwrap();
         let reopened = VaultStore::open(&path).unwrap();
         assert!(reopened.is_unlocked());
         assert_eq!(reopened.entry_count(), 2);
+        let migrated = VaultCrypto::read_file(&path).unwrap();
+        assert!(matches!(
+            &migrated.key_wrap,
+            crypto::KeyWrap::Dpapi {
+                machine_bound: true,
+                ..
+            }
+        ));
         reopened.lock();
         assert!(!reopened.is_unlocked());
         assert_eq!(reopened.entry_count(), 2);

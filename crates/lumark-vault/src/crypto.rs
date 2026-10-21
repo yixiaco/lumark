@@ -44,6 +44,9 @@ pub struct VaultFile {
 pub enum KeyWrap {
     Dpapi {
         blob: String,
+        /// 新文件使用计算机绑定；旧文件缺少该字段时会在打开后自动迁移。
+        #[serde(default)]
+        machine_bound: bool,
     },
     MasterPassword {
         kdf: KdfParams,
@@ -109,6 +112,7 @@ impl VaultCrypto {
             updated_at: now,
             key_wrap: KeyWrap::Dpapi {
                 blob: STANDARD.encode(dpapi_protect(&key)?),
+                machine_bound: true,
             },
             payload,
         };
@@ -147,7 +151,7 @@ impl VaultCrypto {
         }
 
         let key = match &file.key_wrap {
-            KeyWrap::Dpapi { blob } => {
+            KeyWrap::Dpapi { blob, .. } => {
                 let blob = STANDARD
                     .decode(blob)
                     .map_err(|_| VaultError::Corrupt("DPAPI blob".into()))?;
@@ -220,6 +224,7 @@ impl VaultCrypto {
         file.version = VERSION;
         file.key_wrap = KeyWrap::Dpapi {
             blob: STANDARD.encode(dpapi_protect(key)?),
+            machine_bound: true,
         };
         file.updated_at = Utc::now();
         Ok(())
@@ -571,7 +576,7 @@ fn derive_key(password: &str, salt: &[u8], kdf: &KdfParams) -> Result<[u8; 32], 
 fn dpapi_protect(data: &[u8]) -> Result<Vec<u8>, VaultError> {
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
-        CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
+        CRYPT_INTEGER_BLOB, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
     };
 
     let _guard = dpapi_lock()
@@ -592,7 +597,7 @@ fn dpapi_protect(data: &[u8]) -> Result<Vec<u8>, VaultError> {
             std::ptr::null(),
             std::ptr::null(),
             std::ptr::null(),
-            CRYPTPROTECT_UI_FORBIDDEN,
+            CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE,
             &mut output,
         );
         if ok == 0 {

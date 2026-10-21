@@ -178,6 +178,9 @@ impl PasswordEditorWindowView {
             .px_5()
             .py_4()
             .gap_3()
+            .when_some(self.error.clone(), |this, error| {
+                this.child(password_error_banner(cx, error))
+            })
             .child(
                 v_flex()
                     .gap_1()
@@ -252,14 +255,6 @@ impl PasswordEditorWindowView {
                     .child(form_label(cx, "备注"))
                     .child(Input::new(&self.note).id("password-editor-note").w_full()),
             )
-            .when_some(self.error.clone(), |this, error| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().danger_foreground)
-                        .child(error),
-                )
-            })
     }
 
     /// 渲染取消和保存操作。
@@ -489,6 +484,9 @@ impl MasterPasswordWindowView {
             .px_5()
             .py_4()
             .gap_3()
+            .when_some(self.error.clone(), |this, error| {
+                this.child(password_error_banner(cx, error))
+            })
             .when(self.has_master, |this| {
                 this.child(
                     v_flex().gap_1().child(form_label(cx, "当前主密码")).child(
@@ -519,14 +517,6 @@ impl MasterPasswordWindowView {
                             .w_full(),
                     ),
             )
-            .when_some(self.error.clone(), |this, error| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().danger_foreground)
-                        .child(error),
-                )
-            })
     }
 
     /// 渲染取消和设置操作。
@@ -614,6 +604,24 @@ impl Render for MasterPasswordWindowView {
     }
 }
 
+/// 在表单顶部渲染始终可见的错误提示。
+///
+/// 错误放在字段之前而不是窗口底部，避免内容增长时被底部分隔线裁切；
+/// 浅红底色也让校验失败与普通说明文字区分开。
+fn password_error_banner(cx: &gpui_kit::App, error: String) -> gpui_kit::Div {
+    div()
+        .w_full()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(cx.theme().danger.opacity(0.35))
+        .bg(cx.theme().danger.opacity(0.14))
+        .px_3()
+        .py_2()
+        .text_xs()
+        .text_color(cx.theme().danger_foreground)
+        .child(error)
+}
+
 impl LumarkApp {
     /// 打开独立密码编辑窗口；新窗口会替换上一个编辑窗口。
     pub(crate) fn open_password_editor_window(
@@ -628,7 +636,7 @@ impl LumarkApp {
         }
         self.close_password_editor_window(cx);
         let editing = entry.is_some();
-        let size = gpui_kit::size(px(540.), px(430.));
+        let size = gpui_kit::size(px(540.), px(460.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
             px(parent_bounds.origin.x.as_f32()
@@ -682,7 +690,7 @@ impl LumarkApp {
         }
         self.close_master_password_window(cx);
         let has_master = self.vault.has_master_password();
-        let size = gpui_kit::size(px(480.), px(if has_master { 390. } else { 320. }));
+        let size = gpui_kit::size(px(480.), px(if has_master { 420. } else { 350. }));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
             px(parent_bounds.origin.x.as_f32()
