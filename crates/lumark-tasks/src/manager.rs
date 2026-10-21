@@ -205,7 +205,9 @@ impl TaskManager {
                 id,
                 state: TaskState::Running,
             });
-            let result = match request {
+            // 任务线程里的 panic 只会终止这条线程，事件通道收不到任何结果，
+            // 进度窗口会永远停在最后一帧；这里统一捕获并转成失败事件。
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match request {
                 TaskRequest::Compress {
                     output,
                     sources,
@@ -406,6 +408,12 @@ impl TaskManager {
                         },
                     )
                 }
+            }));
+            let result = match result {
+                Ok(result) => result,
+                Err(payload) => Err(lumark_archive::ArchiveError::Panicked(panic_message(
+                    payload.as_ref(),
+                ))),
             };
             match result {
                 Ok(message) => {
@@ -450,4 +458,15 @@ fn speed(bytes: u64, seconds: f64) -> f64 {
     } else {
         bytes as f64 / seconds
     }
+}
+
+/// 把 panic 载荷还原成可读文本，供失败事件显示。
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+    "任务线程异常退出".to_string()
 }

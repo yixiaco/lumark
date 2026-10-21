@@ -20,4 +20,7 @@ pub enum ArchiveError {
     SevenZ(String),
     #[error("任务已取消")]
     Cancelled,
+    /// 归档操作内部 panic 被上层捕获，用于把“线程直接消失”变成可见的失败结果。
+    #[error("任务异常中止：{0}")]
+    Panicked(String),
 }

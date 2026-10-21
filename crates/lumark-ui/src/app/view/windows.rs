@@ -628,6 +628,22 @@ impl LumarkApp {
         }
     }
 
+    /// 每个轮询周期重绘仍在运行的进度窗口。
+    ///
+    /// 压缩线程按 LZMA2 块成批推进，进度事件也是一批一批到达的；只靠事件
+    /// 驱动时，两批之间窗口会静止十几秒，看起来像卡死。这里让运行中的窗口
+    /// 每个轮询周期都重绘一次，已用时间、速度和剩余时间保持连续。
+    pub(crate) fn refresh_running_progress_windows(&self, cx: &mut Context<Self>) {
+        for (&task_id, entry) in &self.progress_windows {
+            let running = self
+                .task_record(task_id)
+                .is_some_and(|record| !is_terminal_task_state(record.state));
+            if running {
+                entry.view.update(cx, |_, cx| cx.notify());
+            }
+        }
+    }
+
     /// 刷新指定任务进度窗口中的最新进度。
     pub(crate) fn update_progress_window_for(
         &self,

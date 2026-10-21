@@ -201,6 +201,57 @@ fn seven_zip_solid_roundtrip() {
 }
 
 #[test]
+fn seven_zip_solid_blocks_split_by_size_and_keep_data() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("blocks-source");
+    fs::create_dir_all(&source).unwrap();
+    // 六个 300 KiB 文件配 1 MiB 块上限，每块三个文件：既验证切块，也验证块内仍是固实压缩。
+    let payloads = (0..6u8)
+        .map(|index| vec![index + 1; 300 * 1024])
+        .collect::<Vec<_>>();
+    for (index, payload) in payloads.iter().enumerate() {
+        fs::write(source.join(format!("part-{index}.bin")), payload).unwrap();
+    }
+    let output = dir.path().join("blocks.7z");
+    ArchiveService::create(
+        &output,
+        &[source],
+        &CompressionOptions {
+            format: ArchiveFormat::SevenZip,
+            solid: true,
+            level: Some(1),
+            solid_block_size: Some(1024 * 1024),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let info = ArchiveService::list(&output, None).unwrap();
+    assert!(info.solid);
+    assert_eq!(info.entries.len(), 6);
+    let extraction = dir.path().join("blocks-out");
+    ArchiveService::extract(
+        &output,
+        &ExtractionOptions {
+            output_dir: extraction.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    for (index, payload) in payloads.iter().enumerate() {
+        let extracted = fs::read(
+            extraction
+                .join("blocks-source")
+                .join(format!("part-{index}.bin")),
+        )
+        .unwrap();
+        assert!(extracted == *payload, "第 {index} 个固实块内容不一致");
+    }
+}
+
+#[test]
 fn seven_zip_solid_selective_extraction_and_skip_keep_streams_aligned() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("solid-source");

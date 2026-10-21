@@ -1160,6 +1160,9 @@ impl LumarkApp {
                     app.flush_shell_compress(window, cx);
                     app.sync_tray(window, cx);
                     app.maybe_close_headless_host(cx);
+                    // 进度事件成批到达，这里补一次定时重绘，避免窗口在
+                    // 两批之间长时间静止。
+                    app.refresh_running_progress_windows(cx);
                     if had_events || auto_locked {
                         cx.notify();
                     }
@@ -1171,6 +1174,7 @@ impl LumarkApp {
 }
 
 mod actions;
+mod diagnostics;
 mod util;
 mod view;
 
@@ -1461,6 +1465,8 @@ fn window_options(stores: &SharedStores) -> gpui_kit::WindowOptions {
 
 /// 启动 GPUI 应用；Shell 压缩请求只显示轻巧压缩窗口，其余请求再开新窗口。
 pub fn run() -> anyhow::Result<()> {
+    // 先装 panic 日志：GUI 进程没有控制台，崩溃信息只能落盘。
+    diagnostics::install_panic_log();
     if std::env::args().any(|argument| argument == "--register-shell") {
         lumark_platform_windows::shell::register_current_user()?;
         return Ok(());

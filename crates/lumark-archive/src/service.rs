@@ -1548,7 +1548,7 @@ impl ArchiveService {
             output: output.to_path_buf(),
             ..Default::default()
         };
-        for (relative, source) in plan.files {
+        for (relative, source, _) in plan.files {
             ensure_not_cancelled(&options.cancel)?;
             let method = if options
                 .store_only_patterns
@@ -1644,7 +1644,12 @@ impl ArchiveService {
         let mut methods = match options.sevenz_compression {
             crate::format::SevenZCompression::Lzma2 => {
                 let mut lzma2 = if options.threads > 1 {
-                    Lzma2Options::from_level_mt(level, options.threads, 64 * 1024 * 1024)
+                    // 多线程 LZMA2 按块独立压缩，块是进度可见性的最小单位：
+                    // 64 MiB 的块单个工作线程要压十几秒，期间读取器被阻塞、
+                    // 进度完全不更新；16 MiB 把这段静默压到一个块耗时左右，
+                    // 同时把在途缓冲从 9×64 MiB 降到 9×16 MiB。
+                    // 库会把块大小钳到不小于字典大小，字典更大时自动跟着变大。
+                    Lzma2Options::from_level_mt(level, options.threads, LZMA2_CHUNK_BYTES)
                 } else {
                     Lzma2Options::from_level(level)
                 };
@@ -1702,43 +1707,53 @@ impl ArchiveService {
             ..Default::default()
         };
         if options.solid && plan.files.len() > 1 {
-            let mut entries = Vec::with_capacity(plan.files.len());
-            let mut readers = Vec::with_capacity(plan.files.len());
+            // 固实块会先打开块内全部源文件、再统一压缩；这里按界面上的“固实块
+            // 大小”和文件数上限切块：块内仍保留跨文件压缩，块外不会一次占用
+            // 十几万个句柄和成倍的内存。
+            let block_bytes = options
+                .solid_block_size
+                .filter(|size| *size >= 1024 * 1024)
+                .unwrap_or(DEFAULT_SOLID_BLOCK_BYTES);
             let entries_done = Rc::new(Cell::new(0usize));
             let progress_cell = Rc::new(RefCell::new(&mut *progress));
+            let mut handled_bytes = 0u64;
             let mut last_file = String::new();
             let mut last_size = 0u64;
-            for (relative, source) in plan.files {
+            for block in solid_blocks(&plan.files, block_bytes, SOLID_BLOCK_MAX_FILES) {
                 ensure_not_cancelled(&options.cancel)?;
-                let mut entry = sevenz_rust2::ArchiveEntry::from_path(&source, relative.clone());
-                if let Some(time) = fixed_time {
-                    apply_entry_time(&mut entry, time);
+                let mut entries = Vec::with_capacity(block.len());
+                let mut readers = Vec::with_capacity(block.len());
+                for (relative, source, _) in block {
+                    let mut entry = sevenz_rust2::ArchiveEntry::from_path(source, relative.clone());
+                    if let Some(time) = fixed_time {
+                        apply_entry_time(&mut entry, time);
+                    }
+                    let file_bytes = fs::metadata(source)?.len();
+                    entries.push(entry);
+                    readers.push(SourceReader::new(SharedProgressReader {
+                        inner: File::open(source)?,
+                        current: relative.clone(),
+                        total: file_bytes,
+                        done: 0,
+                        overall_base: handled_bytes,
+                        bytes_total,
+                        entries_done: entries_done.clone(),
+                        entries_total,
+                        output: output.to_path_buf(),
+                        cancel: options.cancel.clone(),
+                        progress: progress_cell.clone(),
+                        last_report: Instant::now() - Duration::from_secs(1),
+                        finished: false,
+                    }));
+                    handled_bytes += file_bytes;
+                    last_file = relative.clone();
+                    last_size = file_bytes;
                 }
-                entries.push(entry);
-                let file_bytes = fs::metadata(&source)?.len();
-                last_file = relative.clone();
-                last_size = file_bytes;
-                readers.push(SourceReader::new(SharedProgressReader {
-                    inner: File::open(&source)?,
-                    current: relative,
-                    total: file_bytes,
-                    done: 0,
-                    overall_base: report.bytes,
-                    bytes_total,
-                    entries_done: entries_done.clone(),
-                    entries_total,
-                    output: output.to_path_buf(),
-                    cancel: options.cancel.clone(),
-                    progress: progress_cell.clone(),
-                    last_report: Instant::now() - Duration::from_secs(1),
-                    finished: false,
-                }));
-                report.files += 1;
-                report.bytes += file_bytes;
+                writer
+                    .push_archive_entries(entries, readers)
+                    .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
             }
-            writer
-                .push_archive_entries(entries, readers)
-                .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+            report.files = entries_total;
             report.bytes = bytes_total;
             (progress_cell.borrow_mut())(CreateProgress {
                 current: last_file,
@@ -1747,11 +1762,11 @@ impl ArchiveService {
                 current_bytes_done: last_size,
                 current_bytes_total: last_size,
                 output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
-                entries_done: report.files,
+                entries_done: entries_total,
                 entries_total,
             });
         } else {
-            for (relative, source) in plan.files {
+            for (relative, source, _) in plan.files {
                 ensure_not_cancelled(&options.cancel)?;
                 let mut entry = sevenz_rust2::ArchiveEntry::from_path(&source, relative.clone());
                 if let Some(time) = fixed_time {
@@ -2102,7 +2117,8 @@ fn selected(name: &str, selected_paths: &[String]) -> bool {
 }
 
 struct SourcePlan {
-    files: Vec<(String, PathBuf)>,
+    /// 归档内相对路径、源文件路径和规划时的字节数。
+    files: Vec<(String, PathBuf, u64)>,
     total_bytes: u64,
     latest_modified: Option<SystemTime>,
 }
@@ -2165,8 +2181,9 @@ fn build_source_plan(
             {
                 continue;
             }
-            total_bytes += metadata.map(|metadata| metadata.len()).unwrap_or(0);
-            files.push((relative, path.to_path_buf()));
+            let file_bytes = metadata.map(|metadata| metadata.len()).unwrap_or(0);
+            total_bytes += file_bytes;
+            files.push((relative, path.to_path_buf(), file_bytes));
         }
     }
     Ok(SourcePlan {
@@ -2174,6 +2191,48 @@ fn build_source_plan(
         total_bytes,
         latest_modified,
     })
+}
+
+/// 多线程 LZMA2 的块大小：块越小，进度更新越连续、在途缓冲越少；
+/// 库会把该值钳到不小于字典大小，因此只影响小字典场景。
+const LZMA2_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
+
+/// 固实块的默认字节上限；调用方没有设置“固实块大小”时使用 2 GiB。
+const DEFAULT_SOLID_BLOCK_BYTES: u64 = 2048 * 1024 * 1024;
+
+/// 单个固实块最多包含的文件数，作为超大目录的兜底限制。
+///
+/// 正常情况下由“固实块大小”决定块边界；这个上限只在文件极多且极小时生效，
+/// 避免一个块一次性打开几十万个句柄。
+const SOLID_BLOCK_MAX_FILES: usize = 16384;
+
+/// 把待压缩文件切成固实块，同时受字节上限和文件数上限约束。
+///
+/// 7Z 的固实块需要先打开块内全部源文件再统一压缩，块越大占用越多；单独
+/// 一个文件已经超过字节上限时让它独占一块，否则整个块会被它无限拉长。
+fn solid_blocks(
+    files: &[(String, PathBuf, u64)],
+    block_bytes: u64,
+    block_files: usize,
+) -> Vec<&[(String, PathBuf, u64)]> {
+    let mut blocks = Vec::new();
+    let mut start = 0;
+    let mut block_size = 0u64;
+    for (index, (_, _, file_bytes)) in files.iter().enumerate() {
+        let filled = index - start;
+        let too_large = block_size.saturating_add(*file_bytes) > block_bytes;
+        let too_many = filled + 1 > block_files;
+        if filled > 0 && (too_large || too_many) {
+            blocks.push(&files[start..index]);
+            start = index;
+            block_size = 0;
+        }
+        block_size = block_size.saturating_add(*file_bytes);
+    }
+    if start < files.len() {
+        blocks.push(&files[start..]);
+    }
+    blocks
 }
 
 fn common_base(sources: &[PathBuf]) -> PathBuf {
@@ -2233,7 +2292,7 @@ where
     let plan = build_source_plan(sources, options)?;
     let entries_total = plan.files.len();
     let mut done = 0;
-    for (relative, source) in plan.files {
+    for (relative, source, _) in plan.files {
         ensure_not_cancelled(&options.cancel)?;
         builder.append_path_with_name(&source, &relative)?;
         let file_bytes = fs::metadata(&source)?.len();
@@ -2818,4 +2877,56 @@ fn atomic_replace_file(temp: &Path, output: &Path) -> io::Result<()> {
 #[cfg(not(windows))]
 fn atomic_replace_file(temp: &Path, output: &Path) -> io::Result<()> {
     fs::rename(temp, output)
+}
+
+#[cfg(test)]
+mod solid_block_tests {
+    use super::{DEFAULT_SOLID_BLOCK_BYTES, solid_blocks};
+    use std::path::PathBuf;
+
+    /// 生成只带大小信息的占位文件列表，测试不落盘。
+    fn files(sizes: &[u64]) -> Vec<(String, PathBuf, u64)> {
+        sizes
+            .iter()
+            .enumerate()
+            .map(|(index, size)| {
+                (
+                    format!("f{index}"),
+                    PathBuf::from(format!("f{index}")),
+                    *size,
+                )
+            })
+            .collect()
+    }
+
+    /// 文件数超过上限时按上限切块。
+    #[test]
+    fn splits_by_file_count() {
+        let plan = files(&[1; 5]);
+        let blocks = solid_blocks(&plan, DEFAULT_SOLID_BLOCK_BYTES, 2);
+        assert_eq!(
+            blocks.iter().map(|block| block.len()).collect::<Vec<_>>(),
+            vec![2, 2, 1]
+        );
+    }
+
+    /// 累计字节超过上限时切块，超过上限的单文件独占一块。
+    #[test]
+    fn splits_by_bytes_and_keeps_oversized_file_alone() {
+        let plan = files(&[600, 600, 5000, 100]);
+        let blocks = solid_blocks(&plan, 1000, 100);
+        assert_eq!(
+            blocks.iter().map(|block| block.len()).collect::<Vec<_>>(),
+            vec![1, 1, 1, 1]
+        );
+    }
+
+    /// 小目录仍然只有一个固实块，保持既有压缩结果。
+    #[test]
+    fn keeps_small_plan_in_one_block() {
+        let plan = files(&[10, 20, 30]);
+        let blocks = solid_blocks(&plan, DEFAULT_SOLID_BLOCK_BYTES, 4096);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].len(), 3);
+    }
 }

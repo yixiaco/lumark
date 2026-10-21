@@ -224,14 +224,30 @@ pub(super) fn banner_gradient(cx: &gpui_kit::App) -> gpui_kit::Div {
 
 /// 渲染标题栏、动作带和对话框共用的品牌标志。
 ///
+/// GPUI 的 SVG 元素只把图形栅格化成 alpha 蒙版，再用元素前景色填充；用
+/// `Icon` 加载彩色品牌标志会得到一块纯色方块。这里改走图片解码路径
+/// （`img` + `ImageFormat::Svg`），保留标志自带的渐变与配色。
+///
 /// 小尺寸下使用去掉底部字标的 mark 版本，完整字标只保留在图标源文件中，
 /// 避免 24–34 px 的标志出现无法辨认的文字残影。
 pub(super) fn brand_mark(size: f32) -> impl IntoElement {
-    div().size(px(size)).flex_shrink_0().child(
-        gpui_kit::component::Icon::default()
-            .data(include_bytes!("../../../assets/brand/lumark-mark.svg"))
-            .size(px(size)),
-    )
+    div()
+        .size(px(size))
+        .flex_shrink_0()
+        .child(gpui_kit::img(brand_mark_image()).size(px(size)))
+}
+
+/// 品牌标志的 SVG 图片源，只解码一次并在所有窗口间共享。
+fn brand_mark_image() -> std::sync::Arc<gpui_kit::Image> {
+    static IMAGE: std::sync::OnceLock<std::sync::Arc<gpui_kit::Image>> = std::sync::OnceLock::new();
+    IMAGE
+        .get_or_init(|| {
+            std::sync::Arc::new(gpui_kit::Image::from_bytes(
+                gpui_kit::ImageFormat::Svg,
+                include_bytes!("../../../assets/brand/lumark-mark.svg").to_vec(),
+            ))
+        })
+        .clone()
 }
 
 /// 渲染标题栏、动作带和对话框共用的品牌标识。
