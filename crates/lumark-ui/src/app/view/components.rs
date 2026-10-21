@@ -120,14 +120,18 @@ pub(super) fn icon_button(
         .accessibility_label(tooltip)
 }
 
-/// 文件列表和设置分组使用的标准卡片表面。
+/// 页面分组使用的标准卡片表面。
+///
+/// 页面底色保持浅灰，卡片使用浮层白面、细边框和轻阴影，让设置、密码库和
+/// 任务中心的分组从背景中分离出来，而不是整页糊成同一层灰色。
 pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
     v_flex()
         .w_full()
-        .bg(cx.theme().background)
+        .bg(cx.theme().popover)
         .border_1()
         .border_color(cx.theme().border)
-        .rounded_lg()
+        .rounded(px(10.))
+        .shadow_sm()
         .overflow_hidden()
 }
 
@@ -343,7 +347,10 @@ pub(super) fn option_radio(
         .into_any_element()
 }
 
-/// 带可选尾部说明的分区标题。
+/// 渲染带图标、标题和说明的分区标题。
+///
+/// 标题与说明改为上下排列，并在右侧延伸到卡片边缘的细线，形成比单行
+/// 小字更清晰的分组层级。
 pub(super) fn section_heading(
     cx: &Context<LumarkApp>,
     icon: AppIcon,
@@ -353,27 +360,34 @@ pub(super) fn section_heading(
     h_flex()
         .w_full()
         .items_center()
-        .gap_2()
+        .gap_3()
         .child(
             div()
-                .size(px(28.))
-                .rounded_md()
-                .bg(cx.theme().accent)
-                .text_color(cx.theme().accent_foreground)
+                .size(px(34.))
+                .flex_shrink_0()
+                .rounded(px(9.))
+                .bg(cx.theme().primary.opacity(0.12))
+                .text_color(cx.theme().primary)
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(icon.element(16.)),
+                .child(icon.element(17.)),
         )
-        .child(div().font_semibold().child(title.to_string()))
-        .when(caption.is_some(), |this| {
-            this.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(caption.unwrap_or_default()),
-            )
-        })
+        .child(
+            v_flex()
+                .min_w_0()
+                .gap(px(1.))
+                .child(div().text_base().font_semibold().child(title.to_string()))
+                .when(caption.is_some(), |this| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(caption.unwrap_or_default()),
+                    )
+                }),
+        )
+        .child(div().flex_1().h(px(1.)).bg(cx.theme().border))
 }
 
 /// 把文件行映射为易识别的 IconPark 图标。

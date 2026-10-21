@@ -87,6 +87,7 @@ impl LumarkApp {
                                     .p_4()
                                     .gap_2()
                                     .items_center()
+                                    .bg(cx.theme().muted.opacity(0.45))
                                     .border_b_1()
                                     .border_color(cx.theme().border)
                                     .child(
@@ -466,6 +467,7 @@ impl LumarkApp {
                                     .p_4()
                                     .gap_2()
                                     .items_center()
+                                    .bg(cx.theme().muted.opacity(0.45))
                                     .border_b_1()
                                     .border_color(cx.theme().border)
                                     .child(AppIcon::Edit.element(16.))
@@ -1180,6 +1182,7 @@ impl LumarkApp {
                             .justify_between()
                             .items_center()
                             .p_4()
+                            .bg(cx.theme().muted.opacity(0.45))
                             .border_b_1()
                             .border_color(cx.theme().border)
                             .child(
@@ -1308,8 +1311,8 @@ impl LumarkApp {
                     .mt(px(2.))
                     .flex_shrink_0()
                     .rounded(px(8.))
-                    .bg(cx.theme().accent)
-                    .text_color(cx.theme().accent_foreground)
+                    .bg(badge_bg)
+                    .text_color(badge_fg)
                     .flex()
                     .items_center()
                     .justify_center()
@@ -1495,31 +1498,31 @@ fn password_stat(
     label: &str,
     value: &str,
 ) -> impl IntoElement {
-    card(cx).flex_1().p_3().child(
+    card(cx).flex_1().p_4().child(
         h_flex()
             .gap_3()
             .items_center()
             .child(
                 div()
-                    .size(px(34.))
-                    .rounded_md()
-                    .bg(cx.theme().accent)
-                    .text_color(cx.theme().accent_foreground)
+                    .size(px(36.))
+                    .rounded(px(10.))
+                    .bg(cx.theme().primary.opacity(0.12))
+                    .text_color(cx.theme().primary)
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(icon.element(17.)),
+                    .child(icon.element(18.)),
             )
             .child(
                 v_flex()
-                    .gap(px(0.))
+                    .gap(px(1.))
                     .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(label.to_string()),
                     )
-                    .child(div().text_sm().font_semibold().child(value.to_string())),
+                    .child(div().text_lg().font_semibold().child(value.to_string())),
             ),
     )
 }
