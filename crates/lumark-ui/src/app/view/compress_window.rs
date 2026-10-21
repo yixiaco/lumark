@@ -313,6 +313,12 @@ impl CompressWindowView {
                 }
             },
         ));
+        let output_for_focus = output.clone();
+        window.on_next_frame(move |window, cx| {
+            output_for_focus.update(cx, |state, cx| {
+                state.focus(window, cx);
+            });
+        });
         Self {
             app,
             sources,
@@ -418,6 +424,7 @@ impl CompressWindowView {
             gpui_kit::size(px(600.), px(390.))
         };
         window.resize(size);
+        self.output.update(cx, |state, cx| state.focus(window, cx));
         cx.notify();
     }
 
@@ -541,10 +548,9 @@ impl CompressWindowView {
             .border_color(cx.theme().border)
             .child(
                 button("compress-window-switch")
-                    .secondary()
-                    .small()
+                    .ghost()
                     .cursor_pointer()
-                    .icon(AppIcon::Tool.element(14.))
+                    .icon(AppIcon::Tool.element(15.))
                     .label(if classic {
                         "切换至轻巧模式"
                     } else {
@@ -596,8 +602,7 @@ impl CompressWindowView {
                     )
                     .child(
                         button("compress-window-browse")
-                            .secondary()
-                            .small()
+                            .ghost()
                             .cursor_pointer()
                             .label("浏览…")
                             .on_click(cx.listener(|this, _, window, cx| {
