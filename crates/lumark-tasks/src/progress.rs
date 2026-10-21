@@ -39,8 +39,11 @@ pub struct TaskProgress {
 }
 
 impl TaskProgress {
+    /// 返回总进度：优先按已完成文件数统计，缺少条目数时退回字节比例。
     pub fn ratio(&self) -> f32 {
-        if self.bytes_total == 0 {
+        if self.entries_total > 0 {
+            (self.entries_done as f32 / self.entries_total as f32).clamp(0.0, 1.0)
+        } else if self.bytes_total == 0 {
             0.0
         } else {
             (self.bytes_done as f32 / self.bytes_total as f32).clamp(0.0, 1.0)
@@ -100,4 +103,28 @@ pub enum TaskEvent {
         id: u64,
         state: TaskState,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TaskProgress;
+
+    /// 总进度按完成文件数统计，当前文件比例仍按字节统计。
+    #[test]
+    fn total_ratio_uses_completed_entries() {
+        let progress = TaskProgress {
+            current: "b.txt".to_string(),
+            bytes_done: 10,
+            bytes_total: 100,
+            current_file_done: 5,
+            current_file_total: 10,
+            output_bytes: 0,
+            entries_done: 1,
+            entries_total: 4,
+            speed_bps: 0.0,
+            elapsed_seconds: 0,
+        };
+        assert!((progress.ratio() - 0.25).abs() < f32::EPSILON);
+        assert!((progress.current_file_ratio() - 0.5).abs() < f32::EPSILON);
+    }
 }

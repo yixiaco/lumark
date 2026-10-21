@@ -1,6 +1,8 @@
+use std::cell::{Cell, RefCell};
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1702,6 +1704,10 @@ impl ArchiveService {
         if options.solid && plan.files.len() > 1 {
             let mut entries = Vec::with_capacity(plan.files.len());
             let mut readers = Vec::with_capacity(plan.files.len());
+            let entries_done = Rc::new(Cell::new(0usize));
+            let progress_cell = Rc::new(RefCell::new(&mut *progress));
+            let mut last_file = String::new();
+            let mut last_size = 0u64;
             for (relative, source) in plan.files {
                 ensure_not_cancelled(&options.cancel)?;
                 let mut entry = sevenz_rust2::ArchiveEntry::from_path(&source, relative.clone());
@@ -1709,24 +1715,41 @@ impl ArchiveService {
                     apply_entry_time(&mut entry, time);
                 }
                 entries.push(entry);
-                readers.push(SourceReader::new(File::open(&source)?));
-                report.files += 1;
                 let file_bytes = fs::metadata(&source)?.len();
-                report.bytes += file_bytes;
-                progress(CreateProgress {
+                last_file = relative.clone();
+                last_size = file_bytes;
+                readers.push(SourceReader::new(SharedProgressReader {
+                    inner: File::open(&source)?,
                     current: relative,
-                    bytes_done: report.bytes,
+                    total: file_bytes,
+                    done: 0,
+                    overall_base: report.bytes,
                     bytes_total,
-                    current_bytes_done: file_bytes,
-                    current_bytes_total: file_bytes,
-                    output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
-                    entries_done: report.files,
+                    entries_done: entries_done.clone(),
                     entries_total,
-                });
+                    output: output.to_path_buf(),
+                    cancel: options.cancel.clone(),
+                    progress: progress_cell.clone(),
+                    last_report: Instant::now() - Duration::from_secs(1),
+                    finished: false,
+                }));
+                report.files += 1;
+                report.bytes += file_bytes;
             }
             writer
                 .push_archive_entries(entries, readers)
                 .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+            report.bytes = bytes_total;
+            (progress_cell.borrow_mut())(CreateProgress {
+                current: last_file,
+                bytes_done: bytes_total,
+                bytes_total,
+                current_bytes_done: last_size,
+                current_bytes_total: last_size,
+                output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
+                entries_done: report.files,
+                entries_total,
+            });
         } else {
             for (relative, source) in plan.files {
                 ensure_not_cancelled(&options.cancel)?;
@@ -1962,6 +1985,67 @@ where
                     .map(|metadata| metadata.len())
                     .unwrap_or(0),
                 entries_done: self.entries_done,
+                entries_total: self.entries_total,
+            });
+        }
+        Ok(read)
+    }
+}
+
+/// 固实压缩共用的进度读取器。
+///
+/// 固实块会先一次性提交多个文件，再统一压缩；每个读取器共享同一个进度
+/// 回调和已完成条目计数，因此压缩过程中仍能按实际读取字节更新总进度。
+struct SharedProgressReader<'a, F>
+where
+    F: FnMut(CreateProgress),
+{
+    inner: File,
+    current: String,
+    total: u64,
+    done: u64,
+    overall_base: u64,
+    bytes_total: u64,
+    entries_done: Rc<Cell<usize>>,
+    entries_total: usize,
+    output: PathBuf,
+    cancel: Option<Arc<AtomicBool>>,
+    progress: Rc<RefCell<&'a mut F>>,
+    last_report: Instant,
+    finished: bool,
+}
+
+impl<F> Read for SharedProgressReader<'_, F>
+where
+    F: FnMut(CreateProgress),
+{
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if is_cancelled(&self.cancel) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "compression cancelled",
+            ));
+        }
+        let read = self.inner.read(buffer)?;
+        self.done += read as u64;
+        let finished_now = read == 0 && !self.finished;
+        if finished_now {
+            self.finished = true;
+            self.entries_done
+                .set(self.entries_done.get().saturating_add(1));
+        }
+        if finished_now || self.last_report.elapsed() >= Duration::from_millis(100) {
+            self.last_report = Instant::now();
+            (self.progress.borrow_mut())(CreateProgress {
+                current: self.current.clone(),
+                bytes_done: self.overall_base + self.done,
+                bytes_total: self.bytes_total,
+                current_bytes_done: self.done,
+                current_bytes_total: self.total,
+                output_bytes: fs::metadata(&self.output)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0),
+                entries_done: self.entries_done.get(),
                 entries_total: self.entries_total,
             });
         }

@@ -1024,3 +1024,35 @@ fn append_newc_entry(output: &mut Vec<u8>, name: &str, data: &[u8]) {
         output.push(0);
     }
 }
+
+/// 验证固实 7Z 在统一压缩阶段仍会按实际读取字节报告当前文件和总进度。
+#[test]
+fn seven_zip_solid_reports_byte_progress_during_compression() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("large.bin"), vec![0x5au8; 512 * 1024]).unwrap();
+    fs::write(source.join("small.bin"), vec![0xa5u8; 1024]).unwrap();
+    let output = dir.path().join("solid-progress.7z");
+    let mut snapshots = Vec::new();
+    ArchiveService::create(
+        &output,
+        &[source],
+        &CompressionOptions {
+            format: ArchiveFormat::SevenZip,
+            solid: true,
+            ..Default::default()
+        },
+        |progress| snapshots.push(progress),
+    )
+    .unwrap();
+    assert!(
+        snapshots.iter().any(|progress| {
+            progress.bytes_done > 0 && progress.bytes_done < progress.bytes_total
+        })
+    );
+    assert!(snapshots.iter().any(|progress| {
+        progress.current_bytes_done > 0
+            && progress.current_bytes_done < progress.current_bytes_total
+    }));
+}
