@@ -61,7 +61,14 @@ cargo test --workspace
 | `app/actions/tasks.rs` | 任务记录、状态文本和任务中心数据维护 |
 | `app/view/chrome.rs` | 标题栏、渐变动作带、导航行、文件夹侧栏、状态栏和模态层 |
 | `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
-| `app/view/pages.rs` | 密码库、设置和任务中心 |
+| `app/view/pages.rs` | 页面模块入口，只保留子模块声明 |
+| `app/view/pages/passwords.rs` | 密码库页面组合 |
+| `app/view/pages/password_list.rs` | 记录列表、搜索、锁定面板和记录行 |
+| `app/view/pages/password_details.rs` | 记录详情和主密码卡片 |
+| `app/view/pages/password_security.rs` | 自动解压与安全操作卡片 |
+| `app/view/pages/settings.rs` | 设置页面和设置行组件 |
+| `app/view/pages/tasks.rs` | 任务中心页面、任务行和状态样式 |
+| `app/view/pages/shared.rs` | 跨页面复用的统计卡片 |
 | `app/view/password_windows.rs` | 独立密码编辑窗口和主密码设置窗口 |
 | `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
 | `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
