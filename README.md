@@ -85,6 +85,8 @@ cargo test --workspace
 
 ![文件右键菜单](artifacts/ui-context-menu.png)
 
+![删除确认](artifacts/ui-delete-confirm.png)
+
 ![独立解压窗口](artifacts/ui-extract-window.png)
 
 ![任务中心](artifacts/ui-task-center.png)

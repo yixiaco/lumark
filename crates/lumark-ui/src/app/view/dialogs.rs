@@ -158,49 +158,159 @@ impl LumarkApp {
     /// 确认从归档中永久删除，或把普通文件系统项目移入回收站。
     pub(crate) fn render_delete_confirm(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let archive = matches!(&self.browser.location, BrowserLocation::Archive { .. });
-        centered_modal(
-            cx,
-            if archive {
-                "从归档删除"
-            } else {
-                "移入回收站"
-            },
-        )
-        .child(if archive {
-            format!(
-                "将从当前归档中删除 {} 个项目，并重建归档。失败时原归档保持不变。",
-                self.pending_delete_paths.len()
-            )
+        let count = self.pending_delete_paths.len();
+        let names: Vec<String> = self
+            .pending_delete_paths
+            .iter()
+            .filter_map(|path| path.file_name())
+            .filter_map(|name| name.to_str())
+            .take(3)
+            .map(ToString::to_string)
+            .collect();
+        let title = if archive {
+            "从归档删除"
         } else {
-            format!(
-                "将删除 {} 个项目。默认进入 Windows 回收站，可在资源管理器中恢复。",
-                self.pending_delete_paths.len()
+            "移入回收站"
+        };
+        let subtitle = if archive {
+            "归档会被重建，操作失败时原归档保持不变"
+        } else {
+            "项目将进入 Windows 回收站"
+        };
+        let description = if archive {
+            "这些项目将从当前归档中永久移除。删除过程会重建归档，请不要同时进行其他写入操作。"
+        } else {
+            "删除后可以在回收站中还原；清空回收站后将无法恢复。"
+        };
+        v_flex()
+            .w(px(460.))
+            .overflow_hidden()
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded(px(14.))
+            .shadow_xl()
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_3()
+                    .items_center()
+                    .p_5()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .size(px(40.))
+                            .flex_shrink_0()
+                            .rounded(px(12.))
+                            .bg(cx.theme().danger.opacity(0.14))
+                            .text_color(cx.theme().danger_foreground)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(AppIcon::Delete.element(20.)),
+                    )
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .gap(px(2.))
+                            .child(div().text_lg().font_semibold().child(title))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .whitespace_normal()
+                                    .child(subtitle),
+                            ),
+                    ),
             )
-        })
-        .child(
-            h_flex()
-                .gap_2()
-                .child(button("delete-cancel").label("取消").on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.show_delete_confirm = false;
-                        this.pending_delete_paths.clear();
-                        cx.notify();
-                    },
-                )))
-                .child(
-                    button("delete-confirm")
-                        .danger()
-                        .label(if archive {
-                            "从归档删除"
-                        } else {
-                            "移入回收站"
-                        })
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.confirm_delete();
-                            cx.notify();
-                        })),
-                ),
-        )
+            .child(
+                v_flex()
+                    .w_full()
+                    .p_5()
+                    .gap_3()
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .gap_1()
+                            .p_3()
+                            .rounded(px(8.))
+                            .bg(cx.theme().muted)
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_color(cx.theme().danger_foreground)
+                                            .child(AppIcon::Delete.element(14.)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_semibold()
+                                            .child(format!("{count} 个项目")),
+                                    ),
+                            )
+                            .children(names.into_iter().map(|name| {
+                                div()
+                                    .w_full()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("· {name}"))
+                            }))
+                            .when(count > 3, |this| {
+                                this.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(format!("还有 {} 个项目…", count - 3)),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .whitespace_normal()
+                            .child(description),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_end()
+                    .gap_2()
+                    .p_4()
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        button("delete-cancel")
+                            .secondary()
+                            .label("取消")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_delete_confirm = false;
+                                this.pending_delete_paths.clear();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        button("delete-confirm")
+                            .danger()
+                            .icon(AppIcon::Delete.element(14.))
+                            .label(if archive {
+                                "从归档删除"
+                            } else {
+                                "移入回收站"
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.confirm_delete();
+                                cx.notify();
+                            })),
+                    ),
+            )
     }
 
     /// 收集当前位置中新文件夹的名称。
