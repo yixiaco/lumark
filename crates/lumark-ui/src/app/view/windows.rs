@@ -13,6 +13,8 @@ pub(crate) struct ProgressWindowView {
     started: std::time::Instant,
     control: Option<std::sync::Arc<lumark_tasks::TaskControl>>,
     confirm_cancel: bool,
+    state: TaskState,
+    message: Option<String>,
 }
 
 impl ProgressWindowView {
@@ -21,6 +23,8 @@ impl ProgressWindowView {
         kind: TaskKind,
         label: String,
         control: Option<std::sync::Arc<lumark_tasks::TaskControl>>,
+        state: TaskState,
+        message: Option<String>,
     ) -> Self {
         Self {
             kind,
@@ -29,6 +33,8 @@ impl ProgressWindowView {
             started: std::time::Instant::now(),
             control,
             confirm_cancel: false,
+            state,
+            message,
         }
     }
 
@@ -41,9 +47,10 @@ impl ProgressWindowView {
 impl Render for ProgressWindowView {
     /// 渲染窗口标题、目标路径、双进度指标和任务控制按钮。
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let state = self.control.as_ref().map(|control| control.state());
-        let paused = state == Some(lumark_tasks::TaskState::Paused);
-        let cancelling = state == Some(lumark_tasks::TaskState::Cancelled);
+        let live_state = self.control.as_ref().map(|control| control.state());
+        let terminal = is_terminal_task_state(self.state);
+        let paused = !terminal && live_state == Some(lumark_tasks::TaskState::Paused);
+        let cancelling = !terminal && live_state == Some(lumark_tasks::TaskState::Cancelled);
         let progress = &self.progress;
         let ratio = progress.ratio().clamp(0.0, 1.0);
         let file_ratio = if progress.current_file_total > 0 {
@@ -70,7 +77,12 @@ impl Render for ProgressWindowView {
                 .elapsed_seconds
                 .max(self.started.elapsed().as_secs())
         };
-        let title = format!("{operation} · {:.1}% - Lumark", ratio * 100.0);
+        let title = if terminal {
+            format!("{operation} - Lumark")
+        } else {
+            format!("{operation} · {:.1}% - Lumark", ratio * 100.0)
+        };
+        let final_state = terminal.then_some(self.state);
         let bar_width = 520.0;
         v_flex()
             .size_full()
@@ -131,6 +143,27 @@ impl Render for ProgressWindowView {
                                             "已暂停"
                                         }),
                                 )
+                            })
+                            .when_some(final_state, |this, state| {
+                                let (background, foreground) = match state {
+                                    TaskState::Completed => {
+                                        (cx.theme().success, cx.theme().success_foreground)
+                                    }
+                                    TaskState::Failed => {
+                                        (cx.theme().danger, cx.theme().danger_foreground)
+                                    }
+                                    _ => (cx.theme().secondary, cx.theme().secondary_foreground),
+                                };
+                                this.child(
+                                    div()
+                                        .px_2()
+                                        .py(px(1.))
+                                        .rounded(px(5.))
+                                        .bg(background)
+                                        .text_color(foreground)
+                                        .text_xs()
+                                        .child(task_state_label(state)),
+                                )
                             }),
                     ),
             )
@@ -178,6 +211,24 @@ impl Render for ProgressWindowView {
                                     ),
                             ),
                     )
+                    .when_some(self.message.clone(), |this, message| {
+                        let color = match self.state {
+                            TaskState::Failed => cx.theme().danger,
+                            TaskState::Completed => cx.theme().success_foreground,
+                            _ => cx.theme().muted_foreground,
+                        };
+                        this.child(
+                            div()
+                                .w_full()
+                                .rounded(px(6.))
+                                .bg(cx.theme().muted)
+                                .px_3()
+                                .py_2()
+                                .text_sm()
+                                .text_color(color)
+                                .child(message),
+                        )
+                    })
                     .child(
                         v_flex()
                             .gap_2()
@@ -300,10 +351,14 @@ impl Render for ProgressWindowView {
                                     .child(metric_row(
                                         cx,
                                         "剩余时间",
-                                        &progress
-                                            .eta_seconds()
-                                            .map(format_duration)
-                                            .unwrap_or_else(|| "计算中".to_string()),
+                                        &if terminal {
+                                            "—".to_string()
+                                        } else {
+                                            progress
+                                                .eta_seconds()
+                                                .map(format_duration)
+                                                .unwrap_or_else(|| "计算中".to_string())
+                                        },
                                     ))
                                     .when(self.kind == TaskKind::Compress, |this| {
                                         this.child(metric_row(
@@ -349,7 +404,11 @@ impl Render for ProgressWindowView {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("任务在后台继续运行；关闭此窗口不会中断任务。"),
+                            .child(if terminal {
+                                "任务已结束，可以关闭此窗口。"
+                            } else {
+                                "任务在后台继续运行；关闭此窗口不会中断任务。"
+                            }),
                     )
                     .when(self.confirm_cancel, |this| {
                         this.child(
@@ -370,9 +429,10 @@ impl Render for ProgressWindowView {
                                         .child("取消后当前任务会停止，已写入的临时文件会被清理。"),
                                 )
                                 .child(
-                                    Button::new("progress-cancel-no")
+                                    button("progress-cancel-no")
                                         .secondary()
                                         .xsmall()
+                                        .cursor_pointer()
                                         .label("继续任务")
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.confirm_cancel = false;
@@ -380,9 +440,10 @@ impl Render for ProgressWindowView {
                                         })),
                                 )
                                 .child(
-                                    Button::new("progress-cancel-yes")
+                                    button("progress-cancel-yes")
                                         .danger()
                                         .xsmall()
+                                        .cursor_pointer()
                                         .label("确认取消")
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             if let Some(control) = &this.control {
@@ -400,76 +461,115 @@ impl Render for ProgressWindowView {
                             .w_full()
                             .gap_2()
                             .items_center()
-                            .child(
-                                Button::new("progress-background")
-                                    .icon(AppIcon::ArrowLeft.element(14.))
-                                    .label("后台")
-                                    .on_click(cx.listener(|_, _, window, _| {
-                                        window.remove_window();
-                                    })),
-                            )
+                            .when(!terminal, |this| {
+                                this.child(
+                                    button("progress-background")
+                                        .icon(AppIcon::ArrowLeft.element(14.))
+                                        .label("后台")
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|_, _, window, _| {
+                                            window.remove_window();
+                                        })),
+                                )
+                            })
                             .child(div().flex_1())
-                            .child(
-                                Button::new("progress-pause")
-                                    .icon(AppIcon::Time.element(14.))
-                                    .label(if paused { "继续" } else { "暂停" })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        if let Some(control) = &this.control {
-                                            if control.state() == lumark_tasks::TaskState::Paused {
-                                                control.resume();
-                                            } else {
-                                                control.pause();
+                            .when(terminal, |this| {
+                                this.child(
+                                    button("progress-close")
+                                        .primary()
+                                        .label("关闭")
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|_, _, window, _| {
+                                            window.remove_window();
+                                        })),
+                                )
+                            })
+                            .when(!terminal, |this| {
+                                this.child(
+                                    button("progress-pause")
+                                        .icon(AppIcon::Time.element(14.))
+                                        .label(if paused { "继续" } else { "暂停" })
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            if let Some(control) = &this.control {
+                                                if control.state()
+                                                    == lumark_tasks::TaskState::Paused
+                                                {
+                                                    control.resume();
+                                                } else {
+                                                    control.pause();
+                                                }
                                             }
-                                        }
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("progress-cancel")
-                                    .danger()
-                                    .icon(AppIcon::Close.element(14.))
-                                    .label("取消")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.confirm_cancel = true;
-                                        cx.notify();
-                                    })),
-                            ),
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    button("progress-cancel")
+                                        .danger()
+                                        .icon(AppIcon::Close.element(14.))
+                                        .label("取消")
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.confirm_cancel = true;
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
                     ),
             )
     }
 }
 
 impl LumarkApp {
-    /// 打开或激活独立进度窗口。
-    ///
-    /// 每次打开都会用当前任务状态创建新的进度视图；用户选择“后台”关闭窗口后，
-    /// 再从状态栏的“进度”入口打开即可恢复同一任务的实时进度。
+    /// 打开当前活动任务的独立进度窗口。
     pub(crate) fn open_progress_window(&mut self, parent: &Window, cx: &mut Context<Self>) {
-        if let Some(handle) = self.progress_window
+        if let Some(task_id) = self.active_task {
+            self.open_progress_window_for(task_id, parent, cx);
+        }
+    }
+
+    /// 打开或激活指定任务的进度窗口，包括已结束任务的结果窗口。
+    ///
+    /// 后台任务关闭窗口后仍保留任务记录，用户在任务中心点击同一任务即可
+    /// 重新打开它的实时进度或最终结果。
+    pub(crate) fn open_progress_window_for(
+        &mut self,
+        task_id: u64,
+        parent: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(record) = self.task_record(task_id).cloned() else {
+            return;
+        };
+        if self.progress_task == Some(task_id)
+            && let Some(handle) = self.progress_window
             && handle
                 .update(cx, |_, window, _| window.activate_window())
                 .is_ok()
         {
             return;
         }
-        self.progress_window = None;
-        let Some(task_id) = self.active_task else {
-            return;
-        };
-        let Some(kind) = self.active_task_kind else {
-            return;
-        };
-        let Some(label) = self.active_task_label.clone() else {
-            return;
-        };
+        self.dismiss_progress_window(cx);
+        if !is_terminal_task_state(record.state) {
+            self.active_task = Some(task_id);
+            self.task_progress = Some(record.progress.clone());
+            self.active_task_kind = Some(record.kind);
+            self.active_task_label = Some(record.label.clone());
+        }
         let control = self.tasks.control(task_id);
-        let progress = self.task_progress.clone().unwrap_or_default();
         let view = cx.new(|_| {
-            let mut view = ProgressWindowView::new(kind, label, control);
-            view.set_progress(progress);
+            let mut view = ProgressWindowView::new(
+                record.kind,
+                record.label.clone(),
+                control,
+                record.state,
+                record.message.clone(),
+            );
+            view.set_progress(record.progress.clone());
             view
         });
         self.progress_view = Some(view.clone());
+        self.progress_task = Some(task_id);
         let size = gpui_kit::size(px(560.), px(470.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
@@ -513,6 +613,7 @@ impl LumarkApp {
             let _ = handle.update(cx, |_, window, _| window.remove_window());
         }
         self.progress_view = None;
+        self.progress_task = None;
     }
 
     /// 刷新进度视图中的最新进度。

@@ -4,6 +4,8 @@ impl LumarkApp {
     /// 重新加载当前文件系统或归档位置，并清除过期搜索结果。
     pub(crate) fn refresh(&mut self) {
         self.dropped_sources = None;
+        self.folder_sizes.clear();
+        self.folder_size_pending.clear();
         if matches!(&self.browser.location, BrowserLocation::FileSystem(_)) {
             self.archive_password = None;
         }
@@ -14,6 +16,29 @@ impl LumarkApp {
             }
             Err(error) => self.status = error.to_string(),
         }
+    }
+
+    /// 在后台递归计算文件夹总大小，并把结果缓存到当前浏览会话。
+    pub(crate) fn request_folder_size(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.folder_sizes.contains_key(&path) || self.folder_size_pending.contains(&path) {
+            return;
+        }
+        self.folder_size_pending.insert(path.clone());
+        self.status = format!("正在计算文件夹大小：{}", path.display());
+        let probe = path.clone();
+        cx.spawn(async move |this, cx| {
+            let size = cx
+                .background_executor()
+                .spawn(async move { directory_size(&probe) })
+                .await;
+            let _ = this.update_in(cx, |app, _, cx| {
+                app.folder_size_pending.remove(&path);
+                app.folder_sizes.insert(path.clone(), size);
+                app.status = format!("文件夹大小：{}", format_size(size));
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 返回过滤后的搜索结果或浏览器当前条目。
@@ -577,14 +602,6 @@ impl LumarkApp {
         }
     }
 
-    /// 向任务中心日志追加一条有长度限制的诊断记录。
-    pub(crate) fn push_task_log(&mut self, message: String) {
-        self.task_log.push(message);
-        if self.task_log.len() > 100 {
-            self.task_log.remove(0);
-        }
-    }
-
     /// 导航到父目录或归档根目录。
     pub(crate) fn go_parent(&mut self) {
         if let Err(error) = self.browser.go_parent() {
@@ -685,4 +702,29 @@ impl LumarkApp {
             self.ensure_password_draft();
         }
     }
+}
+
+/// 递归统计文件夹内普通文件的总字节数。
+///
+/// 跳过符号链接以避免目录环和重复计数；无权限读取的子项直接跳过，
+/// 因此计算总会返回一个可展示的近似值而不是让界面长时间无反馈。
+fn directory_size(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    let mut total = 0;
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            total += directory_size(&entry.path());
+        } else if let Ok(metadata) = entry.metadata() {
+            total += metadata.len();
+        }
+    }
+    total
 }

@@ -108,7 +108,7 @@ impl LumarkApp {
                             format_size(total_size)
                         ))
                         .child(
-                            Button::new("search-result-clear")
+                            button("search-result-clear")
                                 .link()
                                 .xsmall()
                                 .ml_auto()
@@ -292,6 +292,14 @@ impl LumarkApp {
                     .overflow_y_scroll()
                     .when_some(selected, |this, entry| {
                         let icon_color = entry_icon_color(cx, &entry);
+                        let size_text = if entry.is_dir {
+                            self.folder_sizes
+                                .get(&entry.path)
+                                .map(|size| format_size(*size))
+                                .unwrap_or_else(|| "可计算".to_string())
+                        } else {
+                            format_size(entry.size)
+                        };
                         this.child(
                             h_flex()
                                 .w_full()
@@ -314,7 +322,7 @@ impl LumarkApp {
                                 ),
                         )
                         .child(detail_row(cx, "类型", &entry.kind))
-                        .child(detail_row(cx, "大小", &format_size(entry.size)))
+                        .child(detail_row(cx, "大小", &size_text))
                         .when_some(entry.modified, |this, modified| {
                             this.child(detail_row(
                                 cx,
@@ -423,6 +431,11 @@ fn render_file_row(
         .modified
         .map(|value| value.format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|| "—".to_string());
+    let folder_size = app.folder_sizes.get(&entry.path).copied();
+    let folder_pending = app.folder_size_pending.contains(&entry.path);
+    let is_filesystem_dir =
+        entry.is_dir && matches!(&app.browser.location, BrowserLocation::FileSystem(_));
+    let folder_size_path = entry.path.clone();
     h_flex()
         .id(format!("file-row-{id}"))
         .test_support()
@@ -463,7 +476,31 @@ fn render_file_row(
                 .text_xs()
                 .whitespace_nowrap()
                 .text_color(cx.theme().muted_foreground)
-                .child(format_size(entry.size)),
+                .when_some(folder_size, |this, size| this.child(format_size(size)))
+                .when(folder_size.is_none() && folder_pending, |this| {
+                    this.child("计算中…")
+                })
+                .when(
+                    folder_size.is_none() && !folder_pending && is_filesystem_dir,
+                    |this| {
+                        this.child(
+                            button(format!("folder-size-{id}"))
+                                .link()
+                                .xsmall()
+                                .cursor_pointer()
+                                .label("可计算")
+                                .tooltip("计算文件夹内文件的总大小")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.request_folder_size(folder_size_path.clone(), cx);
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                })),
+                        )
+                    },
+                )
+                .when(!is_filesystem_dir && folder_size.is_none(), |this| {
+                    this.child(format_size(entry.size))
+                }),
         )
         .child(
             div()

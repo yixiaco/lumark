@@ -26,18 +26,15 @@ impl LumarkApp {
             .child(
                 h_flex()
                     .gap_2()
+                    .child(button("save-dismiss").secondary().label("不保存").on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.show_save_prompt = false;
+                            this.pending_save = None;
+                            cx.notify();
+                        }),
+                    ))
                     .child(
-                        Button::new("save-dismiss")
-                            .secondary()
-                            .label("不保存")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_save_prompt = false;
-                                this.pending_save = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("save-confirm")
+                        button("save-confirm")
                             .primary()
                             .icon(AppIcon::Save.element(16.))
                             .label("保存密码")
@@ -66,18 +63,16 @@ impl LumarkApp {
             .child(
                 h_flex()
                     .gap_2()
+                    .child(button("unlock-cancel").label("取消").on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.show_unlock_for_extract = false;
+                            this.pending_unlock_archive = None;
+                            this.unlock_for_browse = false;
+                            cx.notify();
+                        },
+                    )))
                     .child(
-                        Button::new("unlock-cancel")
-                            .label("取消")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_unlock_for_extract = false;
-                                this.pending_unlock_archive = None;
-                                this.unlock_for_browse = false;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("unlock-confirm")
+                        button("unlock-confirm")
                             .primary()
                             .label("解锁并自动尝试")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -103,7 +98,7 @@ impl LumarkApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("extra-passwords-decline")
+                        button("extra-passwords-decline")
                             .label("手动输入")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.decline_extra_password_candidates(window, cx);
@@ -111,7 +106,7 @@ impl LumarkApp {
                             })),
                     )
                     .child(
-                        Button::new("extra-passwords-try")
+                        button("extra-passwords-try")
                             .primary()
                             .label(format!("尝试其余 {count} 条"))
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -140,7 +135,7 @@ impl LumarkApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("open-executable-cancel")
+                        button("open-executable-cancel")
                             .label("取消")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.pending_open_target = None;
@@ -150,7 +145,7 @@ impl LumarkApp {
                             })),
                     )
                     .child(
-                        Button::new("open-executable-confirm")
+                        button("open-executable-confirm")
                             .danger()
                             .label("仍然打开")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -186,17 +181,15 @@ impl LumarkApp {
         .child(
             h_flex()
                 .gap_2()
+                .child(button("delete-cancel").label("取消").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.show_delete_confirm = false;
+                        this.pending_delete_paths.clear();
+                        cx.notify();
+                    },
+                )))
                 .child(
-                    Button::new("delete-cancel")
-                        .label("取消")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.show_delete_confirm = false;
-                            this.pending_delete_paths.clear();
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("delete-confirm")
+                    button("delete-confirm")
                         .danger()
                         .label(if archive {
                             "从归档删除"
@@ -223,7 +216,7 @@ impl LumarkApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("new-folder-cancel")
+                        button("new-folder-cancel")
                             .label("取消")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_new_folder = false;
@@ -231,7 +224,7 @@ impl LumarkApp {
                             })),
                     )
                     .child(
-                        Button::new("new-folder-create")
+                        button("new-folder-create")
                             .primary()
                             .label("创建")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -249,24 +242,19 @@ impl LumarkApp {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(
-                        Button::new("rename-cancel")
-                            .label("取消")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_rename = false;
-                                this.rename_target = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("rename-confirm")
-                            .primary()
-                            .label("重命名")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.confirm_rename(window, cx);
-                                cx.notify();
-                            })),
-                    ),
+                    .child(button("rename-cancel").label("取消").on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.show_rename = false;
+                            this.rename_target = None;
+                            cx.notify();
+                        },
+                    )))
+                    .child(button("rename-confirm").primary().label("重命名").on_click(
+                        cx.listener(|this, _, window, cx| {
+                            this.confirm_rename(window, cx);
+                            cx.notify();
+                        }),
+                    )),
             )
     }
 
@@ -292,8 +280,9 @@ impl LumarkApp {
                     .w_full(),
             )
             .child(
-                Button::new("toggle-import-replace")
+                button("toggle-import-replace")
                     .small()
+                    .cursor_pointer()
                     .label(if self.vault_transfer_replace {
                         "导入策略：替换现有记录"
                     } else {
@@ -308,7 +297,7 @@ impl LumarkApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("vault-export")
+                        button("vault-export")
                             .primary()
                             .label("导出")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -316,20 +305,20 @@ impl LumarkApp {
                                 cx.notify();
                             })),
                     )
+                    .child(button("vault-import").label("导入").on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.import_vault(cx);
+                            cx.notify();
+                        },
+                    )))
                     .child(
-                        Button::new("vault-import")
-                            .label("导入")
+                        button("vault-transfer-cancel")
+                            .label("关闭")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.import_vault(cx);
+                                this.show_vault_transfer = false;
                                 cx.notify();
                             })),
-                    )
-                    .child(Button::new("vault-transfer-cancel").label("关闭").on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.show_vault_transfer = false;
-                            cx.notify();
-                        }),
-                    )),
+                    ),
             )
     }
 
@@ -346,7 +335,7 @@ impl LumarkApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("cancel-remove-master")
+                        button("cancel-remove-master")
                             .label("取消")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_confirm_remove_master = false;
@@ -354,7 +343,7 @@ impl LumarkApp {
                             })),
                     )
                     .child(
-                        Button::new("confirm-remove-master")
+                        button("confirm-remove-master")
                             .danger()
                             .label("确认删除")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -373,7 +362,7 @@ impl LumarkApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("cancel-clear-vault")
+                        button("cancel-clear-vault")
                             .label("取消")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_confirm_clear_vault = false;
@@ -381,7 +370,7 @@ impl LumarkApp {
                             })),
                     )
                     .child(
-                        Button::new("confirm-clear-vault")
+                        button("confirm-clear-vault")
                             .danger()
                             .label("确认清除")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -400,7 +389,7 @@ impl LumarkApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("keep-password-draft")
+                        button("keep-password-draft")
                             .label("继续编辑")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_discard_password_draft = false;
@@ -409,7 +398,7 @@ impl LumarkApp {
                             })),
                     )
                     .child(
-                        Button::new("discard-draft-and-switch")
+                        button("discard-draft-and-switch")
                             .danger()
                             .label("丢弃并离开")
                             .on_click(cx.listener(|this, _, _, cx| {

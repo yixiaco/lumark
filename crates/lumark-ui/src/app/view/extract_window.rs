@@ -175,10 +175,11 @@ impl ExtractWindowView {
                             .min_w_0(),
                     )
                     .child(
-                        Button::new("extract-window-browse")
+                        button("extract-window-browse")
                             .secondary()
                             .small()
                             .rounded(px(6.))
+                            .cursor_pointer()
                             .label("浏览…")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.choose_directory(cx);
@@ -200,10 +201,11 @@ impl ExtractWindowView {
                             .min_w_0(),
                     )
                     .child(
-                        Button::new("extract-window-password-toggle")
+                        button("extract-window-password-toggle")
                             .secondary()
                             .small()
                             .rounded(px(6.))
+                            .cursor_pointer()
                             .label(if self.password_visible {
                                 "隐藏密码"
                             } else {
@@ -259,9 +261,10 @@ impl ExtractWindowView {
             .border_t_1()
             .border_color(cx.theme().border)
             .child(
-                Button::new("extract-window-cancel")
+                button("extract-window-cancel")
                     .small()
                     .rounded(px(6.))
+                    .cursor_pointer()
                     .label("取消")
                     .on_click(cx.listener(|this, _, window, cx| {
                         let app = this.app.clone();
@@ -273,10 +276,11 @@ impl ExtractWindowView {
                     })),
             )
             .child(
-                Button::new("extract-window-start")
+                button("extract-window-start")
                     .primary()
                     .small()
                     .rounded(px(6.))
+                    .cursor_pointer()
                     .icon(AppIcon::Zip.element(14.))
                     .label("开始解压")
                     .on_click(cx.listener(|this, _, window, cx| {

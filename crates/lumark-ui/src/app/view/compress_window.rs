@@ -540,9 +540,10 @@ impl CompressWindowView {
             .border_t_1()
             .border_color(cx.theme().border)
             .child(
-                Button::new("compress-window-switch")
+                button("compress-window-switch")
                     .secondary()
                     .small()
+                    .cursor_pointer()
                     .icon(AppIcon::Tool.element(14.))
                     .label(if classic {
                         "切换至轻巧模式"
@@ -555,14 +556,14 @@ impl CompressWindowView {
             )
             .child(div().flex_1())
             .child(
-                Button::new("compress-window-cancel")
+                button("compress-window-cancel")
                     .label("取消")
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.close(window, cx);
                     })),
             )
             .child(
-                Button::new("compress-window-start")
+                button("compress-window-start")
                     .primary()
                     .icon(AppIcon::Compression.element(15.))
                     .label(if classic { "确定" } else { "立即压缩" })
@@ -594,9 +595,10 @@ impl CompressWindowView {
                             .min_w_0(),
                     )
                     .child(
-                        Button::new("compress-window-browse")
+                        button("compress-window-browse")
                             .secondary()
                             .small()
+                            .cursor_pointer()
                             .label("浏览…")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.choose_directory(window, cx);
@@ -689,9 +691,10 @@ impl CompressWindowView {
                     .gap_2()
                     .items_center()
                     .child(
-                        Button::new("compress-window-password-toggle")
+                        button("compress-window-password-toggle")
                             .link()
                             .xsmall()
+                            .cursor_pointer()
                             .icon(AppIcon::Key.element(13.))
                             .label(if self.password_visible {
                                 "取消密码"

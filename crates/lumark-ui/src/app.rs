@@ -25,7 +25,7 @@ use lumark_platform_windows as platform;
 use lumark_settings::{
     CompressionPreset as SettingsPreset, Settings, SettingsStore, ThemePreference,
 };
-use lumark_tasks::{TaskEvent, TaskKind, TaskManager, TaskProgress, TaskRequest};
+use lumark_tasks::{TaskEvent, TaskKind, TaskManager, TaskProgress, TaskRequest, TaskState};
 use lumark_vault::{PasswordEntry, VaultState, VaultStore};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +33,7 @@ pub(crate) enum Screen {
     Browser,
     Passwords,
     Settings,
+    Tasks,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +89,20 @@ struct PendingOpenEntry {
     relative: String,
 }
 
+/// 任务中心展示的一条任务记录。
+///
+/// 记录在任务整个生命周期内保留，成功后也不会立即删除，因此用户可以从
+/// 任务中心重新打开后台任务的进度窗口或查看最终结果。
+#[derive(Clone)]
+pub(crate) struct TaskRecord {
+    pub(crate) id: u64,
+    pub(crate) kind: TaskKind,
+    pub(crate) label: String,
+    pub(crate) state: TaskState,
+    pub(crate) progress: TaskProgress,
+    pub(crate) message: Option<String>,
+}
+
 pub(crate) struct TreeRow {
     path: PathBuf,
     label: String,
@@ -141,6 +156,8 @@ pub struct LumarkApp {
     active_task_label: Option<String>,
     progress_view: Option<gpui_kit::Entity<view::windows::ProgressWindowView>>,
     progress_window: Option<gpui_kit::AnyWindowHandle>,
+    progress_task: Option<u64>,
+    task_records: Vec<TaskRecord>,
     compress_window: Option<gpui_kit::AnyWindowHandle>,
     extract_window: Option<gpui_kit::AnyWindowHandle>,
     extract_view: Option<gpui_kit::Entity<view::extract_window::ExtractWindowView>>,
@@ -184,8 +201,8 @@ pub struct LumarkApp {
     pending_screen: Option<Screen>,
     last_window_size: (f32, f32),
     last_size_save: std::time::Instant,
-    task_log: Vec<String>,
-    show_task_center: bool,
+    folder_sizes: HashMap<PathBuf, u64>,
+    folder_size_pending: HashSet<PathBuf>,
     pending_requests: Vec<Vec<String>>,
     pending_password_jobs: HashMap<u64, PendingPasswordJob>,
     pending_extra_password: Option<PendingExtraPasswordJob>,
@@ -361,6 +378,8 @@ impl LumarkApp {
             active_task_label: None,
             progress_view: None,
             progress_window: None,
+            progress_task: None,
+            task_records: Vec::new(),
             compress_window: None,
             extract_window: None,
             extract_view: None,
@@ -407,8 +426,8 @@ impl LumarkApp {
                 settings_snapshot.window_height,
             ),
             last_size_save: std::time::Instant::now(),
-            task_log: Vec::new(),
-            show_task_center: false,
+            folder_sizes: HashMap::new(),
+            folder_size_pending: HashSet::new(),
             pending_requests: Vec::new(),
             pending_password_jobs: HashMap::new(),
             pending_extra_password: None,
@@ -511,6 +530,7 @@ impl LumarkApp {
                     for event in events {
                         match event {
                             TaskEvent::Queued { id, kind, label } => {
+                                app.record_task_queued(id, kind, label.clone());
                                 if kind != TaskKind::PasswordResolve {
                                     app.active_task = Some(id);
                                     app.task_progress = None;
@@ -525,16 +545,17 @@ impl LumarkApp {
                                         });
                                     }
                                 }
-                                app.push_task_log(format!("排队：{label}"));
                                 app.status = label;
                             }
                             TaskEvent::Progress { id, progress } => {
+                                app.record_task_progress(id, progress.clone());
                                 if app.active_task == Some(id) {
                                     app.update_progress_window(progress.clone(), cx);
                                     app.task_progress = Some(progress);
                                 }
                             }
                             TaskEvent::Completed { id, message } => {
+                                app.record_task_completed(id, message.clone());
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
                                     if let Some(resolved) = tasks.take_password_result(id) {
@@ -543,7 +564,6 @@ impl LumarkApp {
                                         {
                                             let _ = app.vault.mark_used(*entry_id);
                                         }
-                                        app.push_task_log(format!("完成：{message}"));
                                         let archive_info = tasks
                                             .take_archive_load_result(id)
                                             .map(|result| result.info);
@@ -555,7 +575,6 @@ impl LumarkApp {
                                             cx,
                                         );
                                     } else {
-                                        app.push_task_log("记录密码均不正确".to_string());
                                         if job.extras.is_empty() {
                                             app.status =
                                                 "记录密码均不正确，请手动输入密码".to_string();
@@ -591,7 +610,6 @@ impl LumarkApp {
                                         )
                                         .unwrap_or_else(|_| pending.temporary.clone());
                                         app.open_extracted_target(target, &pending.temporary);
-                                        app.push_task_log(format!("完成：{message}"));
                                     }
                                     continue;
                                 }
@@ -602,9 +620,7 @@ impl LumarkApp {
                                     }
                                     if let Some(result) = tasks.take_archive_load_result(id) {
                                         app.apply_loaded_archive(action, result, window, cx);
-                                        app.push_task_log(format!("完成：{message}"));
                                     } else {
-                                        app.push_task_log(format!("失败：{message}"));
                                         app.status = message;
                                     }
                                     continue;
@@ -637,7 +653,6 @@ impl LumarkApp {
                                         }
                                     }
                                     app.finish_edit_action(edit.action);
-                                    app.push_task_log(format!("完成：{message}"));
                                     if current_archive.as_ref() == Some(&edit.archive) {
                                         app.status = match edit.action {
                                             PendingEditAction::Add => {
@@ -660,9 +675,10 @@ impl LumarkApp {
                                     app.task_progress = None;
                                     app.active_task_kind = None;
                                     app.active_task_label = None;
-                                    app.dismiss_progress_window(cx);
+                                    if app.progress_task == Some(id) {
+                                        app.dismiss_progress_window(cx);
+                                    }
                                 }
-                                app.push_task_log(format!("完成：{message}"));
                                 app.status = message;
                                 if let Some(directory) = app.pending_open_dir.take() {
                                     let _ = std::process::Command::new("explorer.exe")
@@ -676,6 +692,7 @@ impl LumarkApp {
                                 }
                             }
                             TaskEvent::Failed { id, message } => {
+                                app.record_task_failed(id, message.clone());
                                 if app.pending_password_jobs.remove(&id).is_some() {
                                     app.vault.release_lease();
                                 }
@@ -693,13 +710,15 @@ impl LumarkApp {
                                     app.task_progress = None;
                                     app.active_task_kind = None;
                                     app.active_task_label = None;
-                                    app.dismiss_progress_window(cx);
+                                    if app.progress_task == Some(id) {
+                                        app.dismiss_progress_window(cx);
+                                    }
                                 }
-                                app.push_task_log(format!("失败：{message}"));
                                 app.status = format!("失败：{message}");
                                 app.pending_save = None;
                             }
                             TaskEvent::Cancelled { id } => {
+                                app.record_task_cancelled(id);
                                 if app.pending_password_jobs.remove(&id).is_some() {
                                     app.vault.release_lease();
                                 }
@@ -717,9 +736,10 @@ impl LumarkApp {
                                     app.task_progress = None;
                                     app.active_task_kind = None;
                                     app.active_task_label = None;
-                                    app.dismiss_progress_window(cx);
+                                    if app.progress_task == Some(id) {
+                                        app.dismiss_progress_window(cx);
+                                    }
                                 }
-                                app.push_task_log("任务已取消".to_string());
                                 app.status = "任务已取消".to_string();
                                 app.pending_save = None;
                             }
@@ -728,7 +748,9 @@ impl LumarkApp {
                                     app.status = format!("正在尝试记录密码 {index}/{total}");
                                 }
                             }
-                            TaskEvent::StateChanged { .. } => {}
+                            TaskEvent::StateChanged { id, state } => {
+                                app.record_task_state(id, state);
+                            }
                         }
                     }
                     if had_events || auto_locked {
@@ -745,6 +767,15 @@ mod actions;
 mod util;
 mod view;
 
+/// 创建带点击手势的官方按钮。
+///
+/// 组件库默认给普通按钮使用箭头光标；这里统一补上指针，保证悬停时
+/// 所有可点击操作都显示明确的可点击反馈。
+pub(crate) fn button(id: impl Into<gpui_kit::ElementId>) -> Button {
+    Button::new(id).cursor_pointer()
+}
+
+pub(crate) use actions::tasks::{is_terminal_task_state, task_state_label};
 pub(crate) use util::*;
 /// 默认强调色：蓝色。
 const DEFAULT_ACCENT_COLOR: &str = "#2563eb";

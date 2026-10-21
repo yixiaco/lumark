@@ -819,7 +819,10 @@ impl LumarkApp {
     }
 
     /// 测试所选归档，并在检测到加密时解析已保存密码。
-    pub(crate) fn start_test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    ///
+    /// 加密探测放到后台线程，避免点击测试后主界面等待压缩包扫描而卡顿；
+    /// 探测结果返回后再决定是否使用密码库记录或直接提交测试任务。
+    pub(crate) fn start_test(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(archive) = self.selected_archive() else {
             self.status = "请选择一个压缩包".to_string();
             return;
@@ -828,21 +831,40 @@ impl LumarkApp {
             self.submit_archive_test(archive, Some(password.to_string()));
             return;
         }
-        if ArchiveService::probe_encryption(&archive).is_ok_and(|info| info.encrypted)
-            && self.begin_vault_password_resolution(
+        self.status = format!("正在检查压缩包：{}", archive.display());
+        let probe_archive = archive.clone();
+        cx.spawn(async move |this, cx| {
+            let encrypted = cx
+                .background_executor()
+                .spawn(async move {
+                    ArchiveService::probe_encryption(&probe_archive)
+                        .is_ok_and(|info| info.encrypted)
+                })
+                .await;
+            let _ = this.update_in(cx, |app, _window, cx| {
+                app.finish_start_test(archive, encrypted, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// 应用加密探测结果并提交测试任务或开始密码匹配。
+    fn finish_start_test(&mut self, archive: PathBuf, encrypted: bool, cx: &mut Context<Self>) {
+        if encrypted {
+            if self.begin_vault_password_resolution(
                 &archive,
                 PendingPasswordAction::Test {
                     archive: archive.clone(),
                 },
-            )
-        {
-            let _ = window;
-            let _ = cx;
+            ) {
+                return;
+            }
+            self.status = "压缩包已加密，请解锁密码库或添加匹配密码后重试".to_string();
+            cx.notify();
             return;
         }
         self.submit_archive_test(archive, None);
-        let _ = window;
-        let _ = cx;
+        cx.notify();
     }
 
     /// 把归档完整性测试提交为后台任务。

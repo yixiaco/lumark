@@ -1,5 +1,5 @@
 use super::super::*;
-use super::components::{AppIcon, card, icon_button, section_heading};
+use super::components::{AppIcon, card, section_heading};
 
 impl LumarkApp {
     /// 渲染密码工作区。
@@ -125,9 +125,10 @@ impl LumarkApp {
                                             ),
                                     )
                                     .child(
-                                        Button::new("password-add-new")
+                                        button("password-add-new")
                                             .ghost()
                                             .small()
+                                            .cursor_pointer()
                                             .icon(AppIcon::Add.element(15.))
                                             .tooltip("新建密码记录")
                                             .on_click(cx.listener(
@@ -209,7 +210,7 @@ impl LumarkApp {
                                                         .w(px(260.)),
                                                 )
                                                 .child(
-                                                    Button::new("unlock")
+                                                    button("unlock")
                                                         .primary()
                                                         .icon(AppIcon::Unlock.element(15.))
                                                         .label("解锁")
@@ -307,11 +308,12 @@ impl LumarkApp {
                                                         .min_w_0()
                                                         .gap_1()
                                                         .child(
-                                                            Button::new(format!(
+                                                            button(format!(
                                                                 "password-select-{id}"
                                                             ))
                                                             .ghost()
                                                             .small()
+                                                            .cursor_pointer()
                                                             .w_full()
                                                             .justify_start()
                                                             .label(
@@ -388,11 +390,12 @@ impl LumarkApp {
                                                         .child(password_text),
                                                 )
                                                 .child(
-                                                    Button::new(format!(
+                                                    button(format!(
                                                         "password-reveal-{id}"
                                                     ))
                                                     .ghost()
                                                     .small()
+                                                    .cursor_pointer()
                                                     .icon(
                                                         if revealed {
                                                             AppIcon::Lock
@@ -426,7 +429,7 @@ impl LumarkApp {
                                     .border_t_1()
                                     .border_color(cx.theme().border)
                                     .child(
-                                        Button::new("commit-password-draft")
+                                        button("commit-password-draft")
                                             .primary()
                                             .icon(AppIcon::Save.element(15.))
                                             .label("确定")
@@ -436,7 +439,7 @@ impl LumarkApp {
                                             })),
                                     )
                                     .child(
-                                        Button::new("discard-password-draft")
+                                        button("discard-password-draft")
                                             .label("取消草稿")
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.discard_password_draft();
@@ -521,7 +524,7 @@ impl LumarkApp {
                                         h_flex()
                                             .gap_2()
                                             .child(
-                                                Button::new("save-password")
+                                                button("save-password")
                                                     .primary()
                                                     .icon(AppIcon::Save.element(15.))
                                                     .label(if self.selected_password.is_some() {
@@ -539,7 +542,7 @@ impl LumarkApp {
                                                     )),
                                             )
                                             .child(
-                                                Button::new("copy-password")
+                                                button("copy-password")
                                                     .icon(AppIcon::Copy.element(15.))
                                                     .label("复制")
                                                     .on_click(cx.listener(
@@ -550,7 +553,7 @@ impl LumarkApp {
                                                     )),
                                             )
                                             .child(
-                                                Button::new("delete-password")
+                                                button("delete-password")
                                                     .danger()
                                                     .icon(AppIcon::Delete.element(15.))
                                                     .label("删除")
@@ -607,8 +610,9 @@ impl LumarkApp {
                                         h_flex()
                                             .gap_2()
                                             .child(
-                                                Button::new("set-master")
+                                                button("set-master")
                                                     .small()
+                                                    .cursor_pointer()
                                                     .label("设置/修改主密码")
                                                     .on_click(cx.listener(
                                                         |this, _, _, cx| {
@@ -618,8 +622,9 @@ impl LumarkApp {
                                                     )),
                                             )
                                             .child(
-                                                Button::new("remove-master")
+                                                button("remove-master")
                                                     .small()
+                                                    .cursor_pointer()
                                                     .label("删除主密码")
                                                     .on_click(cx.listener(
                                                         |this, _, _, cx| {
@@ -649,7 +654,7 @@ impl LumarkApp {
                             .gap_2()
                             .flex_wrap()
                             .child(
-                                Button::new("toggle-auto")
+                                button("toggle-auto")
                                     .icon(AppIcon::Key.element(15.))
                                     .label(if settings.auto_extract {
                                         "自动尝试密码：开"
@@ -662,7 +667,7 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                Button::new("toggle-save")
+                                button("toggle-save")
                                     .icon(AppIcon::Save.element(15.))
                                     .label(if settings.prompt_save {
                                         "保存密码提示：开"
@@ -675,7 +680,7 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                Button::new("toggle-auto-lock")
+                                button("toggle-auto-lock")
                                     .icon(AppIcon::Time.element(15.))
                                     .label(auto_lock_label)
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -684,7 +689,7 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                Button::new("lock-vault")
+                                button("lock-vault")
                                     .icon(AppIcon::Lock.element(15.))
                                     .label("立即锁定")
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -696,7 +701,7 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                Button::new("vault-transfer")
+                                button("vault-transfer")
                                     .icon(AppIcon::Copy.element(15.))
                                     .label("导入 / 导出")
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -719,7 +724,7 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                Button::new("vault-clear")
+                                button("vault-clear")
                                     .danger()
                                     .icon(AppIcon::Delete.element(15.))
                                     .label("清除密码库")
@@ -823,7 +828,7 @@ impl LumarkApp {
                         cx,
                         "主题",
                         "浅色、深色或跟随 Windows。",
-                        Button::new("cycle-theme")
+                        button("cycle-theme")
                             .label(theme_label)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.cycle_theme(window, cx);
@@ -863,7 +868,7 @@ impl LumarkApp {
                         cx,
                         "显示详细信息区",
                         "在文件侧栏底部显示大小、时间、CRC 和压缩方法。",
-                        Button::new("toggle-details-visible")
+                        button("toggle-details-visible")
                             .label(if settings.details_visible {
                                 "已显示"
                             } else {
@@ -878,7 +883,7 @@ impl LumarkApp {
                         cx,
                         "文件列表列宽",
                         "在紧凑、标准和宽松三档列宽之间切换。",
-                        Button::new("cycle-column-layout")
+                        button("cycle-column-layout")
                             .label(match self.column_layout {
                                 0 => "紧凑列",
                                 2 => "宽松列",
@@ -905,7 +910,7 @@ impl LumarkApp {
                         cx,
                         "默认格式",
                         "ZIP 兼容性最好，7Z 适合更小体积。",
-                        Button::new("cycle-format")
+                        button("cycle-format")
                             .label(settings.default_format.to_ascii_uppercase())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.cycle_default_format();
@@ -916,7 +921,7 @@ impl LumarkApp {
                         cx,
                         "压缩预设",
                         "控制默认压缩级别、字典和固实策略。",
-                        Button::new("cycle-preset")
+                        button("cycle-preset")
                             .label(preset_label)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.cycle_default_preset();
@@ -927,7 +932,7 @@ impl LumarkApp {
                         cx,
                         "解压后打开目录",
                         "任务完成后直接定位到输出位置。",
-                        Button::new("toggle-open-after")
+                        button("toggle-open-after")
                             .label(if settings.open_after_extract {
                                 "已开启"
                             } else {
@@ -942,7 +947,7 @@ impl LumarkApp {
                         cx,
                         "覆盖策略",
                         "同名文件默认询问，也可设为覆盖、跳过或重命名。",
-                        Button::new("cycle-overwrite")
+                        button("cycle-overwrite")
                             .label(match settings.overwrite_policy {
                                 lumark_settings::OverwritePolicy::Ask => "询问",
                                 lumark_settings::OverwritePolicy::Overwrite => "覆盖",
@@ -958,7 +963,7 @@ impl LumarkApp {
                         cx,
                         "归档编辑备份",
                         "修改归档前保留上一版本，便于恢复。",
-                        Button::new("toggle-archive-backup")
+                        button("toggle-archive-backup")
                             .label(if settings.archive_edit_backup {
                                 "已开启"
                             } else {
@@ -1018,7 +1023,7 @@ impl LumarkApp {
                                 "未设置"
                             }
                         ),
-                        Button::new("settings-open-passwords")
+                        button("settings-open-passwords")
                             .icon(AppIcon::Key.element(15.))
                             .label("管理密码")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -1030,7 +1035,7 @@ impl LumarkApp {
                         cx,
                         "密码库位置",
                         &self.vault.path().display().to_string(),
-                        Button::new("settings-vault-transfer")
+                        button("settings-vault-transfer")
                             .icon(AppIcon::Copy.element(15.))
                             .label("导入 / 导出")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -1069,7 +1074,7 @@ impl LumarkApp {
                             .gap_2()
                             .flex_wrap()
                             .child(
-                                Button::new("register-shell")
+                                button("register-shell")
                                     .icon(AppIcon::Check.element(15.))
                                     .label("注册右键菜单")
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1078,7 +1083,7 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                Button::new("unregister-shell")
+                                button("unregister-shell")
                                     .icon(AppIcon::Close.element(15.))
                                     .label("移除右键菜单")
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1087,7 +1092,7 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                Button::new("default-apps")
+                                button("default-apps")
                                     .icon(AppIcon::Tool.element(15.))
                                     .label("打开默认应用设置")
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1118,112 +1123,368 @@ impl LumarkApp {
             )
     }
 
-    /// 渲染非模态任务中心面板。
+    /// 渲染任务中心页面。
+    ///
+    /// 任务列表使用完整页面而不是浮层，避免浮层下方文件表继续接收鼠标事件；
+    /// 每条记录保留实时进度和最终结果，点击行可重新打开独立进度窗口。
     pub(crate) fn render_task_center(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let ratio = self
-            .task_progress
-            .as_ref()
-            .map_or(0.0, TaskProgress::ratio)
-            .clamp(0.0, 1.0);
+        let running = self
+            .task_records
+            .iter()
+            .filter(|record| !is_terminal_task_state(record.state))
+            .count();
+        let completed = self
+            .task_records
+            .iter()
+            .filter(|record| record.state == TaskState::Completed)
+            .count();
+        let total = self.task_records.len();
         v_flex()
-            .absolute()
-            .top(px(170.))
-            .right(px(16.))
-            .w(px(360.))
-            .max_h(px(400.))
-            .gap_3()
-            .p_4()
-            .bg(cx.theme().popover)
-            .border_1()
-            .border_color(cx.theme().border)
-            .rounded(px(14.))
-            .shadow_xl()
+            .size_full()
+            .p_5()
+            .gap_4()
             .child(
                 h_flex()
-                    .justify_between()
-                    .items_center()
+                    .w_full()
+                    .gap_3()
+                    .child(task_stat_card(
+                        cx,
+                        AppIcon::Time,
+                        "进行中",
+                        running,
+                        cx.theme().primary,
+                    ))
+                    .child(task_stat_card(
+                        cx,
+                        AppIcon::Check,
+                        "已完成",
+                        completed,
+                        cx.theme().success_foreground,
+                    ))
+                    .child(task_stat_card(
+                        cx,
+                        AppIcon::List,
+                        "任务总数",
+                        total,
+                        cx.theme().muted_foreground,
+                    )),
+            )
+            .child(
+                card(cx)
+                    .flex_1()
+                    .min_h_0()
                     .child(
                         h_flex()
-                            .gap_2()
+                            .w_full()
+                            .flex_shrink_0()
+                            .justify_between()
                             .items_center()
-                            .child(AppIcon::List.element(16.))
-                            .child(div().font_semibold().child("任务中心")),
+                            .p_4()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(AppIcon::List.element(16.))
+                                    .child(div().font_semibold().child("任务队列")),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("共 {total} 个任务")),
+                            ),
                     )
                     .child(
-                        icon_button("task-center-close", AppIcon::Close, "关闭任务中心").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.show_task_center = false;
-                                cx.notify();
-                            }),
-                        ),
+                        v_flex()
+                            .id("task-center-list")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .when(self.task_records.is_empty(), |this| {
+                                this.child(
+                                    v_flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .gap_2()
+                                        .p_8()
+                                        .child(AppIcon::List.element(28.))
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child("还没有任务"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child("压缩、解压和测试任务会显示在这里，点击任务可查看进度。"),
+                                        ),
+                                )
+                            })
+                            .children(
+                                self.task_records
+                                    .iter()
+                                    .rev()
+                                    .map(|record| self.render_task_row(record, cx)),
+                            ),
                     ),
             )
-            .when(self.active_task.is_none(), |this| {
-                this.child(
-                    v_flex()
-                        .items_center()
-                        .gap_2()
-                        .p_6()
-                        .child(AppIcon::Check.element(24.))
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("当前没有运行中的任务"),
-                        ),
-                )
+    }
+
+    /// 渲染任务中心中的一条任务记录。
+    fn render_task_row(&self, record: &TaskRecord, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let live_state = self
+            .tasks
+            .control(record.id)
+            .map(|control| control.state())
+            .unwrap_or(record.state);
+        let state = match record.state {
+            TaskState::Queued => TaskState::Queued,
+            state if is_terminal_task_state(state) => state,
+            _ => match live_state {
+                lumark_tasks::TaskState::Paused => TaskState::Paused,
+                lumark_tasks::TaskState::Cancelled => TaskState::Cancelling,
+                _ => TaskState::Running,
+            },
+        };
+        let (badge_bg, badge_fg) = task_state_colors(cx, state);
+        let ratio = if state == TaskState::Completed {
+            1.0
+        } else {
+            record.progress.ratio().clamp(0.0, 1.0)
+        };
+        let task_id = record.id;
+        let icon = match record.kind {
+            TaskKind::Compress => AppIcon::Compression,
+            TaskKind::Extract => AppIcon::Zip,
+            TaskKind::Test => AppIcon::Shield,
+            TaskKind::Edit => AppIcon::Edit,
+            TaskKind::LoadArchive => AppIcon::FileZip,
+            TaskKind::PasswordResolve => AppIcon::Key,
+        };
+        let detail = record
+            .message
+            .clone()
+            .or_else(|| {
+                (!record.progress.current.is_empty())
+                    .then(|| format!("正在处理：{}", record.progress.current))
             })
-            .when(self.active_task.is_some(), |this| {
-                this.child(
-                    v_flex()
-                        .gap_2()
-                        .p_3()
-                        .rounded_md()
-                        .bg(cx.theme().muted)
-                        .child(
-                            h_flex()
-                                .justify_between()
-                                .text_xs()
-                                .child(format!("{:.0}%", ratio * 100.0))
-                                .child(
-                                    self.task_progress
-                                        .as_ref()
-                                        .map(|progress| progress.current.clone())
-                                        .unwrap_or_default(),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .w_full()
-                                .h(px(6.))
-                                .rounded_full()
-                                .bg(cx.theme().muted_foreground)
-                                .child(
-                                    div()
-                                        .w(px(300. * ratio))
-                                        .h_full()
-                                        .rounded_full()
-                                        .bg(cx.theme().primary),
-                                ),
-                        ),
-                )
-            })
+            .unwrap_or_else(|| {
+                if state == TaskState::Queued {
+                    "等待开始…".to_string()
+                } else {
+                    "正在准备文件…".to_string()
+                }
+            });
+        let metrics = format!(
+            "{} / {} · {} / {} 项 · {}/秒 · {}",
+            format_size(record.progress.bytes_done),
+            format_size(record.progress.bytes_total),
+            record.progress.entries_done,
+            record.progress.entries_total,
+            format_size(record.progress.speed_bps.max(0.0) as u64),
+            format_duration(record.progress.elapsed_seconds),
+        );
+        h_flex()
+            .id(format!("task-row-{task_id}"))
+            .w_full()
+            .gap_3()
+            .items_start()
+            .p_3()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .cursor_pointer()
+            .hover(|style| style.bg(cx.theme().list_hover))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_progress_window_for(task_id, window, cx);
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .size(px(34.))
+                    .mt(px(2.))
+                    .flex_shrink_0()
+                    .rounded(px(8.))
+                    .bg(cx.theme().accent)
+                    .text_color(cx.theme().accent_foreground)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icon.element(17.)),
+            )
             .child(
                 v_flex()
-                    .id("task-log")
-                    .max_h(px(330.))
-                    .overflow_y_scroll()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .child(record.label.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .px_2()
+                                    .py(px(1.))
+                                    .rounded(px(5.))
+                                    .bg(badge_bg)
+                                    .text_color(badge_fg)
+                                    .text_xs()
+                                    .child(task_state_label(state)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(detail),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .h(px(5.))
+                            .rounded_full()
+                            .overflow_hidden()
+                            .bg(cx.theme().muted)
+                            .child(
+                                div()
+                                    .w(gpui_kit::relative(ratio))
+                                    .h_full()
+                                    .rounded_full()
+                                    .bg(if state == TaskState::Failed {
+                                        cx.theme().danger
+                                    } else {
+                                        cx.theme().primary
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(metrics),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
                     .gap_1()
-                    .children(self.task_log.iter().rev().take(40).map(|line| {
+                    .child(
+                        button(format!("task-open-{task_id}"))
+                            .ghost()
+                            .xsmall()
+                            .label("查看")
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_progress_window_for(task_id, window, cx);
+                                cx.stop_propagation();
+                                cx.notify();
+                            })),
+                    )
+                    .when(
+                        matches!(state, TaskState::Running | TaskState::Paused),
+                        |this| {
+                            this.child(
+                                button(format!("task-pause-{task_id}"))
+                                    .ghost()
+                                    .xsmall()
+                                    .label(if state == TaskState::Paused {
+                                        "继续"
+                                    } else {
+                                        "暂停"
+                                    })
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if let Some(control) = this.tasks.control(task_id) {
+                                            if control.state() == lumark_tasks::TaskState::Paused {
+                                                control.resume();
+                                            } else {
+                                                control.pause();
+                                            }
+                                        }
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    })),
+                            )
+                        },
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+/// 渲染任务中心的统计卡片。
+fn task_stat_card(
+    cx: &Context<LumarkApp>,
+    icon: AppIcon,
+    label: &str,
+    value: usize,
+    color: gpui_kit::Hsla,
+) -> impl IntoElement {
+    card(cx).flex_1().p_4().child(
+        h_flex()
+            .gap_3()
+            .items_center()
+            .child(
+                div()
+                    .size(px(34.))
+                    .rounded(px(8.))
+                    .bg(color.opacity(0.12))
+                    .text_color(color)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icon.element(17.)),
+            )
+            .child(
+                v_flex()
+                    .gap(px(0.))
+                    .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .py_1()
-                            .border_b_1()
-                            .border_color(cx.theme().border)
-                            .child(line.clone())
-                    })),
-            )
+                            .child(label.to_string()),
+                    )
+                    .child(div().text_lg().font_semibold().child(value.to_string())),
+            ),
+    )
+}
+
+/// 返回任务状态徽标的背景色和前景色。
+fn task_state_colors(
+    cx: &Context<LumarkApp>,
+    state: TaskState,
+) -> (gpui_kit::Hsla, gpui_kit::Hsla) {
+    match state {
+        TaskState::Queued | TaskState::Cancelled => {
+            (cx.theme().secondary, cx.theme().secondary_foreground)
+        }
+        TaskState::Running => (cx.theme().accent, cx.theme().accent_foreground),
+        TaskState::Paused => (cx.theme().warning, cx.theme().warning_foreground),
+        TaskState::Cancelling | TaskState::Failed => {
+            (cx.theme().danger, cx.theme().danger_foreground)
+        }
+        TaskState::Completed => (cx.theme().success, cx.theme().success_foreground),
     }
 }
 

@@ -46,7 +46,7 @@ cargo test --workspace
 - 密码库候选密码自动解压加密 ZIP/7Z/RAR。
 - 多选、范围选择、历史导航和高级搜索过滤。
 - `gpui-kit::test` 真实窗口测试覆盖虚拟文件行和平铺视图切换。
-- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、独立进度窗口、密码库和设置的视觉验收，截图位于 `artifacts/`。
+- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、任务中心、独立进度窗口、密码库和设置的视觉验收，截图位于 `artifacts/`。
 
 ## 界面结构
 
@@ -58,17 +58,20 @@ cargo test --workspace
 | `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程 |
 | `app/actions/passwords.rs` | 密码草稿、解锁、主密码和导入导出 |
 | `app/actions/settings.rs` | 主题、默认压缩参数和 Shell 集成 |
+| `app/actions/tasks.rs` | 任务记录、状态文本和任务中心数据维护 |
 | `app/view/chrome.rs` | 标题栏、渐变动作带、导航行、文件夹侧栏、状态栏和模态层 |
 | `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
 | `app/view/pages.rs` | 密码库、设置和任务中心 |
 | `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
 | `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
-| `app/view/dialogs.rs` | 解压对话框和确认对话框 |
+| `app/view/dialogs.rs` | 确认对话框、密码提示和导入导出表单 |
 | `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
 | `app/view/components.rs` | IconPark 图标、渐变横幅、经典分组框、单复选控件和通用按钮 |
 | `app/util.rs` | 路径、大小、日期、格式和界面格式化辅助函数 |
 
 ![Lumark 主界面](artifacts/ui-main-final.png)
+
+![文件夹大小按需计算](artifacts/ui-folder-size.png)
 
 ![窄窗口布局](artifacts/ui-narrow.png)
 
@@ -83,6 +86,8 @@ cargo test --workspace
 ![文件右键菜单](artifacts/ui-context-menu.png)
 
 ![独立解压窗口](artifacts/ui-extract-window.png)
+
+![任务中心](artifacts/ui-task-center.png)
 
 ![任务进度窗口](artifacts/ui-progress-window.png)
 

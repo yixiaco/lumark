@@ -17,6 +17,7 @@ impl LumarkApp {
             Screen::Browser => format!("{} - Lumark", self.browser.current_display()),
             Screen::Passwords => "密码库 - Lumark".to_string(),
             Screen::Settings => "设置 - Lumark".to_string(),
+            Screen::Tasks => "任务中心 - Lumark".to_string(),
         };
         TitleBar::new()
             .h(px(38.))
@@ -103,10 +104,11 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let active = self.screen == target;
-        Button::new(id)
-            .secondary()
+        button(id)
+            .ghost()
             .small()
             .rounded(px(6.))
+            .cursor_pointer()
             .selected(active)
             .occlude()
             .icon(icon.element(14.))
@@ -185,7 +187,10 @@ impl LumarkApp {
                         AppIcon::List,
                         "任务",
                         BannerTone::Neutral,
-                        |this, _, _| this.show_task_center = !this.show_task_center,
+                        |this, _, cx| {
+                            this.switch_screen(Screen::Tasks);
+                            cx.notify();
+                        },
                     )),
             )
             .child(h_flex().ml_auto().pr_2().child(brand_lockup(cx, wide)))
@@ -212,6 +217,18 @@ impl LumarkApp {
                 AppIcon::Setting,
                 "设置",
                 "外观、压缩偏好与本机安全".to_string(),
+            ),
+            Screen::Tasks => (
+                AppIcon::List,
+                "任务中心",
+                format!(
+                    "{} 个任务 · {} 个进行中",
+                    self.task_records.len(),
+                    self.task_records
+                        .iter()
+                        .filter(|record| !is_terminal_task_state(record.state))
+                        .count()
+                ),
             ),
             Screen::Browser => unreachable!(),
         };
@@ -253,9 +270,11 @@ impl LumarkApp {
                     .ml_auto()
                     .gap_2()
                     .child(
-                        Button::new("banner-back-files")
+                        button("banner-back-files")
                             .secondary()
                             .small()
+                            .rounded(px(6.))
+                            .cursor_pointer()
                             .icon(AppIcon::ArrowLeft.element(15.))
                             .label("返回文件")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -266,7 +285,7 @@ impl LumarkApp {
                     .child(
                         icon_button("banner-tasks", AppIcon::List, "任务中心").on_click(
                             cx.listener(|this, _, _, cx| {
-                                this.show_task_center = !this.show_task_center;
+                                this.switch_screen(Screen::Tasks);
                                 cx.notify();
                             }),
                         ),
@@ -454,6 +473,7 @@ impl LumarkApp {
                             .align(InputGroupAddonAlignment::InlineEnd)
                             .child(
                                 InputGroupButton::new("go-location")
+                                    .cursor_pointer()
                                     .label("转到")
                                     .tooltip("打开输入的路径")
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -484,6 +504,7 @@ impl LumarkApp {
                             .align(InputGroupAddonAlignment::InlineEnd)
                             .child(
                                 InputGroupButton::new("search-run")
+                                    .cursor_pointer()
                                     .label("搜索")
                                     .tooltip("在当前目录搜索")
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -494,10 +515,11 @@ impl LumarkApp {
                     ),
             )
             .child(
-                Button::new("search-mode")
-                    .secondary()
+                button("search-mode")
+                    .ghost()
                     .small()
                     .rounded(px(6.))
+                    .cursor_pointer()
                     .label(if narrow {
                         "高级".to_string()
                     } else {
@@ -553,9 +575,11 @@ impl LumarkApp {
             )
             .when(search_active, |this| {
                 this.child(
-                    Button::new("search-clear")
+                    button("search-clear")
                         .ghost()
                         .small()
+                        .rounded(px(6.))
+                        .cursor_pointer()
                         .icon(AppIcon::Close.element(14.))
                         .tooltip("清除搜索")
                         .accessibility_label("清除搜索")
@@ -931,9 +955,11 @@ impl LumarkApp {
                     )),
                 )
                 .child(
-                    Button::new("show-progress")
+                    button("show-progress")
                         .ghost()
                         .xsmall()
+                        .rounded(px(6.))
+                        .cursor_pointer()
                         .icon(AppIcon::List.element(13.))
                         .label("进度")
                         .tooltip("显示任务进度窗口")
@@ -991,14 +1017,11 @@ impl Render for LumarkApp {
             self.last_size_save = std::time::Instant::now();
         }
 
-        if self.active_task.is_none() && self.progress_window.is_some() {
-            self.dismiss_progress_window(cx);
-        }
-
         let content = match self.screen {
             Screen::Browser => self.render_browser(window, cx).into_any_element(),
             Screen::Passwords => self.render_passwords(cx).into_any_element(),
             Screen::Settings => self.render_settings(cx).into_any_element(),
+            Screen::Tasks => self.render_task_center(cx).into_any_element(),
         };
         let browser = self.screen == Screen::Browser;
 
@@ -1075,9 +1098,6 @@ impl Render for LumarkApp {
             .when(self.show_discard_password_draft, |this| {
                 let dialog = self.render_discard_password_draft(cx);
                 this.child(dialog_layer(dialog))
-            })
-            .when(self.show_task_center, |this| {
-                this.child(self.render_task_center(cx))
             })
     }
 }

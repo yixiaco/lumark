@@ -110,10 +110,11 @@ pub(super) fn icon_button(
     icon: AppIcon,
     tooltip: &'static str,
 ) -> Button {
-    Button::new(id)
-        .secondary()
+    button(id)
+        .ghost()
         .small()
         .rounded(px(6.))
+        .cursor_pointer()
         .icon(icon.element(17.))
         .tooltip(tooltip)
         .accessibility_label(tooltip)
@@ -170,7 +171,7 @@ pub(super) fn banner_action(
 ) -> gpui_kit::AnyElement {
     let icon_color = tone.icon_color(cx);
     let label_color = cx.theme().foreground;
-    Button::new(id)
+    button(id)
         .rounded(px(8.))
         .w(px(68.))
         .h(px(56.))
