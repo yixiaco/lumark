@@ -942,6 +942,17 @@ impl LumarkApp {
             SettingsPreset::Balanced => "平衡",
             SettingsPreset::Size => "体积优先",
         };
+        let vault_location = format!(
+            "{}{}",
+            self.vault.path().display(),
+            if self.vault_error.is_some() {
+                " · 临时位置"
+            } else if settings.vault_path.is_some() {
+                " · 自定义位置"
+            } else {
+                " · 默认位置"
+            }
+        );
         v_flex()
             .id("settings-page")
             .w_full()
@@ -1209,28 +1220,41 @@ impl LumarkApp {
                     .child(settings_row(
                         cx,
                         "密码库位置",
-                        &self.vault.path().display().to_string(),
-                        button("settings-vault-transfer")
-                            .icon(AppIcon::Copy.element(15.))
-                            .label("导入 / 导出")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if input_value(&this.vault_transfer_path, cx)
-                                    .trim()
-                                    .is_empty()
-                                {
-                                    let target = dirs::document_dir()
-                                        .unwrap_or_else(std::env::temp_dir)
-                                        .join("Lumark.lumarkvault");
-                                    set_input(
-                                        &this.vault_transfer_path,
-                                        target.to_string_lossy().as_ref(),
-                                        window,
-                                        cx,
-                                    );
-                                }
-                                this.show_vault_transfer = true;
-                                cx.notify();
-                            })),
+                        &vault_location,
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                button("settings-vault-location")
+                                    .icon(AppIcon::FolderOpen.element(15.))
+                                    .label("更改位置")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_vault_location_dialog(window, cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                button("settings-vault-transfer")
+                                    .icon(AppIcon::Copy.element(15.))
+                                    .label("导入 / 导出")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        if input_value(&this.vault_transfer_path, cx)
+                                            .trim()
+                                            .is_empty()
+                                        {
+                                            let target = dirs::document_dir()
+                                                .unwrap_or_else(std::env::temp_dir)
+                                                .join("Lumark.lumarkvault");
+                                            set_input(
+                                                &this.vault_transfer_path,
+                                                target.to_string_lossy().as_ref(),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                        this.show_vault_transfer = true;
+                                        cx.notify();
+                                    })),
+                            ),
                     )),
             )
             .child(
@@ -1721,6 +1745,7 @@ fn settings_row(
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
+                        .text_ellipsis()
                         .child(description.to_string()),
                 ),
         )

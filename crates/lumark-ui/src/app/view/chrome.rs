@@ -1083,6 +1083,10 @@ impl Render for LumarkApp {
                 let dialog = self.render_vault_transfer(cx);
                 this.child(dialog_layer(dialog))
             })
+            .when(self.show_vault_location, |this| {
+                let dialog = self.render_vault_location(cx);
+                this.child(dialog_layer(dialog))
+            })
             .when(self.show_confirm_remove_master, |this| {
                 let dialog = self.render_confirm_remove_master(cx);
                 this.child(dialog_layer(dialog))

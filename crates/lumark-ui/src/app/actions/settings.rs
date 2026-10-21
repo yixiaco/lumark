@@ -127,6 +127,120 @@ impl LumarkApp {
         }
     }
 
+    /// 打开密码库位置编辑对话框，并预填当前文件夹。
+    pub(crate) fn open_vault_location_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let folder = self
+            .vault
+            .path()
+            .parent()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default();
+        set_input(&self.vault_location_input, &folder, window, cx);
+        self.vault_location_error = None;
+        self.show_vault_location = true;
+        cx.notify();
+    }
+
+    /// 打开系统文件夹选择器，并把结果填入位置编辑框。
+    pub(crate) fn browse_vault_location(&mut self, cx: &mut Context<Self>) {
+        self.vault_location_error = None;
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("选择密码库保存文件夹".into()),
+        });
+        cx.spawn(async move |this, cx| match receiver.await {
+            Ok(Ok(Some(paths))) => {
+                if let Some(directory) = paths.into_iter().next() {
+                    let _ = this.update_in(cx, |app, window, cx| {
+                        set_input(
+                            &app.vault_location_input,
+                            directory.to_string_lossy().as_ref(),
+                            window,
+                            cx,
+                        );
+                        app.vault_location_error = None;
+                        cx.notify();
+                    });
+                }
+            }
+            Ok(Ok(None)) => {
+                let _ = this.update(cx, |app, cx| {
+                    app.vault_location_error = None;
+                    cx.notify();
+                });
+            }
+            Ok(Err(error)) => {
+                let _ = this.update(cx, |app, cx| {
+                    app.vault_location_error = Some(format!("无法打开文件夹选择器：{error}"));
+                    cx.notify();
+                });
+            }
+            Err(_) => {
+                let _ = this.update(cx, |app, cx| {
+                    app.vault_location_error = Some("文件夹选择器已关闭".to_string());
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 把密码库加密文件迁移到指定目录，并持久化新位置。
+    pub(crate) fn move_vault_to(
+        &mut self,
+        directory: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self
+            .task_records
+            .iter()
+            .any(|record| !is_terminal_task_state(record.state))
+        {
+            return Err("请等待当前任务完成后再更改密码库位置".to_string());
+        }
+        let current = self.vault.path().to_path_buf();
+        let target = directory.join("vault.dat");
+        if target == current {
+            return Err("密码库已经保存在该位置".to_string());
+        }
+        if target.exists() || target.with_extension("bak").exists() {
+            return Err("目标文件夹中已存在密码库文件，请选择其他文件夹".to_string());
+        }
+        copy_vault_files(&current, &target)?;
+        let new_vault = match VaultStore::open(&target) {
+            Ok(vault) => vault,
+            Err(error) => {
+                remove_vault_files(&target);
+                return Err(format!("无法打开新位置的密码库：{error}"));
+            }
+        };
+        if let Err(error) = self
+            .settings
+            .update(|settings| settings.vault_path = Some(target.clone()))
+        {
+            remove_vault_files(&target);
+            return Err(format!("无法保存密码库位置：{error}"));
+        }
+        self.vault = Arc::new(new_vault);
+        self.vault_error = None;
+        self.selected_password = None;
+        self.revealed_password = None;
+        self.dismiss_password_windows(cx);
+        remove_vault_files(&current);
+        self.status = if self.vault.state() == VaultState::Locked {
+            format!("密码库已移动到 {}，请重新解锁", self.vault.path().display())
+        } else {
+            format!("密码库已保存到 {}", self.vault.path().display())
+        };
+        Ok(())
+    }
+
     /// 为当前用户注册 Lumark 资源管理器右键菜单命令。
     pub(crate) fn register_shell_integration(&mut self) {
         match platform::shell::register_current_user() {
@@ -152,4 +266,32 @@ impl LumarkApp {
             Err(error) => self.status = error.to_string(),
         }
     }
+}
+
+/// 复制密码库主文件和可选的损坏恢复备份，先写临时文件再原子替换。
+fn copy_vault_files(source: &Path, target: &Path) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    if source.exists() {
+        let bytes = std::fs::read(source).map_err(|error| error.to_string())?;
+        let temp = target.with_extension("move-tmp");
+        let _ = std::fs::remove_file(&temp);
+        std::fs::write(&temp, bytes).map_err(|error| error.to_string())?;
+        if let Err(error) = std::fs::rename(&temp, target) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(error.to_string());
+        }
+        let backup = source.with_extension("bak");
+        if backup.exists() {
+            let _ = std::fs::copy(backup, target.with_extension("bak"));
+        }
+    }
+    Ok(())
+}
+
+/// 删除密码库主文件和备份；旧文件删除失败不影响已经迁移的新密码库。
+fn remove_vault_files(path: &Path) {
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(path.with_extension("bak"));
 }

@@ -13,6 +13,8 @@ pub struct Settings {
     pub default_format: String,
     pub default_preset: CompressionPreset,
     pub default_output_dir: Option<PathBuf>,
+    /// 自定义密码库文件路径；`None` 表示使用默认位置。
+    pub vault_path: Option<PathBuf>,
     pub overwrite_policy: OverwritePolicy,
     pub open_after_extract: bool,
     pub confirm_delete: bool,
@@ -40,6 +42,7 @@ impl Default for Settings {
             default_format: "zip".to_string(),
             default_preset: CompressionPreset::Balanced,
             default_output_dir: None,
+            vault_path: None,
             overwrite_policy: OverwritePolicy::Ask,
             open_after_extract: false,
             confirm_delete: true,

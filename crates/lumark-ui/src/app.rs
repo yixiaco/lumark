@@ -192,6 +192,9 @@ pub struct LumarkApp {
     vault_transfer_path: gpui_kit::Entity<InputState>,
     vault_transfer_passphrase: gpui_kit::Entity<InputState>,
     vault_transfer_replace: bool,
+    show_vault_location: bool,
+    vault_location_input: gpui_kit::Entity<InputState>,
+    vault_location_error: Option<String>,
     show_confirm_remove_master: bool,
     show_confirm_clear_vault: bool,
     archive_password: Option<zeroize::Zeroizing<String>>,
@@ -218,14 +221,16 @@ pub struct LumarkApp {
 
 impl LumarkApp {
     /// 使用默认密码库和设置路径创建生产应用。
+    ///
+    /// 设置中保存了自定义密码库位置时优先使用该路径；读取设置失败时
+    /// 仍然回退到默认位置，保证应用可以启动。
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::new_with_stores(
-            window,
-            cx,
-            VaultStore::default_path(),
-            SettingsStore::default_path(),
-            None,
-        )
+        let settings_path = SettingsStore::default_path();
+        let vault_path = SettingsStore::open(&settings_path)
+            .ok()
+            .and_then(|store| store.get().vault_path)
+            .unwrap_or_else(VaultStore::default_path);
+        Self::new_with_stores(window, cx, vault_path, settings_path, None)
     }
 
     /// 使用自定义密码库路径创建应用，主要用于集成测试。
@@ -325,6 +330,7 @@ impl LumarkApp {
         let password_note = new_input(window, cx, "备注（可选）", false);
         let vault_transfer_path = new_input(window, cx, "导出/导入文件路径", false);
         let vault_transfer_passphrase = new_input(window, cx, "独立导出口令", true);
+        let vault_location_input = new_input(window, cx, "密码库保存文件夹", false);
         let browser_focus = cx.focus_handle();
         let details_visible = settings_snapshot.details_visible;
 
@@ -411,6 +417,9 @@ impl LumarkApp {
             vault_transfer_path,
             vault_transfer_passphrase,
             vault_transfer_replace: false,
+            show_vault_location: false,
+            vault_location_input,
+            vault_location_error: None,
             show_confirm_remove_master: false,
             show_confirm_clear_vault: false,
             archive_password: None,
@@ -1210,6 +1219,46 @@ mod ui_tests {
                 assert_eq!(saved.archive_pattern, None);
                 app.delete_password(id).unwrap();
                 assert_eq!(app.vault.entry_count(), 0);
+            });
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证密码库可以迁移到自定义目录并持久化新位置。
+    fn vault_can_move_to_custom_location(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let settings_path = directory.path().join("settings.json");
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path.clone(),
+                settings_path,
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        let moved_directory = directory.path().join("moved");
+        std::fs::create_dir(&moved_directory).unwrap();
+        cx.update(|_, cx| {
+            app.update(cx, |app, cx| {
+                app.vault
+                    .add_entry(PasswordEntry::new("移动测试", "move-secret-123"))
+                    .unwrap();
+                app.move_vault_to(moved_directory.clone(), cx).unwrap();
+                let target = moved_directory.join("vault.dat");
+                assert_eq!(app.vault.path(), target);
+                assert!(target.exists());
+                assert!(!vault_path.exists());
+                assert_eq!(app.settings.get().vault_path, Some(target.clone()));
+                assert!(
+                    app.vault
+                        .entries()
+                        .iter()
+                        .any(|entry| { entry.password.expose() == "move-secret-123" })
+                );
             });
         });
         let _ = app;
