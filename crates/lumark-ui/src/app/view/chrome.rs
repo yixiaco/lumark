@@ -106,12 +106,11 @@ impl LumarkApp {
         let active = self.screen == target;
         button(id)
             .ghost()
-            .small()
             .rounded(px(6.))
             .cursor_pointer()
             .selected(active)
             .occlude()
-            .icon(icon.element(14.))
+            .icon(icon.element(16.))
             .label(label)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.switch_screen(target);
