@@ -144,6 +144,21 @@ impl LumarkApp {
     /// 为所选源生成默认输出名，并重置压缩字段。
     pub(crate) fn open_compress_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let sources = self.selected_sources();
+        self.open_compress_dialog_with_sources(sources, window, cx);
+    }
+
+    /// 用指定路径打开轻巧压缩窗口。
+    ///
+    /// Shell 多选压缩和普通压缩共用同一套表单，但 Shell 场景不能依赖
+    /// 浏览器当前选区，因此显式传入全部路径。
+    pub(crate) fn open_compress_dialog_with_sources(
+        &mut self,
+        mut sources: Vec<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut seen = std::collections::HashSet::new();
+        sources.retain(|path| path.exists() && seen.insert(path.clone()));
         let Some(first) = sources.first() else {
             self.status = "当前没有可压缩的项目".to_string();
             return;
@@ -156,7 +171,14 @@ impl LumarkApp {
         };
         self.compress_format = format;
         self.compress_preset = settings.default_preset;
-        let default_name = if first.is_dir() {
+        let default_name = if sources.len() > 1 {
+            first
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|value| value.to_str())
+                .unwrap_or("archive")
+                .to_string()
+        } else if first.is_dir() {
             first
                 .file_name()
                 .and_then(|value| value.to_str())
@@ -205,7 +227,7 @@ impl LumarkApp {
         self.compress_password_visible = false;
         self.show_compress = false;
         self.status = format!("准备压缩 {} 个项目", sources.len());
-        self.open_compress_window(window, cx);
+        self.open_compress_window_for_sources(sources, window, cx);
     }
 
     /// 切换压缩格式，并把输出输入框的扩展名同步为新格式。

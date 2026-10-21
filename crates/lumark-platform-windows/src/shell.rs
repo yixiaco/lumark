@@ -72,6 +72,7 @@ pub fn register_shell_menu() -> Result<(), PlatformError> {
             label,
             &command,
             &icon,
+            verb_key == "Lumark.Compress",
         )?;
     }
 
@@ -82,6 +83,7 @@ pub fn register_shell_menu() -> Result<(), PlatformError> {
             "用 Lumark 压缩",
             &format!("{quoted} --compress \"%1\""),
             &icon,
+            true,
         )?;
     }
     notify_shell();
@@ -295,10 +297,16 @@ fn write_shell_verb(
     label: &str,
     command: &str,
     icon: &str,
+    multi_select: bool,
 ) -> Result<(), PlatformError> {
     let (key, _) = classes.create_subkey(path).map_err(registry_error)?;
     key.set_value("", &label).map_err(registry_error)?;
     key.set_value("Icon", &icon).map_err(registry_error)?;
+    if multi_select {
+        // Player 允许一次选择多个文件；应用侧会把逐文件进程请求合并。
+        key.set_value("MultiSelectModel", &"Player")
+            .map_err(registry_error)?;
+    }
     let (command_key, _) = key.create_subkey("command").map_err(registry_error)?;
     command_key
         .set_value("", &command)

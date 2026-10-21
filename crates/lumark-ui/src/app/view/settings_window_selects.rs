@@ -234,7 +234,18 @@ mod tests {
                 "settings-preset-select",
                 "settings-overwrite-select",
             ] {
-                assert!(window.find(id).visible(), "设置下拉未渲染：{id}");
+                let select = window.find(id);
+                assert!(select.visible(), "设置下拉未渲染：{id}");
+                assert!(
+                    (select.bounds().size.width - px(160.)).abs() < px(1.),
+                    "设置下拉宽度不正确：{id} {:?}",
+                    select.bounds().size.width
+                );
+                assert!(
+                    select.bounds().origin.x > px(400.),
+                    "设置下拉挤压了左侧说明：{id} {:?}",
+                    select.bounds().origin.x
+                );
             }
         });
         let _ = app;

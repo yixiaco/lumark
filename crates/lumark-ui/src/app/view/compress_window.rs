@@ -1144,8 +1144,13 @@ impl Render for CompressWindowView {
 }
 
 impl LumarkApp {
-    /// 打开独立压缩窗口；重复点击时激活已有窗口。
-    pub(crate) fn open_compress_window(&mut self, parent: &Window, cx: &mut Context<Self>) {
+    /// 用明确的项目列表打开轻巧压缩窗口。
+    pub(crate) fn open_compress_window_for_sources(
+        &mut self,
+        sources: Vec<PathBuf>,
+        parent: &Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(handle) = self.compress_window
             && handle
                 .update(cx, |_, window, _| window.activate_window())
@@ -1154,7 +1159,6 @@ impl LumarkApp {
             return;
         }
         self.compress_window = None;
-        let sources = self.selected_sources();
         if sources.is_empty() {
             self.status = "当前没有可压缩的项目".to_string();
             return;

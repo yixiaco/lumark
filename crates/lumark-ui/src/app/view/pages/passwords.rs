@@ -2,6 +2,7 @@
 use super::super::super::*;
 use super::super::components::AppIcon;
 use super::shared::stat_card;
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::scroll::ScrollableElement;
 
 impl LumarkApp {
@@ -52,61 +53,66 @@ impl LumarkApp {
             .as_f32();
         let list_height = (window_height * 0.62).clamp(340., 680.);
 
-        v_flex()
-            .id("passwords-page")
+        div()
+            .relative()
             .w_full()
             .h_full()
             .min_h_0()
-            .relative()
-            .overflow_y_scroll()
-            .track_scroll(&self.password_page_scroll)
+            .child(
+                v_flex()
+                    .id("passwords-page")
+                    .test_support()
+                    .size_full()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.password_page_scroll)
+                    .p_4()
+                    .gap_3()
+                    .child(
+                        h_flex()
+                            .gap_3()
+                            .w_full()
+                            .child(stat_card(
+                                cx,
+                                AppIcon::Key,
+                                "记录总数",
+                                &total_records.to_string(),
+                            ))
+                            .child(stat_card(
+                                cx,
+                                if locked {
+                                    AppIcon::Lock
+                                } else {
+                                    AppIcon::Unlock
+                                },
+                                "密码库状态",
+                                if locked { "已锁定" } else { "已解锁" },
+                            ))
+                            .child(stat_card(
+                                cx,
+                                AppIcon::Shield,
+                                "自动尝试",
+                                if settings.auto_extract {
+                                    "已开启"
+                                } else {
+                                    "已关闭"
+                                },
+                            )),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_h_0()
+                            .h(px(list_height))
+                            .flex_shrink_0()
+                            .items_stretch()
+                            .gap_3()
+                            .child(self.render_password_list(entries, locked, cx))
+                            .when(!locked, |this| {
+                                this.child(self.render_password_sidebar(selected, has_master, cx))
+                            }),
+                    )
+                    .child(self.render_password_security(settings, auto_lock_label, cx)),
+            )
             .vertical_scrollbar(&self.password_page_scroll)
-            .p_4()
-            .gap_3()
-            .child(
-                h_flex()
-                    .gap_3()
-                    .w_full()
-                    .child(stat_card(
-                        cx,
-                        AppIcon::Key,
-                        "记录总数",
-                        &total_records.to_string(),
-                    ))
-                    .child(stat_card(
-                        cx,
-                        if locked {
-                            AppIcon::Lock
-                        } else {
-                            AppIcon::Unlock
-                        },
-                        "密码库状态",
-                        if locked { "已锁定" } else { "已解锁" },
-                    ))
-                    .child(stat_card(
-                        cx,
-                        AppIcon::Shield,
-                        "自动尝试",
-                        if settings.auto_extract {
-                            "已开启"
-                        } else {
-                            "已关闭"
-                        },
-                    )),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .min_h_0()
-                    .h(px(list_height))
-                    .flex_shrink_0()
-                    .items_stretch()
-                    .gap_3()
-                    .child(self.render_password_list(entries, locked, cx))
-                    .when(!locked, |this| {
-                        this.child(self.render_password_sidebar(selected, has_master, cx))
-                    }),
-            )
-            .child(self.render_password_security(settings, auto_lock_label, cx))
     }
 }

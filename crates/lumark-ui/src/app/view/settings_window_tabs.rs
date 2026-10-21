@@ -28,30 +28,36 @@ impl SettingsWindowView {
                         cx,
                         "默认格式",
                         "ZIP 兼容性最好，7Z 适合更小体积。",
-                        Select::new(&self.format_select)
-                            .id("settings-format-select")
-                            .w(px(160.))
-                            .accessibility_label("默认格式"),
+                        div().w(px(160.)).flex_shrink_0().child(
+                            Select::new(&self.format_select)
+                                .id("settings-format-select")
+                                .w_full()
+                                .accessibility_label("默认格式"),
+                        ),
                     ))
                     .child(settings_divider(cx))
                     .child(settings_row(
                         cx,
                         "压缩预设",
                         "控制默认压缩级别、字典和固实策略。",
-                        Select::new(&self.preset_select)
-                            .id("settings-preset-select")
-                            .w(px(160.))
-                            .accessibility_label("压缩预设"),
+                        div().w(px(160.)).flex_shrink_0().child(
+                            Select::new(&self.preset_select)
+                                .id("settings-preset-select")
+                                .w_full()
+                                .accessibility_label("压缩预设"),
+                        ),
                     ))
                     .child(settings_divider(cx))
                     .child(settings_row(
                         cx,
                         "覆盖策略",
                         "同名文件默认询问，也可设为覆盖、跳过或重命名。",
-                        Select::new(&self.overwrite_select)
-                            .id("settings-overwrite-select")
-                            .w(px(160.))
-                            .accessibility_label("覆盖策略"),
+                        div().w(px(160.)).flex_shrink_0().child(
+                            Select::new(&self.overwrite_select)
+                                .id("settings-overwrite-select")
+                                .w_full()
+                                .accessibility_label("覆盖策略"),
+                        ),
                     ))
                     .child(settings_divider(cx))
                     .child(settings_row(

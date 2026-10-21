@@ -2,6 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// 只有进程内的一个窗口消费单实例请求；压缩批次因此不会被多个窗口拆散。
+static IPC_POLL_OWNER: AtomicBool = AtomicBool::new(false);
 
 use gpui_kit::base::{StyledExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -370,12 +374,22 @@ pub struct LumarkApp {
     system_icon_cache: std::cell::RefCell<HashMap<String, Option<Arc<gpui_kit::Image>>>>,
     file_association_count: usize,
     main_window: gpui_kit::AnyWindowHandle,
+    /// 由 Shell 压缩请求启动的隐藏主窗口，在压缩窗口和任务结束后自动关闭。
+    headless_compress_host: bool,
+    /// 当前窗口是否负责消费单实例请求。
+    ipc_poll_owner: bool,
+    /// Shell 多选压缩请求按批次合并，避免每个文件各开一个窗口。
+    pending_shell_compress: Vec<PathBuf>,
+    shell_compress_deadline: Option<std::time::Instant>,
     settings_window: Option<gpui_kit::AnyWindowHandle>,
 }
 
 impl Drop for LumarkApp {
     /// 关闭单个归档窗口时清理该窗口产生的复制和拖出临时文件。
     fn drop(&mut self) {
+        if self.ipc_poll_owner {
+            IPC_POLL_OWNER.store(false, Ordering::Release);
+        }
         let _ = std::fs::remove_dir_all(&self.temp_root);
     }
 }
@@ -442,6 +456,9 @@ impl LumarkApp {
         let settings = stores.settings.clone();
         let settings_error = stores.settings_error.clone();
         let settings_snapshot = settings.get();
+        let headless_compress_host = request
+            .as_ref()
+            .is_some_and(|request| request.mode == StartupMode::Compress);
         apply_theme(
             settings_snapshot.theme,
             &settings_snapshot.accent_color,
@@ -610,6 +627,10 @@ impl LumarkApp {
             system_icon_cache: std::cell::RefCell::new(HashMap::new()),
             file_association_count: platform::shell::registered_extension_count(),
             main_window: window.window_handle(),
+            headless_compress_host,
+            ipc_poll_owner: false,
+            pending_shell_compress: Vec::new(),
+            shell_compress_deadline: None,
             settings_window: None,
         };
         set_input(
@@ -647,8 +668,9 @@ impl LumarkApp {
         };
         match request.mode {
             StartupMode::Compress => {
-                self.dropped_sources = Some(request.paths);
-                self.open_compress_dialog(window, cx);
+                // 资源管理器会为每个选中项各启动一次进程；先短暂收集再统一打开
+                // 一个轻巧压缩窗口，避免多选时弹出多个窗口。
+                self.queue_shell_compress(request.paths);
             }
             StartupMode::Extract => {
                 self.open_archive_with_auto_password(
@@ -671,6 +693,67 @@ impl LumarkApp {
     /// 会以为双击没有反应。
     pub(crate) fn open_request_window(&self, request: StartupRequest, cx: &mut Context<Self>) {
         self.spawn_window(None, Some(request), cx);
+    }
+
+    /// 把 Shell 传来的压缩路径加入短暂批次。
+    ///
+    /// 资源管理器多选时会为每个文件启动一次进程，这里用一个很短的收集
+    /// 窗口把这些请求合并成同一个压缩任务。
+    fn queue_shell_compress(&mut self, paths: Vec<PathBuf>) {
+        for path in paths {
+            if !self.pending_shell_compress.contains(&path) {
+                self.pending_shell_compress.push(path);
+            }
+        }
+        if !self.pending_shell_compress.is_empty() {
+            self.shell_compress_deadline =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(300));
+        }
+    }
+
+    /// 收集窗口结束后，用全部选中路径打开一个轻巧压缩窗口。
+    fn flush_shell_compress(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(deadline) = self.shell_compress_deadline else {
+            return;
+        };
+        if std::time::Instant::now() < deadline {
+            return;
+        }
+        self.shell_compress_deadline = None;
+        let mut paths = std::mem::take(&mut self.pending_shell_compress);
+        let mut seen = HashSet::new();
+        paths.retain(|path| path.exists() && seen.insert(path.clone()));
+        if !paths.is_empty() {
+            self.open_compress_dialog_with_sources(paths, window, cx);
+        }
+    }
+
+    /// 关闭仅供 Shell 压缩使用的隐藏主窗口；所有压缩相关窗口都结束后才执行。
+    fn maybe_close_headless_host(&mut self, cx: &mut Context<Self>) {
+        if !self.headless_compress_host || !self.pending_shell_compress.is_empty() {
+            return;
+        }
+        if self
+            .compress_window
+            .as_ref()
+            .is_some_and(|handle| handle.update(cx, |_, _, _| {}).is_ok())
+        {
+            return;
+        }
+        if self.active_task.is_some() {
+            return;
+        }
+        if self
+            .progress_windows
+            .values()
+            .any(|entry| entry.handle.update(cx, |_, _, _| {}).is_ok())
+        {
+            return;
+        }
+        self.headless_compress_host = false;
+        let _ = self
+            .main_window
+            .update(cx, |_, window, _| window.remove_window());
     }
 
     /// 打开一个复用共享存储的新窗口。
@@ -721,8 +804,14 @@ impl LumarkApp {
                     events.push(event);
                 }
                 let _ = this.update_in(cx, |app, window, cx| {
-                    let requests =
-                        lumark_platform_windows::ipc::take_requests().unwrap_or_default();
+                    if !app.ipc_poll_owner && !IPC_POLL_OWNER.swap(true, Ordering::AcqRel) {
+                        app.ipc_poll_owner = true;
+                    }
+                    let requests = if app.ipc_poll_owner {
+                        lumark_platform_windows::ipc::take_requests().unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
                     let had_requests = !requests.is_empty();
                     let had_events = !events.is_empty() || had_requests;
                     let auto_locked = app.vault.maybe_auto_lock();
@@ -979,12 +1068,19 @@ impl LumarkApp {
                             }
                         }
                     }
-                    // 每个 Shell 请求由独立窗口处理，避免覆盖当前窗口正在查看的压缩包。
+                    // 压缩请求按批次合并；打开/解压仍由独立窗口处理，避免覆盖
+                    // 当前窗口正在查看的压缩包。
                     for arguments in requests {
                         if let Some(request) = StartupRequest::parse(arguments) {
-                            app.open_request_window(request, cx);
+                            if request.mode == StartupMode::Compress {
+                                app.queue_shell_compress(request.paths);
+                            } else {
+                                app.open_request_window(request, cx);
+                            }
                         }
                     }
+                    app.flush_shell_compress(window, cx);
+                    app.maybe_close_headless_host(cx);
                     if had_events || auto_locked {
                         cx.notify();
                     }
@@ -1284,7 +1380,7 @@ fn window_options(stores: &SharedStores) -> gpui_kit::WindowOptions {
     }
 }
 
-/// 启动 GPUI 应用；首次启动的压缩包由第一个窗口打开，其余请求再开新窗口。
+/// 启动 GPUI 应用；Shell 压缩请求只显示轻巧压缩窗口，其余请求再开新窗口。
 pub fn run() -> anyhow::Result<()> {
     if std::env::args().any(|argument| argument == "--register-shell") {
         lumark_platform_windows::shell::register_current_user()?;
@@ -1303,7 +1399,16 @@ pub fn run() -> anyhow::Result<()> {
     let _instance = instance;
     let stores = SharedStores::open(SettingsStore::default_path());
     let request = StartupRequest::from_env();
-    let window_options = window_options(&stores);
+    let mut window_options = window_options(&stores);
+    // 资源管理器压缩只需要压缩窗口；主窗口仅作为隐藏的宿主，
+    // 压缩窗口关闭或任务结束后再自动退出。
+    if request
+        .as_ref()
+        .is_some_and(|request| request.mode == StartupMode::Compress)
+    {
+        window_options.show = false;
+        window_options.focus = false;
+    }
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
@@ -1447,9 +1552,82 @@ mod ui_tests {
                 cx,
             );
             window.draw(cx).clear(cx);
-            let app = app.read(cx);
-            assert!(app.password_list_scroll.offset().y < px(0.));
-            assert_eq!(app.password_page_scroll.offset().y, px(0.));
+            let (list_offset, page_offset, page_max) = {
+                let app = app.read(cx);
+                (
+                    app.password_list_scroll.offset().y,
+                    app.password_page_scroll.offset().y,
+                    app.password_page_scroll.max_offset().y,
+                )
+            };
+            assert!(list_offset < px(0.));
+            assert_eq!(page_offset, px(0.));
+            if page_max < px(0.) {
+                window.scroll(
+                    "lock-vault",
+                    gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-60.))),
+                    cx,
+                );
+                window.draw(cx).clear(cx);
+                assert!(app.read(cx).password_page_scroll.offset().y < px(0.));
+            }
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证 Shell 多选压缩会合并路径，只打开一个轻巧压缩窗口。
+    fn shell_compress_batches_into_one_window(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) =
+            VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let first = directory.path().join("第一份.txt");
+        let second = directory.path().join("第二份.txt");
+        std::fs::write(&first, b"first").unwrap();
+        std::fs::write(&second, b"second").unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.queue_shell_compress(vec![first.clone()]);
+                app.queue_shell_compress(vec![second.clone(), first.clone()]);
+                assert_eq!(app.pending_shell_compress.len(), 2);
+                app.shell_compress_deadline = Some(std::time::Instant::now());
+                app.flush_shell_compress(window, cx);
+            });
+            window.draw(cx).clear(cx);
+            let mut compress_open = false;
+            let handle = app.read(cx).compress_window.unwrap();
+            handle
+                .update(cx, |_, _, _| {
+                    compress_open = true;
+                })
+                .unwrap();
+            assert!(compress_open);
+            let output = {
+                let app = app.read(cx);
+                input_value(&app.compress_output, cx)
+            };
+            assert_eq!(
+                Path::new(&output)
+                    .file_stem()
+                    .and_then(|value| value.to_str()),
+                directory
+                    .path()
+                    .file_name()
+                    .and_then(|value| value.to_str()),
+                "多选压缩应使用父目录名作为默认归档名"
+            );
         });
         let _ = app;
     }
