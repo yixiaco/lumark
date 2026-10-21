@@ -116,6 +116,14 @@ pub(crate) struct TaskRecord {
     pub(crate) message: Option<String>,
 }
 
+/// 拖出或复制归档条目时的临时解压进度弹窗。
+#[derive(Clone)]
+pub(crate) struct TempExtractDialog {
+    pub(crate) title: String,
+    pub(crate) message: String,
+    pub(crate) progress: f32,
+}
+
 pub(crate) struct TreeRow {
     path: PathBuf,
     label: String,
@@ -324,6 +332,7 @@ pub struct LumarkApp {
     archive_password_visible: bool,
     archive_password_use_vault: bool,
     archive_password_action: Option<PendingPasswordAction>,
+    temp_extract: Option<TempExtractDialog>,
     temp_root: PathBuf,
     settings_error: Option<String>,
     vault_error: Option<String>,
@@ -573,6 +582,7 @@ impl LumarkApp {
             archive_password_visible: false,
             archive_password_use_vault: false,
             archive_password_action: None,
+            temp_extract: None,
             temp_root: std::env::temp_dir()
                 .join("Lumark")
                 .join("clipboard")

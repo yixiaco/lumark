@@ -1054,6 +1054,10 @@ impl Render for LumarkApp {
                 let dialog = self.render_archive_password_prompt(cx);
                 this.child(dialog_layer(dialog))
             })
+            .when(self.temp_extract.is_some(), |this| {
+                let dialog = self.render_temp_extract_dialog(cx);
+                this.child(dialog_layer(dialog))
+            })
             .when(self.show_unlock_for_extract, |this| {
                 let dialog = self.render_unlock_prompt(cx);
                 this.child(dialog_layer(dialog))

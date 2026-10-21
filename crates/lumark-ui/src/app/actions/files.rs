@@ -1,5 +1,18 @@
 use super::super::*;
 
+/// 临时解压的用途：复制到剪贴板或准备原生拖出。
+#[derive(Clone, Copy)]
+pub(crate) enum TempExtractMode {
+    Copy,
+    Drag { hwnd: isize },
+}
+
+/// 后台临时解压回传的事件。
+enum TempExtractEvent {
+    Progress(lumark_archive::ExtractProgress),
+    Finished(Result<Vec<(PathBuf, bool)>, String>),
+}
+
 impl LumarkApp {
     /// 重新加载当前文件系统或归档位置，并清除过期搜索结果。
     pub(crate) fn refresh(&mut self) {
@@ -552,48 +565,22 @@ impl LumarkApp {
                 })
                 .collect::<Vec<_>>();
             let output = self.temp_root.join(format!("copy-{}", Uuid::new_v4()));
-            let cleanup = output.clone();
             let password = self
                 .archive_password
                 .as_ref()
                 .map(|value| value.to_string());
-            self.status = "正在准备复制文件…".to_string();
-            cx.spawn(async move |this, cx| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        extract_archive_members(&archive, password.as_deref(), &members, &output)
-                    })
-                    .await;
-                let _ = this.update_in(cx, |app, _, cx| {
-                    match result {
-                        Ok(items) => {
-                            let paths = items
-                                .iter()
-                                .map(|(path, _)| path.clone())
-                                .collect::<Vec<_>>();
-                            match platform::clipboard::set_clipboard_files(&paths) {
-                                Ok(()) => {
-                                    app.status = format!(
-                                        "已复制 {} 个项目，可在资源管理器中粘贴",
-                                        paths.len()
-                                    );
-                                }
-                                Err(error) => {
-                                    app.status = error.to_string();
-                                    let _ = std::fs::remove_dir_all(&cleanup);
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            app.status = format!("准备复制文件失败：{error}");
-                            let _ = std::fs::remove_dir_all(&cleanup);
-                        }
-                    }
-                    cx.notify();
-                });
-            })
-            .detach();
+            if self.temp_extract.is_some() {
+                self.status = "正在准备临时文件，请稍候".to_string();
+                return;
+            }
+            self.start_temp_extract(
+                archive,
+                password,
+                members,
+                output,
+                TempExtractMode::Copy,
+                cx,
+            );
             return;
         }
 
@@ -605,6 +592,159 @@ impl LumarkApp {
             Ok(()) => self.status = format!("已复制 {} 个项目", paths.len()),
             Err(error) => self.status = error.to_string(),
         }
+    }
+
+    /// 在后台解压归档条目到临时目录，并在主窗口显示可自动关闭的进度弹窗。
+    pub(crate) fn start_temp_extract(
+        &mut self,
+        archive: PathBuf,
+        password: Option<String>,
+        members: Vec<(String, bool)>,
+        output: PathBuf,
+        mode: TempExtractMode,
+        cx: &mut Context<Self>,
+    ) {
+        if self.temp_extract.is_some() {
+            return;
+        }
+        let title = match mode {
+            TempExtractMode::Copy => "正在准备复制文件",
+            TempExtractMode::Drag { .. } => "正在准备拖出文件",
+        };
+        self.temp_extract = Some(TempExtractDialog {
+            title: title.to_string(),
+            message: "正在读取归档…".to_string(),
+            progress: 0.,
+        });
+        self.status = title.to_string();
+        cx.notify();
+
+        let cleanup = output.clone();
+        let (sender, receiver) = std::sync::mpsc::channel::<TempExtractEvent>();
+        cx.background_executor()
+            .spawn(async move {
+                let result = extract_archive_members_with_progress(
+                    &archive,
+                    password.as_deref(),
+                    &members,
+                    &output,
+                    |progress| {
+                        let _ = sender.send(TempExtractEvent::Progress(progress));
+                    },
+                );
+                let _ = sender.send(TempExtractEvent::Finished(result));
+            })
+            .detach();
+
+        cx.spawn(async move |this, cx| {
+            loop {
+                let mut latest_progress = None;
+                let mut finished = None;
+                loop {
+                    match receiver.try_recv() {
+                        Ok(TempExtractEvent::Progress(progress)) => {
+                            latest_progress = Some(progress);
+                        }
+                        Ok(TempExtractEvent::Finished(result)) => {
+                            finished = Some(result);
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            finished = Some(Err("临时解压任务已中断".to_string()));
+                            break;
+                        }
+                    }
+                }
+                if let Some(progress) = latest_progress
+                    && this
+                        .update_in(cx, |app, _, cx| {
+                            if let Some(dialog) = &mut app.temp_extract {
+                                dialog.progress = extract_progress_percent(&progress);
+                                dialog.message = extract_progress_message(&progress);
+                            }
+                            cx.notify();
+                        })
+                        .is_err()
+                {
+                    break;
+                }
+                let Some(result) = finished else {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(80))
+                        .await;
+                    continue;
+                };
+                match mode {
+                    TempExtractMode::Copy => {
+                        let cleanup = cleanup.clone();
+                        let _ = this.update_in(cx, |app, _, cx| {
+                            app.temp_extract = None;
+                            match result {
+                                Ok(items) => {
+                                    let paths =
+                                        items.into_iter().map(|(path, _)| path).collect::<Vec<_>>();
+                                    match platform::clipboard::set_clipboard_files(&paths) {
+                                        Ok(()) => {
+                                            app.status = format!(
+                                                "已复制 {} 个项目，可在资源管理器中粘贴",
+                                                paths.len()
+                                            );
+                                        }
+                                        Err(error) => {
+                                            app.status = error.to_string();
+                                            let _ = std::fs::remove_dir_all(&cleanup);
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    app.status = format!("准备复制文件失败：{error}");
+                                    let _ = std::fs::remove_dir_all(&cleanup);
+                                }
+                            }
+                            cx.notify();
+                        });
+                    }
+                    TempExtractMode::Drag { hwnd } => {
+                        let weak = this.clone();
+                        let _ = this.update_in(cx, |app, window, cx| {
+                            app.temp_extract = None;
+                            match result {
+                                Ok(items) => {
+                                    let paths =
+                                        items.into_iter().map(|(path, _)| path).collect::<Vec<_>>();
+                                    app.status = format!("正在拖出 {} 个项目", paths.len());
+                                    cx.notify();
+                                    window.on_next_frame(move |window, _cx| {
+                                        // 等进度弹窗先完整绘制一帧消失，再进入会阻塞 UI 的
+                                        // 原生拖放循环，避免弹窗残留在拖拽画面上。
+                                        window.on_next_frame(move |_window, cx| {
+                                            let dropped =
+                                                platform::drag::start_file_drag(hwnd, &paths)
+                                                    .unwrap_or(false);
+                                            let _ = weak.update(cx, |app, cx| {
+                                                app.status = if dropped {
+                                                    format!("已拖出 {} 个项目", paths.len())
+                                                } else {
+                                                    "拖出已取消".to_string()
+                                                };
+                                                cx.notify();
+                                            });
+                                        });
+                                    });
+                                }
+                                Err(error) => {
+                                    app.status = format!("准备拖出文件失败：{error}");
+                                    cx.notify();
+                                }
+                            }
+                        });
+                    }
+                }
+                break;
+            }
+        })
+        .detach();
     }
 
     /// 把所选文件系统路径或归档内部路径复制到剪贴板。
@@ -806,4 +946,29 @@ fn directory_size(path: &Path) -> u64 {
         }
     }
     total
+}
+
+/// 把归档解压进度换算为弹窗进度条百分比。
+fn extract_progress_percent(progress: &lumark_archive::ExtractProgress) -> f32 {
+    if progress.entries_total > 0 {
+        progress.entries_done as f32 * 100. / progress.entries_total as f32
+    } else if progress.bytes_total > 0 {
+        progress.bytes_done as f32 * 100. / progress.bytes_total as f32
+    } else {
+        0.
+    }
+}
+
+/// 生成临时解压弹窗的状态文本。
+fn extract_progress_message(progress: &lumark_archive::ExtractProgress) -> String {
+    if progress.entries_total > 0 {
+        format!(
+            "正在解压 {}/{}：{}",
+            progress.entries_done, progress.entries_total, progress.current
+        )
+    } else if !progress.current.is_empty() {
+        format!("正在解压：{}", progress.current)
+    } else {
+        "正在解压…".to_string()
+    }
 }

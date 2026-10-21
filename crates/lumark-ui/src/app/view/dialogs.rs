@@ -1,6 +1,7 @@
 use super::super::*;
-use super::components::{AppIcon, form_label};
+use super::components::{AppIcon, card, form_label};
 use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::progress::Progress;
 
 impl LumarkApp {
     /// 渲染归档密码输入卡片，供打开、解压、测试和条目打开流程共用。
@@ -575,6 +576,49 @@ impl LumarkApp {
                         })),
                 ),
         )
+    }
+
+    /// 渲染拖出/复制归档条目时的临时解压进度弹窗；完成后由后台任务自动关闭。
+    pub(crate) fn render_temp_extract_dialog(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let Some(dialog) = self.temp_extract.as_ref() else {
+            return div().into_any_element();
+        };
+        card(cx)
+            .w(px(420.))
+            .p_5()
+            .gap_3()
+            .child(div().text_sm().font_semibold().child(dialog.title.clone()))
+            .child(
+                Progress::new("temp-extract-progress")
+                    .loading(dialog.progress <= 0.1)
+                    .value(dialog.progress)
+                    .w_full(),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_3()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(dialog.message.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{:.0}%", dialog.progress)),
+                    ),
+            )
+            .into_any_element()
     }
 }
 

@@ -14,4 +14,4 @@ pub use format::{
     FileTimeFilter, OverwritePolicy, PathMode, SevenZCompression, ZipCompression, ZipEncryption,
 };
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
-pub use service::ArchiveService;
+pub use service::{ArchiveService, ExtractProgress};

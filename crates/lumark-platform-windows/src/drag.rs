@@ -24,23 +24,25 @@ use windows::core::{BOOL, HRESULT, PCWSTR, implement};
 use crate::PlatformError;
 
 /// 用指定窗口作为拖放源，把真实文件路径拖到资源管理器或其他应用。
-pub fn start_file_drag(hwnd: isize, paths: &[PathBuf]) -> Result<(), PlatformError> {
+///
+/// 返回是否发生了实际投放；用户提前松开左键时返回 `false`。
+pub fn start_file_drag(hwnd: isize, paths: &[PathBuf]) -> Result<bool, PlatformError> {
     // 解压临时文件可能耗时；如果用户已经松开左键，不再启动系统拖放循环。
     if unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } >= 0 {
-        return Ok(());
+        return Ok(false);
     }
     let data_object = create_data_object(paths)?;
     let source: IDropSource = FileDropSource.into();
-    unsafe {
+    let effect = unsafe {
         SHDoDragDrop(
             Some(HWND(hwnd as *mut core::ffi::c_void)),
             &data_object,
             &source,
             DROPEFFECT_COPY,
         )
-        .map_err(|error| PlatformError::Windows(std::io::Error::other(error.to_string())))?;
-    }
-    Ok(())
+        .map_err(|error| PlatformError::Windows(std::io::Error::other(error.to_string())))?
+    };
+    Ok(effect.0 != 0)
 }
 
 /// 由真实文件路径构造 Shell 数据对象，包含资源管理器需要的 `CF_HDROP`。

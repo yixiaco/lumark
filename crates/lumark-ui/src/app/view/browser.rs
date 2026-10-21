@@ -1,3 +1,4 @@
+use super::super::actions::TempExtractMode;
 use super::super::*;
 use super::components::{AppIcon, entry_icon, entry_icon_color, hint_text, icon_button};
 use gpui_kit::base::TestSupportExt as _;
@@ -60,6 +61,7 @@ struct ArchiveDragItem {
 
 impl ArchiveDragItem {
     /// 把归档条目解压到窗口临时目录，返回可交给原生拖放的真实路径。
+    #[cfg(test)]
     fn materialize_paths(&self) -> Option<Vec<PathBuf>> {
         extract_archive_members(
             &self.archive,
@@ -140,22 +142,6 @@ fn system_icon_for(app: &LumarkApp, entry: &BrowserEntry) -> Option<Arc<gpui_kit
     image
 }
 
-/// 在 GPUI 的拖拽起始回调中同步准备临时文件，并交给 Windows 原生拖放循环。
-fn start_archive_native_drag(item: &ArchiveDragItem, window: &Window) {
-    use raw_window_handle::RawWindowHandle;
-
-    let Ok(handle) = raw_window_handle::HasWindowHandle::window_handle(window) else {
-        return;
-    };
-    let RawWindowHandle::Win32(raw) = handle.as_raw() else {
-        return;
-    };
-    let Some(paths) = item.materialize_paths() else {
-        return;
-    };
-    let _ = platform::drag::start_file_drag(raw.hwnd.get(), &paths);
-}
-
 /// 为当前拖拽条目构建归档选择快照；未选中时只拖当前条目。
 fn archive_drag_item(app: &LumarkApp, entry: &BrowserEntry) -> Option<ArchiveDragItem> {
     let BrowserLocation::Archive { archive, .. } = &app.browser.location else {
@@ -196,6 +182,37 @@ fn archive_drag_item(app: &LumarkApp, entry: &BrowserEntry) -> Option<ArchiveDra
         output: app.temp_root.join(format!("drag-{}", uuid::Uuid::new_v4())),
         label,
     })
+}
+
+impl LumarkApp {
+    /// 开始异步准备拖出文件；解压完成后自动关闭进度弹窗并启动原生拖放。
+    fn start_archive_drag_extract(
+        &mut self,
+        item: ArchiveDragItem,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        use raw_window_handle::RawWindowHandle;
+
+        let Ok(handle) = raw_window_handle::HasWindowHandle::window_handle(window) else {
+            self.status = "无法获取窗口句柄".to_string();
+            return;
+        };
+        let RawWindowHandle::Win32(raw) = handle.as_raw() else {
+            return;
+        };
+        let password = item.password.map(|value| value.to_string());
+        self.start_temp_extract(
+            item.archive,
+            password,
+            item.selected,
+            item.output,
+            TempExtractMode::Drag {
+                hwnd: raw.hwnd.get(),
+            },
+            cx,
+        );
+    }
 }
 
 /// 根据当前位置和条目类型选择右键菜单。
@@ -670,6 +687,7 @@ fn render_file_row(
     columns: ArchiveColumns,
     inside_archive: bool,
 ) -> impl IntoElement {
+    let app_entity = cx.entity();
     let Some(entry) = app.displayed_entry_at(virtual_index) else {
         return h_flex()
             .id(("empty-file-row", virtual_index))
@@ -843,8 +861,10 @@ fn render_file_row(
             }),
         )
         .when_some(drag_item, |this, item| {
-            this.on_drag(item, |item: &ArchiveDragItem, _, window, cx| {
-                start_archive_native_drag(item, window);
+            this.on_drag(item, move |item: &ArchiveDragItem, _, window, cx| {
+                app_entity.update(cx, |app, cx| {
+                    app.start_archive_drag_extract(item.clone(), window, cx);
+                });
                 let preview = cx.new(|_| ArchiveDragPreview {
                     label: item.label.clone(),
                 });
@@ -866,6 +886,7 @@ fn render_tile_row(
     tile_columns: usize,
     row_height: gpui_kit::Pixels,
 ) -> impl IntoElement {
+    let app_entity = cx.entity();
     let start = virtual_index * tile_columns;
     let end = (start + tile_columns).min(app.displayed_count());
     h_flex()
@@ -880,6 +901,7 @@ fn render_tile_row(
             let mouse_id = id.clone();
             let double_id = id.clone();
             let context_id = id.clone();
+            let drag_app = app_entity.clone();
             let selected = app.browser.selection.is_selected(&id);
             let icon_color = entry_icon_color(cx, &entry);
             let tile_icon = if entry.is_dir {
@@ -959,8 +981,10 @@ fn render_tile_row(
                         }),
                     )
                     .when_some(drag_item, |this, item| {
-                        this.on_drag(item, |item: &ArchiveDragItem, _, window, cx| {
-                            start_archive_native_drag(item, window);
+                        this.on_drag(item, move |item: &ArchiveDragItem, _, window, cx| {
+                            drag_app.update(cx, |app, cx| {
+                                app.start_archive_drag_extract(item.clone(), window, cx);
+                            });
                             let preview = cx.new(|_| ArchiveDragPreview {
                                 label: item.label.clone(),
                             });

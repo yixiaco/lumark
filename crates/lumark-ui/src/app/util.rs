@@ -105,11 +105,23 @@ pub(crate) fn valid_file_name(name: &str) -> bool {
 }
 
 /// 把归档中选中的条目解压到本窗口专属临时目录，并返回可直接拖出/复制的顶层路径。
+#[cfg(test)]
 pub(crate) fn extract_archive_members(
     archive: &Path,
     password: Option<&str>,
     selected: &[(String, bool)],
     output: &Path,
+) -> Result<Vec<(PathBuf, bool)>, String> {
+    extract_archive_members_with_progress(archive, password, selected, output, |_| {})
+}
+
+/// 带进度回调的临时解压；供拖出和 Ctrl+C 进度弹窗使用。
+pub(crate) fn extract_archive_members_with_progress(
+    archive: &Path,
+    password: Option<&str>,
+    selected: &[(String, bool)],
+    output: &Path,
+    on_progress: impl FnMut(lumark_archive::ExtractProgress),
 ) -> Result<Vec<(PathBuf, bool)>, String> {
     if selected.is_empty() {
         return Err("没有选中的归档条目".to_string());
@@ -124,7 +136,7 @@ pub(crate) fn extract_archive_members(
         password: password.map(|value| zeroize::Zeroizing::new(value.to_string())),
         ..Default::default()
     };
-    ArchiveService::extract(archive, &options, |_| {}).map_err(|error| error.to_string())?;
+    ArchiveService::extract(archive, &options, on_progress).map_err(|error| error.to_string())?;
     let paths = top
         .into_iter()
         .filter_map(|(relative, is_dir)| {
