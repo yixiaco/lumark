@@ -1,6 +1,7 @@
 //! 密码库记录列表：搜索、新建入口、锁定面板和记录行。
 use super::super::super::*;
 use super::super::components::{AppIcon, card};
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::scroll::ScrollableElement;
 
 impl LumarkApp {
@@ -120,9 +121,28 @@ impl LumarkApp {
                 this.child(
                     v_flex()
                         .id("password-list")
+                        .test_support()
+                        .relative()
                         .flex_1()
                         .min_h_0()
-                        .overflow_y_scrollbar()
+                        .overflow_y_scroll()
+                        .track_scroll(&self.password_list_scroll)
+                        .vertical_scrollbar(&self.password_list_scroll)
+                        .on_scroll_wheel(cx.listener(
+                            |this, event: &gpui_kit::ScrollWheelEvent, _, cx| {
+                                let delta = event.delta.pixel_delta(px(20.));
+                                let offset = this.password_list_scroll.offset();
+                                let max = this.password_list_scroll.max_offset().y;
+                                let next_y = (offset.y + delta.y).clamp(-max, px(0.));
+                                if next_y == offset.y {
+                                    return;
+                                }
+                                this.password_list_scroll
+                                    .set_offset(gpui_kit::point(offset.x, next_y));
+                                cx.stop_propagation();
+                                cx.notify();
+                            },
+                        ))
                         .when(entries.is_empty(), |this| {
                             this.child(
                                 v_flex()

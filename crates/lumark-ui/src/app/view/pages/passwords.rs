@@ -9,7 +9,11 @@ impl LumarkApp {
     ///
     /// 记录修改会立即写入加密密码库；新建和编辑在独立窗口中完成，
     /// 页面只负责列表、详情和主密码入口，不主动暴露密码。
-    pub(crate) fn render_passwords(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_passwords(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let search = input_value(&self.password_search, cx).to_lowercase();
         let entries: Vec<PasswordEntry> = self
             .vault
@@ -28,7 +32,9 @@ impl LumarkApp {
         let settings = self.vault.settings();
         let locked = self.vault.state() == VaultState::Locked;
         let has_master = self.vault.has_master_password();
-        let auto_lock_label = if settings.auto_lock_minutes == 0 {
+        let auto_lock_label = if !has_master {
+            "无需锁定（未设置主密码）".to_string()
+        } else if settings.auto_lock_minutes == 0 {
             "空闲锁定：关".to_string()
         } else {
             format!("空闲锁定：{} 分钟", settings.auto_lock_minutes)
@@ -37,13 +43,24 @@ impl LumarkApp {
         let selected = self
             .selected_password
             .and_then(|id| entries.iter().find(|entry| entry.id == id).cloned());
+        // 给列表一个明确的视口高度，滚轮才会先滚动列表而不是把整页撑高。
+        let window_height = window
+            .inner_window_bounds()
+            .get_bounds()
+            .size
+            .height
+            .as_f32();
+        let list_height = (window_height * 0.62).clamp(340., 680.);
 
         v_flex()
             .id("passwords-page")
             .w_full()
             .h_full()
             .min_h_0()
-            .overflow_y_scrollbar()
+            .relative()
+            .overflow_y_scroll()
+            .track_scroll(&self.password_page_scroll)
+            .vertical_scrollbar(&self.password_page_scroll)
             .p_4()
             .gap_3()
             .child(
@@ -81,6 +98,7 @@ impl LumarkApp {
                 h_flex()
                     .w_full()
                     .min_h_0()
+                    .h(px(list_height))
                     .flex_shrink_0()
                     .items_stretch()
                     .gap_3()

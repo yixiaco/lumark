@@ -1,6 +1,7 @@
 //! 密码库安全卡片：自动解压、空闲锁定和密码库维护操作。
 use super::super::super::*;
 use super::super::components::{AppIcon, card, section_heading};
+use gpui_kit::base::Disableable as _;
 
 impl LumarkApp {
     /// 渲染自动解压与安全设置卡片。
@@ -10,6 +11,7 @@ impl LumarkApp {
         auto_lock_label: String,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
+        let has_master = self.vault.has_master_password();
         card(cx)
                     .flex_shrink_0()
                     .p_4()
@@ -54,6 +56,12 @@ impl LumarkApp {
                                 button("toggle-auto-lock")
                                     .icon(AppIcon::Time.element(15.))
                                     .label(auto_lock_label)
+                                    .disabled(!has_master)
+                                    .tooltip(if has_master {
+                                        "空闲一段时间后锁定密码库"
+                                    } else {
+                                        "未设置主密码时不需要锁定密码库"
+                                    })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.toggle_auto_lock(cx);
                                         cx.notify();
@@ -63,7 +71,18 @@ impl LumarkApp {
                                 button("lock-vault")
                                     .icon(AppIcon::Lock.element(15.))
                                     .label("立即锁定")
+                                    .disabled(!has_master)
+                                    .tooltip(if has_master {
+                                        "立即锁定密码库"
+                                    } else {
+                                        "未设置主密码时不需要锁定密码库"
+                                    })
                                     .on_click(cx.listener(|this, _, _, cx| {
+                                        if !this.vault.has_master_password() {
+                                            this.status = "未设置主密码，密码库不需要锁定".to_string();
+                                            cx.notify();
+                                            return;
+                                        }
                                         this.vault.lock();
                                         this.dismiss_password_windows(cx);
                                         this.selected_password = None;

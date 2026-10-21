@@ -96,7 +96,7 @@ impl Render for ArchiveDragPreview {
 }
 
 /// 读取并缓存 Windows Shell 文件类型图标；失败时返回 `None` 交给 IconPark 回退。
-fn system_icon_for(app: &mut LumarkApp, entry: &BrowserEntry) -> Option<Arc<gpui_kit::Image>> {
+fn system_icon_for(app: &LumarkApp, entry: &BrowserEntry) -> Option<Arc<gpui_kit::Image>> {
     if entry.encrypted {
         return None;
     }
@@ -114,7 +114,7 @@ fn system_icon_for(app: &mut LumarkApp, entry: &BrowserEntry) -> Option<Arc<gpui
         ),
         (BrowserLocation::FileSystem(_), _) => format!("path:{}", entry.path.display()),
     };
-    if let Some(cached) = app.system_icon_cache.get(&key) {
+    if let Some(cached) = app.system_icon_cache.borrow().get(&key) {
         return cached.clone();
     }
     let query = if inside_archive {
@@ -134,7 +134,9 @@ fn system_icon_for(app: &mut LumarkApp, entry: &BrowserEntry) -> Option<Arc<gpui
             id,
         })
     });
-    app.system_icon_cache.insert(key, image.clone());
+    app.system_icon_cache
+        .borrow_mut()
+        .insert(key, image.clone());
     image
 }
 
@@ -536,6 +538,11 @@ impl LumarkApp {
                     .overflow_y_scroll()
                     .when_some(selected, |this, entry| {
                         let icon_color = entry_icon_color(cx, &entry);
+                        let detail_icon = if let Some(icon) = system_icon_for(self, &entry) {
+                            gpui_kit::img(icon).size(px(17.)).into_any_element()
+                        } else {
+                            entry_icon(&entry).element(17.).into_any_element()
+                        };
                         let size_text = if entry.is_dir {
                             self.folder_sizes
                                 .get(&entry.path)
@@ -553,7 +560,7 @@ impl LumarkApp {
                                     div()
                                         .flex_shrink_0()
                                         .text_color(icon_color)
-                                        .child(entry_icon(&entry).element(17.)),
+                                        .child(detail_icon),
                                 )
                                 .child(
                                     div()
@@ -705,6 +712,11 @@ fn render_file_row(
     let is_filesystem_dir =
         entry.is_dir && matches!(&app.browser.location, BrowserLocation::FileSystem(_));
     let folder_size_path = entry.path.clone();
+    let row_icon = if let Some(icon) = system_icon_for(app, &entry) {
+        gpui_kit::img(icon).size(px(16.)).into_any_element()
+    } else {
+        entry_icon(&entry).element(15.).into_any_element()
+    };
     h_flex()
         .id(format!("file-row-{id}"))
         .test_support()
@@ -727,7 +739,7 @@ fn render_file_row(
                 .items_center()
                 .justify_center()
                 .text_color(icon_color)
-                .child(entry_icon(&entry).element(15.)),
+                .child(row_icon),
         )
         .child(
             div()
@@ -915,6 +927,7 @@ fn render_tile_row(
                             .test_support()
                             .w_full()
                             .text_sm()
+                            .text_center()
                             .whitespace_normal()
                             .line_clamp(2)
                             .child(entry.name.clone()),

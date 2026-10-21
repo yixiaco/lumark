@@ -20,6 +20,14 @@ struct VaultInner {
     file_stamp: Option<(u64, u64)>,
 }
 
+/// 判断密码库是否需要主密码才能重新解锁。
+fn requires_master_password(inner: &VaultInner) -> bool {
+    inner
+        .file
+        .as_ref()
+        .is_some_and(|file| matches!(file.key_wrap, crate::crypto::KeyWrap::MasterPassword { .. }))
+}
+
 pub struct VaultStore {
     path: PathBuf,
     inner: RwLock<VaultInner>,
@@ -142,6 +150,9 @@ impl VaultStore {
 
     pub fn lock(&self) {
         let mut inner = self.inner.write();
+        if !requires_master_password(&inner) {
+            return;
+        }
         inner.entries.clear();
         if let Some(mut key) = inner.key.take() {
             zeroize::Zeroize::zeroize(&mut key);
@@ -172,6 +183,11 @@ impl VaultStore {
     pub fn maybe_auto_lock(&self) -> bool {
         let mut inner = self.inner.write();
         if inner.state != VaultState::Unlocked || inner.leases > 0 {
+            return false;
+        }
+        // 没有主密码时密码库由 DPAPI 自动解锁，锁定后无法在本会话内恢复，
+        // 因此只对主密码保护的密码库执行空闲锁定和外部修改锁定。
+        if !requires_master_password(&inner) {
             return false;
         }
         if let Some(stamp) = file_stamp(&self.path)

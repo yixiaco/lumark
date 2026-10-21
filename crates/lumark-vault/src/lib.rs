@@ -122,7 +122,10 @@ mod tests {
             }
         ));
         reopened.lock();
-        assert!(!reopened.is_unlocked());
+        assert!(
+            reopened.is_unlocked(),
+            "没有主密码的 DPAPI 密码库不应被锁定"
+        );
         assert_eq!(reopened.entry_count(), 2);
     }
 
@@ -210,8 +213,25 @@ mod tests {
         store
             .add_entry(PasswordEntry::new("外部修改", "external-pass-123"))
             .unwrap();
+        store.set_master_password(None, "external-master").unwrap();
         fs::write(&path, b"changed").unwrap();
         assert!(store.maybe_auto_lock());
         assert_eq!(store.state(), VaultState::Locked);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn dpapi_vault_ignores_lock_without_master() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("vault.dat");
+        let store = VaultStore::open(&path).unwrap();
+        store
+            .add_entry(PasswordEntry::new("DPAPI", "dpapi-pass-123"))
+            .unwrap();
+        fs::write(&path, b"changed").unwrap();
+        assert!(!store.maybe_auto_lock());
+        assert!(store.is_unlocked());
+        store.lock();
+        assert!(store.is_unlocked());
     }
 }

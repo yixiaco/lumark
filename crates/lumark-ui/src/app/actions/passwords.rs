@@ -236,6 +236,10 @@ impl LumarkApp {
 
     /// 循环切换密码库空闲锁定时间。
     pub(crate) fn toggle_auto_lock(&mut self, _cx: &mut Context<Self>) {
+        if !self.vault.has_master_password() {
+            self.status = "未设置主密码，密码库不需要空闲锁定".to_string();
+            return;
+        }
         let mut settings = self.vault.settings();
         settings.auto_lock_minutes = match settings.auto_lock_minutes {
             0 => 5,

@@ -341,6 +341,8 @@ pub struct LumarkApp {
     rename_target: Option<PathBuf>,
     password_search: gpui_kit::Entity<InputState>,
     password_note: gpui_kit::Entity<InputState>,
+    password_page_scroll: gpui_kit::ScrollHandle,
+    password_list_scroll: gpui_kit::ScrollHandle,
     revealed_password: Option<Uuid>,
     show_vault_transfer: bool,
     vault_transfer_path: gpui_kit::Entity<InputState>,
@@ -365,7 +367,7 @@ pub struct LumarkApp {
     tree_expanded: HashSet<PathBuf>,
     tree_children: HashMap<PathBuf, Vec<PathBuf>>,
     file_list_scroll: gpui_kit::base::VirtualListScrollHandle,
-    system_icon_cache: HashMap<String, Option<Arc<gpui_kit::Image>>>,
+    system_icon_cache: std::cell::RefCell<HashMap<String, Option<Arc<gpui_kit::Image>>>>,
     file_association_count: usize,
     main_window: gpui_kit::AnyWindowHandle,
     settings_window: Option<gpui_kit::AnyWindowHandle>,
@@ -576,6 +578,8 @@ impl LumarkApp {
             rename_target: None,
             password_search,
             password_note,
+            password_page_scroll: gpui_kit::ScrollHandle::new(),
+            password_list_scroll: gpui_kit::ScrollHandle::new(),
             revealed_password: None,
             show_vault_transfer: false,
             vault_transfer_path,
@@ -603,7 +607,7 @@ impl LumarkApp {
             tree_expanded: HashSet::new(),
             tree_children: HashMap::new(),
             file_list_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
-            system_icon_cache: HashMap::new(),
+            system_icon_cache: std::cell::RefCell::new(HashMap::new()),
             file_association_count: platform::shell::registered_extension_count(),
             main_window: window.window_handle(),
             settings_window: None,
@@ -1400,6 +1404,52 @@ mod ui_tests {
                 directory.path().join("file-000.txt").display()
             );
             assert!(window.find(first_tile).visible());
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证密码列表先消费滚轮，外层页面不会抢先滚动。
+    fn password_list_scrolls_before_page(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) =
+            VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.vault.unlock("master-pass").unwrap();
+                for index in 0..20 {
+                    app.vault
+                        .add_entry(PasswordEntry::new(
+                            format!("记录 {index}"),
+                            format!("pass-{index}"),
+                        ))
+                        .unwrap();
+                }
+                app.screen = Screen::Passwords;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            window.scroll(
+                "password-list",
+                gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-200.))),
+                cx,
+            );
+            window.draw(cx).clear(cx);
+            let app = app.read(cx);
+            assert!(app.password_list_scroll.offset().y < px(0.));
+            assert_eq!(app.password_page_scroll.offset().y, px(0.));
         });
         let _ = app;
     }

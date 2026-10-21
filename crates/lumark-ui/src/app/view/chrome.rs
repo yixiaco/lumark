@@ -998,7 +998,7 @@ impl Render for LumarkApp {
 
         let content = match self.screen {
             Screen::Browser => self.render_browser(window, cx).into_any_element(),
-            Screen::Passwords => self.render_passwords(cx).into_any_element(),
+            Screen::Passwords => self.render_passwords(window, cx).into_any_element(),
             Screen::Tasks => self.render_task_center(cx).into_any_element(),
         };
         // 密码库的整页滚动条向窗口内侧留出空间，避免与 Windows 窗口
