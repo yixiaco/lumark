@@ -4,6 +4,7 @@ use super::components::AppIcon;
 use super::settings_window::{
     SettingsWindowView, settings_card, settings_divider, settings_row, settings_section,
 };
+use gpui_kit::component::checkbox::Checkbox;
 
 impl SettingsWindowView {
     /// 渲染“压缩”选项卡：格式、预设、覆盖策略和归档备份。
@@ -104,29 +105,35 @@ impl SettingsWindowView {
             )
     }
 
-    /// 渲染“文件关联”选项卡：右键菜单、压缩格式注册和默认应用入口。
+    /// 渲染“文件关联”选项卡：格式勾选、右键菜单和默认应用入口。
     pub(super) fn render_association_tab(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.file_association_count;
         let total = platform::shell::ARCHIVE_EXTENSIONS.len();
+        let selected_count = self.selected_formats.len();
         let description = if count == 0 {
-            format!("注册 ZIP、7Z、RAR 等 {total} 种压缩格式，默认应用由 Windows 确认。")
-        } else if count < total {
-            format!("已注册 {count}/{total} 种格式，重新关联可补齐缺失项。")
+            "未注册任何格式。勾选格式并应用后，再到 Windows 设置中确认默认应用。".to_string()
         } else {
-            format!("已注册 {total} 种格式，默认打开方式由 Windows 设置管理。")
+            format!("已注册 {count}/{total} 种格式；默认应用由 Windows 设置确认。")
         };
-        let action_label = if count == 0 {
-            "关联文件"
-        } else if count < total {
-            "修复关联"
-        } else {
-            "重新关联"
-        };
-        let formats = platform::shell::ARCHIVE_EXTENSIONS
+        let checkboxes = platform::shell::ARCHIVE_EXTENSIONS
             .iter()
-            .map(|extension| extension.trim_start_matches('.').to_ascii_uppercase())
-            .collect::<Vec<_>>()
-            .join("、");
+            .map(|extension| {
+                let checked = self.selected_formats.contains(*extension);
+                div().w(px(96.)).child(
+                    Checkbox::new(format!("settings-format-{extension}"))
+                        .label(extension.trim_start_matches('.').to_ascii_uppercase())
+                        .checked(checked)
+                        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                            if *checked {
+                                this.selected_formats.insert((*extension).to_string());
+                            } else {
+                                this.selected_formats.remove(*extension);
+                            }
+                            cx.notify();
+                        })),
+                )
+            })
+            .collect::<Vec<_>>();
         v_flex()
             .w_full()
             .gap_3()
@@ -172,36 +179,27 @@ impl SettingsWindowView {
                     .child(settings_divider(cx))
                     .child(settings_row(
                         cx,
-                        "文件关联",
+                        "文件关联状态",
                         &description,
                         h_flex()
                             .gap_2()
                             .child(
-                                button("settings-register-files")
-                                    .icon(AppIcon::FileZip.element(15.))
-                                    .label(action_label)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.update_app(cx, |app, cx| {
-                                            app.register_file_associations();
-                                            cx.notify();
-                                        });
-                                    })),
-                            )
-                            .child(
                                 button("settings-unregister-files")
                                     .icon(AppIcon::Close.element(15.))
-                                    .label("移除关联")
+                                    .label("移除全部")
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.update_app(cx, |app, cx| {
                                             app.unregister_file_associations();
                                             cx.notify();
                                         });
+                                        this.selected_formats.clear();
+                                        cx.notify();
                                     })),
                             )
                             .child(
                                 button("settings-default-apps")
                                     .icon(AppIcon::Tool.element(15.))
-                                    .label("默认应用")
+                                    .label("Windows 默认应用")
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.update_app(cx, |app, cx| {
                                             app.open_default_apps_page();
@@ -214,25 +212,55 @@ impl SettingsWindowView {
             .child(
                 settings_card(cx)
                     .p_4()
-                    .gap_2()
+                    .gap_3()
+                    .child(settings_section(
+                        cx,
+                        AppIcon::Zip,
+                        "关联格式",
+                        Some("应用后会打开 Windows 设置，由系统确认默认应用".to_string()),
+                    ))
+                    .child(h_flex().w_full().flex_wrap().gap_2().children(checkboxes))
+                    .child(settings_divider(cx))
                     .child(
-                        div()
-                            .text_xs()
-                            .font_semibold()
-                            .child(format!("支持的压缩格式（{total}）")),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(formats),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                        h_flex()
+                            .w_full()
+                            .gap_2()
                             .child(
-                                "Windows 10/11 不允许程序静默接管默认应用；注册后请在系统设置中确认。",
+                                button("settings-select-all-formats")
+                                    .label("全选")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.selected_formats = platform::shell::ARCHIVE_EXTENSIONS
+                                            .iter()
+                                            .map(|extension| extension.to_string())
+                                            .collect();
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(button("settings-clear-formats").label("全不选").on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.selected_formats.clear();
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(div().flex_1())
+                            .child(
+                                button("settings-apply-formats")
+                                    .primary()
+                                    .icon(AppIcon::Check.element(15.))
+                                    .label(format!("应用关联（{selected_count}）"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let formats = platform::shell::ARCHIVE_EXTENSIONS
+                                            .iter()
+                                            .filter(|extension| {
+                                                this.selected_formats.contains(**extension)
+                                            })
+                                            .map(|extension| extension.to_string())
+                                            .collect::<Vec<_>>();
+                                        this.update_app(cx, move |app, cx| {
+                                            app.apply_file_associations(formats);
+                                            cx.notify();
+                                        });
+                                    })),
                             ),
                     ),
             )

@@ -239,9 +239,13 @@ impl LumarkApp {
         }
     }
 
-    /// 注册压缩格式的文件关联，并打开 Windows 的 Lumark 默认应用页面。
-    pub(crate) fn register_file_associations(&mut self) {
-        match platform::shell::register_file_associations() {
+    /// 按用户勾选的格式注册文件关联，并打开 Windows 的 Lumark 默认应用页面。
+    pub(crate) fn apply_file_associations(&mut self, extensions: Vec<String>) {
+        if extensions.is_empty() {
+            self.unregister_file_associations();
+            return;
+        }
+        match platform::shell::register_file_associations(&extensions) {
             Ok(()) => {
                 self.file_association_count = platform::shell::registered_extension_count();
                 let count = self.file_association_count;
@@ -250,9 +254,11 @@ impl LumarkApp {
                     return;
                 }
                 self.status = match platform::open_default_apps_for_lumark() {
-                    Ok(()) => format!("已注册 {count} 种压缩格式，请在 Windows 设置中确认默认应用"),
+                    Ok(()) => format!(
+                        "已注册 {count} 种压缩格式，请在 Windows 设置中为每种格式选择 Lumark"
+                    ),
                     Err(error) => {
-                        format!("已注册 {count} 种压缩格式，但无法打开默认应用设置：{error}")
+                        format!("已注册 {count} 种压缩格式，但无法打开 Windows 设置：{error}")
                     }
                 };
             }

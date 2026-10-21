@@ -3,6 +3,7 @@
 //! 所有写入都限定在 `HKEY_CURRENT_USER`，无需管理员权限；文件关联只注册
 //! Lumark 的 ProgID 和打开方式，默认应用仍由 Windows 的“默认应用”页面确认。
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use winreg::RegKey;
@@ -21,10 +22,14 @@ pub const ARCHIVE_EXTENSIONS: [&str; 14] = [
     ".arj", ".ace",
 ];
 
-/// 为当前用户注册文件关联和资源管理器右键菜单。
+/// 为当前用户注册全部文件关联和资源管理器右键菜单。
 pub fn register_current_user() -> Result<(), PlatformError> {
     register_shell_menu()?;
-    register_file_associations()
+    let extensions = ARCHIVE_EXTENSIONS
+        .iter()
+        .map(|extension| extension.to_string())
+        .collect::<Vec<_>>();
+    register_file_associations(&extensions)
 }
 
 /// 移除当前用户注册的全部 Shell 集成项。
@@ -92,9 +97,15 @@ pub fn unregister_shell_menu() -> Result<(), PlatformError> {
 
 /// 注册压缩格式的 ProgID、打开方式、应用能力和默认应用入口。
 ///
-/// 只把 Lumark 添加到 Windows 的候选应用列表，不直接改写扩展名的默认值；
-/// Windows 10/11 的最终默认应用由用户在系统设置中确认。
-pub fn register_file_associations() -> Result<(), PlatformError> {
+/// `extensions` 只保留用户选中的扩展名；未选中的格式会从 OpenWithProgids、
+/// 应用能力和 SupportedTypes 中移除。函数只把 Lumark 添加到 Windows 的
+/// 候选应用列表，不直接改写扩展名的默认值；Windows 10/11 的最终默认应用
+/// 由用户在系统设置中确认。
+pub fn register_file_associations(extensions: &[String]) -> Result<(), PlatformError> {
+    let selected = extensions
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
     let executable = std::env::current_exe().map_err(PlatformError::Windows)?;
     let executable_text = executable.display().to_string();
     let quoted = quote_executable(&executable);
@@ -127,9 +138,13 @@ pub fn register_file_associations() -> Result<(), PlatformError> {
         let (open_with, _) = classes
             .create_subkey(format!("{extension}\\OpenWithProgids"))
             .map_err(registry_error)?;
-        open_with
-            .set_value(ARCHIVE_PROG_ID, &"")
-            .map_err(registry_error)?;
+        if selected.contains(extension) {
+            open_with
+                .set_value(ARCHIVE_PROG_ID, &"")
+                .map_err(registry_error)?;
+        } else {
+            let _ = open_with.delete_value(ARCHIVE_PROG_ID);
+        }
     }
 
     let application_key = application_key_name(&executable);
@@ -152,9 +167,13 @@ pub fn register_file_associations() -> Result<(), PlatformError> {
         .create_subkey("SupportedTypes")
         .map_err(registry_error)?;
     for extension in ARCHIVE_EXTENSIONS {
-        supported
-            .set_value(extension, &"")
-            .map_err(registry_error)?;
+        if selected.contains(extension) {
+            supported
+                .set_value(extension, &"")
+                .map_err(registry_error)?;
+        } else {
+            let _ = supported.delete_value(extension);
+        }
     }
 
     let (capabilities, _) = hkcu
@@ -173,9 +192,13 @@ pub fn register_file_associations() -> Result<(), PlatformError> {
         .create_subkey("FileAssociations")
         .map_err(registry_error)?;
     for extension in ARCHIVE_EXTENSIONS {
-        file_associations
-            .set_value(extension, &ARCHIVE_PROG_ID)
-            .map_err(registry_error)?;
+        if selected.contains(extension) {
+            file_associations
+                .set_value(extension, &ARCHIVE_PROG_ID)
+                .map_err(registry_error)?;
+        } else {
+            let _ = file_associations.delete_value(extension);
+        }
     }
     let (registered, _) = hkcu
         .create_subkey(REGISTERED_APPLICATIONS)
@@ -223,24 +246,38 @@ pub fn unregister_file_associations() -> Result<(), PlatformError> {
     Ok(())
 }
 
-/// 返回当前用户已完整注册的压缩格式数量。
+/// 返回当前用户已选择的压缩格式。
 ///
-/// 可执行文件移动后旧注册项会失效，因此这里同时校验 ProgID 的打开命令和
-/// 默认应用能力项；任何一项不匹配都返回 0，提示调用方重新注册。
-pub fn registered_extension_count() -> usize {
+/// 同时要求 OpenWithProgids 和默认应用能力项仍指向 Lumark；可执行文件移动后
+/// 旧注册项会失效，因此这里也会校验当前 ProgID 的打开命令。
+pub fn registered_formats() -> Vec<String> {
     if !registration_matches_current_executable() {
-        return 0;
+        return Vec::new();
     }
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     ARCHIVE_EXTENSIONS
         .iter()
         .filter(|extension| {
-            hkcu.open_subkey(format!("Software\\Classes\\{extension}\\OpenWithProgids"))
+            let open_with = hkcu
+                .open_subkey(format!("Software\\Classes\\{extension}\\OpenWithProgids"))
                 .ok()
                 .and_then(|key| key.get_value::<String, _>(ARCHIVE_PROG_ID).ok())
-                .is_some()
+                .is_some();
+            let capability = hkcu
+                .open_subkey(format!("{CAPABILITIES_SUBKEY}\\FileAssociations"))
+                .ok()
+                .and_then(|key| key.get_value::<String, _>(*extension).ok())
+                .map(|value| value == ARCHIVE_PROG_ID)
+                .unwrap_or(false);
+            open_with && capability
         })
-        .count()
+        .map(|extension| (*extension).to_string())
+        .collect()
+}
+
+/// 返回当前用户已完整注册的压缩格式数量。
+pub fn registered_extension_count() -> usize {
+    registered_formats().len()
 }
 
 /// 写入一个资源管理器命令，包括显示名称和 `command` 子键。

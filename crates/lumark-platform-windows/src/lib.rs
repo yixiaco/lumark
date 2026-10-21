@@ -35,23 +35,59 @@ pub fn open_default(path: &Path) -> Result<(), PlatformError> {
 
 /// 打开 Windows 默认应用设置页。
 pub fn open_default_apps() -> Result<(), PlatformError> {
-    std::process::Command::new("explorer.exe")
-        .arg("ms-settings:defaultapps")
-        .spawn()
-        .map(|_| ())
-        .map_err(PlatformError::Windows)
+    open_settings_uri("ms-settings:defaultapps")
 }
 
 /// 打开 Windows 默认应用中 Lumark 的专属设置页。
 ///
 /// 需要先在 `HKEY_CURRENT_USER\Software\RegisteredApplications` 注册
-/// `Lumark`；未注册或系统版本较旧时由调用方回退到通用默认应用页。
+/// `Lumark`；ShellExecute 会直接激活设置应用，比转交 explorer 更可靠。
 pub fn open_default_apps_for_lumark() -> Result<(), PlatformError> {
-    std::process::Command::new("explorer.exe")
-        .arg("ms-settings:defaultapps?registeredAppUser=Lumark")
-        .spawn()
-        .map(|_| ())
-        .map_err(PlatformError::Windows)
+    open_settings_uri("ms-settings:defaultapps?registeredAppUser=Lumark")
+}
+
+/// 通过 ShellExecute 打开设置 URI，避免 explorer 偶发不激活设置窗口。
+fn open_settings_uri(uri: &str) -> Result<(), PlatformError> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        let wide = |value: &str| {
+            std::ffi::OsStr::new(value)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>()
+        };
+        let operation = wide("open");
+        let target = wide(uri);
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                target.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if result as isize > 32 {
+            return Ok(());
+        }
+        Err(PlatformError::Windows(std::io::Error::other(format!(
+            "无法打开 Windows 设置：ShellExecute 返回 {}",
+            result as isize
+        ))))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = uri;
+        Err(PlatformError::Windows(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows Settings is only available on Windows",
+        )))
+    }
 }
 
 /// 尽可能通过 Windows 回收站删除文件或目录。

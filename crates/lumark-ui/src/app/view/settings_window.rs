@@ -28,6 +28,7 @@ pub(crate) struct SettingsWindowView {
     pub(super) vault_has_master: bool,
     pub(super) vault_error: Option<String>,
     pub(super) file_association_count: usize,
+    pub(super) selected_formats: HashSet<String>,
     pub(super) status: String,
 }
 
@@ -44,6 +45,7 @@ pub(crate) struct SettingsWindowSnapshot {
     pub(crate) vault_has_master: bool,
     pub(crate) vault_error: Option<String>,
     pub(crate) file_association_count: usize,
+    pub(crate) selected_formats: HashSet<String>,
     pub(crate) status: String,
 }
 
@@ -102,6 +104,7 @@ impl SettingsWindowView {
             vault_has_master: snapshot.vault_has_master,
             vault_error: snapshot.vault_error,
             file_association_count: snapshot.file_association_count,
+            selected_formats: snapshot.selected_formats,
             status: snapshot.status,
         }
     }
@@ -232,7 +235,7 @@ impl SettingsWindowView {
             _ => self.render_about_tab(cx).into_any_element(),
         };
         v_flex()
-            .id("settings-window-content")
+            .id(format!("settings-window-content-{}", self.tab))
             .flex_1()
             .min_h_0()
             .overflow_y_scrollbar()
@@ -356,7 +359,7 @@ impl LumarkApp {
             return;
         }
         self.settings_window = None;
-        let size = gpui_kit::size(px(900.), px(700.));
+        let size = gpui_kit::size(px(760.), px(560.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
             px(parent_bounds.origin.x.as_f32()
@@ -384,6 +387,15 @@ impl LumarkApp {
             ..TitleBar::window_options()
         };
         let app = cx.entity();
+        let registered_formats = platform::shell::registered_formats();
+        let selected_formats = if registered_formats.is_empty() {
+            platform::shell::ARCHIVE_EXTENSIONS
+                .iter()
+                .map(|extension| extension.to_string())
+                .collect()
+        } else {
+            registered_formats.into_iter().collect()
+        };
         let snapshot = SettingsWindowSnapshot {
             settings: self.settings.get(),
             settings_path: self.settings.path().to_path_buf(),
@@ -392,6 +404,7 @@ impl LumarkApp {
             vault_has_master: self.vault.has_master_password(),
             vault_error: self.vault_error.clone(),
             file_association_count: self.file_association_count,
+            selected_formats,
             status: self.status.clone(),
         };
         match gpui_kit::open_window(options, cx, move |window, cx| {
