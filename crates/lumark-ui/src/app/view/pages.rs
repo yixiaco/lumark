@@ -1,17 +1,17 @@
 use super::super::*;
-use super::components::{AppIcon, card, section_heading};
+use super::components::{AppIcon, card, form_label, icon_button, section_heading};
+use gpui_kit::component::scroll::ScrollableElement;
 
 impl LumarkApp {
     /// 渲染密码工作区。
     ///
-    /// 用户在提交前以草稿形式编辑记录，因此可以整体丢弃未确认的修改。
-    /// 页面不会主动暴露密码，除非用户明确显示或复制密码。
+    /// 记录修改会立即写入加密密码库；新建和编辑在独立窗口中完成，
+    /// 页面只负责列表、详情和主密码入口，不主动暴露密码。
     pub(crate) fn render_passwords(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let search = input_value(&self.password_search, cx).to_lowercase();
         let entries: Vec<PasswordEntry> = self
-            .password_draft
-            .clone()
-            .unwrap_or_else(|| self.vault.entries())
+            .vault
+            .entries()
             .into_iter()
             .filter(|entry| {
                 search.is_empty()
@@ -25,15 +25,16 @@ impl LumarkApp {
             .collect();
         let settings = self.vault.settings();
         let locked = self.vault.state() == VaultState::Locked;
+        let has_master = self.vault.has_master_password();
         let auto_lock_label = if settings.auto_lock_minutes == 0 {
             "空闲锁定：关".to_string()
         } else {
             format!("空闲锁定：{} 分钟", settings.auto_lock_minutes)
         };
-        let total_records = self
-            .password_draft
-            .as_ref()
-            .map_or(self.vault.entry_count(), Vec::len);
+        let total_records = self.vault.entry_count();
+        let selected = self
+            .selected_password
+            .and_then(|id| entries.iter().find(|entry| entry.id == id).cloned());
 
         v_flex()
             .id("passwords-page")
@@ -41,6 +42,8 @@ impl LumarkApp {
             .h_full()
             .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(&self.password_page_scroll)
+            .vertical_scrollbar(&self.password_page_scroll)
             .p_4()
             .gap_3()
             .child(
@@ -109,7 +112,7 @@ impl LumarkApp {
                                     .child(
                                         h_flex()
                                             .ml_auto()
-                                            .w(px(320.))
+                                            .w(px(250.))
                                             .h(px(34.))
                                             .px_2()
                                             .gap_2()
@@ -125,51 +128,24 @@ impl LumarkApp {
                                                     .min_w_0(),
                                             ),
                                     )
-                                    .child(
-                                        button("password-add-new")
-                                            .ghost()
-                                            .small()
-                                            .cursor_pointer()
-                                            .icon(AppIcon::Add.element(15.))
-                                            .tooltip("新建密码记录")
-                                            .on_click(cx.listener(
-                                                |this, _, window, cx| {
-                                                    this.selected_password = None;
-                                                    this.revealed_password = None;
-                                                    set_input(
-                                                        &this.password_label,
-                                                        "",
-                                                        window,
-                                                        cx,
-                                                    );
-                                                    set_input(
-                                                        &this.password_value,
-                                                        "",
-                                                        window,
-                                                        cx,
-                                                    );
-                                                    set_input(
-                                                        &this.password_confirm,
-                                                        "",
-                                                        window,
-                                                        cx,
-                                                    );
-                                                    set_input(
-                                                        &this.password_pattern,
-                                                        "",
-                                                        window,
-                                                        cx,
-                                                    );
-                                                    set_input(
-                                                        &this.password_note,
-                                                        "",
-                                                        window,
-                                                        cx,
-                                                    );
-                                                    cx.notify();
-                                                },
-                                            )),
-                                    ),
+                                    .when(!locked, |this| {
+                                        this.child(
+                                            button("password-add-new")
+                                                .ghost()
+                                                .small()
+                                                .cursor_pointer()
+                                                .icon(AppIcon::Add.element(15.))
+                                                .tooltip("新建密码记录")
+                                                .on_click(cx.listener(
+                                                    |this, _, window, cx| {
+                                                        this.open_password_editor_window(
+                                                            None, window, cx,
+                                                        );
+                                                        cx.notify();
+                                                    },
+                                                )),
+                                        )
+                                    }),
                             )
                             .when(locked, |this| {
                                 this.child(
@@ -206,7 +182,7 @@ impl LumarkApp {
                                             h_flex()
                                                 .gap_2()
                                                 .child(
-                                                    Input::new(&self.master_current)
+                                                    Input::new(&self.master_unlock)
                                                         .id("unlock-master")
                                                         .w(px(260.)),
                                                 )
@@ -216,8 +192,8 @@ impl LumarkApp {
                                                         .icon(AppIcon::Unlock.element(15.))
                                                         .label("解锁")
                                                         .on_click(cx.listener(
-                                                            |this, _, _, cx| {
-                                                                this.unlock_vault(cx);
+                                                            |this, _, window, cx| {
+                                                                this.unlock_vault(window, cx);
                                                                 cx.notify();
                                                             },
                                                         )),
@@ -232,6 +208,8 @@ impl LumarkApp {
                                         .flex_1()
                                         .min_h(px(310.))
                                         .overflow_y_scroll()
+                                        .track_scroll(&self.password_list_scroll)
+                                        .vertical_scrollbar(&self.password_list_scroll)
                                         .when(entries.is_empty(), |this| {
                                             this.child(
                                                 v_flex()
@@ -252,7 +230,7 @@ impl LumarkApp {
                                                                 cx.theme().muted_foreground,
                                                             )
                                                             .child(
-                                                                "在右侧填写密码并保存，或解压成功后选择保存。",
+                                                                "点击右上角加号新建记录，或解压成功后选择保存。",
                                                             ),
                                                     ),
                                             )
@@ -305,74 +283,30 @@ impl LumarkApp {
                                                 )
                                                 .child(
                                                     v_flex()
+                                                        .id(format!("password-select-{id}"))
                                                         .flex_1()
                                                         .min_w_0()
                                                         .gap_1()
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(
+                                                            move |this, _, _, cx| {
+                                                                this.selected_password = Some(id);
+                                                                this.revealed_password = None;
+                                                                cx.notify();
+                                                            },
+                                                        ))
                                                         .child(
-                                                            button(format!(
-                                                                "password-select-{id}"
-                                                            ))
-                                                            .ghost()
-                                                            .small()
-                                                            .cursor_pointer()
-                                                            .w_full()
-                                                            .justify_start()
-                                                            .label(
-                                                                entry
-                                                                    .display_name()
-                                                                    .to_string(),
-                                                            )
-                                                            .on_click(cx.listener(
-                                                                move |this,
-                                                                      _,
-                                                                      window,
-                                                                      cx| {
-                                                                    this.selected_password =
-                                                                        Some(id);
-                                                                    if let Some(entry) =
-                                                                        this.find_password(id)
-                                                                    {
-                                                                        set_input(
-                                                                            &this.password_label,
-                                                                            &entry.label,
-                                                                            window,
-                                                                            cx,
-                                                                        );
-                                                                        set_input(
-                                                                            &this.password_value,
-                                                                            entry
-                                                                                .password
-                                                                                .expose(),
-                                                                            window,
-                                                                            cx,
-                                                                        );
-                                                                        set_input(
-                                                                            &this.password_confirm,
-                                                                            entry
-                                                                                .password
-                                                                                .expose(),
-                                                                            window,
-                                                                            cx,
-                                                                        );
-                                                                        set_input(
-                                                                            &this.password_pattern,
-                                                                            entry
-                                                                                .archive_pattern
-                                                                                .as_deref()
-                                                                                .unwrap_or(""),
-                                                                            window,
-                                                                            cx,
-                                                                        );
-                                                                        set_input(
-                                                                            &this.password_note,
-                                                                            &entry.note,
-                                                                            window,
-                                                                            cx,
-                                                                        );
-                                                                    }
-                                                                    cx.notify();
-                                                                },
-                                                            )),
+                                                            div()
+                                                                .w_full()
+                                                                .overflow_hidden()
+                                                                .whitespace_nowrap()
+                                                                .text_sm()
+                                                                .font_semibold()
+                                                                .child(
+                                                                    entry
+                                                                        .display_name()
+                                                                        .to_string(),
+                                                                ),
                                                         )
                                                         .child(
                                                             div()
@@ -427,218 +361,429 @@ impl LumarkApp {
                                 h_flex()
                                     .p_3()
                                     .gap_2()
+                                    .items_center()
                                     .border_t_1()
                                     .border_color(cx.theme().border)
                                     .child(
-                                        button("commit-password-draft")
-                                            .primary()
-                                            .icon(AppIcon::Save.element(15.))
-                                            .label("确定")
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.commit_password_draft();
-                                                cx.notify();
-                                            })),
-                                    )
-                                    .child(
-                                        button("discard-password-draft")
-                                            .label("取消草稿")
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.discard_password_draft();
-                                                cx.notify();
-                                            })),
-                                    )
-                                    .when(self.password_draft_dirty, |this| {
-                                        this.child(
-                                            div()
-                                                .ml_auto()
-                                                .text_xs()
-                                                .text_color(cx.theme().warning)
-                                                .child("有未提交的修改"),
-                                        )
-                                    }),
+                                        div()
+                                            .flex_1()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("新建、编辑和删除都会立即写入本地加密密码库。"),
+                                    ),
                             ),
                     )
-                    .child(
-                        card(cx)
-                            .w(px(372.))
-                            .flex_shrink_0()
-                            .child(
-                                h_flex()
-                                    .p_4()
-                                    .gap_2()
-                                    .items_center()
-                                    .bg(cx.theme().muted.opacity(0.45))
-                                    .border_b_1()
-                                    .border_color(cx.theme().border)
-                                    .child(AppIcon::Edit.element(16.))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_semibold()
-                                            .child(if self.selected_password.is_some() {
-                                                "编辑记录"
-                                            } else {
-                                                "新建记录"
-                                            }),
-                                    ),
-                            )
-                            .child(
-                                v_flex()
-                                    .p_4()
-                                    .gap_3()
-                                    .child(form_label(cx, "名称"))
-                                    .child(
-                                        Input::new(&self.password_label)
-                                            .id("password-label")
-                                            .w_full(),
-                                    )
-                                    .child(form_label(cx, "密码"))
-                                    .child(
-                                        Input::new(&self.password_value)
-                                            .id("password-value")
-                                            .w_full(),
-                                    )
-                                    .child(form_label(cx, "确认密码"))
-                                    .child(
-                                        Input::new(&self.password_confirm)
-                                            .id("password-confirm")
-                                            .w_full(),
-                                    )
-                                    .child(form_label(cx, "适用压缩包"))
-                                    .child(
-                                        Input::new(&self.password_pattern)
-                                            .id("password-pattern")
-                                            .w_full(),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("支持完整路径或 * ? 通配符；留空表示通用密码。"),
-                                    )
-                                    .child(form_label(cx, "备注"))
-                                    .child(
-                                        Input::new(&self.password_note)
-                                            .id("password-note")
-                                            .w_full(),
-                                    )
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .child(
-                                                button("save-password")
-                                                    .primary()
-                                                    .icon(AppIcon::Save.element(15.))
-                                                    .label(if self.selected_password.is_some() {
-                                                        "更新草稿"
-                                                    } else {
-                                                        "添加到草稿"
-                                                    })
-                                                    .on_click(cx.listener(
-                                                        |this, _, window, cx| {
-                                                            this.draft_save_password(
-                                                                window, cx,
-                                                            );
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                button("copy-password")
-                                                    .icon(AppIcon::Copy.element(15.))
-                                                    .label("复制")
-                                                    .on_click(cx.listener(
-                                                        |this, _, _, cx| {
-                                                            this.copy_password(cx);
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                button("delete-password")
-                                                    .danger()
-                                                    .icon(AppIcon::Delete.element(15.))
-                                                    .label("删除")
-                                                    .on_click(cx.listener(
-                                                        |this, _, _, cx| {
-                                                            this.draft_delete_password();
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            ),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .mx_4()
-                                    .h(px(1.))
-                                    .bg(cx.theme().border),
-                            )
-                            .child(
-                                v_flex()
-                                    .p_4()
-                                    .gap_2()
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .items_center()
-                                            .child(AppIcon::Shield.element(16.))
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .font_semibold()
-                                                    .child("主密码"),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(
-                                                "设置主密码后会移除 DPAPI 包裹；忘记主密码将无法恢复。",
-                                            ),
-                                    )
-                                    .child(
-                                        Input::new(&self.master_current)
-                                            .id("master-current")
-                                            .w_full(),
-                                    )
-                                    .child(
-                                        Input::new(&self.master_new)
-                                            .id("master-new")
-                                            .w_full(),
-                                    )
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .child(
-                                                button("set-master")
-                                                    .small()
-                                                    .cursor_pointer()
-                                                    .label("设置/修改主密码")
-                                                    .on_click(cx.listener(
-                                                        |this, _, _, cx| {
-                                                            this.set_master_password(cx);
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                button("remove-master")
-                                                    .small()
-                                                    .cursor_pointer()
-                                                    .label("删除主密码")
-                                                    .on_click(cx.listener(
-                                                        |this, _, _, cx| {
-                                                            this.show_confirm_remove_master =
-                                                                true;
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            ),
-                                    ),
-                            ),
-                    ),
+                    .when(!locked, |this| {
+                        this.child(
+                            v_flex()
+                                .w(px(360.))
+                                .flex_shrink_0()
+                                .gap_3()
+                                .child(
+                                    card(cx)
+                                        .child(
+                                            h_flex()
+                                                .p_4()
+                                                .gap_2()
+                                                .items_center()
+                                                .bg(cx.theme().muted.opacity(0.45))
+                                                .border_b_1()
+                                                .border_color(cx.theme().border)
+                                                .child(AppIcon::Doc.element(16.))
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_semibold()
+                                                        .child("记录详情"),
+                                                ),
+                                        )
+                                        .child(match selected.as_ref() {
+                                            Some(entry) => {
+                                                let id = entry.id;
+                                                let revealed =
+                                                    self.revealed_password == Some(id);
+                                                let password_text = if revealed {
+                                                    entry.password.expose().to_string()
+                                                } else {
+                                                    "••••••••".to_string()
+                                                };
+                                                let pattern_label = entry
+                                                    .archive_pattern
+                                                    .clone()
+                                                    .unwrap_or_else(|| {
+                                                        "通用密码".to_string()
+                                                    });
+                                                let note = if entry.note.trim().is_empty() {
+                                                    "未填写备注".to_string()
+                                                } else {
+                                                    entry.note.clone()
+                                                };
+                                                let entry_for_edit = entry.clone();
+                                                v_flex()
+                                                    .p_4()
+                                                    .gap_3()
+                                                    .child(
+                                                        h_flex()
+                                                            .gap_3()
+                                                            .items_center()
+                                                            .child(
+                                                                div()
+                                                                    .size(px(40.))
+                                                                    .flex_shrink_0()
+                                                                    .rounded(px(10.))
+                                                                    .bg(cx.theme().primary.opacity(0.12))
+                                                                    .text_color(cx.theme().primary)
+                                                                    .flex()
+                                                                    .items_center()
+                                                                    .justify_center()
+                                                                    .child(AppIcon::Key.element(18.)),
+                                                            )
+                                                            .child(
+                                                                v_flex()
+                                                                    .min_w_0()
+                                                                    .gap_1()
+                                                                    .child(
+                                                                        div()
+                                                                            .text_sm()
+                                                                            .font_semibold()
+                                                                            .whitespace_normal()
+                                                                            .child(
+                                                                                entry
+                                                                                    .display_name()
+                                                                                    .to_string(),
+                                                                            ),
+                                                                    )
+                                                                    .child(
+                                                                        div()
+                                                                            .text_xs()
+                                                                            .text_color(
+                                                                                cx.theme()
+                                                                                    .muted_foreground,
+                                                                            )
+                                                                            .child(pattern_label),
+                                                                    ),
+                                                            ),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .h(px(1.))
+                                                            .bg(cx.theme().border),
+                                                    )
+                                                    .child(
+                                                        v_flex()
+                                                            .gap_1()
+                                                            .child(form_label(cx, "密码"))
+                                                            .child(
+                                                                h_flex()
+                                                                    .gap_2()
+                                                                    .items_center()
+                                                                    .child(
+                                                                        div()
+                                                                            .flex_1()
+                                                                            .min_w_0()
+                                                                            .text_sm()
+                                                                            .font_semibold()
+                                                                            .child(password_text),
+                                                                    )
+                                                                    .child(
+                                                                        icon_button(
+                                                                            "detail-password-reveal",
+                                                                            if revealed {
+                                                                                AppIcon::Lock
+                                                                            } else {
+                                                                                AppIcon::Unlock
+                                                                            },
+                                                                            if revealed {
+                                                                                "隐藏密码"
+                                                                            } else {
+                                                                                "显示 10 秒"
+                                                                            },
+                                                                        )
+                                                                        .on_click(cx.listener(
+                                                                            move |this, _, _, cx| {
+                                                                                this.toggle_password_reveal(
+                                                                                    id, cx,
+                                                                                );
+                                                                                cx.notify();
+                                                                            },
+                                                                        )),
+                                                                    )
+                                                                    .child(
+                                                                        icon_button(
+                                                                            "detail-password-copy",
+                                                                            AppIcon::Copy,
+                                                                            "复制密码",
+                                                                        )
+                                                                        .on_click(cx.listener(
+                                                                            |this, _, _, cx| {
+                                                                                this.copy_password(cx);
+                                                                                cx.notify();
+                                                                            },
+                                                                        )),
+                                                                    ),
+                                                            ),
+                                                    )
+                                                    .child(
+                                                        v_flex()
+                                                            .gap_1()
+                                                            .child(form_label(
+                                                                cx,
+                                                                "适用压缩包",
+                                                            ))
+                                                            .child(
+                                                                div()
+                                                                    .text_sm()
+                                                                    .whitespace_normal()
+                                                                    .child(
+                                                                        entry
+                                                                            .archive_pattern
+                                                                            .clone()
+                                                                            .unwrap_or_else(|| {
+                                                                                "通用密码".to_string()
+                                                                            }),
+                                                                    ),
+                                                            ),
+                                                    )
+                                                    .child(
+                                                        v_flex()
+                                                            .gap_1()
+                                                            .child(form_label(cx, "备注"))
+                                                            .child(
+                                                                div()
+                                                                    .text_sm()
+                                                                    .text_color(
+                                                                        cx.theme()
+                                                                            .muted_foreground,
+                                                                    )
+                                                                    .whitespace_normal()
+                                                                    .child(note),
+                                                            ),
+                                                    )
+                                                    .child(
+                                                        h_flex()
+                                                            .gap_2()
+                                                            .pt_1()
+                                                            .child(
+                                                                button("edit-password")
+                                                                    .primary()
+                                                                    .small()
+                                                                    .icon(
+                                                                        AppIcon::Edit
+                                                                            .element(14.),
+                                                                    )
+                                                                    .label("编辑")
+                                                                    .on_click(cx.listener(
+                                                                        move |this,
+                                                                              _,
+                                                                              window,
+                                                                              cx| {
+                                                                            this.open_password_editor_window(
+                                                                                Some(entry_for_edit.clone()),
+                                                                                window,
+                                                                                cx,
+                                                                            );
+                                                                            cx.notify();
+                                                                        },
+                                                                    )),
+                                                            )
+                                                            .child(
+                                                                button("delete-password")
+                                                                    .danger()
+                                                                    .small()
+                                                                    .icon(
+                                                                        AppIcon::Delete
+                                                                            .element(14.),
+                                                                    )
+                                                                    .label("删除")
+                                                                    .on_click(cx.listener(
+                                                                        |this, _, _, cx| {
+                                                                            this.show_confirm_delete_password =
+                                                                                true;
+                                                                            cx.notify();
+                                                                        },
+                                                                    )),
+                                                            ),
+                                                    )
+                                                    .into_any_element()
+                                            }
+                                            None => v_flex()
+                                                .p_6()
+                                                .items_center()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .size(px(46.))
+                                                        .rounded_full()
+                                                        .bg(cx.theme().muted)
+                                                        .text_color(
+                                                            cx.theme().muted_foreground,
+                                                        )
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .child(AppIcon::Key.element(22.)),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_semibold()
+                                                        .child("选择一条记录"),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(
+                                                            cx.theme().muted_foreground,
+                                                        )
+                                                        .text_center()
+                                                        .child(
+                                                            "从左侧选择记录查看详情，或新建一条密码记录。",
+                                                        ),
+                                                )
+                                                .child(
+                                                    button("detail-new-password")
+                                                        .primary()
+                                                        .small()
+                                                        .icon(AppIcon::Add.element(14.))
+                                                        .label("新建记录")
+                                                        .on_click(cx.listener(
+                                                            |this, _, window, cx| {
+                                                                this.open_password_editor_window(
+                                                                    None, window, cx,
+                                                                );
+                                                                cx.notify();
+                                                            },
+                                                        )),
+                                                )
+                                                .into_any_element(),
+                                        }),
+                                )
+                                .child(
+                                    card(cx)
+                                        .child(
+                                            h_flex()
+                                                .p_4()
+                                                .gap_2()
+                                                .items_center()
+                                                .bg(cx.theme().muted.opacity(0.45))
+                                                .border_b_1()
+                                                .border_color(cx.theme().border)
+                                                .child(AppIcon::Shield.element(16.))
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_semibold()
+                                                        .child("主密码"),
+                                                ),
+                                        )
+                                        .child(
+                                            v_flex()
+                                                .p_4()
+                                                .gap_3()
+                                                .child(
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .items_center()
+                                                        .child(
+                                                            div()
+                                                                .px_2()
+                                                                .py(px(1.))
+                                                                .rounded_full()
+                                                                .bg(if has_master {
+                                                                    cx.theme().success
+                                                                } else {
+                                                                    cx.theme().warning
+                                                                })
+                                                                .text_color(if has_master {
+                                                                    cx.theme()
+                                                                        .success_foreground
+                                                                } else {
+                                                                    cx.theme()
+                                                                        .warning_foreground
+                                                                })
+                                                                .text_xs()
+                                                                .child(if has_master {
+                                                                    "已设置"
+                                                                } else {
+                                                                    "DPAPI 保护"
+                                                                }),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .text_xs()
+                                                                .text_color(
+                                                                    cx.theme()
+                                                                        .muted_foreground,
+                                                                )
+                                                                .child(if has_master {
+                                                                    "由 Argon2id 派生密钥保护"
+                                                                } else {
+                                                                    "仅当前 Windows 用户可解锁"
+                                                                }),
+                                                        ),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(
+                                                            cx.theme().muted_foreground,
+                                                        )
+                                                        .whitespace_normal()
+                                                        .child(
+                                                            "设置主密码后会移除 DPAPI 包裹；忘记主密码将无法恢复。",
+                                                        ),
+                                                )
+                                                .child(
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .child(
+                                                            button("open-master-window")
+                                                                .primary()
+                                                                .small()
+                                                                .icon(
+                                                                    AppIcon::Shield
+                                                                        .element(14.),
+                                                                )
+                                                                .label(if has_master {
+                                                                    "修改主密码"
+                                                                } else {
+                                                                    "设置主密码"
+                                                                })
+                                                                .on_click(cx.listener(
+                                                                    |this,
+                                                                     _,
+                                                                     window,
+                                                                     cx| {
+                                                                        this.open_master_password_window(
+                                                                            window, cx,
+                                                                        );
+                                                                        cx.notify();
+                                                                    },
+                                                                )),
+                                                        )
+                                                        .when(has_master, |this| {
+                                                            this.child(
+                                                                button("remove-master")
+                                                                    .small()
+                                                                    .icon(
+                                                                        AppIcon::Delete
+                                                                            .element(14.),
+                                                                    )
+                                                                    .label("删除主密码")
+                                                                    .on_click(cx.listener(
+                                                                        |this, _, _, cx| {
+                                                                            this.show_confirm_remove_master =
+                                                                                true;
+                                                                            cx.notify();
+                                                                        },
+                                                                    )),
+                                                            )
+                                                        }),
+                                                ),
+                                        ),
+                                ),
+                        )
+                    }),
             )
             .child(
                 card(cx)
@@ -696,8 +841,8 @@ impl LumarkApp {
                                     .label("立即锁定")
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.vault.lock();
-                                        this.password_draft = None;
-                                        this.password_draft_dirty = false;
+                                        this.dismiss_password_windows(cx);
+                                        this.selected_password = None;
                                         this.status = "密码库已锁定".to_string();
                                         cx.notify();
                                     })),
@@ -775,6 +920,8 @@ impl LumarkApp {
             .h_full()
             .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(&self.settings_page_scroll)
+            .vertical_scrollbar(&self.settings_page_scroll)
             .p_4()
             .gap_3()
             .child(
@@ -1205,6 +1352,8 @@ impl LumarkApp {
                             .flex_1()
                             .min_h_0()
                             .overflow_y_scroll()
+                            .track_scroll(&self.task_list_scroll)
+                            .vertical_scrollbar(&self.task_list_scroll)
                             .when(self.task_records.is_empty(), |this| {
                                 this.child(
                                     v_flex()
@@ -1525,15 +1674,6 @@ fn password_stat(
                     .child(div().text_lg().font_semibold().child(value.to_string())),
             ),
     )
-}
-
-/// 渲染输入框上方的小号字段标题。
-fn form_label(cx: &Context<LumarkApp>, label: &str) -> gpui_kit::Div {
-    div()
-        .text_xs()
-        .font_semibold()
-        .text_color(cx.theme().muted_foreground)
-        .child(label.to_string())
 }
 
 /// 渲染带说明文字的双栏设置行。

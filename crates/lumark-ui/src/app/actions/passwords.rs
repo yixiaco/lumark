@@ -1,125 +1,91 @@
 use super::super::*;
 
 impl LumarkApp {
-    /// 密码库解锁后初始化可编辑的密码草稿。
-    pub(crate) fn ensure_password_draft(&mut self) {
-        if self.password_draft.is_none() && self.vault.state() == VaultState::Unlocked {
-            self.password_draft = Some(self.vault.entries());
-            self.password_draft_dirty = false;
-        }
-    }
-
-    /// 优先在草稿中查找记录，未找到时回退到持久化密码库。
+    /// 从已解锁的密码库读取指定记录。
     pub(crate) fn find_password(&self, id: Uuid) -> Option<PasswordEntry> {
-        match &self.password_draft {
-            Some(entries) => entries.iter().find(|entry| entry.id == id).cloned(),
-            None => self.vault.find_entry(id),
-        }
+        self.vault.find_entry(id)
     }
 
-    /// 校验并在内存草稿中创建或更新密码记录。
-    pub(crate) fn draft_save_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.ensure_password_draft();
-        let Some(entries) = self.password_draft.as_mut() else {
-            self.status = "请先解锁密码库".to_string();
-            return;
-        };
-        let label = input_value(&self.password_label, cx);
-        let password = input_value(&self.password_value, cx);
-        let confirm = input_value(&self.password_confirm, cx);
-        let pattern = input_value(&self.password_pattern, cx);
-        let note = input_value(&self.password_note, cx);
+    /// 直接创建或更新密码记录，并立即写入加密密码库。
+    ///
+    /// 密码库页面和独立编辑窗口共用这条路径，因此保存成功后记录已经持久化，
+    /// 不需要额外的确认步骤。
+    pub(crate) fn save_password_entry(
+        &mut self,
+        editing: Option<Uuid>,
+        label: &str,
+        password: String,
+        pattern: &str,
+        note: &str,
+    ) -> Result<Uuid, String> {
+        if self.vault.state() != VaultState::Unlocked {
+            return Err("请先解锁密码库".to_string());
+        }
         if password.is_empty() {
-            self.status = "密码不能为空".to_string();
-            return;
+            return Err("密码不能为空".to_string());
         }
-        if password != confirm {
-            self.status = "两次输入的密码不一致".to_string();
-            return;
-        }
-        let duplicate = entries.iter().any(|entry| {
-            Some(entry.id) != self.selected_password && entry.password.expose() == password
-        });
-        if duplicate {
-            self.status = "该密码已存在，请编辑已有条目或使用不同密码".to_string();
-            return;
-        }
-        if let Some(id) = self.selected_password {
-            if let Some(entry) = entries.iter_mut().find(|entry| entry.id == id) {
-                entry.label = label;
-                entry.password = lumark_vault::SecretString::new(password);
-                entry.archive_pattern = (!pattern.trim().is_empty()).then_some(pattern);
-                entry.note = note;
-                entry.updated_at = chrono::Utc::now();
-            }
+        let label = if label.trim().is_empty() {
+            "未命名密码".to_string()
         } else {
-            let mut entry = PasswordEntry::new(
-                if label.trim().is_empty() {
-                    "未命名密码"
-                } else {
-                    label.trim()
-                },
-                password,
-            );
-            entry.archive_pattern = (!pattern.trim().is_empty()).then_some(pattern);
+            label.trim().to_string()
+        };
+        let pattern = pattern.trim();
+        let note = note.trim().to_string();
+        let result = if let Some(id) = editing {
+            let Some(mut entry) = self.vault.find_entry(id) else {
+                return Err("密码条目不存在".to_string());
+            };
+            entry.label = label;
+            entry.password = lumark_vault::SecretString::new(password);
+            entry.archive_pattern = (!pattern.is_empty()).then(|| pattern.to_string());
             entry.note = note;
-            self.selected_password = Some(entry.id);
-            entries.push(entry);
+            self.vault.update_entry(entry).map(|_| id)
+        } else {
+            let mut entry = PasswordEntry::new(label, password);
+            entry.archive_pattern = (!pattern.is_empty()).then(|| pattern.to_string());
+            entry.note = note;
+            self.vault.add_entry(entry)
+        };
+        match result {
+            Ok(id) => {
+                self.selected_password = Some(id);
+                self.revealed_password = None;
+                self.status = "密码已保存到加密密码库".to_string();
+                Ok(id)
+            }
+            Err(lumark_vault::VaultError::DuplicatePassword) => {
+                Err("该密码已存在，请编辑已有条目或使用不同密码".to_string())
+            }
+            Err(error) => Err(error.to_string()),
         }
-        self.password_draft_dirty = true;
-        set_input(&self.password_confirm, "", window, cx);
-        self.status = "密码修改已加入草稿，点击“确定”后写入密码库".to_string();
     }
 
-    /// 从草稿中移除所选记录，此时不修改密码库。
-    pub(crate) fn draft_delete_password(&mut self) {
-        self.ensure_password_draft();
-        let Some(entries) = self.password_draft.as_mut() else {
-            self.status = "请先解锁密码库".to_string();
-            return;
-        };
+    /// 从密码库直接删除一条记录。
+    pub(crate) fn delete_password(&mut self, id: Uuid) -> Result<(), String> {
+        if self.vault.state() != VaultState::Unlocked {
+            return Err("请先解锁密码库".to_string());
+        }
+        self.vault
+            .remove_entry(id)
+            .map_err(|error| error.to_string())?;
+        if self.selected_password == Some(id) {
+            self.selected_password = None;
+        }
+        if self.revealed_password == Some(id) {
+            self.revealed_password = None;
+        }
+        Ok(())
+    }
+
+    /// 确认删除当前选中的密码记录。
+    pub(crate) fn confirm_delete_password(&mut self) {
+        self.show_confirm_delete_password = false;
         let Some(id) = self.selected_password else {
-            self.status = "请先选择一条密码".to_string();
             return;
         };
-        entries.retain(|entry| entry.id != id);
-        self.selected_password = None;
-        self.password_draft_dirty = true;
-        self.status = "密码已从草稿删除，点击“确定”生效".to_string();
-    }
-
-    /// 把草稿作为一次密码库事务持久化，并报告校验失败。
-    pub(crate) fn commit_password_draft(&mut self) {
-        let Some(entries) = self.password_draft.clone() else {
-            return;
-        };
-        match self.vault.replace_entries(entries) {
-            Ok(()) => {
-                self.password_draft = None;
-                self.password_draft_dirty = false;
-                self.status = "密码库已保存".to_string();
-            }
-            Err(error) => self.status = error.to_string(),
-        }
-    }
-
-    /// 丢弃全部未提交的密码修改并重新加载持久化记录。
-    pub(crate) fn discard_password_draft(&mut self) {
-        self.password_draft = None;
-        self.password_draft_dirty = false;
-        self.selected_password = None;
-        self.status = "已取消密码修改".to_string();
-    }
-
-    /// 丢弃草稿并恢复此前请求的页面切换。
-    pub(crate) fn discard_draft_and_switch(&mut self) {
-        self.discard_password_draft();
-        self.show_discard_password_draft = false;
-        if let Some(screen) = self.pending_screen.take() {
-            self.screen = screen;
-            if screen == Screen::Passwords {
-                self.ensure_password_draft();
-            }
+        match self.delete_password(id) {
+            Ok(()) => self.status = "密码已从密码库删除".to_string(),
+            Err(error) => self.status = error,
         }
     }
 
@@ -170,14 +136,13 @@ impl LumarkApp {
         .detach();
     }
 
-    /// 使用输入的主密码解锁密码库并加载新草稿。
-    pub(crate) fn unlock_vault(&mut self, cx: &mut Context<Self>) {
-        let password = input_value(&self.master_current, cx);
+    /// 使用密码库页面输入的主密码解锁密码库。
+    pub(crate) fn unlock_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let password = input_value(&self.master_unlock, cx);
         match self.vault.unlock(&password) {
             Ok(()) => {
+                set_input(&self.master_unlock, "", window, cx);
                 self.status = "密码库已解锁".to_string();
-                self.password_draft = Some(self.vault.entries());
-                self.password_draft_dirty = false;
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -185,10 +150,10 @@ impl LumarkApp {
 
     /// 解锁密码库并恢复待处理的归档自动密码尝试。
     pub(crate) fn unlock_for_extract(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let password = input_value(&self.master_current, cx);
+        let password = input_value(&self.master_extract_unlock, cx);
         match self.vault.unlock(&password) {
             Ok(()) => {
-                set_input(&self.master_current, "", window, cx);
+                set_input(&self.master_extract_unlock, "", window, cx);
                 self.show_unlock_for_extract = false;
                 if let Some(archive) = self.pending_unlock_archive.take() {
                     let action = if self.unlock_for_browse {
@@ -214,16 +179,20 @@ impl LumarkApp {
         }
     }
 
-    /// 设置或轮换密码库主密码，无需重新加密每条记录。
-    pub(crate) fn set_master_password(&mut self, cx: &mut Context<Self>) {
-        let current = input_value(&self.master_current, cx);
-        let new = input_value(&self.master_new, cx);
-        let current_ref = self.vault.has_master_password().then_some(current.as_str());
-        match self.vault.set_master_password(current_ref, &new) {
-            Ok(()) => self.status = "主密码已设置".to_string(),
-            Err(error) => self.status = error.to_string(),
+    /// 设置或轮换密码库主密码，并返回可展示的校验错误。
+    pub(crate) fn set_master_password(&mut self, current: &str, new: &str) -> Result<(), String> {
+        let current = self.vault.has_master_password().then_some(current);
+        match self.vault.set_master_password(current, new) {
+            Ok(()) => {
+                self.status = if current.is_some() {
+                    "主密码已修改".to_string()
+                } else {
+                    "主密码已设置".to_string()
+                };
+                Ok(())
+            }
+            Err(error) => Err(error.to_string()),
         }
-        let _ = cx;
     }
 
     /// 切换自动密码尝试，并把偏好同步到应用设置。
@@ -312,18 +281,18 @@ impl LumarkApp {
             Ok(count) => {
                 self.status = format!("密码库已导入，共 {count} 条记录");
                 self.show_vault_transfer = false;
-                self.password_draft = None;
-                self.password_draft_dirty = false;
+                self.selected_password = None;
             }
             Err(error) => self.status = error.to_string(),
         }
     }
 
     /// 验证当前主密码，并让密码库恢复 DPAPI 包裹。
-    pub(crate) fn confirm_remove_master(&mut self, cx: &mut Context<Self>) {
-        let current = input_value(&self.master_current, cx);
+    pub(crate) fn confirm_remove_master(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = input_value(&self.master_remove, cx);
         match self.vault.remove_master_password(&current) {
             Ok(()) => {
+                set_input(&self.master_remove, "", window, cx);
                 self.show_confirm_remove_master = false;
                 self.status = "主密码已删除，密码库改由 Windows DPAPI 保护".to_string();
             }
@@ -337,8 +306,6 @@ impl LumarkApp {
             Ok(()) => {
                 self.show_confirm_clear_vault = false;
                 self.selected_password = None;
-                self.password_draft = Some(Vec::new());
-                self.password_draft_dirty = false;
                 self.status = "密码库记录已清空".to_string();
             }
             Err(error) => self.status = error.to_string(),

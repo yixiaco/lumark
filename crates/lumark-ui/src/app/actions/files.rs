@@ -687,20 +687,9 @@ impl LumarkApp {
         paths
     }
 
-    /// 切换工作区页面，并在离开前保护未提交的密码修改。
+    /// 切换工作区页面。
     pub(crate) fn switch_screen(&mut self, screen: Screen) {
-        if self.screen == Screen::Passwords
-            && self.password_draft_dirty
-            && screen != Screen::Passwords
-        {
-            self.pending_screen = Some(screen);
-            self.show_discard_password_draft = true;
-            return;
-        }
         self.screen = screen;
-        if screen == Screen::Passwords {
-            self.ensure_password_draft();
-        }
     }
 }
 

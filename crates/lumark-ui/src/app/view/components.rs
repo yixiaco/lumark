@@ -122,8 +122,8 @@ pub(super) fn icon_button(
 
 /// 页面分组使用的标准卡片表面。
 ///
-/// 页面底色保持浅灰，卡片使用浮层白面、细边框和轻阴影，让设置、密码库和
-/// 任务中心的分组从背景中分离出来，而不是整页糊成同一层灰色。
+/// 页面底色保持浅灰，卡片使用浮层白面和细边框区分层次；阴影只保留
+/// 极轻的一层，避免多张卡片叠在浅灰背景上显得发灰、发重。
 pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
     v_flex()
         .w_full()
@@ -131,7 +131,7 @@ pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
         .border_1()
         .border_color(cx.theme().border)
         .rounded(px(10.))
-        .shadow_sm()
+        .shadow_xs()
         .overflow_hidden()
 }
 
@@ -388,6 +388,15 @@ pub(super) fn section_heading(
                 }),
         )
         .child(div().flex_1().h(px(1.)).bg(cx.theme().border))
+}
+
+/// 渲染输入框上方的小号字段标题。
+pub(super) fn form_label(cx: &gpui_kit::App, label: &str) -> gpui_kit::Div {
+    div()
+        .text_xs()
+        .font_semibold()
+        .text_color(cx.theme().muted_foreground)
+        .child(label.to_string())
 }
 
 /// 把文件行映射为易识别的 IconPark 图标。

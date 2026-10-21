@@ -865,81 +865,48 @@ impl LumarkApp {
     }
 
     /// 把新验证成功的解压密码写入加密密码库。
+    ///
+    /// 保存提示只负责新增记录；若同一密码已经存在，则把当前压缩包路径
+    /// 补充到已有条目，避免密码库出现重复密码。
     pub(crate) fn save_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let label = input_value(&self.password_label, cx);
         let password = input_value(&self.password_value, cx);
-        let confirm = input_value(&self.password_confirm, cx);
         let pattern = input_value(&self.password_pattern, cx);
+        let note = input_value(&self.password_note, cx);
         if password.is_empty() {
             self.status = "密码不能为空".to_string();
             return;
         }
-        if password != confirm {
-            self.status = "两次输入的密码不一致".to_string();
+        let duplicate = self
+            .vault
+            .entries()
+            .into_iter()
+            .find(|entry| entry.password.expose() == password);
+        if let Some(mut entry) = duplicate {
+            if !pattern.trim().is_empty() {
+                entry.archive_pattern = Some(pattern.trim().to_string());
+            }
+            if !note.trim().is_empty() {
+                entry.note = note.trim().to_string();
+            }
+            match self.vault.update_entry(entry) {
+                Ok(()) => {
+                    self.status = "密码已存在，已将当前压缩包关联到该条目".to_string();
+                    self.show_save_prompt = false;
+                }
+                Err(error) => self.status = error.to_string(),
+            }
             return;
         }
-        let password_key = password.clone();
-        let pattern_key = pattern.clone();
-        let result = if let Some(id) = self.selected_password {
-            let Some(mut entry) = self.vault.find_entry(id) else {
-                self.status = "密码条目不存在".to_string();
-                return;
-            };
-            entry.label = label;
-            entry.password = lumark_vault::SecretString::new(password);
-            entry.archive_pattern = (!pattern.is_empty()).then_some(pattern);
-            entry.note = input_value(&self.password_note, cx);
-            self.vault.update_entry(entry)
-        } else {
-            let mut entry = PasswordEntry::new(
-                if label.is_empty() {
-                    "未命名密码".to_string()
-                } else {
-                    label
-                },
-                password,
-            );
-            entry.archive_pattern = (!pattern.is_empty()).then_some(pattern);
-            entry.note = input_value(&self.password_note, cx);
-            self.vault.add_entry(entry).map(|_| ())
-        };
-        match result {
-            Ok(()) => {
-                self.status = "密码已保存到加密密码库".to_string();
-                self.selected_password = None;
+        match self.save_password_entry(None, &label, password, &pattern, &note) {
+            Ok(_) => {
                 self.show_save_prompt = false;
                 set_input(&self.password_label, "", window, cx);
                 set_input(&self.password_value, "", window, cx);
-                set_input(&self.password_confirm, "", window, cx);
                 set_input(&self.password_pattern, "", window, cx);
                 set_input(&self.password_note, "", window, cx);
             }
-            Err(lumark_vault::VaultError::DuplicatePassword) => {
-                let duplicate = self
-                    .vault
-                    .entries()
-                    .into_iter()
-                    .find(|entry| entry.password.expose() == password_key);
-                if let Some(mut entry) = duplicate {
-                    if !pattern_key.trim().is_empty() {
-                        entry.archive_pattern = Some(pattern_key);
-                    }
-                    let note = input_value(&self.password_note, cx);
-                    if !note.trim().is_empty() {
-                        entry.note = note;
-                    }
-                    match self.vault.update_entry(entry) {
-                        Ok(()) => {
-                            self.status = "密码已存在，已将当前压缩包关联到该条目".to_string();
-                            self.show_save_prompt = false;
-                        }
-                        Err(error) => self.status = error.to_string(),
-                    }
-                } else {
-                    self.status = "密码已存在".to_string();
-                }
-            }
-            Err(error) => self.status = error.to_string(),
+            Err(error) => self.status = error,
         }
     }
 }

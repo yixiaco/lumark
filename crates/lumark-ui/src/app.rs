@@ -145,11 +145,13 @@ pub struct LumarkApp {
     extract_password: gpui_kit::Entity<InputState>,
     password_label: gpui_kit::Entity<InputState>,
     password_value: gpui_kit::Entity<InputState>,
-    password_confirm: gpui_kit::Entity<InputState>,
     password_pattern: gpui_kit::Entity<InputState>,
-    master_current: gpui_kit::Entity<InputState>,
-    master_new: gpui_kit::Entity<InputState>,
+    master_unlock: gpui_kit::Entity<InputState>,
+    master_extract_unlock: gpui_kit::Entity<InputState>,
+    master_remove: gpui_kit::Entity<InputState>,
     selected_password: Option<Uuid>,
+    password_editor_window: Option<gpui_kit::AnyWindowHandle>,
+    master_password_window: Option<gpui_kit::AnyWindowHandle>,
     active_task: Option<u64>,
     task_progress: Option<TaskProgress>,
     active_task_kind: Option<TaskKind>,
@@ -193,10 +195,7 @@ pub struct LumarkApp {
     show_confirm_remove_master: bool,
     show_confirm_clear_vault: bool,
     archive_password: Option<zeroize::Zeroizing<String>>,
-    password_draft: Option<Vec<PasswordEntry>>,
-    password_draft_dirty: bool,
-    show_discard_password_draft: bool,
-    pending_screen: Option<Screen>,
+    show_confirm_delete_password: bool,
     last_window_size: (f32, f32),
     last_size_save: std::time::Instant,
     folder_sizes: HashMap<PathBuf, u64>,
@@ -213,6 +212,10 @@ pub struct LumarkApp {
     tree_expanded: HashSet<PathBuf>,
     tree_children: HashMap<PathBuf, Vec<PathBuf>>,
     file_list_scroll: gpui_kit::base::VirtualListScrollHandle,
+    password_page_scroll: gpui_kit::ScrollHandle,
+    password_list_scroll: gpui_kit::ScrollHandle,
+    settings_page_scroll: gpui_kit::ScrollHandle,
+    task_list_scroll: gpui_kit::ScrollHandle,
     theme_color_picker: Option<gpui_kit::Entity<ColorPickerState>>,
     theme_color_subscription: Option<Subscription>,
 }
@@ -314,10 +317,10 @@ impl LumarkApp {
         let extract_password = new_input(window, cx, "解压密码", true);
         let password_label = new_input(window, cx, "名称，例如：工作压缩包", false);
         let password_value = new_input(window, cx, "密码", true);
-        let password_confirm = new_input(window, cx, "再次输入密码", true);
         let password_pattern = new_input(window, cx, "适用路径或通配符（可选）", false);
-        let master_current = new_input(window, cx, "当前主密码", true);
-        let master_new = new_input(window, cx, "新主密码（至少 8 位）", true);
+        let master_unlock = new_input(window, cx, "主密码", true);
+        let master_extract_unlock = new_input(window, cx, "主密码", true);
+        let master_remove = new_input(window, cx, "当前主密码", true);
         let location_input = new_input(window, cx, "输入路径后按“转到”", false);
         let search_input = new_input(window, cx, "搜索名称或通配符", false);
         let new_folder_name = new_input(window, cx, "新文件夹名称", false);
@@ -365,11 +368,13 @@ impl LumarkApp {
             extract_password,
             password_label,
             password_value,
-            password_confirm,
             password_pattern,
-            master_current,
-            master_new,
+            master_unlock,
+            master_extract_unlock,
+            master_remove,
             selected_password: None,
+            password_editor_window: None,
+            master_password_window: None,
             active_task: None,
             task_progress: None,
             active_task_kind: None,
@@ -413,10 +418,7 @@ impl LumarkApp {
             show_confirm_remove_master: false,
             show_confirm_clear_vault: false,
             archive_password: None,
-            password_draft: None,
-            password_draft_dirty: false,
-            show_discard_password_draft: false,
-            pending_screen: None,
+            show_confirm_delete_password: false,
             last_window_size: (
                 settings_snapshot.window_width,
                 settings_snapshot.window_height,
@@ -436,6 +438,10 @@ impl LumarkApp {
             tree_expanded: HashSet::new(),
             tree_children: HashMap::new(),
             file_list_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
+            password_page_scroll: gpui_kit::ScrollHandle::default(),
+            password_list_scroll: gpui_kit::ScrollHandle::default(),
+            settings_page_scroll: gpui_kit::ScrollHandle::default(),
+            task_list_scroll: gpui_kit::ScrollHandle::default(),
             theme_color_picker: None,
             theme_color_subscription: None,
         };
@@ -516,8 +522,7 @@ impl LumarkApp {
                     app.pending_requests.extend(requests);
                     let auto_locked = app.vault.maybe_auto_lock();
                     if auto_locked {
-                        app.password_draft = None;
-                        app.password_draft_dirty = false;
+                        app.dismiss_password_windows(cx);
                         app.selected_password = None;
                         app.pending_extra_password = None;
                         app.show_extra_password_prompt = false;
@@ -687,13 +692,13 @@ impl LumarkApp {
                                         .to_string();
                                     set_input(&app.password_label, &label, window, cx);
                                     set_input(&app.password_value, password.as_str(), window, cx);
-                                    set_input(&app.password_confirm, password.as_str(), window, cx);
                                     set_input(
                                         &app.password_pattern,
                                         archive.to_string_lossy().as_ref(),
                                         window,
                                         cx,
                                     );
+                                    app.selected_password = None;
                                     app.show_save_prompt = true;
                                 }
                             }
@@ -1159,6 +1164,61 @@ mod ui_tests {
                 directory.path().join("file-000.txt").display()
             );
             assert!(window.find(first_tile).visible());
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证密码记录新增、修改和删除都直接写入持久化密码库。
+    fn password_records_are_written_without_draft(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) =
+            VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let settings_path = directory.path().join("settings.json");
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                settings_path,
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|_, cx| {
+            app.update(cx, |app, _| {
+                app.vault.unlock("master-pass").unwrap();
+                let id = app
+                    .save_password_entry(
+                        None,
+                        "测试记录",
+                        "first-secret".to_string(),
+                        "*.zip",
+                        "直接写入",
+                    )
+                    .unwrap();
+                assert_eq!(app.vault.entry_count(), 1);
+                assert_eq!(
+                    app.vault.find_entry(id).unwrap().password.expose(),
+                    "first-secret"
+                );
+                app.save_password_entry(
+                    Some(id),
+                    "测试记录 2",
+                    "second-secret".to_string(),
+                    "",
+                    "修改后写入",
+                )
+                .unwrap();
+                let saved = app.vault.find_entry(id).unwrap();
+                assert_eq!(saved.label, "测试记录 2");
+                assert_eq!(saved.password.expose(), "second-secret");
+                assert_eq!(saved.archive_pattern, None);
+                app.delete_password(id).unwrap();
+                assert_eq!(app.vault.entry_count(), 0);
+            });
         });
         let _ = app;
     }

@@ -271,7 +271,7 @@ impl LumarkApp {
                     .gap_2()
                     .child(
                         button("banner-back-files")
-                            .secondary()
+                            .ghost()
                             .small()
                             .rounded(px(6.))
                             .cursor_pointer()
@@ -674,68 +674,51 @@ impl LumarkApp {
             .when(self.details_visible, |this| {
                 this.child(self.render_details(details_max_height, cx))
             })
-            .child(
-                h_flex()
-                    .m_2()
-                    .p_2()
-                    .flex_shrink_0()
-                    .gap_2()
-                    .items_center()
-                    .rounded_md()
-                    .bg(cx.theme().sidebar_primary)
-                    .border_1()
-                    .border_color(cx.theme().sidebar_border)
-                    .child(
-                        div()
-                            .size(px(26.))
-                            .rounded_md()
-                            .bg(if vault_locked {
-                                cx.theme().warning
-                            } else {
-                                cx.theme().success
-                            })
-                            .text_color(if vault_locked {
-                                cx.theme().warning_foreground
-                            } else {
-                                cx.theme().success_foreground
-                            })
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                if vault_locked {
-                                    AppIcon::Lock
-                                } else {
-                                    AppIcon::Unlock
-                                }
-                                .element(14.),
-                            ),
-                    )
-                    .child(
-                        v_flex()
-                            .gap(px(0.))
-                            .min_w_0()
-                            .child(div().text_xs().font_semibold().child(if vault_locked {
-                                "密码库已锁定"
-                            } else {
-                                "密码库已解锁"
-                            }))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{} 条记录", self.vault.entry_count())),
-                            ),
-                    )
-                    .child(
-                        icon_button("sidebar-vault-open", AppIcon::ArrowRight, "打开密码库")
-                            .ml_auto()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.switch_screen(Screen::Passwords);
-                                cx.notify();
-                            })),
-                    ),
-            )
+            .when(vault_locked, |this| {
+                this.child(
+                    h_flex()
+                        .m_2()
+                        .p_2()
+                        .flex_shrink_0()
+                        .gap_2()
+                        .items_center()
+                        .rounded_md()
+                        .bg(cx.theme().sidebar_primary)
+                        .border_1()
+                        .border_color(cx.theme().sidebar_border)
+                        .child(
+                            div()
+                                .size(px(26.))
+                                .rounded_md()
+                                .bg(cx.theme().warning)
+                                .text_color(cx.theme().warning_foreground)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(AppIcon::Lock.element(14.)),
+                        )
+                        .child(
+                            v_flex()
+                                .gap(px(0.))
+                                .min_w_0()
+                                .child(div().text_xs().font_semibold().child("密码库已锁定"))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(format!("{} 条记录", self.vault.entry_count())),
+                                ),
+                        )
+                        .child(
+                            icon_button("sidebar-vault-open", AppIcon::ArrowRight, "打开密码库")
+                                .ml_auto()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.switch_screen(Screen::Passwords);
+                                    cx.notify();
+                                })),
+                        ),
+                )
+            })
     }
 
     /// 渲染侧栏中的一个快捷位置行。
@@ -1095,8 +1078,8 @@ impl Render for LumarkApp {
                 let dialog = self.render_confirm_clear_vault(cx);
                 this.child(dialog_layer(dialog))
             })
-            .when(self.show_discard_password_draft, |this| {
-                let dialog = self.render_discard_password_draft(cx);
+            .when(self.show_confirm_delete_password, |this| {
+                let dialog = self.render_confirm_delete_password(cx);
                 this.child(dialog_layer(dialog))
             })
     }

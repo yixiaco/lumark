@@ -17,7 +17,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM、ASAR、ZPAQ、LZH/LHA、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA 等 30+ 只读格式适配。
 - ZIP/7Z 归档内浏览、选择性解压、删除/重命名/添加文件，同名添加按替换处理，临时重建后原子替换；可选 `.lumark.bak`。
 - `.001` 原始分卷创建、列表和解压；失败时保留旧卷并清理半成品。
-- 密码管理：草稿式添加/编辑/删除、名称/备注/匹配规则、掩码与 10 秒显示、Windows DPAPI、可选主密码、加密导入导出。
+- 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI、可选主密码、加密导入导出。
 - 解压加密 ZIP/7Z/RAR 时从密码库生成候选密码并在后台逐个验证；主密码锁定时提供解锁入口。
 - 后台任务：归档加载、压缩、解压、测试、编辑、记录密码验证、进度、暂停/继续、取消、状态栏和独立进度窗口。
 - 压缩后可测试归档并在成功时删除源文件。
@@ -46,7 +46,7 @@ cargo test --workspace
 - 密码库候选密码自动解压加密 ZIP/7Z/RAR。
 - 多选、范围选择、历史导航和高级搜索过滤。
 - `gpui-kit::test` 真实窗口测试覆盖虚拟文件行和平铺视图切换。
-- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、任务中心、独立进度窗口、密码库和设置的视觉验收，截图位于 `artifacts/`。
+- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、任务中心、独立进度窗口、密码库、独立密码编辑窗口、主密码窗口和设置的视觉验收，截图位于 `artifacts/`。
 
 ## 界面结构
 
@@ -56,12 +56,13 @@ cargo test --workspace
 |---|---|
 | `app/actions/files.rs` | 导航、选择、搜索、目录树和文件操作 |
 | `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程 |
-| `app/actions/passwords.rs` | 密码草稿、解锁、主密码和导入导出 |
+| `app/actions/passwords.rs` | 密码即时写入、解锁、主密码和导入导出 |
 | `app/actions/settings.rs` | 主题、默认压缩参数和 Shell 集成 |
 | `app/actions/tasks.rs` | 任务记录、状态文本和任务中心数据维护 |
 | `app/view/chrome.rs` | 标题栏、渐变动作带、导航行、文件夹侧栏、状态栏和模态层 |
 | `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
 | `app/view/pages.rs` | 密码库、设置和任务中心 |
+| `app/view/password_windows.rs` | 独立密码编辑窗口和主密码设置窗口 |
 | `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
 | `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
 | `app/view/dialogs.rs` | 确认对话框、密码提示和导入导出表单 |
@@ -96,6 +97,10 @@ cargo test --workspace
 ![取消任务二次确认](artifacts/ui-progress-cancel.png)
 
 ![密码管理](artifacts/ui-passwords-final.png)
+
+![独立密码编辑窗口](artifacts/ui-password-editor.png)
+
+![主密码设置窗口](artifacts/ui-master-window.png)
 
 ![设置与主题色选择](artifacts/ui-theme-color.png)
 

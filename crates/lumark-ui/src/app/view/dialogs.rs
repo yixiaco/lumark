@@ -14,11 +14,6 @@ impl LumarkApp {
             .child(Input::new(&self.password_label).id("save-label").w_full())
             .child(Input::new(&self.password_value).id("save-value").w_full())
             .child(
-                Input::new(&self.password_confirm)
-                    .id("save-confirm-value")
-                    .w_full(),
-            )
-            .child(
                 Input::new(&self.password_pattern)
                     .id("save-pattern")
                     .w_full(),
@@ -55,7 +50,7 @@ impl LumarkApp {
                     .child("解锁后只会尝试密码库中的记录密码，不会显示密码内容。"),
             )
             .child(
-                Input::new(&self.master_current)
+                Input::new(&self.master_extract_unlock)
                     .id("unlock-for-extract")
                     .w_full(),
             )
@@ -436,7 +431,7 @@ impl LumarkApp {
         centered_modal(cx, "删除主密码")
             .child("删除后密码库将改由当前 Windows 用户的 DPAPI 保护。请输入当前主密码确认。")
             .child(
-                Input::new(&self.master_current)
+                Input::new(&self.master_remove)
                     .id("confirm-remove-master")
                     .w_full(),
             )
@@ -446,7 +441,8 @@ impl LumarkApp {
                     .child(
                         button("cancel-remove-master")
                             .label("取消")
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                set_input(&this.master_remove, "", window, cx);
                                 this.show_confirm_remove_master = false;
                                 cx.notify();
                             })),
@@ -455,8 +451,8 @@ impl LumarkApp {
                         button("confirm-remove-master")
                             .danger()
                             .label("确认删除")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.confirm_remove_master(cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_remove_master(window, cx);
                                 cx.notify();
                             })),
                     ),
@@ -490,28 +486,38 @@ impl LumarkApp {
             )
     }
 
-    /// 离开密码工作区时防止未提交的密码修改意外丢失。
-    pub(crate) fn render_discard_password_draft(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        centered_modal(cx, "放弃未保存的密码修改？")
-            .child("密码管理中的添加、编辑和删除尚未写入密码库。离开前可以继续编辑或丢弃草稿。")
+    /// 确认从密码库永久删除当前记录。
+    pub(crate) fn render_confirm_delete_password(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let label = self
+            .selected_password
+            .and_then(|id| self.find_password(id))
+            .map(|entry| entry.display_name().to_string())
+            .unwrap_or_else(|| "所选密码".to_string());
+        centered_modal(cx, "删除密码记录")
+            .child(format!(
+                "将从本地加密密码库永久删除“{label}”。删除后无法恢复，但不会影响已经解压的文件。"
+            ))
             .child(
                 h_flex()
                     .gap_2()
                     .child(
-                        button("keep-password-draft")
-                            .label("继续编辑")
+                        button("cancel-delete-password")
+                            .label("取消")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_discard_password_draft = false;
-                                this.pending_screen = None;
+                                this.show_confirm_delete_password = false;
                                 cx.notify();
                             })),
                     )
                     .child(
-                        button("discard-draft-and-switch")
+                        button("confirm-delete-password")
                             .danger()
-                            .label("丢弃并离开")
+                            .icon(AppIcon::Delete.element(15.))
+                            .label("删除记录")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.discard_draft_and_switch();
+                                this.confirm_delete_password();
                                 cx.notify();
                             })),
                     ),
