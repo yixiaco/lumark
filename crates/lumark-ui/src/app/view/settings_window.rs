@@ -2,6 +2,7 @@
 use super::super::*;
 use super::super::{apply_theme_accent, hsla_to_hex};
 use super::components::{AppIcon, banner_gradient};
+use super::settings_window_selects::CompressionSelect;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::color_picker::{ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::scroll::ScrollableElement;
@@ -30,6 +31,10 @@ pub(crate) struct SettingsWindowView {
     pub(super) file_association_count: usize,
     pub(super) selected_formats: HashSet<String>,
     pub(super) status: String,
+    pub(super) format_select: CompressionSelect,
+    pub(super) preset_select: CompressionSelect,
+    pub(super) overwrite_select: CompressionSelect,
+    _select_subscriptions: Vec<Subscription>,
 }
 
 /// 打开设置窗口时从主应用复制的一份只读快照。
@@ -89,6 +94,8 @@ impl SettingsWindowView {
             });
         let vault_location_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("密码库保存文件夹".to_string()));
+        let (format_select, preset_select, overwrite_select, select_subscriptions) =
+            Self::new_compression_selects(&snapshot.settings, window, cx);
         Self {
             app,
             tab: 0,
@@ -106,6 +113,10 @@ impl SettingsWindowView {
             file_association_count: snapshot.file_association_count,
             selected_formats: snapshot.selected_formats,
             status: snapshot.status,
+            format_select,
+            preset_select,
+            overwrite_select,
+            _select_subscriptions: select_subscriptions,
         }
     }
 
@@ -311,6 +322,7 @@ impl SettingsWindowView {
         match result {
             Ok(()) => {
                 self.refresh(cx);
+                self.sync_compression_selects(window, cx);
                 let accent = self.settings.accent_color.clone();
                 if let Ok(color) = try_parse_color(&accent) {
                     self.accent_picker

@@ -290,37 +290,6 @@ impl LumarkApp {
         }
     }
 
-    /// 处理单实例 Shell 集成转发的命令请求。
-    pub(crate) fn process_request(
-        &mut self,
-        arguments: Vec<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let mut mode = "open";
-        let mut paths = Vec::new();
-        for argument in arguments {
-            match argument.as_str() {
-                "--open" => mode = "open",
-                "--extract" => mode = "extract",
-                "--compress" => mode = "compress",
-                value if value.starts_with('-') => {}
-                _ => paths.push(PathBuf::from(argument)),
-            }
-        }
-        if mode == "compress" && !paths.is_empty() {
-            self.dropped_sources = Some(paths);
-            self.open_compress_dialog(window, cx);
-        } else if let Some(path) = paths.first().filter(|path| path.is_file()) {
-            let intent = if mode == "extract" {
-                ArchiveOpenIntent::Extract
-            } else {
-                ArchiveOpenIntent::Browse
-            };
-            self.open_archive_with_auto_password(path.clone(), intent, window, cx);
-        }
-    }
-
     /// 通过后台编辑流程把拖入文件添加到当前归档。
     pub(crate) fn add_files_to_current_archive(&mut self, paths: &[PathBuf]) {
         let BrowserLocation::Archive { archive, .. } = &self.browser.location else {
@@ -554,6 +523,90 @@ impl LumarkApp {
         }
     }
 
+    /// 复制所选文件或归档条目为资源管理器可粘贴的真实文件。
+    ///
+    /// 归档条目没有真实路径，因此先解压到当前窗口的临时目录，再把临时文件
+    /// 写入 `CF_HDROP`；临时目录随窗口关闭一起删除，多个归档窗口互不影响。
+    pub(crate) fn copy_selected_items(&mut self, cx: &mut Context<Self>) {
+        let entries = self.displayed_entries();
+        let selected = self
+            .browser
+            .selection
+            .selected_ids()
+            .into_iter()
+            .filter_map(|id| entries.iter().find(|entry| entry.id == id).cloned())
+            .collect::<Vec<_>>();
+        if selected.is_empty() {
+            self.status = "请选择要复制的项目".to_string();
+            return;
+        }
+
+        if let BrowserLocation::Archive { archive, .. } = self.browser.location.clone() {
+            let members = selected
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.path.to_string_lossy().replace('\\', "/"),
+                        entry.is_dir,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let output = self.temp_root.join(format!("copy-{}", Uuid::new_v4()));
+            let cleanup = output.clone();
+            let password = self
+                .archive_password
+                .as_ref()
+                .map(|value| value.to_string());
+            self.status = "正在准备复制文件…".to_string();
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        extract_archive_members(&archive, password.as_deref(), &members, &output)
+                    })
+                    .await;
+                let _ = this.update_in(cx, |app, _, cx| {
+                    match result {
+                        Ok(items) => {
+                            let paths = items
+                                .iter()
+                                .map(|(path, _)| path.clone())
+                                .collect::<Vec<_>>();
+                            match platform::clipboard::set_clipboard_files(&paths) {
+                                Ok(()) => {
+                                    app.status = format!(
+                                        "已复制 {} 个项目，可在资源管理器中粘贴",
+                                        paths.len()
+                                    );
+                                }
+                                Err(error) => {
+                                    app.status = error.to_string();
+                                    let _ = std::fs::remove_dir_all(&cleanup);
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            app.status = format!("准备复制文件失败：{error}");
+                            let _ = std::fs::remove_dir_all(&cleanup);
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
+
+        let paths = selected
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect::<Vec<_>>();
+        match platform::clipboard::set_clipboard_files(&paths) {
+            Ok(()) => self.status = format!("已复制 {} 个项目", paths.len()),
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
     /// 把所选文件系统路径或归档内部路径复制到剪贴板。
     pub(crate) fn copy_selected_path(&mut self, cx: &mut Context<Self>) {
         let path = self
@@ -642,6 +695,43 @@ impl LumarkApp {
         let _ = std::process::Command::new("explorer.exe")
             .arg(&entry.path)
             .spawn();
+    }
+
+    /// 用内置只读文本查看器打开所选文件。
+    ///
+    /// 归档内的文件先按打开流程解压到临时目录，再由查看器窗口读取；
+    /// 文件系统里的文件直接读取，失败原因写入状态栏。
+    pub(crate) fn open_selected_in_viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            self.status = "请先选择一个文件".to_string();
+            return;
+        };
+        if entry.is_dir {
+            self.status = "内置查看器只能打开文件".to_string();
+            return;
+        }
+        if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
+            self.view_archive_entry(entry, window, cx);
+            return;
+        }
+        self.open_text_viewer(entry.path, entry.name, window, cx);
+    }
+
+    /// 在新的 Lumark 窗口中浏览所选文件夹。
+    pub(crate) fn open_directory_window(&mut self, cx: &mut Context<Self>) {
+        let Some(directory) = self
+            .selected_entry()
+            .filter(|entry| entry.is_dir)
+            .map(|entry| entry.path)
+        else {
+            self.status = "请先选择一个文件夹".to_string();
+            return;
+        };
+        if !matches!(&self.browser.location, BrowserLocation::FileSystem(_)) {
+            self.status = "只能在文件系统中打开新窗口".to_string();
+            return;
+        }
+        self.spawn_window(Some(directory), None, cx);
     }
 
     /// 仅选中一个项目时返回聚焦的浏览器条目。

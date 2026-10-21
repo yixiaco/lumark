@@ -5,16 +5,12 @@ use super::settings_window::{
     SettingsWindowView, settings_card, settings_divider, settings_row, settings_section,
 };
 use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::select::Select;
 
 impl SettingsWindowView {
     /// 渲染“压缩”选项卡：格式、预设、覆盖策略和归档备份。
     pub(super) fn render_compression_tab(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = self.settings.clone();
-        let preset_label = match settings.default_preset {
-            SettingsPreset::Speed => "速度优先",
-            SettingsPreset::Balanced => "平衡",
-            SettingsPreset::Size => "体积优先",
-        };
         v_flex()
             .w_full()
             .gap_3()
@@ -32,47 +28,30 @@ impl SettingsWindowView {
                         cx,
                         "默认格式",
                         "ZIP 兼容性最好，7Z 适合更小体积。",
-                        button("settings-cycle-format")
-                            .label(settings.default_format.to_ascii_uppercase())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_app(cx, |app, cx| {
-                                    app.cycle_default_format();
-                                    cx.notify();
-                                });
-                            })),
+                        Select::new(&self.format_select)
+                            .id("settings-format-select")
+                            .w(px(160.))
+                            .accessibility_label("默认格式"),
                     ))
                     .child(settings_divider(cx))
                     .child(settings_row(
                         cx,
                         "压缩预设",
                         "控制默认压缩级别、字典和固实策略。",
-                        button("settings-cycle-preset")
-                            .label(preset_label)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_app(cx, |app, cx| {
-                                    app.cycle_default_preset();
-                                    cx.notify();
-                                });
-                            })),
+                        Select::new(&self.preset_select)
+                            .id("settings-preset-select")
+                            .w(px(160.))
+                            .accessibility_label("压缩预设"),
                     ))
                     .child(settings_divider(cx))
                     .child(settings_row(
                         cx,
                         "覆盖策略",
                         "同名文件默认询问，也可设为覆盖、跳过或重命名。",
-                        button("settings-cycle-overwrite")
-                            .label(match settings.overwrite_policy {
-                                lumark_settings::OverwritePolicy::Ask => "询问",
-                                lumark_settings::OverwritePolicy::Overwrite => "覆盖",
-                                lumark_settings::OverwritePolicy::Skip => "跳过",
-                                lumark_settings::OverwritePolicy::Rename => "重命名",
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_app(cx, |app, cx| {
-                                    app.cycle_overwrite_policy();
-                                    cx.notify();
-                                });
-                            })),
+                        Select::new(&self.overwrite_select)
+                            .id("settings-overwrite-select")
+                            .w(px(160.))
+                            .accessibility_label("覆盖策略"),
                     ))
                     .child(settings_divider(cx))
                     .child(settings_row(

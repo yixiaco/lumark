@@ -4972,6 +4972,7 @@ name = "lumark-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "embed-resource",
  "gpui-kit",
  "lumark-ui",
 ]
@@ -5024,7 +5025,10 @@ dependencies = [
 name = "lumark-platform-windows"
 version = "0.1.0"
 dependencies = [
+ "image",
  "thiserror 2.0.21",
+ "windows 0.61.3",
+ "windows-core 0.61.2",
  "windows-sys 0.59.0",
  "winreg",
 ]
@@ -5077,6 +5081,7 @@ dependencies = [
  "lumark-settings",
  "lumark-tasks",
  "lumark-vault",
+ "raw-window-handle",
  "serde",
  "tempfile",
  "uuid",

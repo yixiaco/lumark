@@ -36,6 +36,7 @@ flate2 = { version = "1.1", default-features = false, features = ["zlib-ng"] }
 globset = "0.4"
 gpui-kit = "=0.7.3"
 geezipx-core = "0.7.4"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 lz4_flex = { version = "0.13", features = ["frame"] }
 natord = "1"
 parking_lot = "0.12"
@@ -56,9 +57,12 @@ unarc-rs = "0.6.3"
 walkdir = "2.5"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
+    "Win32_System_DataExchange",
     "Win32_System_Memory",
+    "Win32_System_Ole",
     "Win32_System_Threading",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

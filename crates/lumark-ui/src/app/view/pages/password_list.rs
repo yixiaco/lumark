@@ -57,9 +57,8 @@ impl LumarkApp {
                         this.child(
                             button("password-add-new")
                                 .primary()
-                                .small()
                                 .cursor_pointer()
-                                .icon(AppIcon::Add.element(15.))
+                                .icon(AppIcon::Add.element(16.))
                                 .label("新建")
                                 .tooltip("新建密码记录")
                                 .on_click(cx.listener(|this, _, window, cx| {

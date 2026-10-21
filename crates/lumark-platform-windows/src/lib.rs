@@ -2,6 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod clipboard;
+pub mod drag;
+pub mod icons;
 pub mod ipc;
 pub mod shell;
 

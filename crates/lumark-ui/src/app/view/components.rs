@@ -222,23 +222,24 @@ pub(super) fn banner_gradient(cx: &gpui_kit::App) -> gpui_kit::Div {
     ))
 }
 
+/// 渲染标题栏、动作带和对话框共用的品牌标志。
+///
+/// 小尺寸下使用去掉底部字标的 mark 版本，完整字标只保留在图标源文件中，
+/// 避免 24–34 px 的标志出现无法辨认的文字残影。
+pub(super) fn brand_mark(size: f32) -> impl IntoElement {
+    div().size(px(size)).flex_shrink_0().child(
+        gpui_kit::component::Icon::default()
+            .data(include_bytes!("../../../assets/brand/lumark-mark.svg"))
+            .size(px(size)),
+    )
+}
+
 /// 渲染标题栏、动作带和对话框共用的品牌标识。
 pub(super) fn brand_lockup(cx: &gpui_kit::App, slogan: bool) -> impl IntoElement {
     h_flex()
         .items_center()
         .gap_2()
-        .child(
-            div()
-                .size(px(34.))
-                .rounded(px(9.))
-                .bg(cx.theme().button_primary)
-                .text_color(cx.theme().button_primary_foreground)
-                .flex()
-                .items_center()
-                .justify_center()
-                .shadow_sm()
-                .child(AppIcon::Compression.element(20.)),
-        )
+        .child(brand_mark(34.))
         .child(
             v_flex()
                 .gap(px(0.))

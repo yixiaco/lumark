@@ -15,6 +15,7 @@ lumark-browser = { path = "../lumark-browser" }
 lumark-settings = { path = "../lumark-settings" }
 lumark-tasks = { path = "../lumark-tasks" }
 lumark-vault = { path = "../lumark-vault" }
+raw-window-handle = "0.6.2"
 serde.workspace = true
 uuid.workspace = true
 zeroize.workspace = true

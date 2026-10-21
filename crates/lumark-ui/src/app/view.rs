@@ -8,5 +8,7 @@ mod pages;
 pub(crate) mod password_windows;
 mod settings_window;
 mod settings_window_pages;
+mod settings_window_selects;
 mod settings_window_tabs;
+pub(crate) mod text_viewer_window;
 pub(crate) mod windows;

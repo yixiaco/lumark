@@ -1,0 +1,2 @@
+// Lumark application icon. Resource ID 1 is the first icon Windows loads.
+1 ICON "assets/lumark.ico"

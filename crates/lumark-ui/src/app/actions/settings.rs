@@ -64,38 +64,26 @@ impl LumarkApp {
         .to_string();
     }
 
-    /// 循环切换新压缩对话框使用的默认归档格式。
-    pub(crate) fn cycle_default_format(&mut self) {
-        const FORMATS: [&str; 6] = ["zip", "7z", "tar", "tar.gz", "tar.zst", "gz"];
-        let current = self.settings.get().default_format;
-        let index = FORMATS
-            .iter()
-            .position(|format| *format == current)
-            .unwrap_or(0);
-        let next = FORMATS[(index + 1) % FORMATS.len()];
+    /// 设置新压缩对话框使用的默认归档格式。
+    pub(crate) fn set_default_format(&mut self, format: &str) {
         match self.settings.update(|settings| {
-            settings.default_format = next.to_string();
+            settings.default_format = format.to_string();
         }) {
-            Ok(()) => self.status = format!("默认格式：{}", next.to_ascii_uppercase()),
+            Ok(()) => self.status = format!("默认格式：{}", format.to_ascii_uppercase()),
             Err(error) => self.status = error.to_string(),
         }
     }
 
-    /// 循环切换新任务使用的默认压缩预设。
-    pub(crate) fn cycle_default_preset(&mut self) {
-        let next = match self.settings.get().default_preset {
-            SettingsPreset::Balanced => SettingsPreset::Size,
-            SettingsPreset::Size => SettingsPreset::Speed,
-            SettingsPreset::Speed => SettingsPreset::Balanced,
-        };
+    /// 设置新任务使用的默认压缩预设。
+    pub(crate) fn set_default_preset(&mut self, preset: SettingsPreset) {
         match self
             .settings
-            .update(|settings| settings.default_preset = next)
+            .update(|settings| settings.default_preset = preset)
         {
             Ok(()) => {
                 self.status = format!(
                     "压缩预设：{}",
-                    match next {
+                    match preset {
                         SettingsPreset::Speed => "速度优先",
                         SettingsPreset::Balanced => "平衡",
                         SettingsPreset::Size => "体积优先",
@@ -142,22 +130,16 @@ impl LumarkApp {
         }
     }
 
-    /// 循环切换解压默认冲突策略。
-    pub(crate) fn cycle_overwrite_policy(&mut self) {
-        let next = match self.settings.get().overwrite_policy {
-            lumark_settings::OverwritePolicy::Ask => lumark_settings::OverwritePolicy::Overwrite,
-            lumark_settings::OverwritePolicy::Overwrite => lumark_settings::OverwritePolicy::Skip,
-            lumark_settings::OverwritePolicy::Skip => lumark_settings::OverwritePolicy::Rename,
-            lumark_settings::OverwritePolicy::Rename => lumark_settings::OverwritePolicy::Ask,
-        };
+    /// 设置解压时的默认冲突策略。
+    pub(crate) fn set_overwrite_policy(&mut self, policy: lumark_settings::OverwritePolicy) {
         match self
             .settings
-            .update(|settings| settings.overwrite_policy = next)
+            .update(|settings| settings.overwrite_policy = policy)
         {
             Ok(()) => {
                 self.status = format!(
                     "解压覆盖策略：{}",
-                    match next {
+                    match policy {
                         lumark_settings::OverwritePolicy::Ask => "询问/默认覆盖",
                         lumark_settings::OverwritePolicy::Overwrite => "覆盖",
                         lumark_settings::OverwritePolicy::Skip => "跳过",

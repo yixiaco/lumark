@@ -1,7 +1,133 @@
 use super::super::*;
-use super::components::AppIcon;
+use super::components::{AppIcon, form_label};
+use gpui_kit::component::checkbox::Checkbox;
 
 impl LumarkApp {
+    /// 渲染归档密码输入卡片，供打开、解压、测试和条目打开流程共用。
+    pub(crate) fn render_archive_password_prompt(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let target = self
+            .archive_password_action
+            .as_ref()
+            .map(password_target_label)
+            .unwrap_or_else(|| "加密压缩包".to_string());
+        let auto_hint = if self.vault.state() == VaultState::Unlocked {
+            "自动输入【密码管理】中密码匹配解密"
+        } else {
+            "解锁密码库后自动匹配记录密码"
+        };
+        centered_modal(cx, "输入密码")
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .size(px(30.))
+                            .flex_shrink_0()
+                            .rounded(px(8.))
+                            .bg(cx.theme().primary.opacity(0.12))
+                            .text_color(cx.theme().primary)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(AppIcon::Lock.element(16.)),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("为加密的文件输入密码："),
+                    ),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h(px(34.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .rounded_md()
+                    .bg(cx.theme().secondary)
+                    .border_1()
+                    .border_color(cx.theme().input)
+                    .text_sm()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(target),
+            )
+            .child(labeled_input(
+                cx,
+                "密码",
+                Input::new(&self.archive_password_input)
+                    .id("archive-password")
+                    .w_full(),
+            ))
+            .child(
+                Checkbox::new("archive-password-show")
+                    .label("显示密码")
+                    .checked(self.archive_password_visible)
+                    .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                        this.archive_password_visible = *checked;
+                        this.archive_password_input.update(cx, |state, cx| {
+                            state.set_masked(!*checked, window, cx);
+                        });
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Checkbox::new("archive-password-auto-vault")
+                    .label(auto_hint)
+                    .checked(self.archive_password_use_vault)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.archive_password_use_vault = *checked;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(
+                        button("archive-password-manage")
+                            .icon(AppIcon::Key.element(16.))
+                            .label("密码管理")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_archive_password_prompt = false;
+                                this.archive_password_action = None;
+                                this.switch_screen(Screen::Passwords);
+                                this.status = "请在密码管理中新增匹配密码".to_string();
+                                cx.notify();
+                            })),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        button("archive-password-cancel")
+                            .secondary()
+                            .label("取消")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_archive_password_prompt = false;
+                                this.archive_password_action = None;
+                                this.status = "已取消输入压缩包密码".to_string();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        button("archive-password-confirm")
+                            .primary()
+                            .label("确定")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_archive_password(window, cx);
+                                cx.notify();
+                            })),
+                    ),
+            )
+    }
+
     /// 提示保存成功打开归档的密码。
     pub(crate) fn render_save_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
         centered_modal(cx, "保存解压密码")
@@ -11,13 +137,23 @@ impl LumarkApp {
                     .text_color(cx.theme().muted_foreground)
                     .child("密码将写入本地加密密码库，下次可直接用于同类压缩包。"),
             )
-            .child(Input::new(&self.password_label).id("save-label").w_full())
-            .child(Input::new(&self.password_value).id("save-value").w_full())
-            .child(
+            .child(labeled_input(
+                cx,
+                "名称",
+                Input::new(&self.password_label).id("save-label").w_full(),
+            ))
+            .child(labeled_input(
+                cx,
+                "密码",
+                Input::new(&self.password_value).id("save-value").w_full(),
+            ))
+            .child(labeled_input(
+                cx,
+                "适用压缩包（路径或通配符）",
                 Input::new(&self.password_pattern)
                     .id("save-pattern")
                     .w_full(),
-            )
+            ))
             .child(
                 h_flex()
                     .gap_2()
@@ -439,6 +575,29 @@ impl LumarkApp {
                         })),
                 ),
         )
+    }
+}
+
+/// 构建“标签 + 输入框”的纵向字段，避免表单只露出无说明的输入框。
+fn labeled_input(cx: &gpui_kit::App, label: &str, input: impl IntoElement) -> impl IntoElement {
+    v_flex()
+        .w_full()
+        .gap_1()
+        .child(form_label(cx, label))
+        .child(input)
+}
+
+/// 返回密码弹窗需要展示的归档或条目名称。
+fn password_target_label(action: &PendingPasswordAction) -> String {
+    match action {
+        PendingPasswordAction::OpenArchive { archive, .. }
+        | PendingPasswordAction::ExtractDialog { archive }
+        | PendingPasswordAction::Test { archive } => archive.display().to_string(),
+        PendingPasswordAction::OpenEntry {
+            archive, relative, ..
+        } => {
+            format!("{} · {relative}", archive.display())
+        }
     }
 }
 

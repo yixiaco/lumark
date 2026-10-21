@@ -42,6 +42,7 @@ pub fn unregister_current_user() -> Result<(), PlatformError> {
 pub fn register_shell_menu() -> Result<(), PlatformError> {
     let executable = std::env::current_exe().map_err(PlatformError::Windows)?;
     let quoted = quote_executable(&executable);
+    let icon = icon_reference(&executable);
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let classes = hkcu
         .create_subkey("Software\\Classes")
@@ -65,7 +66,13 @@ pub fn register_shell_menu() -> Result<(), PlatformError> {
             format!("{quoted} --compress \"%1\""),
         ),
     ] {
-        write_shell_verb(&classes, &format!("*\\shell\\{verb_key}"), label, &command)?;
+        write_shell_verb(
+            &classes,
+            &format!("*\\shell\\{verb_key}"),
+            label,
+            &command,
+            &icon,
+        )?;
     }
 
     for base in ["Directory\\shell", "Directory\\Background\\shell"] {
@@ -74,8 +81,10 @@ pub fn register_shell_menu() -> Result<(), PlatformError> {
             &format!("{base}\\Lumark.Compress"),
             "用 Lumark 压缩",
             &format!("{quoted} --compress \"%1\""),
+            &icon,
         )?;
     }
+    notify_shell();
     Ok(())
 }
 
@@ -107,7 +116,6 @@ pub fn register_file_associations(extensions: &[String]) -> Result<(), PlatformE
         .map(String::as_str)
         .collect::<HashSet<_>>();
     let executable = std::env::current_exe().map_err(PlatformError::Windows)?;
-    let executable_text = executable.display().to_string();
     let quoted = quote_executable(&executable);
     let command = format!("{quoted} --open \"%1\"");
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -131,7 +139,7 @@ pub fn register_file_associations(extensions: &[String]) -> Result<(), PlatformE
     let (icon, _) = prog_id
         .create_subkey("DefaultIcon")
         .map_err(registry_error)?;
-    icon.set_value("", &format!("{executable_text},0"))
+    icon.set_value("", &icon_reference(&executable))
         .map_err(registry_error)?;
 
     for extension in ARCHIVE_EXTENSIONS {
@@ -186,7 +194,7 @@ pub fn register_file_associations(extensions: &[String]) -> Result<(), PlatformE
         .set_value("ApplicationDescription", &"本地优先的压缩管理器")
         .map_err(registry_error)?;
     capabilities
-        .set_value("ApplicationIcon", &format!("{executable_text},0"))
+        .set_value("ApplicationIcon", &icon_reference(&executable))
         .map_err(registry_error)?;
     let (file_associations, _) = capabilities
         .create_subkey("FileAssociations")
@@ -286,9 +294,11 @@ fn write_shell_verb(
     path: &str,
     label: &str,
     command: &str,
+    icon: &str,
 ) -> Result<(), PlatformError> {
     let (key, _) = classes.create_subkey(path).map_err(registry_error)?;
     key.set_value("", &label).map_err(registry_error)?;
+    key.set_value("Icon", &icon).map_err(registry_error)?;
     let (command_key, _) = key.create_subkey("command").map_err(registry_error)?;
     command_key
         .set_value("", &command)
@@ -299,6 +309,11 @@ fn write_shell_verb(
 /// 用双引号包裹可执行文件路径，避免空格被 Shell 拆分。
 fn quote_executable(executable: &Path) -> String {
     format!("\"{}\"", executable.display())
+}
+
+/// 返回注册表图标引用；引号保证带空格的安装路径也能被 Shell 解析。
+fn icon_reference(executable: &Path) -> String {
+    format!("\"{}\",0", executable.display())
 }
 
 /// 返回注册表 `Applications` 子键使用的可执行文件名。
@@ -358,7 +373,7 @@ fn notify_shell() {
 
 #[cfg(test)]
 mod tests {
-    use super::{ARCHIVE_EXTENSIONS, quote_executable};
+    use super::{ARCHIVE_EXTENSIONS, icon_reference, quote_executable};
     use std::path::Path;
 
     /// 验证可执行文件路径带空格时仍作为一个完整的 Shell 参数。
@@ -366,6 +381,13 @@ mod tests {
     fn executable_path_is_quoted_for_shell() {
         let command = quote_executable(Path::new(r"C:\Program Files\Lumark\Lumark.exe"));
         assert_eq!(command, r#""C:\Program Files\Lumark\Lumark.exe""#);
+    }
+
+    /// 验证右键菜单图标引用使用带引号的路径和资源索引 0。
+    #[test]
+    fn executable_icon_reference_quotes_path() {
+        let icon = icon_reference(Path::new(r"C:\Program Files\Lumark\Lumark.exe"));
+        assert_eq!(icon, r#""C:\Program Files\Lumark\Lumark.exe",0"#);
     }
 
     /// 验证注册的扩展名都带点且没有重复项。

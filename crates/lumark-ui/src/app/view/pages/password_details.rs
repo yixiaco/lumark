@@ -181,8 +181,7 @@ impl LumarkApp {
                                 .child(
                                     button("edit-password")
                                         .primary()
-                                        .small()
-                                        .icon(AppIcon::Edit.element(14.))
+                                        .icon(AppIcon::Edit.element(16.))
                                         .label("编辑")
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             this.open_password_editor_window(
@@ -196,8 +195,7 @@ impl LumarkApp {
                                 .child(
                                     button("delete-password")
                                         .danger()
-                                        .small()
-                                        .icon(AppIcon::Delete.element(14.))
+                                        .icon(AppIcon::Delete.element(16.))
                                         .label("删除")
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.show_confirm_delete_password = true;
@@ -233,8 +231,7 @@ impl LumarkApp {
                     .child(
                         button("detail-new-password")
                             .primary()
-                            .small()
-                            .icon(AppIcon::Add.element(14.))
+                            .icon(AppIcon::Add.element(16.))
                             .label("新建记录")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_password_editor_window(None, window, cx);
@@ -288,11 +285,7 @@ impl LumarkApp {
                                         cx.theme().warning_foreground
                                     })
                                     .text_xs()
-                                    .child(if has_master {
-                                        "已设置"
-                                    } else {
-                                        "计算机绑定"
-                                    }),
+                                    .child(if has_master { "已设置" } else { "DPAPI" }),
                             )
                             .child(
                                 div()
@@ -318,8 +311,7 @@ impl LumarkApp {
                             .child(
                                 button("open-master-window")
                                     .primary()
-                                    .small()
-                                    .icon(AppIcon::Shield.element(14.))
+                                    .icon(AppIcon::Shield.element(16.))
                                     .label(if has_master {
                                         "修改主密码"
                                     } else {
@@ -333,8 +325,7 @@ impl LumarkApp {
                             .when(has_master, |this| {
                                 this.child(
                                     button("remove-master")
-                                        .small()
-                                        .icon(AppIcon::Delete.element(14.))
+                                        .icon(AppIcon::Delete.element(16.))
                                         .label("删除主密码")
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.show_confirm_remove_master = true;

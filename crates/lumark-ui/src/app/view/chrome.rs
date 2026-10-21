@@ -1,6 +1,7 @@
 use super::super::*;
 use super::components::{
-    AppIcon, BannerTone, banner_action, banner_gradient, brand_lockup, icon_button, location_icon,
+    AppIcon, BannerTone, banner_action, banner_gradient, brand_lockup, brand_mark, icon_button,
+    location_icon,
 };
 use gpui_kit::component::input::{
     InputGroup, InputGroupAddon, InputGroupAddonAlignment, InputGroupButton, InputGroupInput,
@@ -18,6 +19,10 @@ impl LumarkApp {
             Screen::Passwords => "密码库 - Lumark".to_string(),
             Screen::Tasks => "任务中心 - Lumark".to_string(),
         };
+        // 标题栏宽度由窗口决定，超长路径必须在这里先按字符收口：
+        // 只依赖文本省略号时弹性布局仍可能把右侧工作区入口挤出窗口。
+        let title = truncate_title(&title, 96);
+        let title_max = (self.last_window_size.0 - 600.).max(160.);
         TitleBar::new()
             .h(px(38.))
             .bg(cx.theme().title_bar)
@@ -26,31 +31,24 @@ impl LumarkApp {
             .child(
                 h_flex()
                     .w_full()
+                    .min_w_0()
                     .items_center()
                     .gap_2()
+                    .child(brand_mark(24.))
                     .child(
                         div()
-                            .size(px(24.))
-                            .rounded(px(7.))
-                            .bg(cx.theme().button_primary)
-                            .text_color(cx.theme().button_primary_foreground)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(AppIcon::Compression.element(14.)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
                             .min_w_0()
+                            .max_w(px(title_max))
                             .overflow_hidden()
                             .whitespace_nowrap()
+                            .text_ellipsis_start()
                             .text_sm()
                             .font_semibold()
                             .child(title),
                     )
                     .child(
                         div()
+                            .ml_auto()
                             .px_2()
                             .py(px(1.))
                             .rounded_full()
@@ -983,10 +981,6 @@ impl LumarkApp {
 impl Render for LumarkApp {
     /// 组合标题栏、动作带、导航行、侧栏、当前页面、状态栏和模态层。
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.pending_requests.is_empty() {
-            let request = self.pending_requests.remove(0);
-            self.process_request(request, window, cx);
-        }
         if self.last_size_save.elapsed() >= std::time::Duration::from_secs(2) {
             let size = window.inner_window_bounds().get_bounds().size;
             let current = (size.width.as_f32(), size.height.as_f32());
@@ -1054,6 +1048,10 @@ impl Render for LumarkApp {
             .child(self.render_status_bar(cx))
             .when(self.show_save_prompt, |this| {
                 let dialog = self.render_save_prompt(cx);
+                this.child(dialog_layer(dialog))
+            })
+            .when(self.show_archive_password_prompt, |this| {
+                let dialog = self.render_archive_password_prompt(cx);
                 this.child(dialog_layer(dialog))
             })
             .when(self.show_unlock_for_extract, |this| {

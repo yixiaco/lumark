@@ -1,10 +1,34 @@
 use super::super::*;
 
 impl LumarkApp {
-    /// 先把一个归档条目解压到受控临时目录，再打开它。
+    /// 先把一个归档条目解压到受控临时目录，再交给系统默认应用打开。
     pub(crate) fn open_archive_entry(
         &mut self,
         entry: BrowserEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_archive_entry_as(entry, PendingOpenMode::External, window, cx);
+    }
+
+    /// 用一个内置只读查看器打开归档条目。
+    ///
+    /// 加密且尚未拿到密码的压缩包会在打开前弹出密码输入框，
+    /// 密码通过后再解压到受控临时目录交给查看器。
+    pub(crate) fn view_archive_entry(
+        &mut self,
+        entry: BrowserEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_archive_entry_as(entry, PendingOpenMode::Viewer, window, cx);
+    }
+
+    /// 按指定处理方式解压归档条目并记录后续动作。
+    fn open_archive_entry_as(
+        &mut self,
+        entry: BrowserEntry,
+        mode: PendingOpenMode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -21,6 +45,7 @@ impl LumarkApp {
                 PendingPasswordAction::OpenEntry {
                     archive: archive.clone(),
                     relative: relative.clone(),
+                    mode,
                 },
             ) {
                 return;
@@ -31,21 +56,27 @@ impl LumarkApp {
                 self.status = "压缩包已加密，解锁密码库后将尝试记录密码".to_string();
                 return;
             } else {
-                self.status = "压缩包已加密，请先使用解压对话框输入密码".to_string();
+                let action = PendingPasswordAction::OpenEntry {
+                    archive: archive.clone(),
+                    relative,
+                    mode,
+                };
+                self.request_archive_password(archive, action, window, cx);
                 return;
             }
         } else {
             None
         };
-        self.open_archive_entry_with_password(archive, relative, password, window, cx);
+        self.open_archive_entry_with_password(archive, relative, password, mode, window, cx);
     }
 
-    /// 使用已解析的密码解压一个条目。
+    /// 使用已解析的密码解压一个条目，并记录解压完成后的处理方式。
     pub(crate) fn open_archive_entry_with_password(
         &mut self,
         archive: PathBuf,
         relative: String,
         password: Option<zeroize::Zeroizing<String>>,
+        mode: PendingOpenMode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -69,6 +100,7 @@ impl LumarkApp {
             task_id: id,
             temporary,
             relative,
+            mode,
         });
         self.active_task = Some(id);
         self.task_progress = None;
@@ -331,6 +363,83 @@ impl LumarkApp {
         let _ = cx;
     }
 
+    /// 显示独立的压缩包密码输入弹窗，并暂存密码通过后的目标动作。
+    pub(crate) fn request_archive_password(
+        &mut self,
+        archive: PathBuf,
+        action: PendingPasswordAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_archive_password_prompt = true;
+        self.archive_password_action = Some(action);
+        self.archive_password_visible = false;
+        self.archive_password_use_vault =
+            self.vault.state() == VaultState::Unlocked && self.vault.settings().auto_extract;
+        set_input(&self.archive_password_input, "", window, cx);
+        self.archive_password_input
+            .update(cx, |state, cx| state.set_masked(true, window, cx));
+        self.dismiss_extract_window(cx);
+        self.status = format!("{} 已加密，请输入密码", archive.display());
+        cx.notify();
+    }
+
+    /// 读取密码弹窗并继续之前的打开、解压或测试动作。
+    pub(crate) fn confirm_archive_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(action) = self.archive_password_action.clone() else {
+            self.show_archive_password_prompt = false;
+            return;
+        };
+        let password = input_value(&self.archive_password_input, cx);
+        if password.is_empty() {
+            if self.archive_password_use_vault
+                && self.vault.state() == VaultState::Unlocked
+                && self.vault.settings().auto_extract
+            {
+                let archive = password_action_archive(&action).to_path_buf();
+                if self.begin_vault_password_resolution(&archive, action) {
+                    self.show_archive_password_prompt = false;
+                    self.archive_password_action = None;
+                } else {
+                    self.status = "密码库中没有匹配密码，请手动输入".to_string();
+                }
+            } else {
+                self.status = "请输入压缩包密码".to_string();
+            }
+            cx.notify();
+            return;
+        }
+
+        self.show_archive_password_prompt = false;
+        self.archive_password_action = None;
+        match action {
+            PendingPasswordAction::OpenArchive { archive, intent } => {
+                self.begin_archive_load(archive, Some(zeroize::Zeroizing::new(password)), intent);
+            }
+            PendingPasswordAction::ExtractDialog { archive } => {
+                self.prepare_extract_dialog(archive, false, Some(&password), window, cx);
+            }
+            PendingPasswordAction::OpenEntry {
+                archive,
+                relative,
+                mode,
+            } => {
+                self.open_archive_entry_with_password(
+                    archive,
+                    relative,
+                    Some(zeroize::Zeroizing::new(password)),
+                    mode,
+                    window,
+                    cx,
+                );
+            }
+            PendingPasswordAction::Test { archive } => {
+                self.submit_archive_test(archive, Some(password));
+            }
+        }
+        cx.notify();
+    }
+
     /// 为所选归档打开解压流程，并在提示前探测加密状态。
     pub(crate) fn open_extract_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(archive) = self.selected_archive() else {
@@ -411,7 +520,11 @@ impl LumarkApp {
         match encryption {
             Ok(info) if info.encrypted => {
                 if !self.vault.settings().auto_extract {
-                    self.status = "压缩包已加密，请输入密码".to_string();
+                    let action = PendingPasswordAction::OpenArchive {
+                        archive: archive.clone(),
+                        intent: ArchiveOpenIntent::Extract,
+                    };
+                    self.request_archive_password(archive, action, window, cx);
                 } else {
                     match self.vault.state() {
                         VaultState::Unlocked => {
@@ -421,7 +534,11 @@ impl LumarkApp {
                                     archive: archive.clone(),
                                 },
                             ) {
-                                self.status = "没有可用的记录密码，请手动输入".to_string();
+                                let action = PendingPasswordAction::OpenArchive {
+                                    archive: archive.clone(),
+                                    intent: ArchiveOpenIntent::Extract,
+                                };
+                                self.request_archive_password(archive, action, window, cx);
                             }
                         }
                         VaultState::Locked => {
@@ -432,7 +549,11 @@ impl LumarkApp {
                             self.status = "密码库已锁定，解锁后将自动尝试记录密码".to_string();
                         }
                         VaultState::Uninitialized => {
-                            self.status = "压缩包已加密，请输入密码".to_string();
+                            let action = PendingPasswordAction::OpenArchive {
+                                archive: archive.clone(),
+                                intent: ArchiveOpenIntent::Extract,
+                            };
+                            self.request_archive_password(archive, action, window, cx);
                         }
                     }
                 }
@@ -559,11 +680,16 @@ impl LumarkApp {
             PendingPasswordAction::ExtractDialog { archive } => {
                 self.prepare_extract_dialog(archive, false, Some(password.as_str()), window, cx);
             }
-            PendingPasswordAction::OpenEntry { archive, relative } => {
+            PendingPasswordAction::OpenEntry {
+                archive,
+                relative,
+                mode,
+            } => {
                 self.open_archive_entry_with_password(
                     archive,
                     relative,
                     Some(password),
+                    mode,
                     window,
                     cx,
                 );
@@ -583,16 +709,41 @@ impl LumarkApp {
     ) {
         match action {
             PendingPasswordAction::ExtractDialog { archive } => {
-                self.prepare_extract_dialog(archive, false, None, window, cx);
+                let prompt_action = PendingPasswordAction::OpenArchive {
+                    archive: archive.clone(),
+                    intent: ArchiveOpenIntent::Extract,
+                };
+                self.request_archive_password(archive, prompt_action, window, cx);
                 self.status = "记录密码均不正确，请手动输入密码".to_string();
             }
             PendingPasswordAction::OpenArchive { archive, intent } => {
-                if intent == ArchiveOpenIntent::Extract {
-                    self.prepare_extract_dialog(archive, false, None, window, cx);
-                    self.status = "记录密码均不正确，请手动输入密码".to_string();
-                }
+                let prompt_action = PendingPasswordAction::OpenArchive {
+                    archive: archive.clone(),
+                    intent,
+                };
+                self.request_archive_password(archive, prompt_action, window, cx);
+                self.status = "记录密码均不正确，请手动输入密码".to_string();
             }
-            PendingPasswordAction::OpenEntry { .. } | PendingPasswordAction::Test { .. } => {}
+            PendingPasswordAction::OpenEntry {
+                archive,
+                relative,
+                mode,
+            } => {
+                let prompt_action = PendingPasswordAction::OpenEntry {
+                    archive: archive.clone(),
+                    relative,
+                    mode,
+                };
+                self.request_archive_password(archive, prompt_action, window, cx);
+                self.status = "记录密码均不正确，请手动输入密码".to_string();
+            }
+            PendingPasswordAction::Test { archive } => {
+                let prompt_action = PendingPasswordAction::Test {
+                    archive: archive.clone(),
+                };
+                self.request_archive_password(archive, prompt_action, window, cx);
+                self.status = "记录密码均不正确，请手动输入密码".to_string();
+            }
         }
     }
 
@@ -630,9 +781,17 @@ impl LumarkApp {
                     }
                 }
                 if intent == ArchiveOpenIntent::Extract {
-                    self.prepare_extract_dialog(archive, false, None, window, cx);
+                    let action = PendingPasswordAction::OpenArchive {
+                        archive: archive.clone(),
+                        intent: ArchiveOpenIntent::Extract,
+                    };
+                    self.request_archive_password(archive, action, window, cx);
                 } else {
-                    self.status = "压缩包已加密，请先通过解压对话框输入密码".to_string();
+                    let action = PendingPasswordAction::OpenArchive {
+                        archive: archive.clone(),
+                        intent: ArchiveOpenIntent::Browse,
+                    };
+                    self.request_archive_password(archive, action, window, cx);
                 }
             }
             Ok(_) => {
@@ -827,15 +986,21 @@ impl LumarkApp {
                         .is_ok_and(|info| info.encrypted)
                 })
                 .await;
-            let _ = this.update_in(cx, |app, _window, cx| {
-                app.finish_start_test(archive, encrypted, cx);
+            let _ = this.update_in(cx, |app, window, cx| {
+                app.finish_start_test(archive, encrypted, window, cx);
             });
         })
         .detach();
     }
 
     /// 应用加密探测结果并提交测试任务或开始密码匹配。
-    fn finish_start_test(&mut self, archive: PathBuf, encrypted: bool, cx: &mut Context<Self>) {
+    fn finish_start_test(
+        &mut self,
+        archive: PathBuf,
+        encrypted: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if encrypted {
             if self.begin_vault_password_resolution(
                 &archive,
@@ -845,7 +1010,11 @@ impl LumarkApp {
             ) {
                 return;
             }
-            self.status = "压缩包已加密，请解锁密码库或添加匹配密码后重试".to_string();
+            let action = PendingPasswordAction::Test {
+                archive: archive.clone(),
+            };
+            self.request_archive_password(archive, action, window, cx);
+            self.status = "压缩包已加密，请输入密码".to_string();
             cx.notify();
             return;
         }
@@ -908,6 +1077,16 @@ impl LumarkApp {
             }
             Err(error) => self.status = error,
         }
+    }
+}
+
+/// 返回密码动作对应的归档路径，供重新提交密码库匹配时使用。
+fn password_action_archive(action: &PendingPasswordAction) -> &Path {
+    match action {
+        PendingPasswordAction::OpenArchive { archive, .. }
+        | PendingPasswordAction::ExtractDialog { archive }
+        | PendingPasswordAction::OpenEntry { archive, .. }
+        | PendingPasswordAction::Test { archive } => archive,
     }
 }
 

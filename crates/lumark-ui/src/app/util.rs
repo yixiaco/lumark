@@ -104,6 +104,59 @@ pub(crate) fn valid_file_name(name: &str) -> bool {
         && !name.ends_with(' ')
 }
 
+/// 把归档中选中的条目解压到本窗口专属临时目录，并返回可直接拖出/复制的顶层路径。
+pub(crate) fn extract_archive_members(
+    archive: &Path,
+    password: Option<&str>,
+    selected: &[(String, bool)],
+    output: &Path,
+) -> Result<Vec<(PathBuf, bool)>, String> {
+    if selected.is_empty() {
+        return Err("没有选中的归档条目".to_string());
+    }
+    std::fs::create_dir_all(output).map_err(|error| error.to_string())?;
+    let top = top_level_archive_paths(selected);
+    let options = ExtractionOptions {
+        output_dir: output.to_path_buf(),
+        selected_paths: top.iter().map(|(path, _)| path.clone()).collect(),
+        overwrite: true,
+        overwrite_policy: ArchiveOverwritePolicy::Overwrite,
+        password: password.map(|value| zeroize::Zeroizing::new(value.to_string())),
+        ..Default::default()
+    };
+    ArchiveService::extract(archive, &options, |_| {}).map_err(|error| error.to_string())?;
+    let paths = top
+        .into_iter()
+        .filter_map(|(relative, is_dir)| {
+            lumark_archive::safe_join(output, &relative)
+                .ok()
+                .filter(|path| path.exists())
+                .map(|path| (path, is_dir))
+        })
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        Err("解压临时文件失败".to_string())
+    } else {
+        Ok(paths)
+    }
+}
+
+/// 去掉被父目录覆盖的重复选择，只保留最外层条目。
+pub(crate) fn top_level_archive_paths(selected: &[(String, bool)]) -> Vec<(String, bool)> {
+    let mut top: Vec<(String, bool)> = Vec::new();
+    for (path, is_dir) in selected {
+        let covered = top
+            .iter()
+            .any(|(parent, _)| path == parent || path.starts_with(&format!("{parent}/")));
+        if covered {
+            continue;
+        }
+        top.retain(|(parent, _)| !parent.starts_with(&format!("{path}/")));
+        top.push((path.clone(), *is_dir));
+    }
+    top
+}
+
 /// 删除超过启动保留期限的 Lumark 解压临时目录。
 pub(crate) fn cleanup_stale_temp_dirs() {
     let root = std::env::temp_dir().join("Lumark").join("open");
@@ -189,6 +242,21 @@ pub(crate) fn archive_preset(preset: SettingsPreset) -> lumark_archive::Compress
         SettingsPreset::Balanced => lumark_archive::CompressionPreset::Balanced,
         SettingsPreset::Size => lumark_archive::CompressionPreset::Size,
     }
+}
+
+/// 从前面截断标题，保留末尾的路径信息。
+///
+/// 标题栏只显示一行，路径末尾（压缩包或文件名）比盘符更重要；超过
+/// `limit` 个字符时保留末尾并在最前面加省略号，避免超长路径把右侧
+/// 的工作区入口和系统按钮挤出窗口。
+pub(crate) fn truncate_title(text: &str, limit: usize) -> String {
+    let total = text.chars().count();
+    if total <= limit || limit == 0 {
+        return text.to_string();
+    }
+    let keep = limit.saturating_sub(1);
+    let tail = text.chars().skip(total - keep).collect::<String>();
+    format!("…{tail}")
 }
 
 /// 按顺序切换到 Lumark 可创建的格式。
@@ -351,5 +419,53 @@ pub(crate) fn app_select_row(
         app.browser.selection.toggle(target_id);
     } else {
         app.browser.selection.select_only(target_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    /// 验证选中父目录时不会再把同一子树里的文件重复加入复制列表。
+    #[test]
+    fn top_level_archive_paths_drops_nested_selection() {
+        let selected = vec![
+            ("docs".to_string(), true),
+            ("docs/readme.txt".to_string(), false),
+            ("photo.png".to_string(), false),
+        ];
+        assert_eq!(
+            top_level_archive_paths(&selected),
+            vec![("docs".to_string(), true), ("photo.png".to_string(), false)]
+        );
+    }
+
+    /// 验证归档目录能解压到临时目录并返回可直接复制/拖出的顶层路径。
+    #[test]
+    fn archive_members_extract_to_temp_paths() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("docs");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("readme.txt"), b"hello").unwrap();
+        let archive = directory.path().join("docs.zip");
+        ArchiveService::create(
+            &archive,
+            &[source],
+            &CompressionOptions {
+                format: ArchiveFormat::Zip,
+                path_mode: PathMode::Relative,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        let output = directory.path().join("output");
+        let members =
+            extract_archive_members(&archive, None, &[("docs".to_string(), true)], &output)
+                .unwrap();
+        assert_eq!(members.len(), 1);
+        assert!(members[0].1);
+        assert!(output.join("docs/readme.txt").exists());
     }
 }
