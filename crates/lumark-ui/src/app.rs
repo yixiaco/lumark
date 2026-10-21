@@ -374,6 +374,8 @@ pub struct LumarkApp {
     system_icon_cache: std::cell::RefCell<HashMap<String, Option<Arc<gpui_kit::Image>>>>,
     file_association_count: usize,
     main_window: gpui_kit::AnyWindowHandle,
+    /// 后台压缩任务没有可见窗口时显示的系统托盘图标。
+    tray_icon: Option<platform::tray::TrayIcon>,
     /// 由 Shell 压缩请求启动的隐藏主窗口，在压缩窗口和任务结束后自动关闭。
     headless_compress_host: bool,
     /// 当前窗口是否负责消费单实例请求。
@@ -627,6 +629,7 @@ impl LumarkApp {
             system_icon_cache: std::cell::RefCell::new(HashMap::new()),
             file_association_count: platform::shell::registered_extension_count(),
             main_window: window.window_handle(),
+            tray_icon: None,
             headless_compress_host,
             ipc_poll_owner: false,
             pending_shell_compress: Vec::new(),
@@ -733,27 +736,90 @@ impl LumarkApp {
         if !self.headless_compress_host || !self.pending_shell_compress.is_empty() {
             return;
         }
-        if self
-            .compress_window
-            .as_ref()
-            .is_some_and(|handle| handle.update(cx, |_, _, _| {}).is_ok())
-        {
+        if self.compress_window.is_some_and(|handle| {
+            handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        }) {
             return;
         }
         if self.active_task.is_some() {
             return;
         }
         if self
-            .progress_windows
-            .values()
-            .any(|entry| entry.handle.update(cx, |_, _, _| {}).is_ok())
+            .task_records
+            .iter()
+            .any(|record| !is_terminal_task_state(record.state))
         {
+            return;
+        }
+        if self.progress_windows.values().any(|entry| {
+            entry
+                .handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        }) {
             return;
         }
         self.headless_compress_host = false;
         let _ = self
             .main_window
             .update(cx, |_, window, _| window.remove_window());
+    }
+
+    /// 后台任务没有可见窗口时显示托盘图标，并把点击转成进度窗口或主窗口。
+    fn sync_tray(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.headless_compress_host {
+            self.tray_icon = None;
+            let _ = platform::tray::take_activation_request();
+            return;
+        }
+        if self.tray_icon.is_some() && platform::tray::take_activation_request() {
+            self.tray_icon = None;
+            let task_id = self.active_task.or_else(|| {
+                self.task_records
+                    .iter()
+                    .find(|record| !is_terminal_task_state(record.state))
+                    .map(|record| record.id)
+            });
+            if let Some(task_id) = task_id {
+                self.open_progress_window_for(task_id, window, cx);
+            } else {
+                self.spawn_window(None, None, cx);
+                self.headless_compress_host = false;
+                let _ = self
+                    .main_window
+                    .update(cx, |_, window, _| window.remove_window());
+            }
+            return;
+        }
+        let waiting =
+            self.shell_compress_deadline.is_some() || !self.pending_shell_compress.is_empty();
+        let compress_visible = self.compress_window.is_some_and(|handle| {
+            handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        });
+        let progress_visible = self.progress_windows.values().any(|entry| {
+            entry
+                .handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        });
+        let has_running_tasks = self
+            .task_records
+            .iter()
+            .any(|record| !is_terminal_task_state(record.state));
+        if waiting
+            || compress_visible
+            || progress_visible
+            || (self.active_task.is_none() && !has_running_tasks)
+        {
+            self.tray_icon = None;
+            let _ = platform::tray::take_activation_request();
+        } else if self.tray_icon.is_none() {
+            self.tray_icon = platform::tray::TrayIcon::show("Lumark - 后台任务").ok();
+        }
     }
 
     /// 打开一个复用共享存储的新窗口。
@@ -1080,6 +1146,7 @@ impl LumarkApp {
                         }
                     }
                     app.flush_shell_compress(window, cx);
+                    app.sync_tray(window, cx);
                     app.maybe_close_headless_host(cx);
                     if had_events || auto_locked {
                         cx.notify();

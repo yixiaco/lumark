@@ -171,26 +171,7 @@ impl LumarkApp {
         };
         self.compress_format = format;
         self.compress_preset = settings.default_preset;
-        let default_name = if sources.len() > 1 {
-            first
-                .parent()
-                .and_then(Path::file_name)
-                .and_then(|value| value.to_str())
-                .unwrap_or("archive")
-                .to_string()
-        } else if first.is_dir() {
-            first
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("archive")
-                .to_string()
-        } else {
-            first
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("archive")
-                .to_string()
-        };
+        let default_name = default_archive_name(&sources);
         let output_dir = settings
             .default_output_dir
             .filter(|path| path.is_dir())
@@ -1112,6 +1093,28 @@ fn password_action_archive(action: &PendingPasswordAction) -> &Path {
     }
 }
 
+/// 返回默认归档名：单选使用文件 stem，多选优先父目录名，根目录退回第一项。
+fn default_archive_name(sources: &[PathBuf]) -> String {
+    let Some(first) = sources.first() else {
+        return "archive".to_string();
+    };
+    let parent_name = first.parent().and_then(Path::file_name);
+    let source_name = if first.is_dir() {
+        first.file_name()
+    } else {
+        first.file_stem()
+    };
+    let archive_base = if sources.len() > 1 {
+        parent_name.or(source_name)
+    } else {
+        source_name
+    };
+    archive_base
+        .and_then(|value| value.to_str())
+        .unwrap_or("archive")
+        .to_string()
+}
+
 /// 返回适合当前机器的默认压缩线程数。
 ///
 /// 7Z 的 LZMA2 多线程编码会按线程数分配工作缓冲，这里限制在 8 以内，
@@ -1121,4 +1124,34 @@ fn default_compress_threads() -> u32 {
         .map(|count| count.get() as u32)
         .unwrap_or(1)
         .clamp(1, 8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_archive_name;
+    use std::path::PathBuf;
+
+    /// 多选时优先使用父目录名。
+    #[test]
+    fn archive_name_uses_parent_for_multiple_sources() {
+        let sources = [
+            PathBuf::from(r"C:\工作\a.txt"),
+            PathBuf::from(r"C:\工作\b.txt"),
+        ];
+        assert_eq!(default_archive_name(&sources), "工作");
+    }
+
+    /// 根目录没有父目录名时退回第一个文件名。
+    #[test]
+    fn archive_name_falls_back_to_first_file_at_root() {
+        let sources = [PathBuf::from(r"C:\a.txt"), PathBuf::from(r"C:\b.txt")];
+        assert_eq!(default_archive_name(&sources), "a");
+    }
+
+    /// 单选文件使用文件 stem，而不是父目录名。
+    #[test]
+    fn archive_name_uses_file_name_for_single_source() {
+        let sources = [PathBuf::from(r"C:\工作\a.txt")];
+        assert_eq!(default_archive_name(&sources), "a");
+    }
 }

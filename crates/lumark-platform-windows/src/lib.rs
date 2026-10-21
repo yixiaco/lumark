@@ -7,6 +7,7 @@ pub mod drag;
 pub mod icons;
 pub mod ipc;
 pub mod shell;
+pub mod tray;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
