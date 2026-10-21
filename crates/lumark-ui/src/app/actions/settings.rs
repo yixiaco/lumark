@@ -1,6 +1,48 @@
 use super::super::*;
 
 impl LumarkApp {
+    /// 把主窗口带到前台，供设置窗口跳转到密码库等主界面操作。
+    pub(crate) fn activate_main_window(&self, cx: &mut gpui_kit::App) {
+        let _ = self
+            .main_window
+            .update(cx, |_, window, _| window.activate_window());
+    }
+
+    /// 恢复界面与压缩偏好的出厂值，同时保留路径、窗口尺寸和用户数据。
+    pub(crate) fn reset_preferences(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let defaults = Settings::default();
+        let vault_path = self.settings.get().vault_path.clone();
+        self.settings
+            .update(|settings| {
+                settings.theme = defaults.theme;
+                settings.accent_color = defaults.accent_color.clone();
+                settings.language = defaults.language.clone();
+                settings.default_format = defaults.default_format.clone();
+                settings.default_preset = defaults.default_preset;
+                settings.default_output_dir = None;
+                settings.overwrite_policy = defaults.overwrite_policy;
+                settings.open_after_extract = defaults.open_after_extract;
+                settings.confirm_delete = defaults.confirm_delete;
+                settings.details_visible = defaults.details_visible;
+                settings.column_layout = defaults.column_layout;
+                settings.auto_extract_enabled = defaults.auto_extract_enabled;
+                settings.prompt_save_password = defaults.prompt_save_password;
+                settings.auto_lock_minutes = defaults.auto_lock_minutes;
+                settings.archive_edit_backup = defaults.archive_edit_backup;
+                settings.vault_path = vault_path;
+            })
+            .map_err(|error| error.to_string())?;
+        self.details_visible = defaults.details_visible;
+        self.column_layout = defaults.column_layout.min(2);
+        apply_theme(defaults.theme, &defaults.accent_color, window, cx);
+        self.status = "已恢复默认设置".to_string();
+        Ok(())
+    }
+
     /// 循环切换持久化主题偏好并立即应用。
     pub(crate) fn cycle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let next = match self.settings.get().theme {
@@ -127,70 +169,6 @@ impl LumarkApp {
         }
     }
 
-    /// 打开密码库位置编辑对话框，并预填当前文件夹。
-    pub(crate) fn open_vault_location_dialog(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let folder = self
-            .vault
-            .path()
-            .parent()
-            .map(|path| path.display().to_string())
-            .unwrap_or_default();
-        set_input(&self.vault_location_input, &folder, window, cx);
-        self.vault_location_error = None;
-        self.show_vault_location = true;
-        cx.notify();
-    }
-
-    /// 打开系统文件夹选择器，并把结果填入位置编辑框。
-    pub(crate) fn browse_vault_location(&mut self, cx: &mut Context<Self>) {
-        self.vault_location_error = None;
-        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("选择密码库保存文件夹".into()),
-        });
-        cx.spawn(async move |this, cx| match receiver.await {
-            Ok(Ok(Some(paths))) => {
-                if let Some(directory) = paths.into_iter().next() {
-                    let _ = this.update_in(cx, |app, window, cx| {
-                        set_input(
-                            &app.vault_location_input,
-                            directory.to_string_lossy().as_ref(),
-                            window,
-                            cx,
-                        );
-                        app.vault_location_error = None;
-                        cx.notify();
-                    });
-                }
-            }
-            Ok(Ok(None)) => {
-                let _ = this.update(cx, |app, cx| {
-                    app.vault_location_error = None;
-                    cx.notify();
-                });
-            }
-            Ok(Err(error)) => {
-                let _ = this.update(cx, |app, cx| {
-                    app.vault_location_error = Some(format!("无法打开文件夹选择器：{error}"));
-                    cx.notify();
-                });
-            }
-            Err(_) => {
-                let _ = this.update(cx, |app, cx| {
-                    app.vault_location_error = Some("文件夹选择器已关闭".to_string());
-                    cx.notify();
-                });
-            }
-        })
-        .detach();
-    }
-
     /// 把密码库加密文件迁移到指定目录，并持久化新位置。
     pub(crate) fn move_vault_to(
         &mut self,
@@ -242,26 +220,66 @@ impl LumarkApp {
     }
 
     /// 为当前用户注册 Lumark 资源管理器右键菜单命令。
-    pub(crate) fn register_shell_integration(&mut self) {
-        match platform::shell::register_current_user() {
+    pub(crate) fn register_shell_menu(&mut self) {
+        match platform::shell::register_shell_menu() {
             Ok(()) => {
-                self.status = "已注册当前用户的文件关联和经典右键菜单".to_string();
+                self.status = "已注册当前用户的资源管理器右键菜单".to_string();
             }
             Err(error) => self.status = error.to_string(),
         }
     }
 
     /// 移除当前用户的资源管理器右键菜单命令。
-    pub(crate) fn unregister_shell_integration(&mut self) {
-        match platform::shell::unregister_current_user() {
-            Ok(()) => self.status = "已移除当前用户的 Lumark Shell 注册项".to_string(),
+    pub(crate) fn unregister_shell_menu(&mut self) {
+        match platform::shell::unregister_shell_menu() {
+            Ok(()) => {
+                self.status = "已移除当前用户的资源管理器右键菜单".to_string();
+            }
             Err(error) => self.status = error.to_string(),
         }
     }
 
-    /// 打开 Windows 默认应用页面，不静默修改文件关联。
+    /// 注册压缩格式的文件关联，并打开 Windows 的 Lumark 默认应用页面。
+    pub(crate) fn register_file_associations(&mut self) {
+        match platform::shell::register_file_associations() {
+            Ok(()) => {
+                self.file_association_count = platform::shell::registered_extension_count();
+                let count = self.file_association_count;
+                if count == 0 {
+                    self.status = "文件关联写入完成，但未检测到完整的 Lumark 注册项".to_string();
+                    return;
+                }
+                self.status = match platform::open_default_apps_for_lumark() {
+                    Ok(()) => format!("已注册 {count} 种压缩格式，请在 Windows 设置中确认默认应用"),
+                    Err(error) => {
+                        format!("已注册 {count} 种压缩格式，但无法打开默认应用设置：{error}")
+                    }
+                };
+            }
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    /// 移除压缩格式的文件关联注册项。
+    pub(crate) fn unregister_file_associations(&mut self) {
+        match platform::shell::unregister_file_associations() {
+            Ok(()) => {
+                self.file_association_count = 0;
+                self.status =
+                    "已移除当前用户的文件关联；如仍由 Lumark 打开，请在默认应用中改选".to_string();
+            }
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    /// 打开 Windows 默认应用页面，不静默修改默认打开方式。
     pub(crate) fn open_default_apps_page(&mut self) {
-        match platform::open_default_apps() {
+        let result = if self.file_association_count > 0 {
+            platform::open_default_apps_for_lumark().or_else(|_| platform::open_default_apps())
+        } else {
+            platform::open_default_apps()
+        };
+        match result {
             Ok(()) => self.status = "已打开 Windows 默认应用设置".to_string(),
             Err(error) => self.status = error.to_string(),
         }

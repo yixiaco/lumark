@@ -16,7 +16,6 @@ impl LumarkApp {
         let title = match self.screen {
             Screen::Browser => format!("{} - Lumark", self.browser.current_display()),
             Screen::Passwords => "密码库 - Lumark".to_string(),
-            Screen::Settings => "设置 - Lumark".to_string(),
             Screen::Tasks => "任务中心 - Lumark".to_string(),
         };
         TitleBar::new()
@@ -75,13 +74,22 @@ impl LumarkApp {
                         Screen::Passwords,
                         cx,
                     ))
-                    .child(self.top_nav_button(
-                        "title-nav-settings",
-                        AppIcon::Setting,
-                        "设置",
-                        Screen::Settings,
-                        cx,
-                    ))
+                    .child(
+                        button("title-nav-settings")
+                            .ghost()
+                            .rounded(px(6.))
+                            .cursor_pointer()
+                            .occlude()
+                            .icon(AppIcon::Setting.element(16.))
+                            .label("设置")
+                            .on_click(cx.listener(|_, _, window, cx| {
+                                // 创建窗口会立即渲染新视图并读取主应用状态，
+                                // 必须等当前按钮更新结束后再执行，避免重入。
+                                cx.defer_in(window, |this, window, cx| {
+                                    this.open_settings_window(window, cx);
+                                });
+                            })),
+                    )
                     .child(div().w(px(1.)).h(px(20.)).bg(cx.theme().border))
                     .child(
                         icon_button("title-theme", AppIcon::Tool, "切换主题")
@@ -196,7 +204,7 @@ impl LumarkApp {
             .into_any_element()
     }
 
-    /// 渲染密码库和设置页共享的页头横幅。
+    /// 渲染密码库和任务中心共享的页头横幅。
     fn render_page_band(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (icon, title, caption) = match self.screen {
             Screen::Passwords => (
@@ -211,11 +219,6 @@ impl LumarkApp {
                         "已解锁"
                     }
                 ),
-            ),
-            Screen::Settings => (
-                AppIcon::Setting,
-                "设置",
-                "外观、压缩偏好与本机安全".to_string(),
             ),
             Screen::Tasks => (
                 AppIcon::List,
@@ -1002,12 +1005,11 @@ impl Render for LumarkApp {
         let content = match self.screen {
             Screen::Browser => self.render_browser(window, cx).into_any_element(),
             Screen::Passwords => self.render_passwords(cx).into_any_element(),
-            Screen::Settings => self.render_settings(cx).into_any_element(),
             Screen::Tasks => self.render_task_center(cx).into_any_element(),
         };
-        // 设置和密码库的整页滚动条向窗口内侧留出空间，避免与 Windows
-        // 窗口缩放边框重叠而无法拖动。
-        let content = if matches!(self.screen, Screen::Passwords | Screen::Settings) {
+        // 密码库的整页滚动条向窗口内侧留出空间，避免与 Windows 窗口
+        // 缩放边框重叠而无法拖动。
+        let content = if self.screen == Screen::Passwords {
             v_flex()
                 .w_full()
                 .h_full()
@@ -1080,10 +1082,6 @@ impl Render for LumarkApp {
             })
             .when(self.show_vault_transfer, |this| {
                 let dialog = self.render_vault_transfer(cx);
-                this.child(dialog_layer(dialog))
-            })
-            .when(self.show_vault_location, |this| {
-                let dialog = self.render_vault_location(cx);
                 this.child(dialog_layer(dialog))
             })
             .when(self.show_confirm_remove_master, |this| {

@@ -1,0 +1,489 @@
+//! 独立设置窗口：标题栏、选项卡、通用/外观/关于页面和窗口生命周期。
+use super::super::*;
+use super::super::{apply_theme_accent, hsla_to_hex};
+use super::components::{AppIcon, banner_gradient};
+use gpui_kit::component::TitleBar;
+use gpui_kit::component::color_picker::{ColorPickerEvent, ColorPickerState};
+use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::tab::{Tab, TabBar};
+use gpui_kit::component::try_parse_color;
+use gpui_kit::{Entity, Subscription};
+
+/// 独立设置窗口的视图。
+///
+/// 设置项仍然写入主应用持有的设置存储，窗口只负责展示和派发操作；
+/// 选项卡索引和密码库位置编辑状态由窗口自己维护，关闭窗口后不会影响主界面。
+pub(crate) struct SettingsWindowView {
+    pub(super) app: Entity<LumarkApp>,
+    pub(super) tab: usize,
+    pub(super) accent_picker: Entity<ColorPickerState>,
+    _accent_subscription: Subscription,
+    pub(super) vault_location_open: bool,
+    pub(super) vault_location_input: Entity<InputState>,
+    pub(super) vault_location_error: Option<String>,
+    pub(super) settings: Settings,
+    pub(super) settings_path: PathBuf,
+    pub(super) vault_path: PathBuf,
+    pub(super) vault_state: VaultState,
+    pub(super) vault_has_master: bool,
+    pub(super) vault_error: Option<String>,
+    pub(super) file_association_count: usize,
+    pub(super) status: String,
+}
+
+/// 打开设置窗口时从主应用复制的一份只读快照。
+///
+/// 窗口第一次渲染发生在主应用仍处于更新状态时，此时不能再次读取主应用
+/// 实体；因此所有首帧数据都通过快照传入，后续操作再显式刷新。
+#[derive(Clone)]
+pub(crate) struct SettingsWindowSnapshot {
+    pub(crate) settings: Settings,
+    pub(crate) settings_path: PathBuf,
+    pub(crate) vault_path: PathBuf,
+    pub(crate) vault_state: VaultState,
+    pub(crate) vault_has_master: bool,
+    pub(crate) vault_error: Option<String>,
+    pub(crate) file_association_count: usize,
+    pub(crate) status: String,
+}
+
+impl SettingsWindowView {
+    /// 创建设置窗口，并按传入快照初始化首帧数据。
+    pub(crate) fn new(
+        app: Entity<LumarkApp>,
+        snapshot: SettingsWindowSnapshot,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let accent_picker = cx.new(|cx| {
+            let mut state = ColorPickerState::new(window, cx);
+            if let Ok(color) = try_parse_color(&snapshot.settings.accent_color) {
+                state.set_value(color, window, cx);
+            }
+            state
+        });
+        let accent_subscription =
+            cx.subscribe(&accent_picker, |this, _, event: &ColorPickerEvent, cx| {
+                let ColorPickerEvent::Change(Some(color)) = event else {
+                    return;
+                };
+                let hex = hsla_to_hex(*color);
+                this.app.update(cx, |app, cx| {
+                    match app
+                        .settings
+                        .update(|settings| settings.accent_color = hex.clone())
+                    {
+                        Ok(()) => {
+                            apply_theme_accent(&hex, cx);
+                            app.status = format!("主题色：{hex}");
+                        }
+                        Err(error) => app.status = error.to_string(),
+                    }
+                    cx.notify();
+                });
+                this.settings.accent_color = hex.clone();
+                this.status = format!("主题色：{hex}");
+                cx.notify();
+            });
+        let vault_location_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("密码库保存文件夹".to_string()));
+        Self {
+            app,
+            tab: 0,
+            accent_picker,
+            _accent_subscription: accent_subscription,
+            vault_location_open: false,
+            vault_location_input,
+            vault_location_error: None,
+            settings: snapshot.settings,
+            settings_path: snapshot.settings_path,
+            vault_path: snapshot.vault_path,
+            vault_state: snapshot.vault_state,
+            vault_has_master: snapshot.vault_has_master,
+            vault_error: snapshot.vault_error,
+            file_association_count: snapshot.file_association_count,
+            status: snapshot.status,
+        }
+    }
+
+    /// 在窗口操作结束后重新读取主应用状态，保持首帧快照与后台变化一致。
+    pub(super) fn refresh(&mut self, cx: &mut Context<Self>) {
+        let app = self.app.read(cx);
+        self.settings = app.settings.get();
+        self.settings_path = app.settings.path().to_path_buf();
+        self.vault_path = app.vault.path().to_path_buf();
+        self.vault_state = app.vault.state();
+        self.vault_has_master = app.vault.has_master_password();
+        self.vault_error = app.vault_error.clone();
+        self.file_association_count = app.file_association_count;
+        self.status = app.status.clone();
+    }
+
+    /// 渲染窗口标题栏和渐变页头。
+    fn render_header(&self, cx: &Context<Self>) -> impl IntoElement {
+        v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .child(
+                TitleBar::new()
+                    .h(px(38.))
+                    .bg(cx.theme().title_bar)
+                    .border_b_1()
+                    .border_color(cx.theme().title_bar_border)
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .size(px(24.))
+                                    .rounded(px(7.))
+                                    .bg(cx.theme().button_primary)
+                                    .text_color(cx.theme().button_primary_foreground)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(AppIcon::Setting.element(14.)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .child("设置 - Lumark"),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("立即生效"),
+                            ),
+                    ),
+            )
+            .child(
+                banner_gradient(cx)
+                    .w_full()
+                    .h(px(70.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .px_5()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .size(px(36.))
+                            .rounded(px(10.))
+                            .bg(cx.theme().button_primary)
+                            .text_color(cx.theme().button_primary_foreground)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .shadow_sm()
+                            .child(AppIcon::Setting.element(19.)),
+                    )
+                    .child(
+                        v_flex()
+                            .gap(px(1.))
+                            .child(div().text_lg().font_semibold().child("设置"))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("外观、压缩偏好、文件关联和本机安全"),
+                            ),
+                    ),
+            )
+    }
+
+    /// 渲染顶部选项卡。
+    fn render_tabs(&self, cx: &Context<Self>) -> impl IntoElement {
+        TabBar::new("settings-window-tabs")
+            .segmented()
+            .w_full()
+            .selected_index(self.tab)
+            .on_click(cx.listener(|this, index, _, cx| {
+                this.tab = *index;
+                this.refresh(cx);
+                cx.notify();
+            }))
+            .child(Tab::new().label("综合"))
+            .child(Tab::new().label("外观"))
+            .child(Tab::new().label("压缩"))
+            .child(Tab::new().label("文件关联"))
+            .child(Tab::new().label("密码库"))
+            .child(Tab::new().label("关于"))
+    }
+
+    /// 渲染当前选项卡内容，并在内容区域独立滚动。
+    fn render_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = match self.tab {
+            0 => self.render_general_tab(cx).into_any_element(),
+            1 => self.render_appearance_tab(cx).into_any_element(),
+            2 => self.render_compression_tab(cx).into_any_element(),
+            3 => self.render_association_tab(cx).into_any_element(),
+            4 => self.render_vault_tab(cx).into_any_element(),
+            _ => self.render_about_tab(cx).into_any_element(),
+        };
+        v_flex()
+            .id("settings-window-content")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .p_4()
+            .gap_3()
+            .child(content)
+    }
+
+    /// 渲染底部状态、恢复默认和关闭操作。
+    fn render_footer(&self, cx: &Context<Self>) -> impl IntoElement {
+        let status = self.status.clone();
+        h_flex()
+            .w_full()
+            .flex_shrink_0()
+            .gap_3()
+            .items_center()
+            .px_4()
+            .py_3()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(status),
+            )
+            .child(
+                button("settings-reset")
+                    .ghost()
+                    .rounded(px(6.))
+                    .icon(AppIcon::Refresh.element(15.))
+                    .label("恢复默认设置")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.reset_preferences(window, cx);
+                    })),
+            )
+            .child(
+                button("settings-close")
+                    .primary()
+                    .rounded(px(6.))
+                    .icon(AppIcon::Check.element(15.))
+                    .label("完成")
+                    .on_click(cx.listener(|_, _, window, _| {
+                        window.remove_window();
+                    })),
+            )
+    }
+
+    /// 把设置窗口中的一次操作转交给主应用并刷新两个界面。
+    pub(super) fn update_app(
+        &mut self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut LumarkApp, &mut Context<LumarkApp>),
+    ) {
+        self.app.update(cx, |app, app_cx| {
+            update(app, app_cx);
+            app_cx.notify();
+        });
+        self.refresh(cx);
+        cx.notify();
+    }
+
+    /// 恢复出厂设置并同步颜色选择器的当前色块。
+    fn reset_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let result = self
+            .app
+            .update(cx, |app, app_cx| app.reset_preferences(window, app_cx));
+        match result {
+            Ok(()) => {
+                self.refresh(cx);
+                let accent = self.settings.accent_color.clone();
+                if let Ok(color) = try_parse_color(&accent) {
+                    self.accent_picker
+                        .update(cx, |state, cx| state.set_value(color, window, cx));
+                }
+                cx.notify();
+            }
+            Err(error) => {
+                let status = format!("无法恢复默认设置：{error}");
+                self.status = status.clone();
+                self.app.update(cx, |app, cx| {
+                    app.status = status;
+                    cx.notify();
+                });
+                cx.notify();
+            }
+        }
+    }
+}
+
+impl Render for SettingsWindowView {
+    /// 渲染独立设置窗口。
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
+            .child(self.render_header(cx))
+            .child(div().w_full().px_4().pt_3().child(self.render_tabs(cx)))
+            .child(self.render_content(cx))
+            .child(self.render_footer(cx))
+            .when(self.vault_location_open, |this| {
+                this.child(self.render_vault_location_modal(cx))
+            })
+    }
+}
+
+impl LumarkApp {
+    /// 打开独立设置窗口；已有窗口时直接带到前台。
+    pub(crate) fn open_settings_window(&mut self, parent: &Window, cx: &mut Context<Self>) {
+        if let Some(handle) = self.settings_window
+            && handle
+                .update(cx, |_, window, _| window.activate_window())
+                .is_ok()
+        {
+            return;
+        }
+        self.settings_window = None;
+        let size = gpui_kit::size(px(900.), px(700.));
+        let parent_bounds = parent.inner_window_bounds().get_bounds();
+        let origin = gpui_kit::point(
+            px(parent_bounds.origin.x.as_f32()
+                + (parent_bounds.size.width.as_f32() - size.width.as_f32()) / 2.0),
+            px(parent_bounds.origin.y.as_f32()
+                + (parent_bounds.size.height.as_f32() - size.height.as_f32()) / 2.0),
+        );
+        let options = gpui_kit::WindowOptions {
+            window_bounds: Some(gpui_kit::WindowBounds::Windowed(gpui_kit::Bounds {
+                origin,
+                size,
+            })),
+            titlebar: Some(gpui_kit::TitlebarOptions {
+                title: Some("设置 - Lumark".into()),
+                appears_transparent: true,
+                traffic_light_position: None,
+            }),
+            kind: gpui_kit::WindowKind::Normal,
+            focus: true,
+            show: true,
+            is_resizable: true,
+            is_minimizable: true,
+            is_movable: true,
+            window_min_size: Some(gpui_kit::size(px(760.), px(560.))),
+            ..TitleBar::window_options()
+        };
+        let app = cx.entity();
+        let snapshot = SettingsWindowSnapshot {
+            settings: self.settings.get(),
+            settings_path: self.settings.path().to_path_buf(),
+            vault_path: self.vault.path().to_path_buf(),
+            vault_state: self.vault.state(),
+            vault_has_master: self.vault.has_master_password(),
+            vault_error: self.vault_error.clone(),
+            file_association_count: self.file_association_count,
+            status: self.status.clone(),
+        };
+        match gpui_kit::open_window(options, cx, move |window, cx| {
+            cx.new(|cx| SettingsWindowView::new(app.clone(), snapshot.clone(), window, cx))
+        }) {
+            Ok((handle, _)) => self.settings_window = Some(handle),
+            Err(error) => self.status = format!("无法打开设置窗口：{error}"),
+        }
+    }
+}
+
+/// 设置窗口使用的标准卡片。
+pub(super) fn settings_card(cx: &gpui_kit::App) -> gpui_kit::Div {
+    v_flex()
+        .w_full()
+        .bg(cx.theme().popover)
+        .border_1()
+        .border_color(cx.theme().border)
+        .rounded(px(10.))
+        .shadow_xs()
+        .overflow_hidden()
+}
+
+/// 设置窗口的分组标题，使用比主页面更紧凑的尺寸。
+pub(super) fn settings_section(
+    cx: &gpui_kit::App,
+    icon: AppIcon,
+    title: &str,
+    caption: Option<String>,
+) -> gpui_kit::Div {
+    h_flex()
+        .w_full()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .size(px(32.))
+                .flex_shrink_0()
+                .rounded(px(9.))
+                .bg(cx.theme().primary.opacity(0.12))
+                .text_color(cx.theme().primary)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(icon.element(16.)),
+        )
+        .child(
+            v_flex()
+                .min_w_0()
+                .gap(px(1.))
+                .child(div().text_sm().font_semibold().child(title.to_string()))
+                .when(caption.is_some(), |this| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(caption.unwrap_or_default()),
+                    )
+                }),
+        )
+        .child(div().flex_1().h(px(1.)).bg(cx.theme().border))
+}
+
+/// 渲染双栏设置行。
+pub(super) fn settings_row(
+    cx: &gpui_kit::App,
+    title: &str,
+    description: &str,
+    control: impl IntoElement,
+) -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .gap_4()
+        .items_center()
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_1()
+                .child(div().text_sm().font_semibold().child(title.to_string()))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .text_ellipsis()
+                        .child(description.to_string()),
+                ),
+        )
+        .child(control)
+}
+
+/// 渲染设置卡片内部的分隔线。
+pub(super) fn settings_divider(cx: &gpui_kit::App) -> gpui_kit::Div {
+    div().w_full().h(px(1.)).bg(cx.theme().border)
+}

@@ -6,4 +6,7 @@ mod dialogs;
 pub(crate) mod extract_window;
 mod pages;
 pub(crate) mod password_windows;
+mod settings_window;
+mod settings_window_pages;
+mod settings_window_tabs;
 pub(crate) mod windows;

@@ -5,13 +5,12 @@ use std::sync::Arc;
 
 use gpui_kit::base::{StyledExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{ActiveTheme, Selectable, Sizable, Theme, ThemeMode, TitleBar};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    ClipboardItem, Context, FocusHandle, IntoElement, ParentElement, Render, Styled, Subscription,
-    Window, div, hsla, px,
+    ClipboardItem, Context, FocusHandle, IntoElement, ParentElement, Render, Styled, Window, div,
+    hsla, px,
 };
 use uuid::Uuid;
 
@@ -32,7 +31,6 @@ use lumark_vault::{PasswordEntry, VaultState, VaultStore};
 pub(crate) enum Screen {
     Browser,
     Passwords,
-    Settings,
     Tasks,
 }
 
@@ -192,9 +190,6 @@ pub struct LumarkApp {
     vault_transfer_path: gpui_kit::Entity<InputState>,
     vault_transfer_passphrase: gpui_kit::Entity<InputState>,
     vault_transfer_replace: bool,
-    show_vault_location: bool,
-    vault_location_input: gpui_kit::Entity<InputState>,
-    vault_location_error: Option<String>,
     show_confirm_remove_master: bool,
     show_confirm_clear_vault: bool,
     archive_password: Option<zeroize::Zeroizing<String>>,
@@ -215,8 +210,9 @@ pub struct LumarkApp {
     tree_expanded: HashSet<PathBuf>,
     tree_children: HashMap<PathBuf, Vec<PathBuf>>,
     file_list_scroll: gpui_kit::base::VirtualListScrollHandle,
-    theme_color_picker: Option<gpui_kit::Entity<ColorPickerState>>,
-    theme_color_subscription: Option<Subscription>,
+    file_association_count: usize,
+    main_window: gpui_kit::AnyWindowHandle,
+    settings_window: Option<gpui_kit::AnyWindowHandle>,
 }
 
 impl LumarkApp {
@@ -330,7 +326,6 @@ impl LumarkApp {
         let password_note = new_input(window, cx, "备注（可选）", false);
         let vault_transfer_path = new_input(window, cx, "导出/导入文件路径", false);
         let vault_transfer_passphrase = new_input(window, cx, "独立导出口令", true);
-        let vault_location_input = new_input(window, cx, "密码库保存文件夹", false);
         let browser_focus = cx.focus_handle();
         let details_visible = settings_snapshot.details_visible;
 
@@ -417,9 +412,6 @@ impl LumarkApp {
             vault_transfer_path,
             vault_transfer_passphrase,
             vault_transfer_replace: false,
-            show_vault_location: false,
-            vault_location_input,
-            vault_location_error: None,
             show_confirm_remove_master: false,
             show_confirm_clear_vault: false,
             archive_password: None,
@@ -443,8 +435,9 @@ impl LumarkApp {
             tree_expanded: HashSet::new(),
             tree_children: HashMap::new(),
             file_list_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
-            theme_color_picker: None,
-            theme_color_subscription: None,
+            file_association_count: platform::shell::registered_extension_count(),
+            main_window: window.window_handle(),
+            settings_window: None,
         };
         set_input(
             &app.location_input,
@@ -494,7 +487,6 @@ impl LumarkApp {
                 cx,
             );
         }
-        app.ensure_theme_color_picker(window, cx);
         app.start_task_polling(cx);
         app
     }
@@ -1034,47 +1026,6 @@ fn theme_accent_presets() -> Vec<gpui_kit::Hsla> {
     .collect()
 }
 
-impl LumarkApp {
-    /// 创建设置页的主题色选择器，并把用户选择实时写回设置和当前主题。
-    ///
-    /// 选择器只在启动时创建一次；它持有自己的输入和弹层状态，
-    /// 不参与主界面渲染借用，因此切换颜色时不需要重建窗口。
-    fn ensure_theme_color_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.theme_color_picker.is_some() {
-            return;
-        }
-        let accent_color = self.settings.get().accent_color;
-        let picker = cx.new(|cx| {
-            let mut state = ColorPickerState::new(window, cx);
-            if let Ok(color) = gpui_kit::component::try_parse_color(&accent_color) {
-                state.set_value(color, window, cx);
-            }
-            state
-        });
-        self.theme_color_subscription = Some(cx.subscribe(
-            &picker,
-            |this, _, event: &ColorPickerEvent, cx| {
-                let ColorPickerEvent::Change(Some(color)) = event else {
-                    return;
-                };
-                let hex = hsla_to_hex(*color);
-                match this
-                    .settings
-                    .update(|settings| settings.accent_color = hex.clone())
-                {
-                    Ok(()) => {
-                        apply_theme_accent(&hex, cx);
-                        this.status = format!("主题色：{hex}");
-                    }
-                    Err(error) => this.status = error.to_string(),
-                }
-                cx.notify();
-            },
-        ));
-        self.theme_color_picker = Some(picker);
-    }
-}
-
 /// 启动 GPUI 应用，并在打开主窗口前处理 Shell 集成请求。
 pub fn run() -> anyhow::Result<()> {
     if std::env::args().any(|argument| argument == "--register-shell") {
@@ -1259,6 +1210,48 @@ mod ui_tests {
                         .iter()
                         .any(|entry| { entry.password.expose() == "move-secret-123" })
                 );
+            });
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证恢复默认设置会复位界面偏好，但保留自定义密码库位置。
+    fn reset_preferences_keeps_vault_location(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let settings_path = directory.path().join("settings.json");
+        let custom_vault = directory.path().join("custom-vault.dat");
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                settings_path,
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.settings
+                    .update(|settings| {
+                        settings.accent_color = "#ff0000".to_string();
+                        settings.details_visible = false;
+                        settings.column_layout = 2;
+                        settings.vault_path = Some(custom_vault.clone());
+                    })
+                    .unwrap();
+                app.details_visible = false;
+                app.column_layout = 2;
+                app.reset_preferences(window, cx).unwrap();
+                let settings = app.settings.get();
+                assert_eq!(settings.accent_color, "#2563eb");
+                assert!(settings.details_visible);
+                assert_eq!(settings.column_layout, 1);
+                assert_eq!(settings.vault_path, Some(custom_vault.clone()));
+                assert!(app.details_visible);
+                assert_eq!(app.column_layout, 1);
             });
         });
         let _ = app;

@@ -42,6 +42,18 @@ pub fn open_default_apps() -> Result<(), PlatformError> {
         .map_err(PlatformError::Windows)
 }
 
+/// 打开 Windows 默认应用中 Lumark 的专属设置页。
+///
+/// 需要先在 `HKEY_CURRENT_USER\Software\RegisteredApplications` 注册
+/// `Lumark`；未注册或系统版本较旧时由调用方回退到通用默认应用页。
+pub fn open_default_apps_for_lumark() -> Result<(), PlatformError> {
+    std::process::Command::new("explorer.exe")
+        .arg("ms-settings:defaultapps?registeredAppUser=Lumark")
+        .spawn()
+        .map(|_| ())
+        .map_err(PlatformError::Windows)
+}
+
 /// 尽可能通过 Windows 回收站删除文件或目录。
 pub fn recycle(paths: &[PathBuf]) -> Result<(), PlatformError> {
     if paths.is_empty() {

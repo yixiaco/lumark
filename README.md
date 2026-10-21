@@ -6,7 +6,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 
 - 参考经典归档器的界面布局：自绘标题栏与工作区切换、渐变动作带、全宽路径与搜索导航行、常用位置和目录树合并的文件夹侧栏、底部详细信息检查器、全宽状态栏和统一模态层；宽窗口显示品牌标语，窄窗口自动收缩搜索框和模式标签。
 - 界面优先使用 gpui-kit 官方组件：动作带和标题栏导航使用官方 Button 变体，格式、压缩方法、字典、单词、固实块、线程和时间筛选统一使用官方 Select 下拉框，文件右键菜单使用官方 ContextMenu/PopupMenu，文件表使用官方 Scrollbar，经典压缩窗口使用官方 Tabs、GroupBox、Radio 和 Checkbox，注释使用官方多行 Textarea。
-- 主题色可在设置页通过官方 ColorPicker 自定义，默认蓝色；主按钮、动作带、选中态、进度条和状态栏会同步换色，并持久化到设置文件。
+- 设置使用独立选项卡窗口，参考经典归档器分为综合、外观、压缩、文件关联、密码库和关于；主题色可在外观页通过官方 ColorPicker 自定义，默认蓝色，主按钮、动作带、选中态、进度条和状态栏会同步换色，并持久化到设置文件。
 - 独立压缩窗口：轻巧模式为 600×390 的紧凑表单，经典模式为 780×650 的六选项卡布局；窗口独立于主界面，不置顶，轻巧/经典切换时保留全部已填参数。
 - 独立任务进度窗口：压缩、解压和测试任务启动后自动弹出，显示目标路径、当前文件进度、总进度、已用/剩余时间、总大小、已压缩、压缩后、压缩率、文件数、处理速度和暂停、继续、取消、后台；取消需要二次确认，确认后立即停止并清理临时文件，关闭窗口不中断任务。
 - 压缩后端使用 zlib-ng 和新版 ZIP/7Z 编码器，ZIP 按 1 MiB 分块读写并按块检查取消；7Z 通过进度读取器报告当前文件进度。
@@ -17,11 +17,11 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM、ASAR、ZPAQ、LZH/LHA、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA 等 30+ 只读格式适配。
 - ZIP/7Z 归档内浏览、选择性解压、删除/重命名/添加文件，同名添加按替换处理，临时重建后原子替换；可选 `.lumark.bak`。
 - `.001` 原始分卷创建、列表和解压；失败时保留旧卷并清理半成品。
-- 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、记录时间、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI（计算机绑定）、可选主密码、加密导入导出；设置页可查看密码库位置并迁移到自定义文件夹。
+- 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、记录时间、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI（计算机绑定）、可选主密码、加密导入导出；独立设置窗口可查看密码库位置并迁移到自定义文件夹。
 - 解压加密 ZIP/7Z/RAR 时从密码库生成候选密码并在后台逐个验证；主密码锁定时提供解锁入口。
 - 后台任务：归档加载、压缩、解压、测试、编辑、记录密码验证、进度、暂停/继续、取消、状态栏和独立进度窗口。
 - 压缩后可测试归档并在成功时删除源文件。
-- Windows 当前用户经典右键菜单、Send To、单实例、回收站删除、默认应用设置入口和安装/卸载脚本。
+- Windows 当前用户文件关联（ZIP、7Z、RAR 等 14 种压缩格式）、经典右键菜单、Send To、单实例、回收站删除、默认应用设置入口和安装/卸载脚本。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
 
 ## 运行
@@ -46,7 +46,7 @@ cargo test --workspace
 - 密码库候选密码自动解压加密 ZIP/7Z/RAR。
 - 多选、范围选择、历史导航和高级搜索过滤。
 - `gpui-kit::test` 真实窗口测试覆盖虚拟文件行和平铺视图切换。
-- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、任务中心、独立进度窗口、密码库、独立密码编辑窗口、主密码窗口和设置的视觉验收，截图位于 `artifacts/`。
+- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、任务中心、独立进度窗口、密码库、独立密码编辑窗口、主密码窗口、独立设置窗口与文件关联的视觉验收，截图位于 `artifacts/`。
 
 ## 界面结构
 
@@ -57,7 +57,7 @@ cargo test --workspace
 | `app/actions/files.rs` | 导航、选择、搜索、目录树和文件操作 |
 | `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程 |
 | `app/actions/passwords.rs` | 密码即时写入、解锁、主密码和导入导出 |
-| `app/actions/settings.rs` | 主题、默认压缩参数、密码库位置和 Shell 集成 |
+| `app/actions/settings.rs` | 主题、默认压缩参数、密码库位置、文件关联和 Shell 集成 |
 | `app/actions/tasks.rs` | 任务记录、状态文本和任务中心数据维护 |
 | `app/view/chrome.rs` | 标题栏、渐变动作带、导航行、文件夹侧栏、状态栏和模态层 |
 | `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
@@ -66,9 +66,11 @@ cargo test --workspace
 | `app/view/pages/password_list.rs` | 记录列表、搜索、锁定面板和记录行 |
 | `app/view/pages/password_details.rs` | 记录详情和主密码卡片 |
 | `app/view/pages/password_security.rs` | 自动解压与安全操作卡片 |
-| `app/view/pages/settings.rs` | 设置页面和设置行组件 |
 | `app/view/pages/tasks.rs` | 任务中心页面、任务行和状态样式 |
 | `app/view/pages/shared.rs` | 跨页面复用的统计卡片 |
+| `app/view/settings_window.rs` | 独立设置窗口、选项卡框架和窗口生命周期 |
+| `app/view/settings_window_pages.rs` | 综合、外观和关于选项卡 |
+| `app/view/settings_window_tabs.rs` | 压缩、文件关联和密码库选项卡 |
 | `app/view/password_windows.rs` | 独立密码编辑窗口和主密码设置窗口 |
 | `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
 | `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
@@ -115,7 +117,11 @@ cargo test --workspace
 
 ![更改密码库位置对话框](artifacts/ui-vault-location-modal.png)
 
+![独立设置窗口](artifacts/ui-settings-window.png)
+
 ![设置与主题色选择](artifacts/ui-theme-color.png)
+
+![文件关联与 Windows 集成](artifacts/ui-file-association.png)
 
 ## 工作区
 

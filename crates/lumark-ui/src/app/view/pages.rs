@@ -4,6 +4,5 @@ mod password_details;
 mod password_list;
 mod password_security;
 mod passwords;
-mod settings;
 mod shared;
 mod tasks;
