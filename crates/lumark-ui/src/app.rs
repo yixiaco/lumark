@@ -775,6 +775,8 @@ impl LumarkApp {
         let _ = self
             .main_window
             .update(cx, |_, window, _| window.remove_window());
+        // 隐藏宿主已经没有任何可见页面，显式结束进程，避免任务完成后残留后台实例。
+        cx.quit();
     }
 
     /// 后台任务没有可见窗口时显示托盘图标，并把点击转成进度窗口或主窗口。

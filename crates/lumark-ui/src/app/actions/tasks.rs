@@ -6,8 +6,11 @@ impl LumarkApp {
         self.task_records.iter().find(|record| record.id == id)
     }
 
-    /// 把新提交的任务加入任务中心列表。
+    /// 把新提交的任务加入任务中心列表；已存在时保持原记录，避免重复。
     pub(crate) fn record_task_queued(&mut self, id: u64, kind: TaskKind, label: String) {
+        if self.task_records.iter().any(|record| record.id == id) {
+            return;
+        }
         self.task_records.push(TaskRecord {
             id,
             kind,

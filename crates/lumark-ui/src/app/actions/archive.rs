@@ -282,7 +282,7 @@ impl LumarkApp {
         output: PathBuf,
         sources: Vec<PathBuf>,
         options: CompressionOptions,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if sources.is_empty() {
@@ -294,10 +294,16 @@ impl LumarkApp {
             sources,
             options,
         });
+        let label = format!("压缩 {}", output.display());
+        self.record_task_queued(id, TaskKind::Compress, label.clone());
         self.active_task = Some(id);
+        self.active_task_kind = Some(TaskKind::Compress);
+        self.active_task_label = Some(label);
         self.task_progress = None;
         self.show_compress = false;
         self.status = format!("开始压缩：{}", output.display());
+        // 先创建进度窗口，避免短任务在首次轮询前就结束而只看到 100%。
+        self.open_progress_window_for(id, window, cx);
         cx.notify();
     }
 
