@@ -286,6 +286,7 @@ impl LumarkApp {
         output: PathBuf,
         sources: Vec<PathBuf>,
         options: CompressionOptions,
+        shutdown_after: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -309,6 +310,9 @@ impl LumarkApp {
             options,
             sfx_stub,
         });
+        if shutdown_after {
+            self.pending_shutdown_task = Some(id);
+        }
         let label = format!("压缩 {}", output.display());
         self.record_task_queued(id, TaskKind::Compress, label.clone());
         self.active_task = Some(id);

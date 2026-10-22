@@ -6,6 +6,7 @@ pub mod clipboard;
 pub mod drag;
 pub mod icons;
 pub mod ipc;
+pub mod power;
 pub mod shell;
 pub mod tray;
 

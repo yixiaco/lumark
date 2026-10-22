@@ -325,6 +325,8 @@ pub struct LumarkApp {
     compress_delete_source: bool,
     /// 下一次打开压缩窗口时是否默认创建自解压文件。
     compress_sfx: bool,
+    /// 等待完成后关机的压缩任务。
+    pending_shutdown_task: Option<u64>,
     compress_path_mode: PathMode,
     compress_tab: u8,
     #[allow(dead_code)]
@@ -590,6 +592,7 @@ impl LumarkApp {
             compress_test_after: false,
             compress_delete_source: false,
             compress_sfx: false,
+            pending_shutdown_task: None,
             compress_path_mode: PathMode::Relative,
             compress_tab: 0,
             compress_classic: false,

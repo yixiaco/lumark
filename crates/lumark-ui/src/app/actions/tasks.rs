@@ -451,11 +451,31 @@ impl LumarkApp {
                                     app.selected_password = None;
                                     app.show_save_prompt = true;
                                 }
+                                // 关机计划只在这个压缩任务真正成功后执行；失败
+                                // 或取消在各自分支里清除，不会关机。
+                                if app.pending_shutdown_task == Some(id) {
+                                    app.pending_shutdown_task = None;
+                                    let delay = platform::power::SHUTDOWN_DELAY_SECONDS;
+                                    let done = app.status.clone();
+                                    match platform::power::schedule_shutdown(delay) {
+                                        Ok(()) => {
+                                            app.status = format!(
+                                                "{done}；系统将在 {delay} 秒后关机（shutdown /a 可取消）"
+                                            );
+                                        }
+                                        Err(error) => {
+                                            app.status = format!("{done}；安排关机失败：{error}");
+                                        }
+                                    }
+                                }
                             }
                             TaskEvent::Failed { id, message } => {
                                 app.record_task_failed(id, message.clone());
                                 app.pending_extract_saves.remove(&id);
                                 app.pending_extract_open_dirs.remove(&id);
+                                if app.pending_shutdown_task == Some(id) {
+                                    app.pending_shutdown_task = None;
+                                }
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
                                     app.clear_password_attempt(id);
@@ -481,6 +501,9 @@ impl LumarkApp {
                                 app.record_task_cancelled(id);
                                 app.pending_extract_saves.remove(&id);
                                 app.pending_extract_open_dirs.remove(&id);
+                                if app.pending_shutdown_task == Some(id) {
+                                    app.pending_shutdown_task = None;
+                                }
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
                                     app.clear_password_attempt(id);

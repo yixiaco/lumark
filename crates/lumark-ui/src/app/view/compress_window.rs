@@ -65,6 +65,8 @@ pub(crate) struct CompressWindowView {
     test_after: bool,
     delete_source: bool,
     sfx: bool,
+    /// 压缩成功后安排系统关机；每次打开窗口都从关闭状态开始。
+    shutdown_after: bool,
     path_mode: PathMode,
     classic: bool,
     tab: u8,
@@ -349,6 +351,7 @@ impl CompressWindowView {
             test_after: init.test_after,
             delete_source: init.delete_source,
             sfx: init.sfx,
+            shutdown_after: false,
             path_mode: init.path_mode,
             classic: init.classic,
             tab: 0,
@@ -539,9 +542,10 @@ impl CompressWindowView {
             ..Default::default()
         };
         let sources = self.sources.clone();
+        let shutdown_after = self.shutdown_after;
         let app = self.app.clone();
         app.update(cx, |app, cx| {
-            app.start_compress_from_options(output, sources, options, window, cx);
+            app.start_compress_from_options(output, sources, options, shutdown_after, window, cx);
         });
         window.remove_window();
     }
@@ -737,6 +741,13 @@ impl CompressWindowView {
                                 })),
                         )
                     })
+                    .child(check_button(
+                        cx,
+                        "compress-window-shutdown",
+                        "完成后关闭计算机",
+                        self.shutdown_after,
+                        |this, value, _| this.shutdown_after = value,
+                    ))
                     .when(self.format == ArchiveFormat::SevenZip, |this| {
                         this.child(check_button(
                             cx,
@@ -922,7 +933,14 @@ impl CompressWindowView {
                                     this.set_sfx(*value, window, cx);
                                 })),
                         )
-                    }),
+                    })
+                    .child(check_button(
+                        cx,
+                        "classic-shutdown",
+                        "完成后关闭计算机",
+                        self.shutdown_after,
+                        |this, value, _| this.shutdown_after = value,
+                    )),
             )
             .child(
                 h_flex()

@@ -304,6 +304,10 @@ mod ui_tests {
                         window.find("compress-window-sfx").visible(),
                         "轻巧模式未渲染自解压选项"
                     );
+                    assert!(
+                        window.find("compress-window-shutdown").visible(),
+                        "轻巧模式未渲染压缩后关机选项"
+                    );
 
                     let select = window.find("compress-format-select");
                     assert!(select.visible(), "压缩格式下拉未渲染");
@@ -332,6 +336,10 @@ mod ui_tests {
                     assert!(
                         window.find("classic-sfx").visible(),
                         "经典模式未渲染自解压选项"
+                    );
+                    assert!(
+                        window.find("classic-shutdown").visible(),
+                        "经典模式未渲染压缩后关机选项"
                     );
 
                     window.click(("compress-window-tab", 3usize), cx);
