@@ -1352,13 +1352,28 @@ impl ArchiveService {
                     inner: File::create(&destination)?,
                     cancel: &options.cancel,
                 };
-                if let Err(error) = io::copy(input, &mut output) {
-                    drop(output);
-                    let _ = fs::remove_file(&destination);
-                    return Err(sevenz_rust2::Error::Other(error.to_string().into()));
-                }
+                // 单文件内部按块上报，避免大条目在解压时进度条停住。
+                let base = report.bytes;
+                let current = name.clone();
+                let entry_bytes =
+                    match copy_entry_with_progress(input, &mut output, &options.cancel, |done| {
+                        progress(ExtractProgress {
+                            current: current.clone(),
+                            bytes_done: base + done,
+                            bytes_total,
+                            entries_done: report.files,
+                            entries_total,
+                        });
+                    }) {
+                        Ok(bytes) => bytes,
+                        Err(error) => {
+                            drop(output);
+                            let _ = fs::remove_file(&destination);
+                            return Err(sevenz_rust2::Error::Other(error.to_string().into()));
+                        }
+                    };
                 report.files += 1;
-                report.bytes += entry.size();
+                report.bytes += entry_bytes;
                 progress(ExtractProgress {
                     current: name,
                     bytes_done: report.bytes,
@@ -2613,6 +2628,35 @@ fn copy_cancellable<R: Read + ?Sized, W: Write>(
     Ok(total)
 }
 
+/// 边复制边按 100 毫秒节流回调已复制字节。
+///
+/// `for_each_entries` 只在条目结束时给一次回调，单个大文件解压时进度条会
+/// 长时间停在起点；这里按块上报，让解压进度和压缩进度一样可见。
+fn copy_entry_with_progress<R: Read + ?Sized, W: Write>(
+    input: &mut R,
+    output: &mut W,
+    cancel: &Option<Arc<AtomicBool>>,
+    mut progress: impl FnMut(u64),
+) -> Result<u64, ArchiveError> {
+    let mut buffer = vec![0u8; 256 * 1024];
+    let mut total = 0u64;
+    let mut last_report = Instant::now() - Duration::from_secs(1);
+    loop {
+        ensure_not_cancelled(cancel)?;
+        let read = input.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        output.write_all(&buffer[..read])?;
+        total += read as u64;
+        if last_report.elapsed() >= Duration::from_millis(100) {
+            last_report = Instant::now();
+            progress(total);
+        }
+    }
+    Ok(total)
+}
+
 fn drain_seven_zip_entry(
     input: &mut dyn Read,
     cancel: &Option<Arc<AtomicBool>>,
@@ -3023,5 +3067,45 @@ mod solid_block_tests {
         let blocks = solid_blocks(&plan, DEFAULT_SOLID_BLOCK_BYTES, 4096);
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use std::io::{Read, sink};
+    use std::time::Duration;
+
+    /// 慢速读取器：每次只返回一小块并停顿，模拟大文件解压的分块读取。
+    struct SlowReader {
+        remaining: usize,
+    }
+
+    impl Read for SlowReader {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            std::thread::sleep(Duration::from_millis(30));
+            let size = buffer.len().min(self.remaining).min(1024);
+            if size == 0 {
+                return Ok(0);
+            }
+            self.remaining -= size;
+            Ok(size)
+        }
+    }
+
+    /// 单个大条目在复制过程中应多次回调进度，而不是只在结束时回调一次。
+    #[test]
+    fn copy_with_progress_reports_inside_single_file() {
+        let mut input = SlowReader {
+            remaining: 16 * 1024,
+        };
+        let mut output = sink();
+        let mut reports = Vec::new();
+        let total = super::copy_entry_with_progress(&mut input, &mut output, &None, |done| {
+            reports.push(done);
+        })
+        .unwrap();
+        assert_eq!(total, 16 * 1024);
+        assert!(reports.len() >= 2, "单文件内部应多次上报进度：{reports:?}");
+        assert!(reports.iter().all(|done| *done > 0 && *done <= total));
     }
 }
