@@ -1109,7 +1109,12 @@ impl ArchiveService {
             cancel: &options.cancel,
         };
         let mut input = data.as_slice();
-        let bytes = match copy_cancellable(&mut input, &mut output, &options.cancel) {
+        let bytes = match copy_cancellable_limited(
+            &mut input,
+            &mut output,
+            &options.cancel,
+            options.budget.max_bytes,
+        ) {
             Ok(bytes) => bytes,
             Err(error) => {
                 drop(output);
@@ -1258,18 +1263,27 @@ impl ArchiveService {
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent)?;
             }
+            ensure_budget(options, &report, size)?;
             let mut entry = match options.password.as_deref() {
                 Some(password) => archive.by_index_decrypt(index, password.as_bytes())?,
                 None => archive.by_index(index)?,
             };
             let mut output = File::create(&destination)?;
-            if let Err(error) = copy_cancellable(&mut entry, &mut output, &options.cancel) {
-                drop(output);
-                let _ = fs::remove_file(&destination);
-                return Err(error);
-            }
+            let copied = match copy_cancellable_limited(
+                &mut entry,
+                &mut output,
+                &options.cancel,
+                options.budget.max_bytes.saturating_sub(report.bytes),
+            ) {
+                Ok(copied) => copied,
+                Err(error) => {
+                    drop(output);
+                    let _ = fs::remove_file(&destination);
+                    return Err(error);
+                }
+            };
             report.files += 1;
-            report.bytes += size;
+            report.bytes += copied;
             progress(ExtractProgress {
                 current: name,
                 bytes_done: report.bytes,
@@ -1300,6 +1314,9 @@ impl ArchiveService {
         let bytes_total: u64 = reader.archive().files.iter().map(|file| file.size()).sum();
         let mut report = ExtractReport::default();
         fs::create_dir_all(&options.output_dir)?;
+        // 预算错误在 sevenz 回调里只能变成字符串错误，先记下原文，循环结束后
+        // 还原成 BudgetExceeded，让界面能显示统一的“超出资源预算”提示。
+        let budget_error = Rc::new(RefCell::new(None::<String>));
         reader
             .for_each_entries(|entry, input| {
                 if is_cancelled(&options.cancel) {
@@ -1348,6 +1365,10 @@ impl ArchiveService {
                 if let Some(parent) = destination.parent() {
                     fs::create_dir_all(parent)?;
                 }
+                if let Err(error) = ensure_budget(options, &report, entry.size()) {
+                    *budget_error.borrow_mut() = Some(error.to_string());
+                    return Err(sevenz_rust2::Error::Other(error.to_string().into()));
+                }
                 let mut output = CancelWriter {
                     inner: File::create(&destination)?,
                     cancel: &options.cancel,
@@ -1355,8 +1376,13 @@ impl ArchiveService {
                 // 单文件内部按块上报，避免大条目在解压时进度条停住。
                 let base = report.bytes;
                 let current = name.clone();
-                let entry_bytes =
-                    match copy_entry_with_progress(input, &mut output, &options.cancel, |done| {
+                let remaining = options.budget.max_bytes.saturating_sub(report.bytes);
+                let entry_bytes = match copy_entry_with_progress(
+                    input,
+                    &mut output,
+                    &options.cancel,
+                    remaining,
+                    |done| {
                         progress(ExtractProgress {
                             current: current.clone(),
                             bytes_done: base + done,
@@ -1364,14 +1390,18 @@ impl ArchiveService {
                             entries_done: report.files,
                             entries_total,
                         });
-                    }) {
-                        Ok(bytes) => bytes,
-                        Err(error) => {
-                            drop(output);
-                            let _ = fs::remove_file(&destination);
-                            return Err(sevenz_rust2::Error::Other(error.to_string().into()));
+                    },
+                ) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        drop(output);
+                        let _ = fs::remove_file(&destination);
+                        if let ArchiveError::BudgetExceeded(message) = &error {
+                            *budget_error.borrow_mut() = Some(message.clone());
                         }
-                    };
+                        return Err(sevenz_rust2::Error::Other(error.to_string().into()));
+                    }
+                };
                 report.files += 1;
                 report.bytes += entry_bytes;
                 progress(ExtractProgress {
@@ -1383,7 +1413,10 @@ impl ArchiveService {
                 });
                 Ok(true)
             })
-            .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+            .map_err(|error| match budget_error.borrow().clone() {
+                Some(message) => ArchiveError::BudgetExceeded(message),
+                None => ArchiveError::SevenZ(error.to_string()),
+            })?;
         Ok(report)
     }
 
@@ -1433,14 +1466,23 @@ impl ArchiveService {
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent)?;
             }
+            ensure_budget(options, &report, entry.size())?;
             let mut output = File::create(&destination)?;
-            if let Err(error) = copy_cancellable(&mut entry, &mut output, &options.cancel) {
-                drop(output);
-                let _ = fs::remove_file(&destination);
-                return Err(error);
-            }
+            let copied = match copy_cancellable_limited(
+                &mut entry,
+                &mut output,
+                &options.cancel,
+                options.budget.max_bytes.saturating_sub(report.bytes),
+            ) {
+                Ok(copied) => copied,
+                Err(error) => {
+                    drop(output);
+                    let _ = fs::remove_file(&destination);
+                    return Err(error);
+                }
+            };
             report.files += 1;
-            report.bytes += entry.size();
+            report.bytes += copied;
             progress(ExtractProgress {
                 current: path_string,
                 bytes_done: report.bytes,
@@ -1490,7 +1532,12 @@ impl ArchiveService {
         fs::create_dir_all(&options.output_dir)?;
         let mut input = decompress_reader(path, format)?;
         let mut output = File::create(&destination)?;
-        let bytes = match copy_cancellable(&mut input, &mut output, &options.cancel) {
+        let bytes = match copy_cancellable_limited(
+            &mut input,
+            &mut output,
+            &options.cancel,
+            options.budget.max_bytes,
+        ) {
             Ok(bytes) => bytes,
             Err(error) => {
                 drop(output);
@@ -2631,11 +2678,13 @@ fn copy_cancellable<R: Read + ?Sized, W: Write>(
 /// 边复制边按 100 毫秒节流回调已复制字节。
 ///
 /// `for_each_entries` 只在条目结束时给一次回调，单个大文件解压时进度条会
-/// 长时间停在起点；这里按块上报，让解压进度和压缩进度一样可见。
+/// 长时间停在起点；这里按块上报，让解压进度和压缩进度一样可见。`remaining`
+/// 是本次条目还能写出的字节数，超出时返回资源预算错误。
 fn copy_entry_with_progress<R: Read + ?Sized, W: Write>(
     input: &mut R,
     output: &mut W,
     cancel: &Option<Arc<AtomicBool>>,
+    remaining: u64,
     mut progress: impl FnMut(u64),
 ) -> Result<u64, ArchiveError> {
     let mut buffer = vec![0u8; 256 * 1024];
@@ -2647,12 +2696,68 @@ fn copy_entry_with_progress<R: Read + ?Sized, W: Write>(
         if read == 0 {
             break;
         }
+        if total.saturating_add(read as u64) > remaining {
+            return Err(ArchiveError::BudgetExceeded(format!(
+                "解压数据超过剩余预算 {remaining} 字节"
+            )));
+        }
         output.write_all(&buffer[..read])?;
         total += read as u64;
         if last_report.elapsed() >= Duration::from_millis(100) {
             last_report = Instant::now();
             progress(total);
         }
+    }
+    Ok(total)
+}
+
+/// 解压预算检查：条目数和累计字节。
+///
+/// 条目大小来自归档元数据，可能小于实际解压量；真正的写入上限由
+/// `copy_cancellable_limited` 在复制时兜底。
+fn ensure_budget(
+    options: &ExtractionOptions,
+    report: &ExtractReport,
+    next_bytes: u64,
+) -> Result<(), ArchiveError> {
+    let budget = &options.budget;
+    if report.files >= budget.max_entries {
+        return Err(ArchiveError::BudgetExceeded(format!(
+            "条目数超过上限 {}",
+            budget.max_entries
+        )));
+    }
+    if report.bytes.saturating_add(next_bytes) > budget.max_bytes {
+        return Err(ArchiveError::BudgetExceeded(format!(
+            "解压总量将超过 {} 字节上限",
+            budget.max_bytes
+        )));
+    }
+    Ok(())
+}
+
+/// 在剩余预算内复制数据；超出时立即失败，避免先写满磁盘再报错。
+fn copy_cancellable_limited<R: Read + ?Sized, W: Write>(
+    input: &mut R,
+    output: &mut W,
+    cancel: &Option<Arc<AtomicBool>>,
+    remaining: u64,
+) -> Result<u64, ArchiveError> {
+    let mut buffer = vec![0u8; 64 * 1024];
+    let mut total = 0u64;
+    loop {
+        ensure_not_cancelled(cancel)?;
+        let read = input.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        if total.saturating_add(read as u64) > remaining {
+            return Err(ArchiveError::BudgetExceeded(format!(
+                "解压数据超过剩余预算 {remaining} 字节"
+            )));
+        }
+        output.write_all(&buffer[..read])?;
+        total += read as u64;
     }
     Ok(total)
 }
@@ -3100,10 +3205,11 @@ mod progress_tests {
         };
         let mut output = sink();
         let mut reports = Vec::new();
-        let total = super::copy_entry_with_progress(&mut input, &mut output, &None, |done| {
-            reports.push(done);
-        })
-        .unwrap();
+        let total =
+            super::copy_entry_with_progress(&mut input, &mut output, &None, u64::MAX, |done| {
+                reports.push(done);
+            })
+            .unwrap();
         assert_eq!(total, 16 * 1024);
         assert!(reports.len() >= 2, "单文件内部应多次上报进度：{reports:?}");
         assert!(reports.iter().all(|done| *done > 0 && *done <= total));

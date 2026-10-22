@@ -329,6 +329,27 @@ impl Default for CompressionOptions {
     }
 }
 
+/// 单次解压的资源预算，用于识别压缩炸弹。
+///
+/// 默认值只拦截极端情况（总量 128 GiB、条目 100 万），正常备份不会被误伤；
+/// 调用方可以按磁盘剩余空间或业务场景收紧。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExtractionBudget {
+    /// 单次解压允许写出的最大总字节数。
+    pub max_bytes: u64,
+    /// 单次解压允许处理的最大条目数。
+    pub max_entries: usize,
+}
+
+impl Default for ExtractionBudget {
+    fn default() -> Self {
+        Self {
+            max_bytes: 128 * 1024 * 1024 * 1024,
+            max_entries: 1_000_000,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ExtractionOptions {
     pub output_dir: std::path::PathBuf,
@@ -338,6 +359,8 @@ pub struct ExtractionOptions {
     pub password: Option<Zeroizing<String>>,
     pub preserve_paths: bool,
     pub cancel: Option<Arc<AtomicBool>>,
+    /// 压缩炸弹预算；默认值足够宽松，可按需收紧。
+    pub budget: ExtractionBudget,
 }
 
 #[derive(Debug, Clone, Default)]

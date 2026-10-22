@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use lumark_archive::{
-    ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, EditRoot, ExtractionOptions,
-    OverwritePolicy, UpdateMode, safe_join,
+    ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, EditRoot, ExtractionBudget,
+    ExtractionOptions, OverwritePolicy, UpdateMode, safe_join,
 };
 use tempfile::tempdir;
 
@@ -1411,4 +1411,108 @@ fn create_sfx_rejects_unsupported_options() {
         "缺少运行时模块时应失败"
     );
     assert!(!output.exists(), "失败时不应留下半成品");
+}
+
+/// 组装一个超出预算的归档和对应解压选项，验证预算拦截。
+fn extract_with_small_budget(
+    archive: &std::path::Path,
+    output_dir: &std::path::Path,
+) -> Result<lumark_archive::ExtractReport, lumark_archive::ArchiveError> {
+    ArchiveService::extract(
+        archive,
+        &ExtractionOptions {
+            output_dir: output_dir.to_path_buf(),
+            overwrite: true,
+            budget: ExtractionBudget {
+                max_bytes: 1024 * 1024,
+                max_entries: 10,
+            },
+            ..Default::default()
+        },
+        |_| {},
+    )
+}
+
+/// 验证解压预算能拦截 ZIP 炸弹，并在写出前失败。
+#[test]
+fn zip_extraction_budget_stops_bomb() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("zeros.bin");
+    fs::write(&source, vec![0u8; 4 * 1024 * 1024]).unwrap();
+    let archive = dir.path().join("bomb.zip");
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let output_dir = dir.path().join("out");
+    let result = extract_with_small_budget(&archive, &output_dir);
+    assert!(
+        matches!(result, Err(lumark_archive::ArchiveError::BudgetExceeded(_))),
+        "{result:?}"
+    );
+    assert!(
+        !output_dir.join("zeros.bin").exists(),
+        "超限不应留下部分文件"
+    );
+}
+
+/// 验证解压预算能拦截 7Z 炸弹。
+#[test]
+fn seven_zip_extraction_budget_stops_bomb() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("zeros.bin");
+    fs::write(&source, vec![0u8; 4 * 1024 * 1024]).unwrap();
+    let archive = dir.path().join("bomb.7z");
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::SevenZip,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let output_dir = dir.path().join("out");
+    let result = extract_with_small_budget(&archive, &output_dir);
+    assert!(
+        matches!(result, Err(lumark_archive::ArchiveError::BudgetExceeded(_))),
+        "{result:?}"
+    );
+    assert!(
+        !output_dir.join("zeros.bin").exists(),
+        "超限不应留下部分文件"
+    );
+}
+
+/// 验证单文件流在复制过程中按预算中止，并清理半成品。
+#[test]
+fn stream_extraction_budget_stops_bomb() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("zeros.bin");
+    fs::write(&source, vec![0u8; 4 * 1024 * 1024]).unwrap();
+    let archive = dir.path().join("bomb.gz");
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::Gzip,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let output_dir = dir.path().join("out");
+    let result = extract_with_small_budget(&archive, &output_dir);
+    assert!(
+        matches!(result, Err(lumark_archive::ArchiveError::BudgetExceeded(_))),
+        "{result:?}"
+    );
+    assert!(!output_dir.join("bomb").exists(), "超限不应留下部分文件");
 }

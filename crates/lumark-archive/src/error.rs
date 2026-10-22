@@ -20,6 +20,9 @@ pub enum ArchiveError {
     SevenZ(String),
     #[error("任务已取消")]
     Cancelled,
+    /// 解压超出资源预算，通常是压缩炸弹或异常巨大的归档。
+    #[error("解压超出资源预算：{0}")]
+    BudgetExceeded(String),
     /// 归档操作内部 panic 被上层捕获，用于把“线程直接消失”变成可见的失败结果。
     #[error("任务异常中止：{0}")]
     Panicked(String),
