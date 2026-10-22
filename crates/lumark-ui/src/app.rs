@@ -1599,6 +1599,58 @@ mod ui_tests {
     }
 
     #[gpui_kit::test]
+    /// 验证文件表最上方的“..”行能返回上一级，并在盘符根目录隐藏。
+    fn parent_row_navigates_up_and_hides_at_root(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        std::fs::write(directory.path().join("readme.txt"), b"lumark").unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) =
+            VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        let parent = directory.path().parent().unwrap().to_path_buf();
+        let root = directory.path().ancestors().last().unwrap().to_path_buf();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            assert!(window.find("parent-entry-row").visible());
+            window.click("parent-entry-row", cx);
+            assert_eq!(
+                app.read(cx).browser.location,
+                BrowserLocation::FileSystem(parent.clone())
+            );
+
+            window.click("view-toggle", cx);
+            window.draw(cx).clear(cx);
+            assert!(window.find("parent-entry-tile").visible());
+            window.click("parent-entry-tile", cx);
+            assert_eq!(
+                app.read(cx).browser.location,
+                BrowserLocation::FileSystem(parent.parent().unwrap().to_path_buf())
+            );
+
+            window.click("view-toggle", cx);
+            app.update(cx, |app, cx| {
+                app.browser.navigate(&root).unwrap();
+                app.search_results = None;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            assert!(window.try_find("parent-entry-row").is_none());
+            assert!(window.try_find("parent-entry-tile").is_none());
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
     /// 验证密码列表先消费滚轮，外层页面不会抢先滚动。
     fn password_list_scrolls_before_page(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);

@@ -239,6 +239,48 @@ fn file_menu_kind(location: &BrowserLocation, entry: &BrowserEntry) -> FileMenuK
     }
 }
 
+/// 判断文件表最上方是否需要显示“..”行。
+///
+/// 搜索结果不是目录列表，不插入返回行；已经位于根目录（`can_go_up`
+/// 为假）时也不插入，避免出现点击后没有反应的条目。
+fn shows_parent_row(app: &LumarkApp) -> bool {
+    app.search_results.is_none() && app.browser.can_go_up()
+}
+
+/// 渲染空目录或空搜索结果的状态面板。
+///
+/// 非根目录的空文件夹仍会先渲染“..”行，用户可以从该面板上方返回上一级。
+fn empty_state(cx: &Context<LumarkApp>, search_active: bool) -> gpui_kit::Div {
+    v_flex()
+        .flex_1()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .p_8()
+        .child(
+            div()
+                .size(px(52.))
+                .rounded_full()
+                .bg(cx.theme().muted)
+                .text_color(cx.theme().muted_foreground)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(AppIcon::FolderOpen.element(24.)),
+        )
+        .child(div().font_semibold().child(if search_active {
+            "没有匹配的项目"
+        } else {
+            "此文件夹为空"
+        }))
+        .child(
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("拖入文件即可开始压缩，或切换到其他位置。"),
+        )
+}
+
 impl LumarkApp {
     /// 渲染主文件表，并在搜索结果激活时显示一条结果摘要。
     ///
@@ -252,6 +294,8 @@ impl LumarkApp {
     ) -> impl IntoElement {
         let entry_count = self.displayed_count();
         let search_active = self.search_results.is_some();
+        let show_parent = shows_parent_row(self);
+        let row_count = entry_count + usize::from(show_parent);
         let window_width = window
             .inner_window_bounds()
             .get_bounds()
@@ -274,9 +318,9 @@ impl LumarkApp {
             1
         };
         let virtual_rows = if tile_view {
-            entry_count.div_ceil(tile_columns)
+            row_count.div_ceil(tile_columns)
         } else {
-            entry_count
+            row_count
         };
         let row_height = if tile_view { px(132.) } else { px(31.) };
         let item_sizes = Rc::new(vec![
@@ -411,36 +455,28 @@ impl LumarkApp {
                     }),
             )
             .when(entry_count == 0, |this| {
-                this.child(
-                    v_flex()
-                        .flex_1()
-                        .items_center()
-                        .justify_center()
-                        .gap_2()
-                        .p_8()
-                        .child(
-                            div()
-                                .size(px(52.))
-                                .rounded_full()
-                                .bg(cx.theme().muted)
-                                .text_color(cx.theme().muted_foreground)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(AppIcon::FolderOpen.element(24.)),
+                this.when(show_parent, |this| {
+                    let parent = if tile_view {
+                        h_flex()
+                            .w_full()
+                            .px_3()
+                            .child(render_parent_tile(cx))
+                            .into_any_element()
+                    } else {
+                        render_parent_row(
+                            cx,
+                            row_height,
+                            size_width,
+                            modified_width,
+                            kind_width,
+                            archive_columns,
+                            inside_archive,
                         )
-                        .child(div().font_semibold().child(if search_active {
-                            "没有匹配的项目"
-                        } else {
-                            "此文件夹为空"
-                        }))
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("拖入文件即可开始压缩，或切换到其他位置。"),
-                        ),
-                )
+                        .into_any_element()
+                    };
+                    this.child(parent)
+                })
+                .child(empty_state(cx, search_active))
             })
             .when(entry_count > 0, |this| {
                 let scroll = self.file_list_scroll.clone();
@@ -674,6 +710,78 @@ impl LumarkApp {
     }
 }
 
+/// 渲染文件表最上方用于返回上一级的“..”行。
+///
+/// 该行只是导航入口，不进入选择集，也不参与拖出、复制、重命名或删除，
+/// 因此不会把目录占位符当成真实条目。单击立即返回上一级；双击的第二下
+/// 会落在重新渲染后的同一行上，忽略它可以避免一次跳两级。
+#[allow(clippy::too_many_arguments)]
+fn render_parent_row(
+    cx: &mut Context<LumarkApp>,
+    row_height: gpui_kit::Pixels,
+    size_width: f32,
+    modified_width: f32,
+    kind_width: f32,
+    columns: ArchiveColumns,
+    inside_archive: bool,
+) -> impl IntoElement {
+    h_flex()
+        .id("parent-entry-row")
+        .test_support()
+        .w_full()
+        .h(row_height)
+        .gap_2()
+        .px_3()
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .cursor_pointer()
+        .hover(|style| style.bg(cx.theme().list_hover))
+        .child(
+            div()
+                .w(px(22.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(cx.theme().warning_foreground)
+                .child(AppIcon::FolderOpen.element(15.)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_sm()
+                .child(".."),
+        )
+        .child(muted_cell(cx, size_width, "—"))
+        .when(columns.compressed, |this| {
+            this.child(muted_cell(cx, COMPRESSED_WIDTH, "—"))
+        })
+        .child(muted_cell(cx, modified_width, "—"))
+        .when(columns.algorithm, |this| {
+            this.child(muted_cell(cx, ALGORITHM_WIDTH, "—"))
+        })
+        .when(columns.crc32, |this| {
+            this.child(muted_cell(cx, CRC_WIDTH, "—"))
+        })
+        .when(columns.path, |this| {
+            this.child(muted_cell(cx, PATH_WIDTH, "—"))
+        })
+        .when(!inside_archive, |this| {
+            this.child(muted_cell(cx, kind_width, "文件夹"))
+        })
+        .on_click(
+            cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {
+                if event.click_count() == 1 {
+                    this.navigate_up(window, cx);
+                    cx.notify();
+                }
+            }),
+        )
+}
+
 /// 渲染详情列表中的一个紧凑虚拟行。
 #[allow(clippy::too_many_arguments)]
 fn render_file_row(
@@ -688,7 +796,20 @@ fn render_file_row(
     inside_archive: bool,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
-    let Some(entry) = app.displayed_entry_at(virtual_index) else {
+    let parent_offset = usize::from(shows_parent_row(app));
+    if parent_offset == 1 && virtual_index == 0 {
+        return render_parent_row(
+            cx,
+            row_height,
+            size_width,
+            modified_width,
+            kind_width,
+            columns,
+            inside_archive,
+        )
+        .into_any_element();
+    }
+    let Some(entry) = app.displayed_entry_at(virtual_index - parent_offset) else {
         return h_flex()
             .id(("empty-file-row", virtual_index))
             .into_any_element();
@@ -802,7 +923,7 @@ fn render_file_row(
                 }),
         )
         .when(columns.compressed, |this| {
-            this.child(archive_cell(cx, COMPRESSED_WIDTH, compressed))
+            this.child(muted_cell(cx, COMPRESSED_WIDTH, compressed))
         })
         .child(
             div()
@@ -814,13 +935,13 @@ fn render_file_row(
                 .child(modified),
         )
         .when(columns.algorithm, |this| {
-            this.child(archive_cell(cx, ALGORITHM_WIDTH, algorithm))
+            this.child(muted_cell(cx, ALGORITHM_WIDTH, algorithm))
         })
         .when(columns.crc32, |this| {
-            this.child(archive_cell(cx, CRC_WIDTH, crc32))
+            this.child(muted_cell(cx, CRC_WIDTH, crc32))
         })
         .when(columns.path, |this| {
-            this.child(archive_cell(cx, PATH_WIDTH, inner_path.clone()))
+            this.child(muted_cell(cx, PATH_WIDTH, inner_path.clone()))
         })
         .when(!inside_archive, |this| {
             this.child(
@@ -878,6 +999,52 @@ fn render_file_row(
         .into_any_element()
 }
 
+/// 渲染平铺视图中的“..”卡片。
+///
+/// 与列表行一致，这张卡片只负责返回上一级，不进入选择集，也不参与拖出、
+/// 复制、重命名或删除。
+fn render_parent_tile(cx: &mut Context<LumarkApp>) -> impl IntoElement {
+    v_flex()
+        .id("parent-entry-tile")
+        .test_support()
+        .w(px(120.))
+        .h(px(120.))
+        .p_2()
+        .gap_2()
+        .items_center()
+        .rounded_lg()
+        .cursor_pointer()
+        .hover(|style| style.bg(cx.theme().list_hover))
+        .child(
+            div()
+                .flex_1()
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(cx.theme().warning_foreground)
+                .child(AppIcon::FolderOpen.element(48.)),
+        )
+        .child(
+            div()
+                .id("parent-entry-tile-name")
+                .w_full()
+                .text_sm()
+                .text_center()
+                .whitespace_normal()
+                .line_clamp(2)
+                .child(".."),
+        )
+        .on_click(
+            cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {
+                if event.click_count() == 1 {
+                    this.navigate_up(window, cx);
+                    cx.notify();
+                }
+            }),
+        )
+}
+
 /// 渲染一行平铺项目，每项对应文件或文件夹。
 fn render_tile_row(
     app: &mut LumarkApp,
@@ -887,8 +1054,10 @@ fn render_tile_row(
     row_height: gpui_kit::Pixels,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
+    let parent_offset = usize::from(shows_parent_row(app));
+    let row_count = app.displayed_count() + parent_offset;
     let start = virtual_index * tile_columns;
-    let end = (start + tile_columns).min(app.displayed_count());
+    let end = (start + tile_columns).min(row_count);
     h_flex()
         .id(("tile-row", virtual_index))
         .w_full()
@@ -896,7 +1065,10 @@ fn render_tile_row(
         .gap_2()
         .px_3()
         .children((start..end).filter_map(|index| {
-            let entry = app.displayed_entry_at(index)?;
+            if parent_offset == 1 && index == 0 {
+                return Some(render_parent_tile(cx).into_any_element());
+            }
+            let entry = app.displayed_entry_at(index - parent_offset)?;
             let id = entry.id.clone();
             let mouse_id = id.clone();
             let double_id = id.clone();
@@ -994,7 +1166,8 @@ fn render_tile_row(
                             preview
                         })
                     })
-                    .context_menu(file_context_menu(cx.entity(), menu_kind)),
+                    .context_menu(file_context_menu(cx.entity(), menu_kind))
+                    .into_any_element(),
             )
         }))
 }
@@ -1260,8 +1433,10 @@ fn file_context_menu(
     }
 }
 
-/// 渲染归档附加列中的一个只读文本单元。
-fn archive_cell(cx: &Context<LumarkApp>, width: f32, text: String) -> gpui_kit::Div {
+/// 渲染文件行中一个固定宽度的只读文本单元。
+///
+/// 归档附加列和“..”行都使用它，保证列宽和次要文字颜色与真实条目一致。
+fn muted_cell(cx: &Context<LumarkApp>, width: f32, text: impl Into<String>) -> gpui_kit::Div {
     div()
         .w(px(width))
         .flex_shrink_0()
@@ -1269,7 +1444,7 @@ fn archive_cell(cx: &Context<LumarkApp>, width: f32, text: String) -> gpui_kit::
         .whitespace_nowrap()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(text)
+        .child(text.into())
 }
 
 /// 创建一个带图标、点击后调用应用动作的官方菜单项。

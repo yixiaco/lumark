@@ -188,7 +188,18 @@ impl BrowserModel {
         }
     }
 
+    /// 判断当前位置是否还能返回上一级。
+    ///
+    /// 文件系统以是否存在父目录为准；归档内任意子目录都能回到归档根目录，
+    /// 而归档根目录只有在压缩包本身位于某个目录下时才能跳出归档。
+    pub fn can_go_up(&self) -> bool {
+        has_parent(&self.location)
+    }
+
     pub fn go_parent(&mut self) -> Result<(), BrowserError> {
+        if !self.can_go_up() {
+            return Ok(());
+        }
         match &self.location {
             BrowserLocation::FileSystem(path) => {
                 let Some(parent) = path.parent() else {
@@ -199,11 +210,10 @@ impl BrowserModel {
             BrowserLocation::Archive { archive, inner } => {
                 let archive = archive.clone();
                 if inner.is_empty() {
-                    let parent = archive
-                        .parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or_else(|| PathBuf::from("."));
-                    self.navigate(parent)
+                    let Some(parent) = archive.parent() else {
+                        return Ok(());
+                    };
+                    self.navigate(parent.to_path_buf())
                 } else {
                     let next_inner = inner
                         .rsplit_once('/')
@@ -456,6 +466,28 @@ impl BrowserModel {
     }
 }
 
+/// 判断浏览位置是否存在可导航的上一级。
+///
+/// 归档内部总是能回到上一层的归档目录；归档根目录则取决于压缩包所在的
+/// 文件夹，离开归档后浏览的是文件系统位置。
+fn has_parent(location: &BrowserLocation) -> bool {
+    match location {
+        BrowserLocation::FileSystem(path) => navigable_parent(path).is_some(),
+        BrowserLocation::Archive { archive, inner } => {
+            !inner.is_empty() || navigable_parent(archive).is_some()
+        }
+    }
+}
+
+/// 返回非空的父目录。
+///
+/// 相对路径（例如仅传文件名打开归档）的父目录是空路径，读取它会失败，
+/// 因此不视为可导航目标。
+fn navigable_parent(path: &Path) -> Option<&Path> {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+}
+
 struct TextMatcher {
     pattern: String,
     case_sensitive: bool,
@@ -594,5 +626,46 @@ mod tests {
         assert!(browser.can_go_forward());
         browser.go_forward().unwrap();
         assert_eq!(browser.location, BrowserLocation::FileSystem(second));
+    }
+
+    /// 验证普通目录可以返回，盘符根目录则没有上一级。
+    #[test]
+    fn parent_navigation_stops_at_drive_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let browser = BrowserModel::new(directory.path()).unwrap();
+        assert!(browser.can_go_up());
+
+        let root = std::env::current_dir()
+            .unwrap()
+            .ancestors()
+            .last()
+            .unwrap()
+            .to_path_buf();
+        let mut browser = BrowserModel::new(&root).expect("读取盘符根目录");
+        assert!(!browser.can_go_up());
+        browser.go_parent().unwrap();
+        assert_eq!(browser.location, BrowserLocation::FileSystem(root));
+    }
+
+    /// 验证归档内部总能返回，归档根目录只在压缩包有实际父目录时才能跳出。
+    #[test]
+    fn archive_parent_depends_on_archive_location() {
+        let nested = BrowserLocation::Archive {
+            archive: PathBuf::from(r"C:\downloads\demo.zip"),
+            inner: "docs".to_string(),
+        };
+        assert!(has_parent(&nested));
+
+        let archive_root = BrowserLocation::Archive {
+            archive: PathBuf::from(r"C:\downloads\demo.zip"),
+            inner: String::new(),
+        };
+        assert!(has_parent(&archive_root));
+
+        let relative = BrowserLocation::Archive {
+            archive: PathBuf::from("demo.zip"),
+            inner: String::new(),
+        };
+        assert!(!has_parent(&relative));
     }
 }

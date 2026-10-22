@@ -804,6 +804,20 @@ impl LumarkApp {
         }
     }
 
+    /// 返回上一级，并把新位置同步到地址输入框。
+    ///
+    /// 工具栏的“上一级”按钮和文件表最上方的“..”行共用这个入口，
+    /// 保证两个位置对归档根目录的处理保持一致。
+    pub(crate) fn navigate_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.go_parent();
+        set_input(
+            &self.location_input,
+            self.browser.current_display().as_str(),
+            window,
+            cx,
+        );
+    }
+
     /// 打开所选目录、归档、归档条目或普通文件。
     pub(crate) fn open_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(entry) = self.selected_entry() else {

@@ -397,13 +397,7 @@ impl LumarkApp {
                     .child(
                         icon_button("up", AppIcon::ArrowUp, "上一级").on_click(cx.listener(
                             |this, _, window, cx| {
-                                this.go_parent();
-                                set_input(
-                                    &this.location_input,
-                                    this.browser.current_display().as_str(),
-                                    window,
-                                    cx,
-                                );
+                                this.navigate_up(window, cx);
                                 cx.notify();
                             },
                         )),
