@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1783,18 +1783,58 @@ impl ArchiveService {
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut writer = ArchiveWriter::create(output)
-            .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
         let level = options.level.unwrap_or(6).clamp(0, 9) as u32;
+        // 多线程 LZMA2 会提前读走一整段在途缓冲，按读取字节上报会在几秒内
+        // 冲到 100% 然后长时间不动。未加密的 LZMA2 多线程流每完成一个编码
+        // 块才向输出写一次，可以据此换算真实进度；加密后输出按 AES 分块写出，
+        // 无法区分编码块边界，仍退回读取进度。
+        let track_chunks = matches!(
+            options.sevenz_compression,
+            crate::format::SevenZCompression::Lzma2
+        ) && options.threads > 1
+            && options.password.is_none();
+        // lzma-rust2 的 4–9 级预设除字典和 nice_len 外参数相同；这两项在显式
+        // 设置时会被用户值覆盖，未设置时 7/9 级的取值也一致。显式设置字典时
+        // 把建块级别压到 7，避免 8/9 级预设字典把多线程块抬到 32/64 MiB。
+        // 块越小，进度更新越细、在途缓冲越少。
+        let mt_level = if options.dictionary_size.is_some() {
+            level.min(7)
+        } else {
+            level
+        };
+        let chunk_bytes = if track_chunks {
+            LZMA2_CHUNK_BYTES
+                .max(lzma2_preset_dictionary(mt_level))
+                .max(options.dictionary_size.map(u64::from).unwrap_or(0))
+        } else {
+            0
+        };
+        let plan = build_source_plan(sources, options)?;
+        let bytes_total = plan.total_bytes;
+        let entries_total = plan.files.len();
+        let progress_cell = Rc::new(RefCell::new(&mut *progress));
+        let chunk_state = Rc::new(RefCell::new(ChunkProgressState {
+            active: false,
+            base: 0,
+            total: 0,
+            chunk_bytes,
+            chunks: 0,
+            entries_before: 0,
+            entries_total,
+            bytes_total,
+            output_bytes: 0,
+            spans: Vec::new(),
+        }));
+        let mut writer = ArchiveWriter::new(ChunkTrackingWriter {
+            inner: File::create(output)?,
+            state: chunk_state.clone(),
+            progress: progress_cell.clone(),
+        })
+        .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
         let mut methods = match options.sevenz_compression {
             crate::format::SevenZCompression::Lzma2 => {
                 let mut lzma2 = if options.threads > 1 {
-                    // 多线程 LZMA2 按块独立压缩，块是进度可见性的最小单位：
-                    // 64 MiB 的块单个工作线程要压十几秒，期间读取器被阻塞、
-                    // 进度完全不更新；16 MiB 把这段静默压到一个块耗时左右，
-                    // 同时把在途缓冲从 9×64 MiB 降到 9×16 MiB。
-                    // 库会把块大小钳到不小于字典大小，字典更大时自动跟着变大。
-                    Lzma2Options::from_level_mt(level, options.threads, LZMA2_CHUNK_BYTES)
+                    Lzma2Options::from_level_mt(mt_level, options.threads, LZMA2_CHUNK_BYTES)
                 } else {
                     Lzma2Options::from_level(level)
                 };
@@ -1837,9 +1877,6 @@ impl ArchiveService {
         }
         writer.set_content_methods(methods);
         writer.set_encrypt_header(options.password.is_some() && options.encrypt_header);
-        let plan = build_source_plan(sources, options)?;
-        let bytes_total = plan.total_bytes;
-        let entries_total = plan.files.len();
         let fixed_time = match options.archive_time {
             crate::format::ArchiveTimeSource::Current => Some(SystemTime::now()),
             crate::format::ArchiveTimeSource::Original => None,
@@ -1860,14 +1897,16 @@ impl ArchiveService {
                 .filter(|size| *size >= 1024 * 1024)
                 .unwrap_or(DEFAULT_SOLID_BLOCK_BYTES);
             let entries_done = Rc::new(Cell::new(0usize));
-            let progress_cell = Rc::new(RefCell::new(&mut *progress));
             let mut handled_bytes = 0u64;
+            let mut handled_files = 0usize;
             let mut last_file = String::new();
             let mut last_size = 0u64;
             for block in solid_blocks(&plan.files, block_bytes, SOLID_BLOCK_MAX_FILES) {
                 ensure_not_cancelled(&options.cancel)?;
                 let mut entries = Vec::with_capacity(block.len());
-                let mut readers = Vec::with_capacity(block.len());
+                let mut readers: Vec<SourceReader<Box<dyn Read>>> = Vec::with_capacity(block.len());
+                let mut spans = Vec::with_capacity(block.len());
+                let mut block_offset = 0u64;
                 for (relative, source, _) in block {
                     let mut entry = sevenz_rust2::ArchiveEntry::from_path(source, relative.clone());
                     if let Some(time) = fixed_time {
@@ -1875,28 +1914,71 @@ impl ArchiveService {
                     }
                     let file_bytes = fs::metadata(source)?.len();
                     entries.push(entry);
-                    readers.push(SourceReader::new(SharedProgressReader {
-                        inner: File::open(source)?,
-                        current: relative.clone(),
-                        total: file_bytes,
-                        done: 0,
-                        overall_base: handled_bytes,
-                        bytes_total,
-                        entries_done: entries_done.clone(),
-                        entries_total,
-                        output: output.to_path_buf(),
-                        cancel: options.cancel.clone(),
-                        progress: progress_cell.clone(),
-                        last_report: Instant::now() - Duration::from_secs(1),
-                        finished: false,
-                    }));
-                    handled_bytes += file_bytes;
+                    if track_chunks {
+                        readers.push(SourceReader::new(Box::new(CancelReader {
+                            inner: File::open(source)?,
+                            cancel: options.cancel.clone(),
+                        })
+                            as Box<dyn Read>));
+                    } else {
+                        readers.push(SourceReader::new(Box::new(SharedProgressReader {
+                            inner: File::open(source)?,
+                            current: relative.clone(),
+                            total: file_bytes,
+                            done: 0,
+                            overall_base: handled_bytes + block_offset,
+                            bytes_total,
+                            entries_done: entries_done.clone(),
+                            entries_total,
+                            output: output.to_path_buf(),
+                            cancel: options.cancel.clone(),
+                            progress: progress_cell.clone(),
+                            last_report: Instant::now() - Duration::from_secs(1),
+                            finished: false,
+                        })
+                            as Box<dyn Read>));
+                    }
+                    spans.push(ProgressSpan {
+                        name: relative.clone(),
+                        start: block_offset,
+                        end: block_offset + file_bytes,
+                    });
+                    block_offset += file_bytes;
                     last_file = relative.clone();
                     last_size = file_bytes;
                 }
-                writer
-                    .push_archive_entries(entries, readers)
-                    .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+                if track_chunks {
+                    // 先报一次块起点，界面在第一个编码块完成前也能显示文件。
+                    let (current, current_done, current_total, done_entries, output_bytes) = {
+                        let mut state = chunk_state.borrow_mut();
+                        state.begin(handled_bytes, block_offset, handled_files, spans);
+                        let (current, current_done, current_total, done_entries) = state.locate(0);
+                        (
+                            current,
+                            current_done,
+                            current_total,
+                            done_entries,
+                            state.output_bytes,
+                        )
+                    };
+                    (progress_cell.borrow_mut())(CreateProgress {
+                        current,
+                        bytes_done: handled_bytes,
+                        bytes_total,
+                        current_bytes_done: current_done,
+                        current_bytes_total: current_total,
+                        output_bytes,
+                        entries_done: done_entries,
+                        entries_total,
+                    });
+                }
+                let pushed = writer.push_archive_entries(entries, readers);
+                if track_chunks {
+                    chunk_state.borrow_mut().active = false;
+                }
+                pushed.map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+                handled_bytes += block_offset;
+                handled_files += block.len();
             }
             report.files = entries_total;
             report.bytes = bytes_total;
@@ -1918,7 +2000,37 @@ impl ArchiveService {
                     apply_entry_time(&mut entry, time);
                 }
                 let file_bytes = fs::metadata(&source)?.len();
-                {
+                let mut reported_complete = false;
+                if track_chunks {
+                    {
+                        let mut state = chunk_state.borrow_mut();
+                        state.begin(
+                            report.bytes,
+                            file_bytes,
+                            report.files,
+                            vec![ProgressSpan {
+                                name: relative.clone(),
+                                start: 0,
+                                end: file_bytes,
+                            }],
+                        );
+                    }
+                    let mut reader = CancelReader {
+                        inner: File::open(&source)?,
+                        cancel: options.cancel.clone(),
+                    };
+                    let pushed = writer.push_archive_entry(entry, Some(&mut reader));
+                    let chunks = {
+                        let mut state = chunk_state.borrow_mut();
+                        state.active = false;
+                        state.chunks
+                    };
+                    pushed.map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+                    // 最后一个编码块已经上报过 100%，不再补发重复的完成事件；
+                    // 空文件没有编码块，仍走下面的完成事件。
+                    reported_complete =
+                        chunks > 0 && chunks.saturating_mul(chunk_bytes) >= file_bytes;
+                } else {
                     let mut reader = ProgressReader {
                         inner: File::open(&source)?,
                         current: relative.clone(),
@@ -1930,7 +2042,7 @@ impl ArchiveService {
                         entries_total,
                         output: output.to_path_buf(),
                         cancel: options.cancel.clone(),
-                        progress: &mut *progress,
+                        progress: progress_cell.clone(),
                         last_report: Instant::now() - Duration::from_secs(1),
                     };
                     writer
@@ -1939,16 +2051,18 @@ impl ArchiveService {
                 }
                 report.files += 1;
                 report.bytes += file_bytes;
-                progress(CreateProgress {
-                    current: relative,
-                    bytes_done: report.bytes,
-                    bytes_total,
-                    current_bytes_done: file_bytes,
-                    current_bytes_total: file_bytes,
-                    output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
-                    entries_done: report.files,
-                    entries_total,
-                });
+                if !reported_complete {
+                    (progress_cell.borrow_mut())(CreateProgress {
+                        current: relative,
+                        bytes_done: report.bytes,
+                        bytes_total,
+                        current_bytes_done: file_bytes,
+                        current_bytes_total: file_bytes,
+                        output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
+                        entries_done: report.files,
+                        entries_total,
+                    });
+                }
             }
         }
         writer
@@ -2101,6 +2215,144 @@ impl ArchiveService {
     }
 }
 
+/// 固实块内单个文件在块内字节轴上的位置。
+struct ProgressSpan {
+    name: String,
+    start: u64,
+    end: u64,
+}
+
+/// 一次编码阶段的真实进度换算状态。
+///
+/// 多线程 LZMA2 每完成一个块才向输出写一次，`chunks` 记录已写出的块数；
+/// `locate` 把“已压缩字节”换算成当前文件和已完成条目，避免直接使用读取
+/// 位置导致进度提前冲到 100%。
+struct ChunkProgressState {
+    active: bool,
+    base: u64,
+    total: u64,
+    chunk_bytes: u64,
+    chunks: u64,
+    entries_before: usize,
+    entries_total: usize,
+    bytes_total: u64,
+    output_bytes: u64,
+    spans: Vec<ProgressSpan>,
+}
+
+impl ChunkProgressState {
+    /// 开始一个新的固实块或单文件阶段，并重置块内计数。
+    fn begin(&mut self, base: u64, total: u64, entries_before: usize, spans: Vec<ProgressSpan>) {
+        self.active = true;
+        self.base = base;
+        self.total = total;
+        self.chunks = 0;
+        self.entries_before = entries_before;
+        self.spans = spans;
+    }
+
+    /// 把块内已压缩字节换算成（文件名、文件内已完成、文件总大小、总完成条目数）。
+    fn locate(&self, done: u64) -> (String, u64, u64, usize) {
+        let done = done.min(self.total);
+        let index = self.spans.partition_point(|span| span.end <= done);
+        let entries_done = self.entries_before + index;
+        if let Some(span) = self.spans.get(index) {
+            (
+                span.name.clone(),
+                done.saturating_sub(span.start),
+                span.end.saturating_sub(span.start),
+                entries_done,
+            )
+        } else if let Some(span) = self.spans.last() {
+            let size = span.end.saturating_sub(span.start);
+            (
+                span.name.clone(),
+                size,
+                size,
+                self.entries_before + self.spans.len(),
+            )
+        } else {
+            (String::new(), 0, 0, entries_done)
+        }
+    }
+}
+
+/// 包装 7Z 输出文件：统计写入字节，并在每个编码块完成时上报真实进度。
+///
+/// 多线程 LZMA2 的块结果按顺序各写一次，因此 `write` 的调用次数就是已完成
+/// 块数。只在 `active` 阶段计数，`finish()` 写文件头时不会误报。
+struct ChunkTrackingWriter<'a, F>
+where
+    F: FnMut(CreateProgress),
+{
+    inner: File,
+    state: Rc<RefCell<ChunkProgressState>>,
+    progress: Rc<RefCell<&'a mut F>>,
+}
+
+impl<F> Write for ChunkTrackingWriter<'_, F>
+where
+    F: FnMut(CreateProgress),
+{
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        // 一次性写完，保证调用方的 write_all 只触发一次，和编码块一一对应。
+        self.inner.write_all(buffer)?;
+        let mut state = self.state.borrow_mut();
+        state.output_bytes = state.output_bytes.saturating_add(buffer.len() as u64);
+        // 1 字节的 LZMA2 流结束标记不是编码块，不能计入已完成块数。
+        if !state.active || buffer.len() < 3 {
+            return Ok(buffer.len());
+        }
+        state.chunks = state.chunks.saturating_add(1);
+        let done = (state.chunks.saturating_mul(state.chunk_bytes)).min(state.total);
+        let (current, current_done, current_total, entries_done) = state.locate(done);
+        let event = CreateProgress {
+            current,
+            bytes_done: state.base + done,
+            bytes_total: state.bytes_total,
+            current_bytes_done: current_done,
+            current_bytes_total: current_total,
+            output_bytes: state.output_bytes,
+            entries_done,
+            entries_total: state.entries_total,
+        };
+        drop(state);
+        (self.progress.borrow_mut())(event);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<F> Seek for ChunkTrackingWriter<'_, F>
+where
+    F: FnMut(CreateProgress),
+{
+    fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
+        self.inner.seek(position)
+    }
+}
+
+/// 只负责取消检查的读取器；进度由输出写入器按完成块上报。
+struct CancelReader {
+    inner: File,
+    cancel: Option<Arc<AtomicBool>>,
+}
+
+impl Read for CancelReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if is_cancelled(&self.cancel) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "compression cancelled",
+            ));
+        }
+        self.inner.read(buffer)
+    }
+}
+
 /// 在 7Z 编码器读取源文件时按块上报当前文件进度并响应取消。
 struct ProgressReader<'a, F>
 where
@@ -2116,7 +2368,7 @@ where
     entries_total: usize,
     output: PathBuf,
     cancel: Option<Arc<AtomicBool>>,
-    progress: &'a mut F,
+    progress: Rc<RefCell<&'a mut F>>,
     last_report: Instant,
 }
 
@@ -2135,7 +2387,7 @@ where
         self.done += read as u64;
         if self.last_report.elapsed() >= Duration::from_millis(100) {
             self.last_report = Instant::now();
-            (self.progress)(CreateProgress {
+            (self.progress.borrow_mut())(CreateProgress {
                 current: self.current.clone(),
                 bytes_done: self.overall_base + self.done,
                 bytes_total: self.bytes_total,
@@ -2350,9 +2602,31 @@ fn build_source_plan(
     })
 }
 
-/// 多线程 LZMA2 的块大小：块越小，进度更新越连续、在途缓冲越少；
-/// 库会把该值钳到不小于字典大小，因此只影响小字典场景。
+/// 多线程 LZMA2 的目标块大小：块越小，进度更新越连续、在途缓冲越少。
+///
+/// 库会把块大小钳到不小于字典大小；调用方显式设置字典时，建块级别还会再
+/// 限制到 7 级，避免 8/9 级预设字典把块抬到 32/64 MiB。
 const LZMA2_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
+
+/// lzma-rust2 预设级别对应的字典大小，用于推算多线程 LZMA2 的实际块大小。
+///
+/// 固定依赖 sevenz-rust2 0.24.1 / lzma-rust2 0.23.0；升级压缩库时需要同步
+/// 检查这张表与 `from_level_mt` 的钳制逻辑。
+fn lzma2_preset_dictionary(level: u32) -> u64 {
+    const PRESET_DICTIONARY: [u64; 10] = [
+        256 * 1024,
+        1024 * 1024,
+        2 * 1024 * 1024,
+        4 * 1024 * 1024,
+        4 * 1024 * 1024,
+        8 * 1024 * 1024,
+        8 * 1024 * 1024,
+        16 * 1024 * 1024,
+        32 * 1024 * 1024,
+        64 * 1024 * 1024,
+    ];
+    PRESET_DICTIONARY[level.min(9) as usize]
+}
 
 /// 固实块的默认字节上限；调用方没有设置“固实块大小”时使用 2 GiB。
 const DEFAULT_SOLID_BLOCK_BYTES: u64 = 2048 * 1024 * 1024;
@@ -3195,6 +3469,46 @@ mod progress_tests {
             self.remaining -= size;
             Ok(size)
         }
+    }
+
+    /// 已完成字节落在一段文件中间时，应换算成该文件的内部进度。
+    #[test]
+    fn chunk_state_maps_done_bytes_to_current_file() {
+        let mut state = super::ChunkProgressState {
+            active: false,
+            base: 100,
+            total: 0,
+            chunk_bytes: 16,
+            chunks: 0,
+            entries_before: 2,
+            entries_total: 5,
+            bytes_total: 130,
+            output_bytes: 0,
+            spans: Vec::new(),
+        };
+        state.begin(
+            100,
+            30,
+            2,
+            vec![
+                super::ProgressSpan {
+                    name: "a.bin".to_string(),
+                    start: 0,
+                    end: 10,
+                },
+                super::ProgressSpan {
+                    name: "b.bin".to_string(),
+                    start: 10,
+                    end: 30,
+                },
+            ],
+        );
+        let (name, done, total, entries) = state.locate(4);
+        assert_eq!((name.as_str(), done, total, entries), ("a.bin", 4, 10, 2));
+        let (name, done, total, entries) = state.locate(16);
+        assert_eq!((name.as_str(), done, total, entries), ("b.bin", 6, 20, 3));
+        let (name, done, total, entries) = state.locate(30);
+        assert_eq!((name.as_str(), done, total, entries), ("b.bin", 20, 20, 4));
     }
 
     /// 单个大条目在复制过程中应多次回调进度，而不是只在结束时回调一次。

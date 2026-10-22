@@ -39,14 +39,17 @@ pub struct TaskProgress {
 }
 
 impl TaskProgress {
-    /// 返回总进度：优先按已完成文件数统计，缺少条目数时退回字节比例。
+    /// 返回总进度：优先按字节统计，缺少字节总量时退回已完成文件数。
+    ///
+    /// 7Z 多线程压缩会提前读取大量数据，条目数也会跟着提前增加；按字节
+    /// 统计并使用编码块完成量作为已完成字节，进度才与实际压缩工作一致。
     pub fn ratio(&self) -> f32 {
-        if self.entries_total > 0 {
-            (self.entries_done as f32 / self.entries_total as f32).clamp(0.0, 1.0)
-        } else if self.bytes_total == 0 {
-            0.0
-        } else {
+        if self.bytes_total > 0 {
             (self.bytes_done as f32 / self.bytes_total as f32).clamp(0.0, 1.0)
+        } else if self.entries_total > 0 {
+            (self.entries_done as f32 / self.entries_total as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
         }
     }
 
@@ -109,9 +112,9 @@ pub enum TaskEvent {
 mod tests {
     use super::TaskProgress;
 
-    /// 总进度按完成文件数统计，当前文件比例仍按字节统计。
+    /// 总进度按字节统计，当前文件比例仍按字节统计。
     #[test]
-    fn total_ratio_uses_completed_entries() {
+    fn total_ratio_uses_processed_bytes() {
         let progress = TaskProgress {
             current: "b.txt".to_string(),
             bytes_done: 10,
@@ -124,7 +127,20 @@ mod tests {
             speed_bps: 0.0,
             elapsed_seconds: 0,
         };
-        assert!((progress.ratio() - 0.25).abs() < f32::EPSILON);
+        assert!((progress.ratio() - 0.1).abs() < f32::EPSILON);
         assert!((progress.current_file_ratio() - 0.5).abs() < f32::EPSILON);
+    }
+
+    /// 没有字节总量时退回已完成文件数，编辑等任务仍能显示进度。
+    #[test]
+    fn total_ratio_falls_back_to_entries() {
+        let progress = TaskProgress {
+            bytes_done: 0,
+            bytes_total: 0,
+            entries_done: 3,
+            entries_total: 4,
+            ..Default::default()
+        };
+        assert!((progress.ratio() - 0.75).abs() < f32::EPSILON);
     }
 }

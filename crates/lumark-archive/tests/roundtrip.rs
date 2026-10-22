@@ -1114,6 +1114,94 @@ fn seven_zip_solid_reports_byte_progress_during_compression() {
     }));
 }
 
+/// 多线程固实 7Z 必须按编码块完成量上报进度，而不是按提前读取的字节。
+///
+/// 20 MiB 源在 16 MiB 块下会产生至少两个编码块；进度应当出现中间值、
+/// 单调递增，并在结束前不会提前报满。
+#[test]
+fn seven_zip_mt_solid_reports_completed_chunk_progress() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("large.bin"), vec![0x5au8; 20 * 1024 * 1024]).unwrap();
+    let output = dir.path().join("solid-chunks.7z");
+    let mut snapshots = Vec::new();
+    ArchiveService::create(
+        &output,
+        &[source],
+        &CompressionOptions {
+            format: ArchiveFormat::SevenZip,
+            solid: true,
+            threads: 4,
+            dictionary_size: Some(16 * 1024 * 1024),
+            ..Default::default()
+        },
+        |progress| snapshots.push(progress),
+    )
+    .unwrap();
+    assert!(
+        snapshots
+            .windows(2)
+            .all(|pair| pair[0].bytes_done <= pair[1].bytes_done)
+    );
+    assert!(
+        snapshots.iter().any(|progress| {
+            progress.bytes_done > 0 && progress.bytes_done < progress.bytes_total
+        })
+    );
+    let last = snapshots.last().unwrap();
+    assert_eq!(last.bytes_done, last.bytes_total);
+    assert_eq!(last.entries_done, last.entries_total);
+    let restored = dir.path().join("restored");
+    ArchiveService::extract(
+        &output,
+        &ExtractionOptions {
+            output_dir: restored.clone(),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::metadata(restored.join("source").join("large.bin"))
+            .unwrap()
+            .len(),
+        20 * 1024 * 1024
+    );
+}
+
+/// 非固实多线程 7Z 也应按完成编码块上报大文件内部进度。
+#[test]
+fn seven_zip_mt_entry_reports_completed_chunk_progress() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("large.bin");
+    fs::write(&source, vec![0x33u8; 20 * 1024 * 1024]).unwrap();
+    let output = dir.path().join("entry-chunks.7z");
+    let mut snapshots = Vec::new();
+    ArchiveService::create(
+        &output,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::SevenZip,
+            solid: false,
+            threads: 4,
+            dictionary_size: Some(16 * 1024 * 1024),
+            ..Default::default()
+        },
+        |progress| snapshots.push(progress),
+    )
+    .unwrap();
+    assert!(
+        snapshots.iter().any(|progress| {
+            progress.bytes_done > 0 && progress.bytes_done < progress.bytes_total
+        })
+    );
+    assert_eq!(
+        snapshots.last().unwrap().bytes_done,
+        snapshots.last().unwrap().bytes_total
+    );
+}
+
 /// 设置文件修改时间，供更新模式的时间比较使用。
 fn set_modified(path: &std::path::Path, when: std::time::SystemTime) {
     let file = fs::OpenOptions::new().write(true).open(path).unwrap();
