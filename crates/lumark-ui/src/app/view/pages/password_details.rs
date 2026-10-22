@@ -273,7 +273,7 @@ impl LumarkApp {
                                 div()
                                     .px_2()
                                     .py(px(1.))
-                                    .rounded_full()
+                                    .rounded(cx.theme().radius / 2.)
                                     .bg(if has_master {
                                         cx.theme().success
                                     } else {

@@ -1,6 +1,9 @@
 use super::super::*;
+use gpui_kit::Entity;
+use gpui_kit::base::{Tab as BaseTab, Tabs as BaseTabs};
 use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_kit::component::radio::Radio;
+use gpui_kit::component::select::{SearchableVec, Select, SelectState};
 
 /// Lumark 标题栏和文件行使用的 IconPark 图标。
 ///
@@ -333,6 +336,103 @@ pub(super) fn classic_field(
                 .child(label.to_string()),
         )
         .child(div().flex_1().min_w_0().child(control))
+}
+
+/// 渲染固定宽度的下拉框，弹出列表与触发区保持同宽。
+///
+/// 组件库的 `Select` 根节点会占满父级宽度，而弹出列表默认取根节点宽度；
+/// 只给 `Select` 设置宽度时列表仍会按整行展开。这里先用外层容器锁定宽度，
+/// 再把触发区和列表宽度设为同一数值，避免菜单横跨整个表单。
+pub(super) fn choice_select(
+    id: &'static str,
+    state: &Entity<SelectState<SearchableVec<&'static str>>>,
+    width: f32,
+    accessibility_label: &'static str,
+) -> impl IntoElement {
+    div().w(px(width)).flex_shrink_0().child(
+        Select::new(state)
+            .id(id)
+            .w_full()
+            .menu_width(px(width))
+            .accessibility_label(accessibility_label),
+    )
+}
+
+/// 渲染分段选项卡轨道。
+///
+/// 轨道使用浅灰底、4px 内边距和 2px 间距，圆角取自主题的控件圆角，
+/// 避免把矩形轨道做成胶囊形状。
+pub(super) fn segmented_tab_bar(
+    cx: &gpui_kit::App,
+    id: &'static str,
+    tabs: Vec<gpui_kit::AnyElement>,
+) -> impl IntoElement {
+    BaseTabs::new(id)
+        .w_full()
+        .h(px(40.))
+        .p(px(4.))
+        .gap(px(2.))
+        .flex()
+        .items_center()
+        .rounded(cx.theme().radius)
+        .bg(cx.theme().muted)
+        .children(tabs)
+}
+
+/// 渲染一个带图标的分段选项卡。
+///
+/// 选中项使用白色表面、细边框和浅阴影，未选中项保持透明并在悬停时显示
+/// 浅色底；圆角从主题控件圆角向内收 2px，保持直角矩形而不是胶囊形状。
+pub(super) fn segmented_tab(
+    cx: &gpui_kit::App,
+    id: impl Into<gpui_kit::ElementId>,
+    icon: AppIcon,
+    label: &'static str,
+    selected: bool,
+) -> BaseTab {
+    let theme = cx.theme();
+    let border = if selected {
+        theme.border
+    } else {
+        theme.transparent
+    };
+    let tab_radius = if theme.radius > px(2.) {
+        theme.radius - px(2.)
+    } else {
+        px(0.)
+    };
+    // 深色模式没有纯白表面，改用比轨道更亮的浮起色，保持选中项层次。
+    let selected_bg = if theme.mode.is_dark() {
+        theme.secondary_hover
+    } else {
+        theme.popover
+    };
+
+    BaseTab::new(id)
+        .selected(selected)
+        .accessibility_label(label)
+        .h_full()
+        .flex_shrink_0()
+        .px_4()
+        .gap_2()
+        .rounded(tab_radius)
+        .border_1()
+        .border_color(border)
+        .whitespace_nowrap()
+        .text_sm()
+        .text_color(if selected {
+            theme.foreground
+        } else {
+            theme.muted_foreground
+        })
+        .when(selected, |this| {
+            this.bg(selected_bg).shadow_xs().font_medium()
+        })
+        .when(!selected, |this| {
+            this.hover(|style| style.bg(theme.secondary_hover))
+        })
+        .child(icon.element(15.))
+        .child(label)
 }
 
 /// 渲染一行小号辅助说明文字。

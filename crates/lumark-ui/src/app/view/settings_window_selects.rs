@@ -247,6 +247,17 @@ mod tests {
                     select.bounds().origin.x
                 );
             }
+
+            let tab = window.find(("settings-window-tab", 0usize));
+            assert!(tab.visible(), "设置选项卡未渲染");
+            assert!(
+                (tab.bounds().size.height - px(32.)).abs() < px(1.),
+                "设置选项卡高度不正确：{:?}",
+                tab.bounds().size.height
+            );
+
+            window.click(("settings-window-tab", 3usize), cx);
+            assert_eq!(view.read(cx).tab, 3, "点击选项卡后未切换页面");
         });
         let _ = app;
     }

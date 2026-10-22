@@ -1,12 +1,11 @@
 //! 独立设置窗口：标题栏、选项卡、通用/外观/关于页面和窗口生命周期。
 use super::super::*;
 use super::super::{apply_theme_accent, hsla_to_hex};
-use super::components::{AppIcon, banner_gradient};
+use super::components::{AppIcon, banner_gradient, segmented_tab, segmented_tab_bar};
 use super::settings_window_selects::CompressionSelect;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::color_picker::{ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::try_parse_color;
 use gpui_kit::{Entity, Subscription};
 
@@ -216,23 +215,44 @@ impl SettingsWindowView {
             )
     }
 
-    /// 渲染顶部选项卡。
+    /// 渲染顶部的六个分段选项卡。
     fn render_tabs(&self, cx: &Context<Self>) -> impl IntoElement {
-        TabBar::new("settings-window-tabs")
-            .segmented()
-            .w_full()
-            .selected_index(self.tab)
-            .on_click(cx.listener(|this, index, _, cx| {
-                this.tab = *index;
-                this.refresh(cx);
-                cx.notify();
-            }))
-            .child(Tab::new().label("综合"))
-            .child(Tab::new().label("外观"))
-            .child(Tab::new().label("压缩"))
-            .child(Tab::new().label("文件关联"))
-            .child(Tab::new().label("密码库"))
-            .child(Tab::new().label("关于"))
+        let selected = self.tab;
+        let view = cx.entity().downgrade();
+        let tabs = [
+            (AppIcon::Grid, "综合"),
+            (AppIcon::Tool, "外观"),
+            (AppIcon::Compression, "压缩"),
+            (AppIcon::FileZip, "文件关联"),
+            (AppIcon::Key, "密码库"),
+            (AppIcon::Shield, "关于"),
+        ];
+        let items = tabs
+            .iter()
+            .enumerate()
+            .map(|(index, (icon, label))| {
+                let view = view.clone();
+                segmented_tab(
+                    cx,
+                    ("settings-window-tab", index),
+                    *icon,
+                    label,
+                    selected == index,
+                )
+                .set_position(index + 1, tabs.len())
+                .on_click(move |_, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.tab = index;
+                        this.refresh(cx);
+                        cx.notify();
+                    })
+                    .ok();
+                })
+                .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        segmented_tab_bar(cx, "settings-window-tabs", items)
     }
 
     /// 渲染当前选项卡内容，并在内容区域独立滚动。

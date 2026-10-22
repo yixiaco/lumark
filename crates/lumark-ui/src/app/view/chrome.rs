@@ -51,7 +51,7 @@ impl LumarkApp {
                             .ml_auto()
                             .px_2()
                             .py(px(1.))
-                            .rounded_full()
+                            .rounded(cx.theme().radius / 2.)
                             .bg(cx.theme().success)
                             .text_color(cx.theme().success_foreground)
                             .text_xs()

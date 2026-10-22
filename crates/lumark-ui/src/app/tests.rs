@@ -265,6 +265,79 @@ mod ui_tests {
     }
 
     #[gpui_kit::test]
+    /// 验证压缩窗口的下拉框按字段宽度渲染，经典模式选项卡可正常切换。
+    fn compress_window_uses_compact_controls(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("sample.txt");
+        std::fs::write(&source, b"lumark").unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.open_compress_window_for_sources(vec![source.clone()], window, cx);
+            });
+            window.draw(cx).clear(cx);
+            let handle = app.read(cx).compress_window.expect("压缩窗口应已打开");
+            handle
+                .update(cx, |_, window, cx| {
+                    window.draw(cx).clear(cx);
+                    let size = window.inner_window_bounds().get_bounds().size;
+                    assert!(
+                        (size.width - px(600.)).abs() < px(1.)
+                            && (size.height - px(330.)).abs() < px(1.),
+                        "轻巧模式默认尺寸不正确：{:?}",
+                        size
+                    );
+                    assert!(
+                        window.find("compress-window-password-toggle").visible(),
+                        "轻巧模式 600×330 下密码入口被裁切"
+                    );
+
+                    let select = window.find("compress-format-select");
+                    assert!(select.visible(), "压缩格式下拉未渲染");
+                    assert!(
+                        (select.bounds().size.width - px(200.)).abs() < px(1.),
+                        "压缩格式下拉宽度不正确：{:?}",
+                        select.bounds().size.width
+                    );
+
+                    window.click("compress-window-switch", cx);
+                    let size = window.inner_window_bounds().get_bounds().size;
+                    assert!(
+                        (size.width - px(600.)).abs() < px(1.)
+                            && (size.height - px(390.)).abs() < px(1.),
+                        "经典模式默认尺寸不正确：{:?}",
+                        size
+                    );
+
+                    let tab = window.find(("compress-window-tab", 0usize));
+                    assert!(tab.visible(), "经典模式选项卡未渲染");
+                    assert!(
+                        (tab.bounds().size.height - px(32.)).abs() < px(1.),
+                        "选项卡高度不正确：{:?}",
+                        tab.bounds().size.height
+                    );
+
+                    window.click(("compress-window-tab", 3usize), cx);
+                    assert!(
+                        window.find("compress-zip-method-select").visible(),
+                        "切换到算法选项卡后未渲染压缩方法"
+                    );
+                })
+                .unwrap();
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
     /// 验证打开加密归档时会弹出独立密码输入框，而不是只改状态栏。
     fn encrypted_archive_requests_password_dialog(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);

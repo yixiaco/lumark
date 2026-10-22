@@ -72,7 +72,7 @@ impl TextViewerWindowView {
                     .child(
                         div()
                             .flex_shrink_0()
-                            .rounded_full()
+                            .rounded(cx.theme().radius / 2.)
                             .bg(cx.theme().muted)
                             .px_2()
                             .py(px(1.))

@@ -1,14 +1,22 @@
 use super::super::*;
-use super::components::{AppIcon, classic_field, classic_group, dialog_banner, hint_text};
+use super::components::{
+    AppIcon, choice_select, classic_field, classic_group, dialog_banner, hint_text, segmented_tab,
+    segmented_tab_bar,
+};
 use gpui_kit::Entity;
 use gpui_kit::Subscription;
 use gpui_kit::component::IndexPath;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::component::radio::Radio;
-use gpui_kit::component::select::{SearchableVec, Select, SelectEvent, SelectState};
-use gpui_kit::component::tab::{Tab, TabBar};
+use gpui_kit::component::select::{SearchableVec, SelectEvent, SelectState};
 use std::path::PathBuf;
+
+/// 轻巧模式默认窗口尺寸，同时也是整个压缩窗口的最小尺寸。
+const LIGHT_WINDOW_SIZE: (f32, f32) = (600., 330.);
+
+/// 经典模式默认窗口尺寸；切换布局时恢复到对应模式的尺寸。
+const CLASSIC_WINDOW_SIZE: (f32, f32) = (600., 390.);
 
 /// 独立压缩窗口的初始参数快照。
 ///
@@ -418,12 +426,12 @@ impl CompressWindowView {
     /// 在轻巧和经典布局之间切换，并调整窗口尺寸。
     fn switch_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.classic = !self.classic;
-        let size = if self.classic {
-            gpui_kit::size(px(780.), px(650.))
+        let (width, height) = if self.classic {
+            CLASSIC_WINDOW_SIZE
         } else {
-            gpui_kit::size(px(600.), px(390.))
+            LIGHT_WINDOW_SIZE
         };
-        window.resize(size);
+        window.resize(gpui_kit::size(px(width), px(height)));
         self.output.update(cx, |state, cx| state.focus(window, cx));
         cx.notify();
     }
@@ -616,11 +624,12 @@ impl CompressWindowView {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(
-                        Select::new(&self.format_select)
-                            .w(px(200.))
-                            .accessibility_label("压缩格式"),
-                    )
+                    .child(choice_select(
+                        "compress-format-select",
+                        &self.format_select,
+                        200.,
+                        "压缩格式",
+                    ))
                     .child(hint_text(
                         cx,
                         format!("扩展名 .{}", self.format.extension()),
@@ -736,26 +745,48 @@ impl CompressWindowView {
         content.into_any_element()
     }
 
+    /// 渲染经典模式的六个分段选项卡。
+    fn render_tabs(&self, cx: &Context<Self>) -> impl IntoElement {
+        let selected = usize::from(self.tab);
+        let view = cx.entity().downgrade();
+        let tabs = [
+            (AppIcon::Setting, "常规"),
+            (AppIcon::Key, "密码"),
+            (AppIcon::Doc, "文件"),
+            (AppIcon::Tool, "算法"),
+            (AppIcon::Time, "时间"),
+            (AppIcon::Edit, "注释"),
+        ];
+        let items = tabs
+            .iter()
+            .enumerate()
+            .map(|(index, (icon, label))| {
+                let view = view.clone();
+                segmented_tab(
+                    cx,
+                    ("compress-window-tab", index),
+                    *icon,
+                    label,
+                    selected == index,
+                )
+                .set_position(index + 1, tabs.len())
+                .on_click(move |_, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.tab = index as u8;
+                        cx.notify();
+                    })
+                    .ok();
+                })
+                .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        segmented_tab_bar(cx, "compress-window-tabs", items)
+    }
+
     /// 渲染经典模式的六个选项卡。
     fn render_classic(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let tab = self.tab;
-        let app = cx.entity();
-        let tabs = TabBar::new("compress-window-tabs")
-            .segmented()
-            .w_full()
-            .selected_index(tab as usize)
-            .on_click(move |index, _, cx| {
-                app.update(cx, |view, cx| {
-                    view.tab = *index as u8;
-                    cx.notify();
-                });
-            })
-            .child(Tab::new().label("常规"))
-            .child(Tab::new().label("密码"))
-            .child(Tab::new().label("文件"))
-            .child(Tab::new().label("算法"))
-            .child(Tab::new().label("时间"))
-            .child(Tab::new().label("注释"));
         let content = v_flex()
             .id("compress-window-classic-content")
             .flex_1()
@@ -774,7 +805,7 @@ impl CompressWindowView {
         v_flex()
             .flex_1()
             .min_h_0()
-            .child(div().w_full().px_4().pt_3().child(tabs))
+            .child(div().w_full().px_4().pt_3().child(self.render_tabs(cx)))
             .child(content)
             .child(self.render_footer(cx, true))
             .into_any_element()
@@ -798,11 +829,12 @@ impl CompressWindowView {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .child(
-                        Select::new(&self.format_select)
-                            .w(px(200.))
-                            .accessibility_label("压缩格式"),
-                    )
+                    .child(choice_select(
+                        "compress-format-select",
+                        &self.format_select,
+                        200.,
+                        "压缩格式",
+                    ))
                     .child(hint_text(
                         cx,
                         format!("扩展名 .{}", self.format.extension()),
@@ -958,15 +990,19 @@ impl CompressWindowView {
                             "压缩方法:",
                             92.,
                             if zip {
-                                Select::new(&self.zip_method_select)
-                                    .w(px(220.))
-                                    .accessibility_label("ZIP 压缩方法")
-                                    .into_any_element()
+                                choice_select(
+                                    "compress-zip-method-select",
+                                    &self.zip_method_select,
+                                    220.,
+                                    "ZIP 压缩方法",
+                                )
                             } else {
-                                Select::new(&self.seven_method_select)
-                                    .w(px(220.))
-                                    .accessibility_label("7Z 压缩方法")
-                                    .into_any_element()
+                                choice_select(
+                                    "compress-seven-method-select",
+                                    &self.seven_method_select,
+                                    220.,
+                                    "7Z 压缩方法",
+                                )
                             },
                         ))
                         .when(seven, |this| {
@@ -977,18 +1013,22 @@ impl CompressWindowView {
                                     .child(classic_field(
                                         "字典大小:",
                                         92.,
-                                        Select::new(&self.dictionary_select)
-                                            .w(px(160.))
-                                            .accessibility_label("字典大小")
-                                            .into_any_element(),
+                                        choice_select(
+                                            "compress-dictionary-select",
+                                            &self.dictionary_select,
+                                            160.,
+                                            "字典大小",
+                                        ),
                                     ))
                                     .child(classic_field(
                                         "单词大小:",
                                         92.,
-                                        Select::new(&self.word_select)
-                                            .w(px(120.))
-                                            .accessibility_label("单词大小")
-                                            .into_any_element(),
+                                        choice_select(
+                                            "compress-word-select",
+                                            &self.word_select,
+                                            120.,
+                                            "单词大小",
+                                        ),
                                     )),
                             )
                             .child(
@@ -998,18 +1038,22 @@ impl CompressWindowView {
                                     .child(classic_field(
                                         "固实块大小:",
                                         92.,
-                                        Select::new(&self.solid_select)
-                                            .w(px(160.))
-                                            .accessibility_label("固实块大小")
-                                            .into_any_element(),
+                                        choice_select(
+                                            "compress-solid-select",
+                                            &self.solid_select,
+                                            160.,
+                                            "固实块大小",
+                                        ),
                                     ))
                                     .child(classic_field(
                                         "线程个数:",
                                         92.,
-                                        Select::new(&self.thread_select)
-                                            .w(px(120.))
-                                            .accessibility_label("线程个数")
-                                            .into_any_element(),
+                                        choice_select(
+                                            "compress-thread-select",
+                                            &self.thread_select,
+                                            120.,
+                                            "线程个数",
+                                        ),
                                     )),
                             )
                         })
@@ -1039,10 +1083,12 @@ impl CompressWindowView {
                     .child(classic_field(
                         "包含文件:",
                         92.,
-                        Select::new(&self.filter_select)
-                            .w(px(200.))
-                            .accessibility_label("文件时间筛选")
-                            .into_any_element(),
+                        choice_select(
+                            "compress-filter-select",
+                            &self.filter_select,
+                            200.,
+                            "文件时间筛选",
+                        ),
                     ))
                     .when(
                         matches!(
@@ -1080,10 +1126,12 @@ impl CompressWindowView {
                     .child(classic_field(
                         "设置时间:",
                         92.,
-                        Select::new(&self.archive_time_select)
-                            .w(px(200.))
-                            .accessibility_label("压缩文件时间")
-                            .into_any_element(),
+                        choice_select(
+                            "compress-archive-time-select",
+                            &self.archive_time_select,
+                            200.,
+                            "压缩文件时间",
+                        ),
                     ))
                     .child(hint_text(
                         cx,
@@ -1199,7 +1247,8 @@ impl LumarkApp {
         let after = self.compress_after.clone();
         let before = self.compress_before.clone();
         let sources_for_view = sources.clone();
-        let size = gpui_kit::size(px(600.), px(390.));
+        let (width, height) = LIGHT_WINDOW_SIZE;
+        let size = gpui_kit::size(px(width), px(height));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
             px(parent_bounds.origin.x.as_f32()
