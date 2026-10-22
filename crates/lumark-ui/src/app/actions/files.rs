@@ -1010,11 +1010,14 @@ fn directory_size(path: &Path) -> u64 {
 }
 
 /// 把归档解压进度换算为弹窗进度条百分比。
+///
+/// 优先按已处理字节统计；条目数只用于文本展示，否则单个大文件会长时间
+/// 停在 0%，多个大小不一的文件又会随条目跳变。
 fn extract_progress_percent(progress: &lumark_archive::ExtractProgress) -> f32 {
-    if progress.entries_total > 0 {
-        progress.entries_done as f32 * 100. / progress.entries_total as f32
-    } else if progress.bytes_total > 0 {
+    if progress.bytes_total > 0 {
         progress.bytes_done as f32 * 100. / progress.bytes_total as f32
+    } else if progress.entries_total > 0 {
+        progress.entries_done as f32 * 100. / progress.entries_total as f32
     } else {
         0.
     }
@@ -1031,5 +1034,24 @@ fn extract_progress_message(progress: &lumark_archive::ExtractProgress) -> Strin
         format!("正在解压：{}", progress.current)
     } else {
         "正在解压…".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_progress_percent;
+    use lumark_archive::ExtractProgress;
+
+    /// 解压百分比优先按字节，单个大文件不会一直停在 0%。
+    #[test]
+    fn extract_percent_prefers_bytes() {
+        let progress = ExtractProgress {
+            current: "large.bin".to_string(),
+            bytes_done: 50,
+            bytes_total: 100,
+            entries_done: 0,
+            entries_total: 1,
+        };
+        assert!((extract_progress_percent(&progress) - 50.0).abs() < f32::EPSILON);
     }
 }

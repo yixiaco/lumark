@@ -1935,6 +1935,7 @@ impl ArchiveService {
                             progress: progress_cell.clone(),
                             last_report: Instant::now() - Duration::from_secs(1),
                             finished: false,
+                            pending: false,
                         })
                             as Box<dyn Read>));
                     }
@@ -2044,6 +2045,7 @@ impl ArchiveService {
                         cancel: options.cancel.clone(),
                         progress: progress_cell.clone(),
                         last_report: Instant::now() - Duration::from_secs(1),
+                        pending: false,
                     };
                     writer
                         .push_archive_entry(entry, Some(&mut reader))
@@ -2370,6 +2372,8 @@ where
     cancel: Option<Arc<AtomicBool>>,
     progress: Rc<RefCell<&'a mut F>>,
     last_report: Instant,
+    /// 上一次 read 返回的数据还没上报；下次 read 时它已经被写入编码器。
+    pending: bool,
 }
 
 impl<F> Read for ProgressReader<'_, F>
@@ -2383,9 +2387,13 @@ where
                 "compression cancelled",
             ));
         }
-        let read = self.inner.read(buffer)?;
-        self.done += read as u64;
-        if self.last_report.elapsed() >= Duration::from_millis(100) {
+        // 调用方在上一次 read 之后已经把这些字节写进编码器，这里才把
+        // 它们算作已完成字节，避免进度按读取位置提前。
+        if self.pending
+            && self.done < self.total
+            && self.last_report.elapsed() >= Duration::from_millis(100)
+        {
+            self.pending = false;
             self.last_report = Instant::now();
             (self.progress.borrow_mut())(CreateProgress {
                 current: self.current.clone(),
@@ -2399,6 +2407,11 @@ where
                 entries_done: self.entries_done,
                 entries_total: self.entries_total,
             });
+        }
+        let read = self.inner.read(buffer)?;
+        if read > 0 {
+            self.done += read as u64;
+            self.pending = true;
         }
         Ok(read)
     }
@@ -2425,6 +2438,8 @@ where
     progress: Rc<RefCell<&'a mut F>>,
     last_report: Instant,
     finished: bool,
+    /// 上一次 read 返回的数据还没上报；下次 read 时它已经被写入编码器。
+    pending: bool,
 }
 
 impl<F> Read for SharedProgressReader<'_, F>
@@ -2438,15 +2453,37 @@ where
                 "compression cancelled",
             ));
         }
+        // 只有等调用方把上一批数据写进编码器后，才把它们计入已完成字节；
+        // 文件末尾由 finished_now 事件一次性补齐。
+        if self.pending
+            && self.done < self.total
+            && self.last_report.elapsed() >= Duration::from_millis(100)
+        {
+            self.pending = false;
+            self.last_report = Instant::now();
+            (self.progress.borrow_mut())(CreateProgress {
+                current: self.current.clone(),
+                bytes_done: self.overall_base + self.done,
+                bytes_total: self.bytes_total,
+                current_bytes_done: self.done,
+                current_bytes_total: self.total,
+                output_bytes: fs::metadata(&self.output)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0),
+                entries_done: self.entries_done.get(),
+                entries_total: self.entries_total,
+            });
+        }
         let read = self.inner.read(buffer)?;
-        self.done += read as u64;
+        if read > 0 {
+            self.done += read as u64;
+            self.pending = true;
+        }
         let finished_now = read == 0 && !self.finished;
         if finished_now {
             self.finished = true;
             self.entries_done
                 .set(self.entries_done.get().saturating_add(1));
-        }
-        if finished_now || self.last_report.elapsed() >= Duration::from_millis(100) {
             self.last_report = Instant::now();
             (self.progress.borrow_mut())(CreateProgress {
                 current: self.current.clone(),
