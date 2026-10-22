@@ -1,0 +1,26 @@
+[package]
+name = "lumark-sfx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "lumark_sfx"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lumark-sfx"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3.0.12"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[dependencies]
+flate2 = { workspace = true }
+zip = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

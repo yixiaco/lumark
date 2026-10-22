@@ -323,6 +323,8 @@ pub struct LumarkApp {
     compress_zipcrypto: bool,
     compress_test_after: bool,
     compress_delete_source: bool,
+    /// 下一次打开压缩窗口时是否默认创建自解压文件。
+    compress_sfx: bool,
     compress_path_mode: PathMode,
     compress_tab: u8,
     #[allow(dead_code)]
@@ -587,6 +589,7 @@ impl LumarkApp {
             compress_zipcrypto: false,
             compress_test_after: false,
             compress_delete_source: false,
+            compress_sfx: false,
             compress_path_mode: PathMode::Relative,
             compress_tab: 0,
             compress_classic: false,

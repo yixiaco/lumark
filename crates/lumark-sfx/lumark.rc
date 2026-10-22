@@ -1,0 +1,2 @@
+// 自解压模块图标，复用主程序图标资源；资源 ID 1 是 Windows 默认加载的图标。
+1 ICON "../lumark-app/assets/lumark.ico"

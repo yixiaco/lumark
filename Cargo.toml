@@ -4,6 +4,7 @@ members = [
     "crates/lumark-archive",
     "crates/lumark-browser",
     "crates/lumark-settings",
+    "crates/lumark-sfx",
     "crates/lumark-tasks",
     "crates/lumark-ui",
     "crates/lumark-vault",

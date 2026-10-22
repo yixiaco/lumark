@@ -85,6 +85,8 @@ pub enum TaskRequest {
         output: PathBuf,
         sources: Vec<PathBuf>,
         options: CompressionOptions,
+        /// 自解压运行时模块路径；`options.sfx` 为真时必填。
+        sfx_stub: Option<PathBuf>,
     },
     Extract {
         archive: PathBuf,
@@ -212,9 +214,10 @@ impl TaskManager {
                     output,
                     sources,
                     mut options,
+                    sfx_stub,
                 } => {
                     options.cancel = Some(control.cancelled_flag());
-                    ArchiveService::create(&output, &sources, &options, |progress| {
+                    let progress = |progress: lumark_archive::CreateProgress| {
                         control.wait_if_paused();
                         if control.is_cancelled() {
                             return;
@@ -237,9 +240,28 @@ impl TaskManager {
                                 elapsed_seconds: started.elapsed().as_secs(),
                             },
                         });
-                    })
-                    .map(|report| {
-                        let mut message = format!("已创建 {}", report.output.display());
+                    };
+                    // 自解压需要额外的运行时模块；缺失时直接失败，避免生成
+                    // 只有 ZIP 却没有解压入口的半成品。
+                    let created = if options.sfx {
+                        match sfx_stub {
+                            Some(stub) => ArchiveService::create_sfx(
+                                &output, &sources, &options, &stub, progress,
+                            ),
+                            None => Err(lumark_archive::ArchiveError::Corrupt(
+                                "找不到自解压运行时模块 lumark-sfx.exe，请先构建 lumark-sfx 或重新安装 Lumark"
+                                    .to_string(),
+                            )),
+                        }
+                    } else {
+                        ArchiveService::create(&output, &sources, &options, progress)
+                    };
+                    created.map(|report| {
+                        let mut message = if options.sfx {
+                            format!("已创建自解压 {}", report.output.display())
+                        } else {
+                            format!("已创建 {}", report.output.display())
+                        };
                         if !report.cleanup_errors.is_empty() {
                             message.push_str(&format!(
                                 "；{} 个源文件未能删除",

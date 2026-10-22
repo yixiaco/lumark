@@ -178,10 +178,13 @@ impl LumarkApp {
             .filter(|path| path.is_dir())
             .or_else(|| first.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| PathBuf::from("."));
-        let output = unique_output_path(
+        let mut output = unique_output_path(
             output_dir.join(format!("{default_name}.{}", format.extension())),
             format,
         );
+        if self.compress_sfx {
+            output.set_extension("exe");
+        }
         set_input(
             &self.compress_output,
             output.to_string_lossy().as_ref(),
@@ -290,10 +293,21 @@ impl LumarkApp {
             self.status = "当前没有可压缩的项目".to_string();
             return;
         }
+        // 记住勾选状态，下次打开压缩窗口时沿用。
+        self.compress_sfx = options.sfx;
+        // 自解压运行时模块随安装包分发；开发环境可用环境变量覆盖路径。
+        let sfx_stub = if options.sfx { sfx_stub_path() } else { None };
+        if options.sfx && sfx_stub.is_none() {
+            self.status =
+                "找不到自解压运行时模块 lumark-sfx.exe，请先构建 lumark-sfx 或重新安装 Lumark"
+                    .to_string();
+            return;
+        }
         let id = self.tasks.submit(lumark_tasks::TaskRequest::Compress {
             output: output.clone(),
             sources,
             options,
+            sfx_stub,
         });
         let label = format!("压缩 {}", output.display());
         self.record_task_queued(id, TaskKind::Compress, label.clone());
@@ -364,6 +378,7 @@ impl LumarkApp {
             output: output.clone(),
             sources,
             options,
+            sfx_stub: None,
         });
         self.active_task = Some(id);
         self.task_progress = None;
@@ -1279,6 +1294,22 @@ impl LumarkApp {
             Err(error) => self.status = error,
         }
     }
+}
+
+/// 定位自解压运行时模块。
+///
+/// 安装包把 `lumark-sfx.exe` 放在主程序同目录；`LUMARK_SFX_STUB` 环境变量
+/// 优先，便于开发环境和自动化测试指向构建产物。
+fn sfx_stub_path() -> Option<PathBuf> {
+    if let Some(value) = std::env::var_os("LUMARK_SFX_STUB") {
+        let path = PathBuf::from(value);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let candidate = exe.parent()?.join("lumark-sfx.exe");
+    candidate.is_file().then_some(candidate)
 }
 
 /// 返回密码动作对应的归档路径，供重新提交密码库匹配时使用。

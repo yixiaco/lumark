@@ -1316,3 +1316,99 @@ fn zip_edit_sync_mode_mirrors_source_directory() {
         "new-d"
     );
 }
+
+/// 验证自解压包由运行时模块、ZIP 数据和尾部页脚组成，且运行时能解析并解压。
+#[test]
+fn create_sfx_embeds_zip_payload_after_stub() {
+    let dir = tempdir().unwrap();
+    let source = make_source(dir.path());
+    let stub = dir.path().join("stub.exe");
+    let stub_bytes = b"MZ-fake-sfx-stub";
+    fs::write(&stub, stub_bytes).unwrap();
+    let output = dir.path().join("bundle.exe");
+    ArchiveService::create_sfx(
+        &output,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            ..Default::default()
+        },
+        &stub,
+        |_| {},
+    )
+    .unwrap();
+
+    let bytes = fs::read(&output).unwrap();
+    assert!(bytes.starts_with(stub_bytes));
+    assert_eq!(
+        &bytes[bytes.len() - lumark_sfx::FOOTER_LEN..][..8],
+        b"LMSFX001"
+    );
+    let mut file = std::fs::File::open(&output).unwrap();
+    let footer = lumark_sfx::read_footer(&mut file).unwrap().expect("页脚");
+    assert_eq!(footer.offset, stub_bytes.len() as u64);
+    let target = dir.path().join("extracted");
+    let files = lumark_sfx::extract_payload(file, footer, &target).unwrap();
+    assert_eq!(files, 2);
+    assert_eq!(
+        fs::read_to_string(target.join("source").join("hello.txt")).unwrap(),
+        "hello from lumark"
+    );
+    assert_eq!(
+        fs::read(target.join("source").join("nested").join("data.bin")).unwrap(),
+        [0u8, 1, 2, 3, 4]
+    );
+}
+
+/// 验证自解压生成会拒绝密码、非 ZIP 和缺失的运行时模块。
+#[test]
+fn create_sfx_rejects_unsupported_options() {
+    let dir = tempdir().unwrap();
+    let source = make_source(dir.path());
+    let stub = dir.path().join("stub.exe");
+    fs::write(&stub, b"MZ-fake-sfx-stub").unwrap();
+    let output = dir.path().join("bundle.exe");
+    let encrypted = CompressionOptions {
+        format: ArchiveFormat::Zip,
+        password: Some(zeroize::Zeroizing::new("secret".to_string())),
+        ..Default::default()
+    };
+    assert!(
+        ArchiveService::create_sfx(
+            &output,
+            std::slice::from_ref(&source),
+            &encrypted,
+            &stub,
+            |_| {}
+        )
+        .is_err(),
+        "自解压不应接受密码"
+    );
+    let seven_zip = CompressionOptions {
+        format: ArchiveFormat::SevenZip,
+        ..Default::default()
+    };
+    assert!(
+        ArchiveService::create_sfx(
+            &output,
+            std::slice::from_ref(&source),
+            &seven_zip,
+            &stub,
+            |_| {}
+        )
+        .is_err(),
+        "自解压不应接受非 ZIP 格式"
+    );
+    assert!(
+        ArchiveService::create_sfx(
+            &output,
+            std::slice::from_ref(&source),
+            &CompressionOptions::default(),
+            &dir.path().join("missing-stub.exe"),
+            |_| {}
+        )
+        .is_err(),
+        "缺少运行时模块时应失败"
+    );
+    assert!(!output.exists(), "失败时不应留下半成品");
+}

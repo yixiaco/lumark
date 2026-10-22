@@ -31,6 +31,8 @@ pub(crate) struct CompressInit {
     pub zipcrypto: bool,
     pub test_after: bool,
     pub delete_source: bool,
+    /// 生成自解压 EXE；只在 ZIP 格式下生效。
+    pub sfx: bool,
     pub path_mode: PathMode,
     pub threads: u32,
     pub zip_compression: ZipCompression,
@@ -62,6 +64,7 @@ pub(crate) struct CompressWindowView {
     zipcrypto: bool,
     test_after: bool,
     delete_source: bool,
+    sfx: bool,
     path_mode: PathMode,
     classic: bool,
     tab: u8,
@@ -345,6 +348,7 @@ impl CompressWindowView {
             zipcrypto: init.zipcrypto,
             test_after: init.test_after,
             delete_source: init.delete_source,
+            sfx: init.sfx,
             path_mode: init.path_mode,
             classic: init.classic,
             tab: 0,
@@ -374,9 +378,33 @@ impl CompressWindowView {
     /// 刷新格式并把输出输入的扩展名同步过去。
     fn set_format(&mut self, format: ArchiveFormat, window: &mut Window, cx: &mut Context<Self>) {
         self.format = format;
+        if format != ArchiveFormat::Zip {
+            // 自解压运行时只实现 ZIP 解压，切换格式时自动取消勾选。
+            self.sfx = false;
+        }
         let current = PathBuf::from(input_value(&self.output, cx));
         if !current.as_os_str().is_empty() {
             let replacement = replace_archive_extension(&current, format);
+            set_input(
+                &self.output,
+                replacement.to_string_lossy().as_ref(),
+                window,
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
+    /// 切换自解压输出，并把输出扩展名在 `.exe` 与当前格式扩展名之间同步。
+    fn set_sfx(&mut self, enabled: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.sfx = enabled;
+        let current = PathBuf::from(input_value(&self.output, cx));
+        if !current.as_os_str().is_empty() {
+            let replacement = if enabled {
+                current.with_extension("exe")
+            } else {
+                replace_archive_extension(&current, self.format)
+            };
             set_input(
                 &self.output,
                 replacement.to_string_lossy().as_ref(),
@@ -438,7 +466,7 @@ impl CompressWindowView {
 
     /// 校验表单并提交压缩任务，然后关闭独立窗口。
     fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let output = PathBuf::from(input_value(&self.output, cx));
+        let mut output = PathBuf::from(input_value(&self.output, cx));
         if output.as_os_str().is_empty() {
             self.error = Some("请输入输出路径".to_string());
             cx.notify();
@@ -450,6 +478,22 @@ impl CompressWindowView {
             return;
         }
         let password = input_value(&self.password, cx);
+        // 自解压只在 ZIP 下有效；运行时模块不处理密码和分卷。
+        let sfx = self.sfx && self.format == ArchiveFormat::Zip;
+        if sfx && !password.is_empty() {
+            self.error = Some("自解压暂不支持密码，请先关闭密码".to_string());
+            cx.notify();
+            return;
+        }
+        let split_size = parse_size(&input_value(&self.split, cx));
+        if sfx && split_size.is_some_and(|size| size >= 64 * 1024) {
+            self.error = Some("自解压不支持分卷".to_string());
+            cx.notify();
+            return;
+        }
+        if sfx {
+            output.set_extension("exe");
+        }
         let comment = self.comment.read(cx).value().to_string();
         let (modified_after, modified_before) = match self.file_time_filter {
             FileTimeFilter::Any => (None, None),
@@ -486,9 +530,10 @@ impl CompressWindowView {
                 ZipEncryption::Aes256
             },
             comment: (!comment.trim().is_empty()).then_some(comment),
-            split_size: parse_size(&input_value(&self.split, cx)),
+            split_size,
             test_after: self.test_after,
             delete_source: self.delete_source,
+            sfx,
             exclude_patterns: parse_patterns(&input_value(&self.exclude, cx)),
             store_only_patterns: parse_patterns(&input_value(&self.store, cx)),
             ..Default::default()
@@ -682,6 +727,16 @@ impl CompressWindowView {
                         self.delete_source,
                         |this, value, _| this.delete_source = value,
                     ))
+                    .when(self.format == ArchiveFormat::Zip, |this| {
+                        this.child(
+                            Checkbox::new("compress-window-sfx")
+                                .label("自解压 EXE")
+                                .checked(self.sfx)
+                                .on_click(cx.listener(|this, value: &bool, window, cx| {
+                                    this.set_sfx(*value, window, cx);
+                                })),
+                        )
+                    })
                     .when(self.format == ArchiveFormat::SevenZip, |this| {
                         this.child(check_button(
                             cx,
@@ -857,7 +912,17 @@ impl CompressWindowView {
                         "压缩后删除源文件",
                         self.delete_source,
                         |this, value, _| this.delete_source = value,
-                    )),
+                    ))
+                    .when(self.format == ArchiveFormat::Zip, |this| {
+                        this.child(
+                            Checkbox::new("classic-sfx")
+                                .label("自解压 EXE")
+                                .checked(self.sfx)
+                                .on_click(cx.listener(|this, value: &bool, window, cx| {
+                                    this.set_sfx(*value, window, cx);
+                                })),
+                        )
+                    }),
             )
             .child(
                 h_flex()
@@ -1224,6 +1289,7 @@ impl LumarkApp {
             zipcrypto: self.compress_zipcrypto,
             test_after: self.compress_test_after,
             delete_source: self.compress_delete_source,
+            sfx: self.compress_sfx,
             path_mode: self.compress_path_mode,
             threads: std::thread::available_parallelism()
                 .map(|count| count.get() as u32)

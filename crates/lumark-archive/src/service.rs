@@ -27,6 +27,12 @@ use crate::format::{
 };
 use crate::path::{ensure_no_symlink_components, safe_join};
 
+/// 自解压包尾部页脚的魔数，用于识别被拼接的运行时模块。
+pub const SFX_MAGIC: [u8; 8] = *b"LMSFX001";
+
+/// 自解压包尾部页脚长度：魔数 8 字节 + 数据段偏移 8 字节 + 数据段长度 8 字节。
+pub const SFX_FOOTER_LEN: usize = 24;
+
 #[derive(Debug, Clone)]
 pub struct ExtractProgress {
     pub current: String,
@@ -496,6 +502,78 @@ impl ArchiveService {
             }
             Ok(report)
         }
+    }
+
+    /// 生成自解压 ZIP：拼接运行时模块、ZIP 数据和尾部页脚。
+    ///
+    /// 先在目标目录生成临时 ZIP，成功后再写成单个 EXE；失败只清理临时文件，
+    /// 不留下半成品。运行时模块只实现无密码 ZIP 解压，因此这里提前拒绝密码
+    /// 和分卷，避免生成打不开的包。
+    pub fn create_sfx<F>(
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        stub: &Path,
+        progress: F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        F: FnMut(CreateProgress),
+    {
+        if options.format != ArchiveFormat::Zip {
+            return Err(ArchiveError::UnsupportedFormat(format!(
+                "自解压仅支持 ZIP，当前为 {}",
+                options.format.label()
+            )));
+        }
+        if options.password.is_some() {
+            return Err(ArchiveError::Corrupt(
+                "自解压暂不支持密码，请先关闭密码".into(),
+            ));
+        }
+        if options.split_size.is_some_and(|size| size >= 64 * 1024) {
+            return Err(ArchiveError::Corrupt("自解压不支持分卷".into()));
+        }
+        if !stub.is_file() {
+            return Err(ArchiveError::Corrupt(format!(
+                "找不到自解压运行时模块：{}",
+                stub.display()
+            )));
+        }
+        let parent = output.parent().unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(parent)?;
+        let temp = parent.join(format!(
+            ".lumark-sfx-{}-{}.zip",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|value| value.as_nanos())
+                .unwrap_or_default()
+        ));
+        let mut zip_options = options.clone();
+        zip_options.sfx = false;
+        let report = match Self::create(&temp, sources, &zip_options, progress) {
+            Ok(report) => report,
+            Err(error) => {
+                let _ = fs::remove_file(&temp);
+                return Err(error);
+            }
+        };
+        let composed = (|| -> Result<(), ArchiveError> {
+            let mut target = File::create(output)?;
+            let mut stub_file = File::open(stub)?;
+            let offset = io::copy(&mut stub_file, &mut target)?;
+            let mut payload = File::open(&temp)?;
+            let length = io::copy(&mut payload, &mut target)?;
+            target.write_all(&sfx_footer(offset, length))?;
+            target.sync_all()?;
+            Ok(())
+        })();
+        let _ = fs::remove_file(&temp);
+        composed?;
+        Ok(CreateReport {
+            output: output.to_path_buf(),
+            ..report
+        })
     }
 
     fn create_direct<F>(
@@ -2129,6 +2207,15 @@ struct SourcePlan {
     files: Vec<(String, PathBuf, u64)>,
     total_bytes: u64,
     latest_modified: Option<SystemTime>,
+}
+
+/// 组装自解压包尾部页脚：魔数 + 数据段偏移 + 数据段长度。
+fn sfx_footer(offset: u64, length: u64) -> [u8; SFX_FOOTER_LEN] {
+    let mut footer = [0u8; SFX_FOOTER_LEN];
+    footer[..8].copy_from_slice(&SFX_MAGIC);
+    footer[8..16].copy_from_slice(&offset.to_le_bytes());
+    footer[16..24].copy_from_slice(&length.to_le_bytes());
+    footer
 }
 
 fn build_source_plan(

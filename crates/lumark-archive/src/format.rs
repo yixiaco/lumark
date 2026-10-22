@@ -289,6 +289,8 @@ pub struct CompressionOptions {
     pub split_size: Option<u64>,
     pub test_after: bool,
     pub delete_source: bool,
+    /// 生成自解压 EXE；只由 `ArchiveService::create_sfx` 处理，`create` 忽略。
+    pub sfx: bool,
     pub exclude_patterns: Vec<String>,
     pub store_only_patterns: Vec<String>,
     pub cancel: Option<Arc<AtomicBool>>,
@@ -319,6 +321,7 @@ impl Default for CompressionOptions {
             split_size: None,
             test_after: false,
             delete_source: false,
+            sfx: false,
             exclude_patterns: Vec::new(),
             store_only_patterns: Vec::new(),
             cancel: None,

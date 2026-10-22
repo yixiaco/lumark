@@ -300,6 +300,10 @@ mod ui_tests {
                         window.find("compress-window-password-toggle").visible(),
                         "轻巧模式 600×330 下密码入口被裁切"
                     );
+                    assert!(
+                        window.find("compress-window-sfx").visible(),
+                        "轻巧模式未渲染自解压选项"
+                    );
 
                     let select = window.find("compress-format-select");
                     assert!(select.visible(), "压缩格式下拉未渲染");
@@ -324,6 +328,10 @@ mod ui_tests {
                         (tab.bounds().size.height - px(32.)).abs() < px(1.),
                         "选项卡高度不正确：{:?}",
                         tab.bounds().size.height
+                    );
+                    assert!(
+                        window.find("classic-sfx").visible(),
+                        "经典模式未渲染自解压选项"
                     );
 
                     window.click(("compress-window-tab", 3usize), cx);

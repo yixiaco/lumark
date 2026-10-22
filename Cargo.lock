@@ -4990,6 +4990,7 @@ dependencies = [
  "flate2",
  "geezipx-core",
  "globset",
+ "lumark-sfx",
  "lz4_flex",
  "serde",
  "sevenz-rust2 0.24.1",
@@ -5045,6 +5046,17 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "lumark-sfx"
+version = "0.1.0"
+dependencies = [
+ "embed-resource",
+ "flate2",
+ "tempfile",
+ "windows-sys 0.59.0",
+ "zip 9.0.5",
 ]
 
 [[package]]

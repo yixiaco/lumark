@@ -24,6 +24,7 @@ fn compress_and_extract_through_task_manager() {
             format: ArchiveFormat::Zip,
             ..Default::default()
         },
+        sfx_stub: None,
     });
 
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -98,6 +99,57 @@ fn compress_and_extract_through_task_manager() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(test_completed);
+}
+
+/// 验证任务层会把 ZIP 数据和运行时模块拼成自解压 EXE。
+#[test]
+fn self_extracting_archive_runs_through_the_task_manager() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("hello.txt");
+    fs::write(&source, b"sfx payload").unwrap();
+    let stub = dir.path().join("lumark-sfx.exe");
+    let stub_bytes = b"MZ-stub";
+    fs::write(&stub, stub_bytes).unwrap();
+    let output = dir.path().join("bundle.exe");
+
+    let manager = TaskManager::new();
+    let id = manager.submit(TaskRequest::Compress {
+        output: output.clone(),
+        sources: vec![source],
+        options: CompressionOptions {
+            format: ArchiveFormat::Zip,
+            sfx: true,
+            ..Default::default()
+        },
+        sfx_stub: Some(stub),
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut completed = false;
+    while Instant::now() < deadline {
+        while let Some(event) = manager.try_recv() {
+            if let TaskEvent::Completed { id: event_id, .. } = event
+                && event_id == id
+            {
+                completed = true;
+            }
+        }
+        if completed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(completed, "自解压任务未在限期内完成");
+    let bytes = fs::read(&output).unwrap();
+    assert!(bytes.starts_with(stub_bytes));
+    assert_eq!(&bytes[bytes.len() - 24..][..8], b"LMSFX001");
+    let offset =
+        u64::from_le_bytes(bytes[bytes.len() - 16..bytes.len() - 8].try_into().unwrap()) as usize;
+    let length = u64::from_le_bytes(bytes[bytes.len() - 8..].try_into().unwrap()) as usize;
+    assert_eq!(offset, stub_bytes.len());
+    let payload = dir.path().join("payload.zip");
+    fs::write(&payload, &bytes[offset..offset + length]).unwrap();
+    let info = ArchiveService::list(&payload, None).unwrap();
+    assert!(info.entries.iter().any(|entry| entry.path == "hello.txt"));
 }
 
 #[test]

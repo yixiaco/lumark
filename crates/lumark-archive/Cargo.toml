@@ -31,3 +31,4 @@ zeroize.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+lumark-sfx = { path = "../lumark-sfx" }

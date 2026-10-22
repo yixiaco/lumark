@@ -15,4 +15,4 @@ pub use format::{
     ZipEncryption,
 };
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
-pub use service::{ArchiveService, ExtractProgress};
+pub use service::{ArchiveService, CreateProgress, ExtractProgress, SFX_FOOTER_LEN, SFX_MAGIC};
