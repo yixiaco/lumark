@@ -591,6 +591,56 @@ pub(crate) fn is_terminal_task_state(state: TaskState) -> bool {
     )
 }
 
+/// 多个任务合并后的进度统计。
+///
+/// 任务中心用它展示“跨任务总进度”：排队、运行和结束的任务分别计数，
+/// 运行中（含暂停）的任务按字节累加，避免只看单个任务时忽略其它任务。
+pub(crate) struct TaskAggregate {
+    pub running: usize,
+    pub queued: usize,
+    pub finished: usize,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+}
+
+impl TaskAggregate {
+    /// 合并进度：按运行任务的字节总量计算，没有总量时为 0。
+    pub fn ratio(&self) -> f32 {
+        if self.bytes_total == 0 {
+            0.0
+        } else {
+            (self.bytes_done as f32 / self.bytes_total as f32).clamp(0.0, 1.0)
+        }
+    }
+}
+
+/// 汇总任务记录，得到排队/运行/结束数量和运行任务的字节进度。
+pub(crate) fn aggregate_task_progress(records: &[TaskRecord]) -> TaskAggregate {
+    let mut aggregate = TaskAggregate {
+        running: 0,
+        queued: 0,
+        finished: 0,
+        bytes_done: 0,
+        bytes_total: 0,
+    };
+    for record in records {
+        match record.state {
+            TaskState::Queued => aggregate.queued += 1,
+            state if is_terminal_task_state(state) => aggregate.finished += 1,
+            _ => {
+                aggregate.running += 1;
+                aggregate.bytes_done = aggregate
+                    .bytes_done
+                    .saturating_add(record.progress.bytes_done);
+                aggregate.bytes_total = aggregate
+                    .bytes_total
+                    .saturating_add(record.progress.bytes_total);
+            }
+        }
+    }
+    aggregate
+}
+
 /// 返回任务状态的中文名称。
 pub(crate) fn task_state_label(state: TaskState) -> &'static str {
     match state {

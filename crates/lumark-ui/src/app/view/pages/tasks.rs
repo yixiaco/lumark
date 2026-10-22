@@ -1,6 +1,7 @@
 //! 任务中心页面：任务统计、任务队列和任务行。
 use super::super::super::*;
 use super::super::components::{AppIcon, card};
+use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement;
 
 impl LumarkApp {
@@ -9,16 +10,7 @@ impl LumarkApp {
     /// 任务列表使用完整页面而不是浮层，避免浮层下方文件表继续接收鼠标事件；
     /// 每条记录保留实时进度和最终结果，点击行可重新打开独立进度窗口。
     pub(crate) fn render_task_center(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let running = self
-            .task_records
-            .iter()
-            .filter(|record| !is_terminal_task_state(record.state))
-            .count();
-        let completed = self
-            .task_records
-            .iter()
-            .filter(|record| record.state == TaskState::Completed)
-            .count();
+        let aggregate = aggregate_task_progress(&self.task_records);
         let total = self.task_records.len();
         v_flex()
             .size_full()
@@ -31,15 +23,22 @@ impl LumarkApp {
                     .child(task_stat_card(
                         cx,
                         AppIcon::Time,
-                        "进行中",
-                        running,
+                        "运行中",
+                        aggregate.running,
                         cx.theme().primary,
+                    ))
+                    .child(task_stat_card(
+                        cx,
+                        AppIcon::List,
+                        "排队中",
+                        aggregate.queued,
+                        cx.theme().muted_foreground,
                     ))
                     .child(task_stat_card(
                         cx,
                         AppIcon::Check,
                         "已完成",
-                        completed,
+                        aggregate.finished,
                         cx.theme().success_foreground,
                     ))
                     .child(task_stat_card(
@@ -50,6 +49,49 @@ impl LumarkApp {
                         cx.theme().muted_foreground,
                     )),
             )
+            .when(aggregate.running > 0, |this| {
+                // 多个任务并行时只显示各自的进度会看不到整体进展，这里按
+                // 字节总量给出一条合并进度。
+                this.child(
+                    card(cx).w_full().p_4().child(
+                        v_flex()
+                            .w_full()
+                            .gap_2()
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .justify_between()
+                                    .items_center()
+                                    .child(div().text_sm().font_semibold().child("跨任务总进度"))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!(
+                                                "{} 个任务 · {:.0}%",
+                                                aggregate.running,
+                                                aggregate.ratio() * 100.0
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                Progress::new("task-aggregate-progress")
+                                    .value(aggregate.ratio())
+                                    .w_full(),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!(
+                                        "{} / {}",
+                                        format_size(aggregate.bytes_done),
+                                        format_size(aggregate.bytes_total)
+                                    )),
+                            ),
+                    ),
+                )
+            })
             .child(
                 card(cx)
                     .flex_1()

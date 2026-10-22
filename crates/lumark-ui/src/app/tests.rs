@@ -875,4 +875,84 @@ mod ui_tests {
         });
         let _ = app;
     }
+
+    /// 验证跨任务聚合只统计非终态任务，并按字节累加运行任务的进度。
+    #[test]
+    fn task_aggregate_sums_running_progress() {
+        let progress = |bytes_done: u64, bytes_total: u64| TaskProgress {
+            bytes_done,
+            bytes_total,
+            ..Default::default()
+        };
+        let record = |id: u64, state: TaskState, progress: TaskProgress| TaskRecord {
+            id,
+            kind: TaskKind::Compress,
+            label: String::new(),
+            state,
+            progress,
+            message: None,
+        };
+        let records = vec![
+            record(1, TaskState::Running, progress(50, 100)),
+            record(2, TaskState::Paused, progress(10, 100)),
+            record(3, TaskState::Queued, progress(0, 0)),
+            record(4, TaskState::Completed, progress(100, 100)),
+            record(5, TaskState::Failed, progress(0, 0)),
+        ];
+        let aggregate = aggregate_task_progress(&records);
+        assert_eq!(aggregate.running, 2);
+        assert_eq!(aggregate.queued, 1);
+        assert_eq!(aggregate.finished, 2);
+        assert_eq!(aggregate.bytes_done, 60);
+        assert_eq!(aggregate.bytes_total, 200);
+        assert!((aggregate.ratio() - 0.3).abs() < f32::EPSILON);
+    }
+
+    #[gpui_kit::test]
+    /// 验证任务中心显示排队数量和跨任务总进度。
+    fn task_center_shows_aggregate_progress(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.task_records.push(TaskRecord {
+                    id: 1,
+                    kind: TaskKind::Compress,
+                    label: "压缩 归档".to_string(),
+                    state: TaskState::Running,
+                    progress: TaskProgress {
+                        bytes_done: 50,
+                        bytes_total: 100,
+                        ..Default::default()
+                    },
+                    message: None,
+                });
+                app.task_records.push(TaskRecord {
+                    id: 2,
+                    kind: TaskKind::Extract,
+                    label: "解压 归档".to_string(),
+                    state: TaskState::Queued,
+                    progress: TaskProgress::default(),
+                    message: None,
+                });
+                app.screen = Screen::Tasks;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            assert!(
+                window.find("task-aggregate-progress").visible(),
+                "任务中心未渲染跨任务总进度"
+            );
+        });
+        let _ = app;
+    }
 }

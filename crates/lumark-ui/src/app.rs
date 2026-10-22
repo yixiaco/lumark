@@ -827,7 +827,9 @@ pub(crate) fn button(id: impl Into<gpui_kit::ElementId>) -> Button {
     Button::new(id).cursor_pointer()
 }
 
-pub(crate) use actions::tasks::{is_terminal_task_state, task_state_label};
+pub(crate) use actions::tasks::{
+    aggregate_task_progress, is_terminal_task_state, task_state_label,
+};
 pub(crate) use theme::{apply_theme, apply_theme_accent, hsla_to_hex, theme_accent_presets};
 pub(crate) use util::*;
 
