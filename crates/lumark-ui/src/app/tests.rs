@@ -601,6 +601,60 @@ mod ui_tests {
     }
 
     #[gpui_kit::test]
+    /// 验证拖入归档的文件先打开更新模式确认框，确认后才提交编辑任务。
+    fn archive_add_dialog_selects_update_mode(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let archive = directory.path().join("target.zip");
+        let archived = directory.path().join("hello.txt");
+        std::fs::write(&archived, b"original").unwrap();
+        ArchiveService::create(
+            &archive,
+            &[archived],
+            &CompressionOptions {
+                format: ArchiveFormat::Zip,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        let dropped = directory.path().join("dropped.txt");
+        std::fs::write(&dropped, b"dropped").unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.browser.open_archive(&archive, None).unwrap();
+                app.add_files_to_current_archive(&[dropped]);
+                assert!(app.show_archive_add_dialog);
+                assert_eq!(app.pending_archive_additions.len(), 1);
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            assert!(window.find("archive-add-confirm").visible());
+            assert!(window.find("archive-add-freshen").visible());
+            window.click("archive-add-newer", cx);
+            window.draw(cx).clear(cx);
+            app.update(cx, |app, _| {
+                assert_eq!(app.archive_add_mode, lumark_archive::UpdateMode::Newer);
+            });
+            window.click("archive-add-confirm", cx);
+            app.update(cx, |app, _| {
+                assert!(!app.show_archive_add_dialog);
+                assert!(app.pending_archive_additions.is_empty());
+            });
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
     /// 验证自动尝试失败后弹出密码框，并默认勾选“保存到密码库”。
     fn auto_password_failure_offers_saving_password(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);

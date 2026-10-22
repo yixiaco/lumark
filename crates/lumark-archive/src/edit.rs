@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -6,13 +6,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::{DateTime, Utc};
 use sevenz_rust2::{ArchiveReader, ArchiveWriter, EncoderConfiguration, Password};
 use zeroize::Zeroizing;
 use zip::write::SimpleFileOptions;
 use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::error::ArchiveError;
-use crate::format::ArchiveFormat;
+use crate::format::{ArchiveFormat, UpdateMode};
 use crate::service::ArchiveService;
 
 #[derive(Debug, Clone, Default)]
@@ -22,6 +23,8 @@ pub struct EditOptions {
     pub delete_paths: Vec<String>,
     pub rename: Vec<(String, String)>,
     pub additions: Vec<(String, PathBuf)>,
+    /// 同名条目的替换规则，默认整体替换。
+    pub update_mode: UpdateMode,
     pub comment: Option<String>,
     pub keep_backup: bool,
     pub cancel: Option<Arc<AtomicBool>>,
@@ -40,6 +43,8 @@ pub struct EditReport {
     pub files: usize,
     pub output: PathBuf,
     pub backup: Option<PathBuf>,
+    /// 因更新模式判定为未变化而跳过的添加文件数。
+    pub skipped: usize,
 }
 
 impl ArchiveService {
@@ -71,6 +76,10 @@ impl ArchiveService {
                 return Err(ArchiveError::Corrupt(format!("添加文件名称重复：{name}")));
             }
         }
+        // 更新模式需要读取归档条目时间戳；直接替换模式跳过这次枚举。
+        let (additions, skipped) = filter_additions(path, options)?;
+        let mut options = options.clone();
+        options.additions = additions;
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(parent)?;
         let extension = path
@@ -88,8 +97,8 @@ impl ArchiveService {
         ));
 
         let result = match format {
-            ArchiveFormat::Zip => write_zip(path, &temp, options, &mut progress),
-            ArchiveFormat::SevenZip => write_seven_zip(path, &temp, options, &mut progress),
+            ArchiveFormat::Zip => write_zip(path, &temp, &options, &mut progress),
+            ArchiveFormat::SevenZip => write_seven_zip(path, &temp, &options, &mut progress),
             _ => unreachable!(),
         };
         if let Err(error) = result {
@@ -121,8 +130,63 @@ impl ArchiveService {
             files: verify.unwrap_or_default().entries.len(),
             output: path.to_path_buf(),
             backup,
+            skipped,
         })
     }
+}
+
+/// 按更新模式过滤待添加文件，返回实际写入的列表和被跳过的数量。
+///
+/// 名称匹配沿用添加流程的裸文件名语义：归档条目名与待添加名完全相等时
+/// 才视为同一文件，目录前缀不同不会被误判为替换。
+fn filter_additions(
+    archive: &Path,
+    options: &EditOptions,
+) -> Result<(Vec<(String, PathBuf)>, usize), ArchiveError> {
+    if options.update_mode == UpdateMode::Replace {
+        return Ok((options.additions.clone(), 0));
+    }
+    let info = ArchiveService::list(
+        archive,
+        options.source_password.as_deref().map(String::as_str),
+    )?;
+    let existing: HashMap<&str, Option<DateTime<Utc>>> = info
+        .entries
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry.modified))
+        .collect();
+    let mut kept = Vec::new();
+    let mut skipped = 0;
+    for (name, source) in &options.additions {
+        let Some(archived) = existing.get(name.as_str()) else {
+            // 仅刷新模式不引入新条目；更新模式把新文件照常加入。
+            if options.update_mode == UpdateMode::Freshen {
+                skipped += 1;
+            } else {
+                kept.push((name.clone(), source.clone()));
+            }
+            continue;
+        };
+        if options.update_mode == UpdateMode::Freshen || source_is_newer(*archived, source) {
+            kept.push((name.clone(), source.clone()));
+        } else {
+            skipped += 1;
+        }
+    }
+    Ok((kept, skipped))
+}
+
+/// 判断磁盘文件是否比归档条目更新。
+///
+/// 任一侧缺少时间戳时按“需要更新”返回，宁可多写一次也不静默保留旧内容。
+fn source_is_newer(archived: Option<DateTime<Utc>>, source: &Path) -> bool {
+    let Ok(disk) = fs::metadata(source).and_then(|metadata| metadata.modified()) else {
+        return true;
+    };
+    let Some(archived) = archived else {
+        return true;
+    };
+    DateTime::<Utc>::from(disk) > archived
 }
 
 fn write_zip<F>(

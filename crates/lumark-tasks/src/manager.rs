@@ -396,7 +396,17 @@ impl TaskManager {
                             },
                         });
                     })
-                    .map(|report| format!("已更新 {}", report.output.display()))
+                    .map(|report| {
+                        if report.skipped == 0 {
+                            format!("已更新 {}", report.output.display())
+                        } else {
+                            format!(
+                                "已更新 {}，跳过 {} 个未变化文件",
+                                report.output.display(),
+                                report.skipped
+                            )
+                        }
+                    })
                 }
                 TaskRequest::LoadArchive { archive, password } => {
                     ArchiveService::list(&archive, password.as_deref().map(String::as_str)).map(

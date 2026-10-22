@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 
 use lumark_archive::{
     ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, ExtractionOptions,
-    OverwritePolicy, safe_join,
+    OverwritePolicy, UpdateMode, safe_join,
 };
 use tempfile::tempdir;
 
@@ -1112,4 +1112,129 @@ fn seven_zip_solid_reports_byte_progress_during_compression() {
         progress.current_bytes_done > 0
             && progress.current_bytes_done < progress.current_bytes_total
     }));
+}
+
+/// 设置文件修改时间，供更新模式的时间比较使用。
+fn set_modified(path: &std::path::Path, when: std::time::SystemTime) {
+    let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_modified(when).unwrap();
+}
+
+/// 解压归档并返回指定条目的文本内容。
+fn extract_text(archive: &std::path::Path, output: &std::path::Path, name: &str) -> String {
+    ArchiveService::extract(
+        archive,
+        &ExtractionOptions {
+            output_dir: output.to_path_buf(),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    String::from_utf8(fs::read(output.join(name)).unwrap()).unwrap()
+}
+
+/// 验证“只更新较新文件”会保留较旧的归档条目，并替换更新的文件。
+#[test]
+fn zip_edit_update_mode_replaces_only_newer_files() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("hello.txt");
+    fs::write(&source, b"original").unwrap();
+    let base = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+    set_modified(&source, base);
+    let archive = dir.path().join("update.zip");
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+
+    // 较旧的文件必须被跳过，归档内容保持原样。
+    fs::write(&source, b"stale").unwrap();
+    set_modified(&source, base - std::time::Duration::from_secs(3600));
+    let report = ArchiveService::edit(
+        &archive,
+        &EditOptions {
+            additions: vec![("hello.txt".to_string(), source.clone())],
+            update_mode: UpdateMode::Newer,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(report.skipped, 1);
+    assert_eq!(
+        extract_text(&archive, &dir.path().join("stale"), "hello.txt"),
+        "original"
+    );
+
+    // 更新的文件应替换条目内容。
+    fs::write(&source, b"fresh").unwrap();
+    set_modified(&source, base + std::time::Duration::from_secs(3600));
+    let report = ArchiveService::edit(
+        &archive,
+        &EditOptions {
+            additions: vec![("hello.txt".to_string(), source)],
+            update_mode: UpdateMode::Newer,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(report.skipped, 0);
+    assert_eq!(
+        extract_text(&archive, &dir.path().join("fresh"), "hello.txt"),
+        "fresh"
+    );
+}
+
+/// 验证“仅刷新已有条目”更新旧条目但不会添加新文件。
+#[test]
+fn zip_edit_freshen_mode_skips_new_files() {
+    let dir = tempdir().unwrap();
+    let existing = dir.path().join("hello.txt");
+    fs::write(&existing, b"original").unwrap();
+    let archive = dir.path().join("freshen.zip");
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&existing),
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+
+    fs::write(&existing, b"updated").unwrap();
+    let added = dir.path().join("new.txt");
+    fs::write(&added, b"new file").unwrap();
+    let report = ArchiveService::edit(
+        &archive,
+        &EditOptions {
+            additions: vec![
+                ("hello.txt".to_string(), existing),
+                ("new.txt".to_string(), added),
+            ],
+            update_mode: UpdateMode::Freshen,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(report.skipped, 1);
+    let info = ArchiveService::list(&archive, None).unwrap();
+    assert!(
+        !info.entries.iter().any(|entry| entry.path == "new.txt"),
+        "仅刷新模式不应加入新条目"
+    );
+    assert_eq!(
+        extract_text(&archive, &dir.path().join("updated"), "hello.txt"),
+        "updated"
+    );
 }

@@ -211,6 +211,21 @@ pub enum OverwritePolicy {
     Rename,
 }
 
+/// 向归档添加同名文件时的处理方式。
+///
+/// 三种模式只影响同名条目的替换判断，删除和重命名始终按参数执行；
+/// 归档条目缺少时间戳时按“需要更新”处理，避免静默丢文件。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UpdateMode {
+    /// 同名条目一律用新文件替换。
+    #[default]
+    Replace,
+    /// 只有比归档内条目更新的文件才替换，新文件照常添加。
+    Newer,
+    /// 只更新归档中已存在的条目，不添加新条目。
+    Freshen,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ZipCompression {
     #[default]

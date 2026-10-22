@@ -445,8 +445,7 @@ pub(super) fn hint_text(cx: &gpui_kit::App, text: impl Into<String>) -> impl Int
 
 /// 渲染官方单选按钮。
 ///
-/// 组状态仍由压缩预设字段维护；组件库负责圆点、焦点环、悬停和键盘激活。
-#[allow(dead_code)]
+/// 组状态由调用方的枚举字段维护；组件库负责圆点、焦点环、悬停和键盘激活。
 pub(super) fn option_radio(
     cx: &Context<LumarkApp>,
     id: &'static str,

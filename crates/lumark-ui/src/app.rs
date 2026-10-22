@@ -27,7 +27,7 @@ use uuid::Uuid;
 use lumark_archive::{
     ArchiveFormat, ArchiveService, ArchiveTimeSource, CompressionOptions, EditOptions,
     ExtractionOptions, FileTimeFilter, OverwritePolicy as ArchiveOverwritePolicy, PathMode,
-    SevenZCompression, ZipCompression, ZipEncryption,
+    SevenZCompression, UpdateMode, ZipCompression, ZipEncryption,
 };
 use lumark_browser::{BrowserEntry, BrowserLocation, BrowserModel, SearchMode};
 use lumark_platform_windows as platform;
@@ -384,6 +384,11 @@ pub struct LumarkApp {
     show_rename: bool,
     rename_name: gpui_kit::Entity<InputState>,
     rename_target: Option<PathBuf>,
+    /// 拖入归档后等待确认更新模式的文件列表。
+    pending_archive_additions: Vec<(String, PathBuf)>,
+    show_archive_add_dialog: bool,
+    /// 本次添加到归档时同名条目的处理方式。
+    archive_add_mode: UpdateMode,
     password_search: gpui_kit::Entity<InputState>,
     password_note: gpui_kit::Entity<InputState>,
     password_page_scroll: gpui_kit::ScrollHandle,
@@ -641,6 +646,9 @@ impl LumarkApp {
             show_rename: false,
             rename_name,
             rename_target: None,
+            pending_archive_additions: Vec::new(),
+            show_archive_add_dialog: false,
+            archive_add_mode: UpdateMode::Replace,
             password_search,
             password_note,
             password_page_scroll: gpui_kit::ScrollHandle::new(),

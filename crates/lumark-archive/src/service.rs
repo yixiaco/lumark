@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use geezipx_core::archive::ArchiveReader as LegacyReader;
 use sevenz_rust2::encoder_options::{Bzip2Options, Lzma2Options, LzmaOptions, PpmdOptions};
 use sevenz_rust2::{
@@ -2107,7 +2107,10 @@ fn zip_time_to_chrono(value: Option<zip::DateTime>) -> Option<DateTime<Utc>> {
         value.minute().into(),
         value.second().into(),
     )?;
-    Some(DateTime::<Utc>::from_naive_utc_and_offset(time, Utc))
+    // ZIP 的 DOS 时间字段不带时区，写入时按本地时间记录；读取必须同样按
+    // 本地时间解释，否则条目时间会整体偏移，更新模式的新旧比较也会失真。
+    let local = Local.from_local_datetime(&time).earliest()?;
+    Some(local.with_timezone(&Utc))
 }
 
 fn selected(name: &str, selected_paths: &[String]) -> bool {

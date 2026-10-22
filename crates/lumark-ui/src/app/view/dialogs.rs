@@ -1,5 +1,5 @@
 use super::super::*;
-use super::components::{AppIcon, card, form_label};
+use super::components::{AppIcon, card, form_label, option_radio};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::progress::Progress;
 
@@ -354,6 +354,92 @@ impl LumarkApp {
                     ),
             )
             .into_any_element()
+    }
+
+    /// 渲染添加到归档的更新模式选择卡片。
+    ///
+    /// 更新模式只在确认后生效，取消不会触发归档重建，因此可以先浏览选项
+    /// 再决定是否写入。
+    pub(crate) fn render_archive_add_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let count = self.pending_archive_additions.len();
+        let target = match &self.browser.location {
+            BrowserLocation::Archive { archive, .. } => archive
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("当前归档")
+                .to_string(),
+            BrowserLocation::FileSystem(_) => "当前归档".to_string(),
+        };
+        let hint = match self.archive_add_mode {
+            UpdateMode::Replace => "同名条目直接覆盖，新文件全部加入。",
+            UpdateMode::Newer => "仅当磁盘文件比归档条目更新时替换，较旧条目保留原内容。",
+            UpdateMode::Freshen => "只更新归档中已存在的条目，不会加入新文件。",
+        };
+        centered_modal(cx, "添加到归档")
+            .child(
+                div()
+                    .w_full()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!(
+                        "{count} 个文件将写入 {target}，请选择同名条目的处理方式："
+                    )),
+            )
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(option_radio(
+                        cx,
+                        "archive-add-replace",
+                        "添加并替换同名文件".to_string(),
+                        self.archive_add_mode == UpdateMode::Replace,
+                        |app, _, _| app.archive_add_mode = UpdateMode::Replace,
+                    ))
+                    .child(option_radio(
+                        cx,
+                        "archive-add-newer",
+                        "只更新较新的文件".to_string(),
+                        self.archive_add_mode == UpdateMode::Newer,
+                        |app, _, _| app.archive_add_mode = UpdateMode::Newer,
+                    ))
+                    .child(option_radio(
+                        cx,
+                        "archive-add-freshen",
+                        "仅刷新已有条目".to_string(),
+                        self.archive_add_mode == UpdateMode::Freshen,
+                        |app, _, _| app.archive_add_mode = UpdateMode::Freshen,
+                    )),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(hint),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        button("archive-add-cancel")
+                            .secondary()
+                            .label("取消")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cancel_archive_add(cx);
+                            })),
+                    )
+                    .child(
+                        button("archive-add-confirm")
+                            .primary()
+                            .label("开始添加")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.confirm_archive_add(cx);
+                            })),
+                    ),
+            )
     }
 
     /// 确认是否执行从归档解压到受控临时目录的可执行文件或脚本。

@@ -303,12 +303,14 @@ impl LumarkApp {
         }
     }
 
-    /// 通过后台编辑流程把拖入文件添加到当前归档。
+    /// 暂存拖入文件并请求用户选择更新模式。
+    ///
+    /// 归档重建代价高，不能按一次拖放直接覆盖；这里先确认同名条目的处理
+    /// 方式，确认后才提交后台编辑任务。
     pub(crate) fn add_files_to_current_archive(&mut self, paths: &[PathBuf]) {
-        let BrowserLocation::Archive { archive, .. } = &self.browser.location else {
+        if !matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
             return;
-        };
-        let archive = archive.clone();
+        }
         let additions: Vec<(String, PathBuf)> = paths
             .iter()
             .filter(|path| path.is_file())
@@ -322,13 +324,38 @@ impl LumarkApp {
             self.status = "当前仅支持将文件拖入归档；文件夹请先压缩".to_string();
             return;
         }
+        self.status = format!("准备向归档添加 {} 个文件", additions.len());
+        self.pending_archive_additions = additions;
+        self.show_archive_add_dialog = true;
+    }
+
+    /// 按所选更新模式提交归档添加任务。
+    pub(crate) fn confirm_archive_add(&mut self, cx: &mut Context<Self>) {
+        self.show_archive_add_dialog = false;
+        let additions = std::mem::take(&mut self.pending_archive_additions);
+        let BrowserLocation::Archive { archive, .. } = &self.browser.location else {
+            self.status = "当前不在归档位置".to_string();
+            cx.notify();
+            return;
+        };
+        let archive = archive.clone();
         let options = EditOptions {
             source_password: self.archive_password.clone(),
             additions,
+            update_mode: self.archive_add_mode,
             keep_backup: self.settings.get().archive_edit_backup,
             ..Default::default()
         };
         self.submit_archive_edit(archive, options, PendingEditAction::Add);
+        cx.notify();
+    }
+
+    /// 放弃本次添加，保持归档内容不变。
+    pub(crate) fn cancel_archive_add(&mut self, cx: &mut Context<Self>) {
+        self.show_archive_add_dialog = false;
+        self.pending_archive_additions.clear();
+        self.status = "已取消添加文件".to_string();
+        cx.notify();
     }
 
     /// 把归档编辑加入队列，并在替换成功前保持原文件不变。

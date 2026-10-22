@@ -1097,6 +1097,10 @@ impl Render for LumarkApp {
                 let dialog = self.render_new_folder(cx);
                 this.child(dialog_layer(dialog))
             })
+            .when(self.show_archive_add_dialog, |this| {
+                let dialog = self.render_archive_add_dialog(cx);
+                this.child(dialog_layer(dialog))
+            })
             .when(self.show_rename, |this| {
                 let dialog = self.render_rename(cx);
                 this.child(dialog_layer(dialog))
