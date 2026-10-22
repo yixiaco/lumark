@@ -1784,6 +1784,16 @@ impl ArchiveService {
             fs::create_dir_all(parent)?;
         }
         let level = options.level.unwrap_or(6).clamp(0, 9) as u32;
+        let plan = build_source_plan(sources, options)?;
+        let bytes_total = plan.total_bytes;
+        let entries_total = plan.files.len();
+        // 总量不足一个编码块时多线程既没有中间进度事件，又多一层线程开销；
+        // 改用单线程，读取与编码同步，进度可以每 100 毫秒连续推进。
+        let effective_threads = if bytes_total <= LZMA2_CHUNK_BYTES {
+            1
+        } else {
+            options.threads
+        };
         // 多线程 LZMA2 会提前读走一整段在途缓冲，按读取字节上报会在几秒内
         // 冲到 100% 然后长时间不动。未加密的 LZMA2 多线程流每完成一个编码
         // 块才向输出写一次，可以据此换算真实进度；加密后输出按 AES 分块写出，
@@ -1791,7 +1801,7 @@ impl ArchiveService {
         let track_chunks = matches!(
             options.sevenz_compression,
             crate::format::SevenZCompression::Lzma2
-        ) && options.threads > 1
+        ) && effective_threads > 1
             && options.password.is_none();
         // lzma-rust2 的 4–9 级预设除字典和 nice_len 外参数相同；这两项在显式
         // 设置时会被用户值覆盖，未设置时 7/9 级的取值也一致。显式设置字典时
@@ -1809,9 +1819,6 @@ impl ArchiveService {
         } else {
             0
         };
-        let plan = build_source_plan(sources, options)?;
-        let bytes_total = plan.total_bytes;
-        let entries_total = plan.files.len();
         let progress_cell = Rc::new(RefCell::new(&mut *progress));
         let chunk_state = Rc::new(RefCell::new(ChunkProgressState {
             active: false,
@@ -1833,8 +1840,8 @@ impl ArchiveService {
         .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
         let mut methods = match options.sevenz_compression {
             crate::format::SevenZCompression::Lzma2 => {
-                let mut lzma2 = if options.threads > 1 {
-                    Lzma2Options::from_level_mt(mt_level, options.threads, LZMA2_CHUNK_BYTES)
+                let mut lzma2 = if effective_threads > 1 {
+                    Lzma2Options::from_level_mt(mt_level, effective_threads, LZMA2_CHUNK_BYTES)
                 } else {
                     Lzma2Options::from_level(level)
                 };

@@ -9,7 +9,8 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use parking_lot::{Condvar, Mutex};
 
 use lumark_archive::{
-    ArchiveInfo, ArchiveService, CompressionOptions, EditOptions, ExtractionOptions,
+    ArchiveFormat, ArchiveInfo, ArchiveService, CompressionOptions, EditOptions, ExtractionOptions,
+    SevenZCompression,
 };
 use zeroize::Zeroizing;
 
@@ -279,6 +280,48 @@ impl TaskManager {
     }
 }
 
+/// 记录真实进度事件的节奏，供界面在编码块之间做平滑估算。
+///
+/// 7Z 多线程压缩每 16 MiB 才产生一次真实事件；界面按最近一次瞬时速度
+/// 在两次事件之间推进显示值，块完成后再用真实字节校正。
+struct ProgressPacing {
+    last_at: Instant,
+    last_bytes: u64,
+    recent_speed_bps: f64,
+    chunk_bytes: u64,
+}
+
+impl ProgressPacing {
+    /// 从任务开始时建立采样器；`initial_chunk_bytes` 是已知的首块大小。
+    fn new(initial_chunk_bytes: u64) -> Self {
+        Self {
+            last_at: Instant::now(),
+            last_bytes: 0,
+            recent_speed_bps: 0.0,
+            chunk_bytes: initial_chunk_bytes,
+        }
+    }
+
+    /// 采样一次真实进度，返回平滑速度和观察到的最大块增量。
+    fn sample(&mut self, bytes_done: u64) -> (f64, u64) {
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(self.last_at).as_secs_f64();
+        let delta = bytes_done.saturating_sub(self.last_bytes);
+        if delta > 0 && elapsed > 0.001 {
+            let instant = delta as f64 / elapsed;
+            self.recent_speed_bps = if self.recent_speed_bps > 0.0 {
+                self.recent_speed_bps * 0.5 + instant * 0.5
+            } else {
+                instant
+            };
+            self.chunk_bytes = self.chunk_bytes.max(delta);
+        }
+        self.last_at = now;
+        self.last_bytes = bytes_done;
+        (self.recent_speed_bps, self.chunk_bytes)
+    }
+}
+
 /// 在池工作线程里执行一个任务，并发送进度和最终状态事件。
 fn run_job(
     id: u64,
@@ -303,11 +346,25 @@ fn run_job(
             sfx_stub,
         } => {
             options.cancel = Some(control.cancelled_flag());
+            // 固实 7Z 多线程压缩在首块完成前没有真实事件；先按 16 MiB
+            // 块大小给界面一个可推进的显示上限，首块完成后再用真实增量校正。
+            let initial_chunk = if options.format == ArchiveFormat::SevenZip
+                && options.solid
+                && options.password.is_none()
+                && options.threads > 1
+                && matches!(options.sevenz_compression, SevenZCompression::Lzma2)
+            {
+                (16 * 1024 * 1024).max(options.dictionary_size.map(u64::from).unwrap_or(0))
+            } else {
+                0
+            };
+            let mut pacing = ProgressPacing::new(initial_chunk);
             let progress = |progress: lumark_archive::CreateProgress| {
                 control.wait_if_paused();
                 if control.is_cancelled() {
                     return;
                 }
+                let (recent_speed_bps, chunk_bytes) = pacing.sample(progress.bytes_done);
                 let _ = sender.send(TaskEvent::Progress {
                     id,
                     progress: TaskProgress {
@@ -321,6 +378,10 @@ fn run_job(
                         entries_total: progress.entries_total,
                         speed_bps: speed(progress.bytes_done, started.elapsed().as_secs_f64()),
                         elapsed_seconds: started.elapsed().as_secs(),
+                        display_bytes: progress.bytes_done,
+                        updated_at: Some(Instant::now()),
+                        recent_speed_bps,
+                        chunk_bytes,
                     },
                 });
             };
@@ -377,6 +438,10 @@ fn run_job(
                         entries_total: progress.entries_total,
                         speed_bps: speed(progress.bytes_done, started.elapsed().as_secs_f64()),
                         elapsed_seconds: started.elapsed().as_secs(),
+                        display_bytes: progress.bytes_done,
+                        updated_at: Some(Instant::now()),
+                        recent_speed_bps: 0.0,
+                        chunk_bytes: 0,
                     },
                 });
             })
@@ -401,6 +466,10 @@ fn run_job(
                         entries_total: progress.entries_total,
                         speed_bps: speed(progress.bytes_done, started.elapsed().as_secs_f64()),
                         elapsed_seconds: started.elapsed().as_secs(),
+                        display_bytes: progress.bytes_done,
+                        updated_at: Some(Instant::now()),
+                        recent_speed_bps: 0.0,
+                        chunk_bytes: 0,
                     },
                 });
             })
@@ -485,6 +554,10 @@ fn run_job(
                         entries_total: progress.entries_total,
                         speed_bps: speed(progress.bytes_done, started.elapsed().as_secs_f64()),
                         elapsed_seconds: started.elapsed().as_secs(),
+                        display_bytes: progress.bytes_done,
+                        updated_at: Some(Instant::now()),
+                        recent_speed_bps: 0.0,
+                        chunk_bytes: 0,
                     },
                 });
             })

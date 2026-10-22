@@ -29,11 +29,19 @@ impl LumarkApp {
     }
 
     /// 更新任务进度，不覆盖已经结束的终态。
+    ///
+    /// 新的真实进度可能低于上一帧的平滑估算值；保留较高的显示值，避免
+    /// 进度条在块完成时倒退。
     pub(crate) fn record_task_progress(&mut self, id: u64, progress: TaskProgress) {
         let Some(record) = self.task_records.iter_mut().find(|record| record.id == id) else {
             return;
         };
+        let previous_display = record.progress.display_bytes;
         record.progress = progress;
+        record.progress.display_bytes = record
+            .progress
+            .display_bytes
+            .max(previous_display.min(record.progress.bytes_total));
         if matches!(record.state, TaskState::Queued | TaskState::Running) {
             record.state = TaskState::Running;
         }
@@ -49,11 +57,16 @@ impl LumarkApp {
         }
     }
 
-    /// 标记任务完成并保存最终提示。
+    /// 标记任务完成，并把平滑显示值归到总量。
     pub(crate) fn record_task_completed(&mut self, id: u64, message: String) {
         if let Some(record) = self.task_records.iter_mut().find(|record| record.id == id) {
             record.state = TaskState::Completed;
             record.message = Some(message);
+            if record.progress.bytes_total > 0 {
+                record.progress.bytes_done =
+                    record.progress.bytes_done.max(record.progress.bytes_total);
+                record.progress.display_bytes = record.progress.bytes_total;
+            }
         }
     }
 
@@ -62,6 +75,7 @@ impl LumarkApp {
         if let Some(record) = self.task_records.iter_mut().find(|record| record.id == id) {
             record.state = TaskState::Failed;
             record.message = Some(message);
+            record.progress.display_bytes = record.progress.bytes_done;
         }
     }
 
@@ -70,6 +84,7 @@ impl LumarkApp {
         if let Some(record) = self.task_records.iter_mut().find(|record| record.id == id) {
             record.state = TaskState::Cancelled;
             record.message = Some("任务已取消".to_string());
+            record.progress.display_bytes = record.progress.bytes_done;
         }
     }
 
@@ -90,6 +105,35 @@ impl LumarkApp {
             self.task_progress = Some(next.progress);
             self.active_task_kind = Some(next.kind);
             self.active_task_label = Some(next.label);
+        }
+    }
+
+    /// 每个轮询周期推进运行中任务的平滑显示值。
+    ///
+    /// 真实完成字节仍来自块完成事件；这里只让界面在两次事件之间按最近
+    /// 速度前进，最多领先一个编码块，完成前不会显示 100%。
+    pub(crate) fn advance_running_task_progress(&mut self) {
+        let now = std::time::Instant::now();
+        for index in 0..self.task_records.len() {
+            let id = self.task_records[index].id;
+            if is_terminal_task_state(self.task_records[index].state) {
+                continue;
+            }
+            // 暂停或正在取消时编码线程已经停下，继续推进估算会让进度虚跑。
+            let running = self
+                .tasks
+                .control(id)
+                .is_none_or(|control| control.state() == TaskState::Running);
+            if running {
+                self.task_records[index].progress.advance_display(now);
+            } else {
+                // 暂停/取消期间不推进；把事件时间刷新到当前，恢复后不会
+                // 因为累积了整段暂停时间而一次跳很远。
+                self.task_records[index].progress.updated_at = Some(now);
+            }
+        }
+        if let Some(id) = self.active_task {
+            self.task_progress = self.task_record(id).map(|record| record.progress.clone());
         }
     }
 
@@ -284,9 +328,15 @@ impl LumarkApp {
                             }
                             TaskEvent::Progress { id, progress } => {
                                 app.record_task_progress(id, progress.clone());
-                                app.update_progress_window_for(id, progress.clone(), cx);
+                                // 用记录里合并后的显示值，避免块事件把上一帧的
+                                // 平滑值短暂压回去。
+                                let merged = app
+                                    .task_record(id)
+                                    .map(|record| record.progress.clone())
+                                    .unwrap_or(progress);
+                                app.update_progress_window_for(id, merged.clone(), cx);
                                 if app.active_task == Some(id) {
-                                    app.task_progress = Some(progress);
+                                    app.task_progress = Some(merged);
                                 }
                             }
                             TaskEvent::Completed { id, message } => {
@@ -570,10 +620,16 @@ impl LumarkApp {
                     app.flush_shell_compress(window, cx);
                     app.sync_tray(window, cx);
                     app.maybe_close_headless_host(cx);
-                    // 进度事件成批到达，这里补一次定时重绘，避免窗口在
-                    // 两批之间长时间静止。
+                    // 两次真实事件之间按最近速度推进显示值，再补一次定时
+                    // 重绘，避免进度条在编码块之间长时间静止。
+                    app.advance_running_task_progress();
                     app.refresh_running_progress_windows(cx);
-                    if had_events || auto_locked {
+                    // 平滑进度每个轮询周期都在变，主窗口也要跟着重绘。
+                    let has_running = app
+                        .task_records
+                        .iter()
+                        .any(|record| !is_terminal_task_state(record.state));
+                    if had_events || auto_locked || has_running {
                         cx.notify();
                     }
                 });
@@ -629,9 +685,12 @@ pub(crate) fn aggregate_task_progress(records: &[TaskRecord]) -> TaskAggregate {
             state if is_terminal_task_state(state) => aggregate.finished += 1,
             _ => {
                 aggregate.running += 1;
-                aggregate.bytes_done = aggregate
-                    .bytes_done
-                    .saturating_add(record.progress.bytes_done);
+                aggregate.bytes_done = aggregate.bytes_done.saturating_add(
+                    record
+                        .progress
+                        .display_bytes
+                        .max(record.progress.bytes_done),
+                );
                 aggregate.bytes_total = aggregate
                     .bytes_total
                     .saturating_add(record.progress.bytes_total);

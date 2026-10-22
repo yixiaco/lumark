@@ -1170,6 +1170,45 @@ fn seven_zip_mt_solid_reports_completed_chunk_progress() {
     );
 }
 
+/// 总量不足一个编码块时退回单线程，进度连续且归档仍完整。
+#[test]
+fn seven_zip_small_solid_roundtrips_with_single_thread() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("small.bin"), vec![0x77u8; 2 * 1024 * 1024]).unwrap();
+    let output = dir.path().join("small-solid.7z");
+    ArchiveService::create(
+        &output,
+        &[source],
+        &CompressionOptions {
+            format: ArchiveFormat::SevenZip,
+            solid: true,
+            threads: 4,
+            dictionary_size: Some(16 * 1024 * 1024),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let restored = dir.path().join("restored");
+    ArchiveService::extract(
+        &output,
+        &ExtractionOptions {
+            output_dir: restored.clone(),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::metadata(restored.join("source").join("small.bin"))
+            .unwrap()
+            .len(),
+        2 * 1024 * 1024
+    );
+}
+
 /// 非固实多线程 7Z 也应按完成编码块上报大文件内部进度。
 #[test]
 fn seven_zip_mt_entry_reports_completed_chunk_progress() {
