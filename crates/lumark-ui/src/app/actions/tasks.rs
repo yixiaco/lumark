@@ -1,3 +1,9 @@
+//! 后台任务记录与事件桥。
+//!
+//! 任务事件在后台线程产生，这里按批次合并进度并驱动界面刷新；Shell 多选
+//! 压缩先短暂收集路径，再统一打开一个轻量压缩窗口。末尾的托盘与隐藏宿主
+//! 逻辑只服务于没有可见窗口的后台压缩。
+
 use super::super::*;
 
 impl LumarkApp {
@@ -97,6 +103,435 @@ impl LumarkApp {
                 .unwrap_or(0);
             self.task_records.remove(index);
         }
+    }
+
+    /// 把 Shell 传来的压缩路径加入短暂批次。
+    ///
+    /// 资源管理器多选时会为每个文件启动一次进程，这里用一个很短的收集
+    /// 窗口把这些请求合并成同一个压缩任务。
+    pub(crate) fn queue_shell_compress(&mut self, paths: Vec<PathBuf>) {
+        for path in paths {
+            if !self.pending_shell_compress.contains(&path) {
+                self.pending_shell_compress.push(path);
+            }
+        }
+        if !self.pending_shell_compress.is_empty() {
+            self.shell_compress_deadline =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(300));
+        }
+    }
+
+    /// 收集窗口结束后，用全部选中路径打开一个轻巧压缩窗口。
+    pub(crate) fn flush_shell_compress(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(deadline) = self.shell_compress_deadline else {
+            return;
+        };
+        if std::time::Instant::now() < deadline {
+            return;
+        }
+        self.shell_compress_deadline = None;
+        let mut paths = std::mem::take(&mut self.pending_shell_compress);
+        let mut seen = HashSet::new();
+        paths.retain(|path| path.exists() && seen.insert(path.clone()));
+        if !paths.is_empty() {
+            self.open_compress_dialog_with_sources(paths, window, cx);
+        }
+    }
+
+    /// 关闭仅供 Shell 压缩使用的隐藏主窗口；所有压缩相关窗口都结束后才执行。
+    fn maybe_close_headless_host(&mut self, cx: &mut Context<Self>) {
+        if !self.headless_compress_host || !self.pending_shell_compress.is_empty() {
+            return;
+        }
+        if self.compress_window.is_some_and(|handle| {
+            handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        }) {
+            return;
+        }
+        if self.active_task.is_some() {
+            return;
+        }
+        if self
+            .task_records
+            .iter()
+            .any(|record| !is_terminal_task_state(record.state))
+        {
+            return;
+        }
+        if self.progress_windows.values().any(|entry| {
+            entry
+                .handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        }) {
+            return;
+        }
+        self.headless_compress_host = false;
+        let _ = self
+            .main_window
+            .update(cx, |_, window, _| window.remove_window());
+        // 隐藏宿主已经没有任何可见页面，显式结束进程，避免任务完成后残留后台实例。
+        cx.quit();
+    }
+
+    /// 后台任务没有可见窗口时显示托盘图标，并把点击转成进度窗口或主窗口。
+    fn sync_tray(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.headless_compress_host {
+            self.tray_icon = None;
+            let _ = platform::tray::take_activation_request();
+            return;
+        }
+        if self.tray_icon.is_some() && platform::tray::take_activation_request() {
+            self.tray_icon = None;
+            let task_id = self.active_task.or_else(|| {
+                self.task_records
+                    .iter()
+                    .find(|record| !is_terminal_task_state(record.state))
+                    .map(|record| record.id)
+            });
+            if let Some(task_id) = task_id {
+                self.open_progress_window_for(task_id, window, cx);
+            } else {
+                self.spawn_window(None, None, cx);
+                self.headless_compress_host = false;
+                let _ = self
+                    .main_window
+                    .update(cx, |_, window, _| window.remove_window());
+            }
+            return;
+        }
+        let waiting =
+            self.shell_compress_deadline.is_some() || !self.pending_shell_compress.is_empty();
+        let compress_visible = self.compress_window.is_some_and(|handle| {
+            handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        });
+        let progress_visible = self.progress_windows.values().any(|entry| {
+            entry
+                .handle
+                .update(cx, |_, window, _| window.is_visible())
+                .unwrap_or(false)
+        });
+        let has_running_tasks = self
+            .task_records
+            .iter()
+            .any(|record| !is_terminal_task_state(record.state));
+        if waiting
+            || compress_visible
+            || progress_visible
+            || (self.active_task.is_none() && !has_running_tasks)
+        {
+            self.tray_icon = None;
+            let _ = platform::tray::take_activation_request();
+        } else if self.tray_icon.is_none() {
+            self.tray_icon = platform::tray::TrayIcon::show("Lumark - 后台任务").ok();
+        }
+    }
+
+    /// 启动后台任务事件桥；它先合并进度，再通知界面。
+    pub(crate) fn start_task_polling(&self, cx: &mut Context<Self>) {
+        let tasks = self.tasks.clone();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(120))
+                    .await;
+                let mut events = Vec::new();
+                while let Some(event) = tasks.try_recv() {
+                    events.push(event);
+                }
+                let _ = this.update_in(cx, |app, window, cx| {
+                    if !app.ipc_poll_owner && !IPC_POLL_OWNER.swap(true, Ordering::AcqRel) {
+                        app.ipc_poll_owner = true;
+                    }
+                    let requests = if app.ipc_poll_owner {
+                        lumark_platform_windows::ipc::take_requests().unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+                    let had_requests = !requests.is_empty();
+                    let had_events = !events.is_empty() || had_requests;
+                    let auto_locked = app.vault.maybe_auto_lock();
+                    if auto_locked {
+                        app.dismiss_password_windows(cx);
+                        app.selected_password = None;
+                        app.pending_extra_password = None;
+                        app.show_extra_password_prompt = false;
+                        app.status = "密码库已自动锁定".to_string();
+                    }
+                    for event in events {
+                        match event {
+                            TaskEvent::Queued { id, kind, label } => {
+                                app.record_task_queued(id, kind, label.clone());
+                                if kind != TaskKind::PasswordResolve {
+                                    app.active_task = Some(id);
+                                    app.task_progress = None;
+                                    if matches!(
+                                        kind,
+                                        TaskKind::Compress | TaskKind::Extract | TaskKind::Test
+                                    ) {
+                                        app.active_task_kind = Some(kind);
+                                        app.active_task_label = Some(label.clone());
+                                        cx.defer_in(window, move |app, window, cx| {
+                                            app.open_progress_window_for(id, window, cx);
+                                        });
+                                    }
+                                }
+                                app.status = label;
+                            }
+                            TaskEvent::Progress { id, progress } => {
+                                app.record_task_progress(id, progress.clone());
+                                app.update_progress_window_for(id, progress.clone(), cx);
+                                if app.active_task == Some(id) {
+                                    app.task_progress = Some(progress);
+                                }
+                            }
+                            TaskEvent::Completed { id, message } => {
+                                app.record_task_completed(id, message.clone());
+                                if let Some(job) = app.pending_password_jobs.remove(&id) {
+                                    app.vault.release_lease();
+                                    if let Some(resolved) = tasks.take_password_result(id) {
+                                        if let Some(entry_id) =
+                                            job.entry_ids.get(resolved.candidate_index)
+                                        {
+                                            let _ = app.vault.mark_used(*entry_id);
+                                        }
+                                        let archive_info = tasks
+                                            .take_archive_load_result(id)
+                                            .map(|result| result.info);
+                                        app.apply_resolved_password(
+                                            job.action,
+                                            resolved.password,
+                                            archive_info,
+                                            window,
+                                            cx,
+                                        );
+                                    } else {
+                                        if job.extras.is_empty() {
+                                            app.status =
+                                                "记录密码均不正确，请手动输入密码".to_string();
+                                            app.apply_password_failure(job.action, window, cx);
+                                        } else {
+                                            let count = job.extras.len();
+                                            app.pending_extra_password =
+                                                Some(PendingExtraPasswordJob {
+                                                    action: job.action,
+                                                    candidates: job.extras,
+                                                });
+                                            app.show_extra_password_prompt = true;
+                                            app.status = format!(
+                                                "前 32 条记录密码不正确，还有 {count} 条未尝试"
+                                            );
+                                        }
+                                    }
+                                    continue;
+                                }
+                                if app
+                                    .pending_open_entry
+                                    .as_ref()
+                                    .is_some_and(|pending| pending.task_id == id)
+                                {
+                                    if let Some(pending) = app.pending_open_entry.take() {
+                                        if app.active_task == Some(id) {
+                                            app.active_task = None;
+                                            app.task_progress = None;
+                                        }
+                                        // 条目只为“打开”服务，解压完成即关闭进度窗口，
+                                        // 否则窗口会一直挡住刚打开的文档。
+                                        app.dismiss_progress_window_for(id, cx);
+                                        let target = lumark_archive::safe_join(
+                                            &pending.temporary,
+                                            &pending.relative,
+                                        )
+                                        .unwrap_or_else(|_| pending.temporary.clone());
+                                        match pending.mode {
+                                            PendingOpenMode::External => {
+                                                app.open_extracted_target(
+                                                    target,
+                                                    &pending.temporary,
+                                                );
+                                            }
+                                            PendingOpenMode::Viewer => {
+                                                app.open_text_viewer(
+                                                    target,
+                                                    pending.relative.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            }
+                                        }
+                                    }
+                                    continue;
+                                }
+                                if let Some(action) = app.pending_archive_loads.remove(&id) {
+                                    if app.active_task == Some(id) {
+                                        app.active_task = None;
+                                        app.task_progress = None;
+                                    }
+                                    if let Some(result) = tasks.take_archive_load_result(id) {
+                                        app.apply_loaded_archive(action, result, window, cx);
+                                    } else {
+                                        app.status = message;
+                                    }
+                                    continue;
+                                }
+                                if let Some(edit) = app.pending_edit_jobs.remove(&id) {
+                                    if app.active_task == Some(id) {
+                                        app.active_task = None;
+                                        app.task_progress = None;
+                                    }
+                                    let current_archive = match &app.browser.location {
+                                        BrowserLocation::Archive { archive, .. } => {
+                                            Some(archive.clone())
+                                        }
+                                        BrowserLocation::FileSystem(_) => None,
+                                    };
+                                    if current_archive.as_ref() == Some(&edit.archive) {
+                                        let password =
+                                            app.archive_password.as_deref().map(String::as_str);
+                                        if let Err(error) =
+                                            app.browser.open_archive(&edit.archive, password)
+                                        {
+                                            app.status = error.to_string();
+                                        } else {
+                                            set_input(
+                                                &app.location_input,
+                                                app.browser.current_display().as_str(),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }
+                                    app.finish_edit_action(edit.action);
+                                    if current_archive.as_ref() == Some(&edit.archive) {
+                                        app.status = match edit.action {
+                                            PendingEditAction::Add => {
+                                                "已将文件添加到归档".to_string()
+                                            }
+                                            PendingEditAction::Delete => {
+                                                "已从归档删除项目".to_string()
+                                            }
+                                            PendingEditAction::Rename => {
+                                                "已重命名归档条目".to_string()
+                                            }
+                                        };
+                                    } else {
+                                        app.status = message;
+                                    }
+                                    continue;
+                                }
+                                app.dismiss_progress_window_for(id, cx);
+                                if app.active_task == Some(id) {
+                                    app.focus_next_running_task(id);
+                                }
+                                app.status = message;
+                                if let Some(directory) = app.pending_extract_open_dirs.remove(&id) {
+                                    let _ = std::process::Command::new("explorer.exe")
+                                        .arg(directory)
+                                        .spawn();
+                                }
+                                if let Some((archive, password)) =
+                                    app.pending_extract_saves.remove(&id)
+                                    && app.vault.settings().prompt_save
+                                {
+                                    let label = archive
+                                        .file_name()
+                                        .and_then(|value| value.to_str())
+                                        .unwrap_or("压缩包密码")
+                                        .to_string();
+                                    set_input(&app.password_label, &label, window, cx);
+                                    set_input(&app.password_value, password.as_str(), window, cx);
+                                    set_input(
+                                        &app.password_pattern,
+                                        archive.to_string_lossy().as_ref(),
+                                        window,
+                                        cx,
+                                    );
+                                    app.selected_password = None;
+                                    app.show_save_prompt = true;
+                                }
+                            }
+                            TaskEvent::Failed { id, message } => {
+                                app.record_task_failed(id, message.clone());
+                                app.pending_extract_saves.remove(&id);
+                                app.pending_extract_open_dirs.remove(&id);
+                                if app.pending_password_jobs.remove(&id).is_some() {
+                                    app.vault.release_lease();
+                                }
+                                app.pending_edit_jobs.remove(&id);
+                                app.pending_archive_loads.remove(&id);
+                                if app
+                                    .pending_open_entry
+                                    .as_ref()
+                                    .is_some_and(|pending| pending.task_id == id)
+                                {
+                                    app.pending_open_entry = None;
+                                }
+                                app.dismiss_progress_window_for(id, cx);
+                                if app.active_task == Some(id) {
+                                    app.focus_next_running_task(id);
+                                }
+                                app.status = format!("失败：{message}");
+                            }
+                            TaskEvent::Cancelled { id } => {
+                                app.record_task_cancelled(id);
+                                app.pending_extract_saves.remove(&id);
+                                app.pending_extract_open_dirs.remove(&id);
+                                if app.pending_password_jobs.remove(&id).is_some() {
+                                    app.vault.release_lease();
+                                }
+                                app.pending_edit_jobs.remove(&id);
+                                app.pending_archive_loads.remove(&id);
+                                if app
+                                    .pending_open_entry
+                                    .as_ref()
+                                    .is_some_and(|pending| pending.task_id == id)
+                                {
+                                    app.pending_open_entry = None;
+                                }
+                                app.dismiss_progress_window_for(id, cx);
+                                if app.active_task == Some(id) {
+                                    app.focus_next_running_task(id);
+                                }
+                                app.status = "任务已取消".to_string();
+                            }
+                            TaskEvent::PasswordAttempt { id, index, total } => {
+                                if app.pending_password_jobs.contains_key(&id) {
+                                    app.status = format!("正在尝试记录密码 {index}/{total}");
+                                }
+                            }
+                            TaskEvent::StateChanged { id, state } => {
+                                app.record_task_state(id, state);
+                            }
+                        }
+                    }
+                    // 压缩请求按批次合并；打开/解压仍由独立窗口处理，避免覆盖
+                    // 当前窗口正在查看的压缩包。
+                    for arguments in requests {
+                        if let Some(request) = StartupRequest::parse(arguments) {
+                            if request.mode == StartupMode::Compress {
+                                app.queue_shell_compress(request.paths);
+                            } else {
+                                app.open_request_window(request, cx);
+                            }
+                        }
+                    }
+                    app.flush_shell_compress(window, cx);
+                    app.sync_tray(window, cx);
+                    app.maybe_close_headless_host(cx);
+                    // 进度事件成批到达，这里补一次定时重绘，避免窗口在
+                    // 两批之间长时间静止。
+                    app.refresh_running_progress_windows(cx);
+                    if had_events || auto_locked {
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
     }
 }
 

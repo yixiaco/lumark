@@ -63,7 +63,7 @@ cargo test --workspace
 | `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程 |
 | `app/actions/passwords.rs` | 密码即时写入、解锁、主密码和导入导出 |
 | `app/actions/settings.rs` | 主题、默认压缩参数、密码库位置、文件关联和 Shell 集成 |
-| `app/actions/tasks.rs` | 任务记录、状态文本和任务中心数据维护 |
+| `app/actions/tasks.rs` | 任务记录、事件桥、Shell 压缩批次、后台宿主托盘和任务中心数据维护 |
 | `app/view/chrome.rs` | 标题栏、渐变动作带、导航行、文件夹侧栏、状态栏和模态层 |
 | `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
 | `app/view/pages.rs` | 页面模块入口，只保留子模块声明 |
@@ -83,6 +83,8 @@ cargo test --workspace
 | `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
 | `app/view/components.rs` | IconPark 图标、渐变横幅、经典分组框、单复选控件和通用按钮 |
 | `app/util.rs` | 路径、大小、日期、格式和界面格式化辅助函数 |
+| `app/theme.rs` | 主题模式、强调色派生和全局主题 token |
+| `app/tests.rs` | 启动参数与真实窗口 UI 测试 |
 
 ![Lumark 主界面](artifacts/ui-main-final.png)
 
