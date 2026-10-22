@@ -89,6 +89,26 @@ impl LumarkApp {
                         cx.notify();
                     })),
             )
+            .when(self.archive_password_after_failure, |this| {
+                this.child(
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_color(cx.theme().warning)
+                        .child("记录密码均不正确。输入正确密码后可直接保存，下次自动匹配。"),
+                )
+            })
+            .when(self.vault.state() == VaultState::Unlocked, |this| {
+                this.child(
+                    Checkbox::new("archive-password-save")
+                        .label("保存到密码库（验证成功后写入）")
+                        .checked(self.archive_password_save_to_vault)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.archive_password_save_to_vault = *checked;
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 h_flex()
                     .w_full()
@@ -246,6 +266,94 @@ impl LumarkApp {
                             })),
                     ),
             )
+    }
+
+    /// 渲染记录密码校验进度，并提供停止当前候选的入口。
+    ///
+    /// 只有校验持续到可见时长才返回元素；快速命中时这个弹窗根本不会出现，
+    /// 用户只会看到状态栏一闪而过的验证提示。
+    pub(crate) fn render_password_attempt_prompt(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let Some(attempt) = self
+            .password_attempt
+            .as_ref()
+            .filter(|attempt| attempt.is_visible())
+        else {
+            return div().into_any_element();
+        };
+        let ratio = if attempt.total == 0 {
+            0.0
+        } else {
+            (attempt.index as f32 / attempt.total as f32).clamp(0.0, 1.0)
+        };
+        centered_modal(cx, "正在尝试记录密码")
+            .child(
+                div()
+                    .w_full()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("验证期间不会显示密码内容；可以停止后手动输入。"),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h(px(34.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .rounded_md()
+                    .bg(cx.theme().secondary)
+                    .border_1()
+                    .border_color(cx.theme().input)
+                    .text_sm()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(attempt.archive.display().to_string()),
+            )
+            .child(
+                Progress::new("password-attempt-progress")
+                    .value(ratio)
+                    .w_full(),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!(
+                                "第 {} / {} 条候选密码",
+                                attempt.index, attempt.total
+                            )),
+                    )
+                    .child(
+                        button("password-attempt-hide")
+                            .ghost()
+                            .label("后台继续")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(attempt) = this.password_attempt.as_mut() {
+                                    attempt.hidden = true;
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        button("password-attempt-stop")
+                            .secondary()
+                            .label("停止自动尝试")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cancel_password_attempt(cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// 确认是否执行从归档解压到受控临时目录的可执行文件或脚本。

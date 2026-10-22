@@ -69,10 +69,32 @@ pub(crate) enum PendingPasswordAction {
     },
 }
 
-struct PendingPasswordJob {
+pub(crate) struct PendingPasswordJob {
     action: PendingPasswordAction,
     entry_ids: Vec<Uuid>,
     extras: Vec<lumark_vault::PasswordCandidate>,
+    /// 手动输入的密码在验证成功后先写入密码库，再继续原动作。
+    save_on_success: bool,
+}
+
+/// 正在后台校验记录密码的进度。
+///
+/// 弹窗只在验证超过可感知时长后出现，快速命中时不会闪一下；用户选择
+/// “后台继续”后仍可从状态栏停止，因此这里只记录是否被手动隐藏。
+struct PasswordAttemptProgress {
+    task_id: u64,
+    archive: PathBuf,
+    index: usize,
+    total: usize,
+    started: std::time::Instant,
+    hidden: bool,
+}
+
+impl PasswordAttemptProgress {
+    /// 校验进行到 400 毫秒后才展示弹窗。
+    fn is_visible(&self) -> bool {
+        !self.hidden && self.started.elapsed() >= std::time::Duration::from_millis(400)
+    }
 }
 
 struct PendingExtraPasswordJob {
@@ -338,6 +360,10 @@ pub struct LumarkApp {
     archive_password_visible: bool,
     archive_password_use_vault: bool,
     archive_password_action: Option<PendingPasswordAction>,
+    /// 密码弹窗由自动尝试失败后打开，用于展示“一并保存”的引导。
+    archive_password_after_failure: bool,
+    /// 手动输入的密码是否在验证成功后写入密码库。
+    archive_password_save_to_vault: bool,
     temp_extract: Option<TempExtractDialog>,
     temp_root: PathBuf,
     settings_error: Option<String>,
@@ -376,6 +402,8 @@ pub struct LumarkApp {
     folder_sizes: HashMap<PathBuf, u64>,
     folder_size_pending: HashSet<PathBuf>,
     pending_password_jobs: HashMap<u64, PendingPasswordJob>,
+    /// 正在校验记录密码的任务进度，用于展示停止入口。
+    password_attempt: Option<PasswordAttemptProgress>,
     pending_extra_password: Option<PendingExtraPasswordJob>,
     show_extra_password_prompt: bool,
     pending_edit_jobs: HashMap<u64, PendingEditJob>,
@@ -588,6 +616,8 @@ impl LumarkApp {
             archive_password_visible: false,
             archive_password_use_vault: false,
             archive_password_action: None,
+            archive_password_after_failure: false,
+            archive_password_save_to_vault: false,
             temp_extract: None,
             temp_root: std::env::temp_dir()
                 .join("Lumark")
@@ -632,6 +662,7 @@ impl LumarkApp {
             folder_sizes: HashMap::new(),
             folder_size_pending: HashSet::new(),
             pending_password_jobs: HashMap::new(),
+            password_attempt: None,
             pending_extra_password: None,
             show_extra_password_prompt: false,
             pending_edit_jobs: HashMap::new(),

@@ -948,6 +948,22 @@ impl LumarkApp {
                         })),
                 )
             })
+            .when(self.password_attempt.is_some(), |this| {
+                // 弹窗被“后台继续”隐藏后，状态栏仍保留停止入口。
+                this.child(
+                    button("stop-password-attempt")
+                        .ghost()
+                        .xsmall()
+                        .rounded(px(6.))
+                        .cursor_pointer()
+                        .icon(AppIcon::Close.element(13.))
+                        .label("停止自动尝试")
+                        .tooltip("停止验证记录密码并改为手动输入")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.cancel_password_attempt(cx);
+                        })),
+                )
+            })
             .child(
                 div()
                     .ml_auto()
@@ -1060,6 +1076,15 @@ impl Render for LumarkApp {
                 let dialog = self.render_extra_password_prompt(cx);
                 this.child(dialog_layer(dialog))
             })
+            .when(
+                self.password_attempt
+                    .as_ref()
+                    .is_some_and(|attempt| attempt.is_visible()),
+                |this| {
+                    let dialog = self.render_password_attempt_prompt(cx);
+                    this.child(dialog_layer(dialog))
+                },
+            )
             .when(self.show_open_executable_confirm, |this| {
                 let dialog = self.render_open_executable_confirm(cx);
                 this.child(dialog_layer(dialog))

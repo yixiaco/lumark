@@ -47,6 +47,7 @@ impl LumarkApp {
                     relative: relative.clone(),
                     mode,
                 },
+                cx,
             ) {
                 return;
             } else if self.vault.state() == VaultState::Locked {
@@ -385,6 +386,9 @@ impl LumarkApp {
         self.archive_password_visible = false;
         self.archive_password_use_vault =
             self.vault.state() == VaultState::Unlocked && self.vault.settings().auto_extract;
+        // 保存引导只在自动尝试失败后出现，普通密码输入保持不写入密码库。
+        self.archive_password_after_failure = false;
+        self.archive_password_save_to_vault = false;
         set_input(&self.archive_password_input, "", window, cx);
         self.archive_password_input
             .update(cx, |state, cx| state.set_masked(true, window, cx));
@@ -406,7 +410,7 @@ impl LumarkApp {
                 && self.vault.settings().auto_extract
             {
                 let archive = password_action_archive(&action).to_path_buf();
-                if self.begin_vault_password_resolution(&archive, action) {
+                if self.begin_vault_password_resolution(&archive, action, cx) {
                     self.show_archive_password_prompt = false;
                     self.archive_password_action = None;
                 } else {
@@ -421,6 +425,20 @@ impl LumarkApp {
 
         self.show_archive_password_prompt = false;
         self.archive_password_action = None;
+        self.archive_password_after_failure = false;
+        // 勾选保存时先在工作线程校验密码：命中后才写入密码库并继续原动作，
+        // 避免把输错的密码持久化到密码库。
+        let save_to_vault = std::mem::take(&mut self.archive_password_save_to_vault);
+        if save_to_vault && self.vault.state() == VaultState::Unlocked {
+            let archive = password_action_archive(&action).to_path_buf();
+            self.submit_manual_password_verification(
+                archive,
+                action,
+                zeroize::Zeroizing::new(password),
+            );
+            cx.notify();
+            return;
+        }
         match action {
             PendingPasswordAction::OpenArchive { archive, intent } => {
                 self.begin_archive_load(archive, Some(zeroize::Zeroizing::new(password)), intent);
@@ -497,7 +515,7 @@ impl LumarkApp {
             self.archive_password = Some(zeroize::Zeroizing::new(
                 password.unwrap_or_default().to_string(),
             ));
-            self.status = "已从密码管理中找到可用密码".to_string();
+            self.status = "已应用可用密码，正在准备解压".to_string();
             return;
         }
         if !auto_resolve {
@@ -542,6 +560,7 @@ impl LumarkApp {
                                 PendingPasswordAction::ExtractDialog {
                                     archive: archive.clone(),
                                 },
+                                cx,
                             ) {
                                 let action = PendingPasswordAction::OpenArchive {
                                     archive: archive.clone(),
@@ -583,6 +602,7 @@ impl LumarkApp {
         &mut self,
         archive: &Path,
         action: PendingPasswordAction,
+        cx: &mut Context<Self>,
     ) -> bool {
         if self.vault.state() != VaultState::Unlocked || !self.vault.settings().auto_extract {
             return false;
@@ -592,16 +612,21 @@ impl LumarkApp {
         let mut candidates = candidates.into_iter();
         let primary: Vec<_> = candidates.by_ref().take(32).collect();
         let extras: Vec<_> = candidates.collect();
-        self.submit_password_candidates(archive, action, primary, extras)
+        self.submit_password_candidates(archive, action, primary, extras, false, cx)
     }
 
     /// 在工作线程中校验有序候选密码，不写入输出。
+    ///
+    /// `save_on_success` 只用于手动输入密码的校验：命中后先把密码写入密码库，
+    /// 再继续原动作；自动尝试沿用已有候选记录，不会重复写入。
     pub(crate) fn submit_password_candidates(
         &mut self,
         archive: &Path,
         action: PendingPasswordAction,
         candidates: Vec<lumark_vault::PasswordCandidate>,
         extras: Vec<lumark_vault::PasswordCandidate>,
+        save_on_success: bool,
+        cx: &mut Context<Self>,
     ) -> bool {
         if candidates.is_empty() {
             return false;
@@ -611,6 +636,7 @@ impl LumarkApp {
             .iter()
             .map(|candidate| candidate.entry_id)
             .collect();
+        let total = candidates.len();
         let passwords = candidates
             .into_iter()
             .map(|candidate| zeroize::Zeroizing::new(candidate.password.expose().to_string()))
@@ -627,10 +653,163 @@ impl LumarkApp {
                 action,
                 entry_ids,
                 extras,
+                save_on_success,
             },
         );
+        if save_on_success {
+            self.status = "正在验证密码，成功后会保存到密码库…".to_string();
+            return true;
+        }
         self.status = "正在验证记录密码…".to_string();
+        self.track_password_attempt(cx, id, archive, total);
         true
+    }
+
+    /// 校验手动输入的密码，命中后先写入密码库再继续原动作。
+    ///
+    /// 单独走一次单候选校验，是为了在保存前确认密码正确；否则输错一次就会
+    /// 在密码库里留下一条永远解不开压缩包的记录。
+    pub(crate) fn submit_manual_password_verification(
+        &mut self,
+        archive: PathBuf,
+        action: PendingPasswordAction,
+        password: zeroize::Zeroizing<String>,
+    ) {
+        self.vault.acquire_lease();
+        let id = self.tasks.submit(TaskRequest::ResolvePassword {
+            archive,
+            candidates: vec![password],
+            load_info: false,
+        });
+        self.pending_password_jobs.insert(
+            id,
+            PendingPasswordJob {
+                action,
+                entry_ids: Vec::new(),
+                extras: Vec::new(),
+                save_on_success: true,
+            },
+        );
+        self.status = "正在验证密码，成功后会保存到密码库…".to_string();
+    }
+
+    /// 记录多候选校验的进度，并安排一次延迟重绘。
+    ///
+    /// 只有多候选校验才值得展示停止入口；延迟重绘让弹窗在验证变慢时出现，
+    /// 快速命中时用户看不到任何闪烁。
+    fn track_password_attempt(
+        &mut self,
+        cx: &mut Context<Self>,
+        task_id: u64,
+        archive: &Path,
+        total: usize,
+    ) {
+        if total < 2 {
+            return;
+        }
+        self.password_attempt = Some(PasswordAttemptProgress {
+            task_id,
+            archive: archive.to_path_buf(),
+            index: 0,
+            total,
+            started: std::time::Instant::now(),
+            hidden: false,
+        });
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(420))
+                .await;
+            let _ = this.update(cx, |app, cx| {
+                if app
+                    .password_attempt
+                    .as_ref()
+                    .is_some_and(|attempt| attempt.task_id == task_id)
+                {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 停止当前记录密码校验，取消事件到达后回退到手动输入。
+    pub(crate) fn cancel_password_attempt(&mut self, cx: &mut Context<Self>) {
+        let Some(attempt) = self.password_attempt.take() else {
+            return;
+        };
+        match self.tasks.control(attempt.task_id) {
+            Some(control) => {
+                control.cancel();
+                self.status = format!(
+                    "正在停止密码验证，随后请手动输入：{}",
+                    attempt.archive.display()
+                );
+            }
+            None => self.status = "密码验证已经结束".to_string(),
+        }
+        cx.notify();
+    }
+
+    /// 清除属于指定任务的校验进度。
+    ///
+    /// 事件可能晚于用户点击停止到达，按任务 ID 比对可以避免清掉新任务的进度。
+    pub(crate) fn clear_password_attempt(&mut self, task_id: u64) {
+        if self
+            .password_attempt
+            .as_ref()
+            .is_some_and(|attempt| attempt.task_id == task_id)
+        {
+            self.password_attempt = None;
+        }
+    }
+
+    /// 应用密码解析结果：保存勾选的密码、记录使用次数并继续原动作。
+    pub(crate) fn finish_password_resolution(
+        &mut self,
+        job: PendingPasswordJob,
+        resolved: lumark_tasks::ResolvedPassword,
+        archive_info: Option<lumark_archive::ArchiveInfo>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry_id) = job.entry_ids.get(resolved.candidate_index) {
+            let _ = self.vault.mark_used(*entry_id);
+        }
+        let vault_locked = job.save_on_success && self.vault.state() != VaultState::Unlocked;
+        let saved = job.save_on_success
+            && self.remember_verified_password(
+                password_action_archive(&job.action),
+                resolved.password.as_str(),
+            );
+        self.apply_resolved_password(job.action, resolved.password, archive_info, window, cx);
+        if saved {
+            self.status = format!("{}（密码已保存到密码库）", self.status);
+        } else if vault_locked {
+            self.status = format!("{}（密码库已锁定，未保存密码）", self.status);
+        }
+    }
+
+    /// 把刚验证通过的密码写入密码库，重复记录保持原状。
+    pub(crate) fn remember_verified_password(&mut self, archive: &Path, password: &str) -> bool {
+        if self.vault.state() != VaultState::Unlocked {
+            return false;
+        }
+        if self
+            .vault
+            .entries()
+            .iter()
+            .any(|entry| entry.password.expose() == password)
+        {
+            return false;
+        }
+        let label = archive
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("压缩包密码")
+            .to_string();
+        let pattern = archive.to_string_lossy();
+        self.save_password_entry(None, &label, password.to_string(), &pattern, "")
+            .is_ok()
     }
 
     /// 继续尝试超出首次自动尝试上限的候选密码。
@@ -655,7 +834,14 @@ impl LumarkApp {
             self.status = "密码库已锁定，请先解锁".to_string();
             return;
         }
-        if !self.submit_password_candidates(&archive, extra.action, extra.candidates, Vec::new()) {
+        if !self.submit_password_candidates(
+            &archive,
+            extra.action,
+            extra.candidates,
+            Vec::new(),
+            false,
+            cx,
+        ) {
             self.status = "没有剩余记录密码".to_string();
         }
     }
@@ -754,6 +940,10 @@ impl LumarkApp {
                 self.status = "记录密码均不正确，请手动输入密码".to_string();
             }
         }
+        // 自动尝试失败后引导用户把本次密码存进密码库：默认勾选，输入后先
+        // 校验再写入，避免保存错误密码。
+        self.archive_password_after_failure = true;
+        self.archive_password_save_to_vault = self.vault.state() == VaultState::Unlocked;
     }
 
     /// 探测加密并匹配记录密码后打开或解压归档。
@@ -775,6 +965,7 @@ impl LumarkApp {
                                     archive: archive.clone(),
                                     intent,
                                 },
+                                cx,
                             ) {
                                 return;
                             }
@@ -1016,6 +1207,7 @@ impl LumarkApp {
                 PendingPasswordAction::Test {
                     archive: archive.clone(),
                 },
+                cx,
             ) {
                 return;
             }

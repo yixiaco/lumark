@@ -166,7 +166,7 @@ impl LumarkApp {
                             archive: archive.clone(),
                         }
                     };
-                    if !self.begin_vault_password_resolution(&archive, action) {
+                    if !self.begin_vault_password_resolution(&archive, action, cx) {
                         self.status = "没有可用的记录密码，请手动输入或新增密码".to_string();
                         let intent = if self.unlock_for_browse {
                             ArchiveOpenIntent::Browse

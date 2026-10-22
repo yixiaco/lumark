@@ -293,39 +293,37 @@ impl LumarkApp {
                                 app.record_task_completed(id, message.clone());
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
+                                    app.clear_password_attempt(id);
                                     if let Some(resolved) = tasks.take_password_result(id) {
-                                        if let Some(entry_id) =
-                                            job.entry_ids.get(resolved.candidate_index)
-                                        {
-                                            let _ = app.vault.mark_used(*entry_id);
-                                        }
                                         let archive_info = tasks
                                             .take_archive_load_result(id)
                                             .map(|result| result.info);
-                                        app.apply_resolved_password(
-                                            job.action,
-                                            resolved.password,
+                                        app.finish_password_resolution(
+                                            job,
+                                            resolved,
                                             archive_info,
                                             window,
                                             cx,
                                         );
+                                    } else if job.save_on_success {
+                                        // 手动输入的密码未通过校验：重新弹出密码框，
+                                        // 保留“保存到密码库”的勾选状态。
+                                        app.apply_password_failure(job.action, window, cx);
+                                        app.status = "密码不正确，请重新输入".to_string();
+                                    } else if job.extras.is_empty() {
+                                        app.status = "记录密码均不正确，请手动输入密码".to_string();
+                                        app.apply_password_failure(job.action, window, cx);
                                     } else {
-                                        if job.extras.is_empty() {
-                                            app.status =
-                                                "记录密码均不正确，请手动输入密码".to_string();
-                                            app.apply_password_failure(job.action, window, cx);
-                                        } else {
-                                            let count = job.extras.len();
-                                            app.pending_extra_password =
-                                                Some(PendingExtraPasswordJob {
-                                                    action: job.action,
-                                                    candidates: job.extras,
-                                                });
-                                            app.show_extra_password_prompt = true;
-                                            app.status = format!(
-                                                "前 32 条记录密码不正确，还有 {count} 条未尝试"
-                                            );
-                                        }
+                                        let count = job.extras.len();
+                                        app.pending_extra_password =
+                                            Some(PendingExtraPasswordJob {
+                                                action: job.action,
+                                                candidates: job.extras,
+                                            });
+                                        app.show_extra_password_prompt = true;
+                                        app.status = format!(
+                                            "前 32 条记录密码不正确，还有 {count} 条未尝试"
+                                        );
                                     }
                                     continue;
                                 }
@@ -458,8 +456,11 @@ impl LumarkApp {
                                 app.record_task_failed(id, message.clone());
                                 app.pending_extract_saves.remove(&id);
                                 app.pending_extract_open_dirs.remove(&id);
-                                if app.pending_password_jobs.remove(&id).is_some() {
+                                if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
+                                    app.clear_password_attempt(id);
+                                    app.apply_password_failure(job.action, window, cx);
+                                    app.status = format!("验证密码失败，请手动输入：{message}");
                                 }
                                 app.pending_edit_jobs.remove(&id);
                                 app.pending_archive_loads.remove(&id);
@@ -480,8 +481,18 @@ impl LumarkApp {
                                 app.record_task_cancelled(id);
                                 app.pending_extract_saves.remove(&id);
                                 app.pending_extract_open_dirs.remove(&id);
-                                if app.pending_password_jobs.remove(&id).is_some() {
+                                if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
+                                    app.clear_password_attempt(id);
+                                    app.dismiss_progress_window_for(id, cx);
+                                    if app.active_task == Some(id) {
+                                        app.focus_next_running_task(id);
+                                    }
+                                    // 用户主动停止自动尝试：直接回退到手动输入，
+                                    // 而不是留下一条“任务已取消”就结束。
+                                    app.apply_password_failure(job.action, window, cx);
+                                    app.status = "已停止自动尝试，请手动输入密码".to_string();
+                                    continue;
                                 }
                                 app.pending_edit_jobs.remove(&id);
                                 app.pending_archive_loads.remove(&id);
@@ -499,8 +510,19 @@ impl LumarkApp {
                                 app.status = "任务已取消".to_string();
                             }
                             TaskEvent::PasswordAttempt { id, index, total } => {
-                                if app.pending_password_jobs.contains_key(&id) {
+                                let Some(job) = app.pending_password_jobs.get(&id) else {
+                                    continue;
+                                };
+                                if job.save_on_success {
+                                    app.status = "正在验证密码，成功后会保存到密码库…".to_string();
+                                } else {
                                     app.status = format!("正在尝试记录密码 {index}/{total}");
+                                }
+                                if let Some(attempt) = app.password_attempt.as_mut()
+                                    && attempt.task_id == id
+                                {
+                                    attempt.index = index;
+                                    attempt.total = total;
                                 }
                             }
                             TaskEvent::StateChanged { id, state } => {
