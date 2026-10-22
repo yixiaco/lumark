@@ -413,6 +413,12 @@ fn single_stream_formats_roundtrip() {
             |_| {},
         )
         .unwrap();
+        // 单流格式在界面中通过列表打开；列表必须与创建、解压保持同一组格式，
+        // 否则压缩窗口生成的 BZ2/XZ/ZST 会双击打不开。
+        let info = ArchiveService::list(&output, None).unwrap();
+        assert_eq!(info.format, Some(format));
+        assert_eq!(info.entries.len(), 1);
+        assert_eq!(info.entries[0].path, "payload.bin");
         let extraction = dir.path().join("out");
         ArchiveService::extract(
             &output,

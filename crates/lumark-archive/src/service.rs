@@ -153,6 +153,11 @@ impl ArchiveService {
             | ArchiveFormat::TarXz
             | ArchiveFormat::TarZst => Self::list_tar(path, format),
             ArchiveFormat::Gzip
+            | ArchiveFormat::Bzip2
+            | ArchiveFormat::Xz
+            | ArchiveFormat::Zstd
+            | ArchiveFormat::Brotli
+            | ArchiveFormat::Lz4
             | ArchiveFormat::Isz
             | ArchiveFormat::Img
             | ArchiveFormat::Bin
