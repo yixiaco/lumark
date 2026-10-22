@@ -102,6 +102,18 @@ struct PendingExtraPasswordJob {
     candidates: Vec<lumark_vault::PasswordCandidate>,
 }
 
+/// 压缩任务对应的界面动作选项。
+///
+/// 这些选项只影响任务结束后的应用行为，不参与归档格式编码，因此不放进
+/// `CompressionOptions`。
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct CompressTaskOptions {
+    /// 任务成功后安排系统关机。
+    pub shutdown_after: bool,
+    /// 任务运行期间降低进程优先级。
+    pub low_priority: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PendingEditAction {
     Add,
@@ -327,6 +339,8 @@ pub struct LumarkApp {
     compress_sfx: bool,
     /// 等待完成后关机的压缩任务。
     pending_shutdown_task: Option<u64>,
+    /// 正在以低优先级运行的压缩任务；最后一个结束时恢复普通优先级。
+    low_priority_tasks: HashSet<u64>,
     compress_path_mode: PathMode,
     compress_tab: u8,
     #[allow(dead_code)]
@@ -593,6 +607,7 @@ impl LumarkApp {
             compress_delete_source: false,
             compress_sfx: false,
             pending_shutdown_task: None,
+            low_priority_tasks: HashSet::new(),
             compress_path_mode: PathMode::Relative,
             compress_tab: 0,
             compress_classic: false,

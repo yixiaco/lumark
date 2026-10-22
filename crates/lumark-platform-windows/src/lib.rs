@@ -7,6 +7,7 @@ pub mod drag;
 pub mod icons;
 pub mod ipc;
 pub mod power;
+pub mod process;
 pub mod shell;
 pub mod tray;
 

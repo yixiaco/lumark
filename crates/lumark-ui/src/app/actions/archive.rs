@@ -286,7 +286,7 @@ impl LumarkApp {
         output: PathBuf,
         sources: Vec<PathBuf>,
         options: CompressionOptions,
-        shutdown_after: bool,
+        task_options: CompressTaskOptions,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -310,8 +310,18 @@ impl LumarkApp {
             options,
             sfx_stub,
         });
-        if shutdown_after {
+        if task_options.shutdown_after {
             self.pending_shutdown_task = Some(id);
+        }
+        // 先降低优先级再提交任务，压缩线程创建时就继承较低优先级；失败只
+        // 在状态栏提示，不影响任务本身。
+        let mut priority_error = None;
+        if task_options.low_priority {
+            self.low_priority_tasks.insert(id);
+            if let Err(error) = platform::process::set_low_priority(true) {
+                self.low_priority_tasks.remove(&id);
+                priority_error = Some(error);
+            }
         }
         let label = format!("压缩 {}", output.display());
         self.record_task_queued(id, TaskKind::Compress, label.clone());
@@ -320,10 +330,29 @@ impl LumarkApp {
         self.active_task_label = Some(label);
         self.task_progress = None;
         self.show_compress = false;
-        self.status = format!("开始压缩：{}", output.display());
+        self.status = match priority_error {
+            Some(error) => format!("开始压缩：{}（降低优先级失败：{error}）", output.display()),
+            None => format!("开始压缩：{}", output.display()),
+        };
         // 先创建进度窗口，避免短任务在首次轮询前就结束而只看到 100%。
         self.open_progress_window_for(id, window, cx);
         cx.notify();
+    }
+
+    /// 结束低优先级任务；多个低优先级任务并存时等最后一个结束再恢复。
+    ///
+    /// 优先级是进程级状态，单个任务结束就恢复会让仍在运行的任务失去限制，
+    /// 因此按任务集合计数，只有集合清空才回到普通优先级。
+    pub(crate) fn finish_low_priority(&mut self, task_id: u64) {
+        if !self.low_priority_tasks.remove(&task_id) {
+            return;
+        }
+        if !self.low_priority_tasks.is_empty() {
+            return;
+        }
+        if let Err(error) = platform::process::set_low_priority(false) {
+            self.status = format!("{}；恢复进程优先级失败：{error}", self.status);
+        }
     }
 
     /// 校验压缩输入并提交后台压缩任务。

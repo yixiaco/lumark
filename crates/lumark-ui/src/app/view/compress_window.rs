@@ -67,6 +67,8 @@ pub(crate) struct CompressWindowView {
     sfx: bool,
     /// 压缩成功后安排系统关机；每次打开窗口都从关闭状态开始。
     shutdown_after: bool,
+    /// 压缩期间降低进程优先级，减少界面卡顿。
+    low_priority: bool,
     path_mode: PathMode,
     classic: bool,
     tab: u8,
@@ -352,6 +354,7 @@ impl CompressWindowView {
             delete_source: init.delete_source,
             sfx: init.sfx,
             shutdown_after: false,
+            low_priority: false,
             path_mode: init.path_mode,
             classic: init.classic,
             tab: 0,
@@ -542,10 +545,13 @@ impl CompressWindowView {
             ..Default::default()
         };
         let sources = self.sources.clone();
-        let shutdown_after = self.shutdown_after;
+        let task_options = CompressTaskOptions {
+            shutdown_after: self.shutdown_after,
+            low_priority: self.low_priority,
+        };
         let app = self.app.clone();
         app.update(cx, |app, cx| {
-            app.start_compress_from_options(output, sources, options, shutdown_after, window, cx);
+            app.start_compress_from_options(output, sources, options, task_options, window, cx);
         });
         window.remove_window();
     }
@@ -731,6 +737,28 @@ impl CompressWindowView {
                         self.delete_source,
                         |this, value, _| this.delete_source = value,
                     ))
+                    .when(self.format == ArchiveFormat::SevenZip, |this| {
+                        this.child(check_button(
+                            cx,
+                            "compress-window-solid",
+                            "创建固实压缩文件",
+                            self.solid,
+                            |this, value, _| this.solid = value,
+                        ))
+                        .child(check_button(
+                            cx,
+                            "compress-window-encrypt-header",
+                            "加密文件名",
+                            self.encrypt_header,
+                            |this, value, _| this.encrypt_header = value,
+                        ))
+                    }),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_4()
+                    .items_center()
                     .when(self.format == ArchiveFormat::Zip, |this| {
                         this.child(
                             Checkbox::new("compress-window-sfx")
@@ -748,22 +776,13 @@ impl CompressWindowView {
                         self.shutdown_after,
                         |this, value, _| this.shutdown_after = value,
                     ))
-                    .when(self.format == ArchiveFormat::SevenZip, |this| {
-                        this.child(check_button(
-                            cx,
-                            "compress-window-solid",
-                            "创建固实压缩文件",
-                            self.solid,
-                            |this, value, _| this.solid = value,
-                        ))
-                        .child(check_button(
-                            cx,
-                            "compress-window-encrypt-header",
-                            "加密文件名",
-                            self.encrypt_header,
-                            |this, value, _| this.encrypt_header = value,
-                        ))
-                    }),
+                    .child(check_button(
+                        cx,
+                        "compress-window-low-priority",
+                        "降低压缩优先级",
+                        self.low_priority,
+                        |this, value, _| this.low_priority = value,
+                    )),
             )
             .child(
                 h_flex()
@@ -923,7 +942,12 @@ impl CompressWindowView {
                         "压缩后删除源文件",
                         self.delete_source,
                         |this, value, _| this.delete_source = value,
-                    ))
+                    )),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_4()
                     .when(self.format == ArchiveFormat::Zip, |this| {
                         this.child(
                             Checkbox::new("classic-sfx")
@@ -934,18 +958,6 @@ impl CompressWindowView {
                                 })),
                         )
                     })
-                    .child(check_button(
-                        cx,
-                        "classic-shutdown",
-                        "完成后关闭计算机",
-                        self.shutdown_after,
-                        |this, value, _| this.shutdown_after = value,
-                    )),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_4()
                     .when(self.format == ArchiveFormat::SevenZip, |this| {
                         this.child(check_button(
                             cx,
@@ -961,7 +973,21 @@ impl CompressWindowView {
                             self.encrypt_header,
                             |this, value, _| this.encrypt_header = value,
                         ))
-                    }),
+                    })
+                    .child(check_button(
+                        cx,
+                        "classic-shutdown",
+                        "完成后关闭计算机",
+                        self.shutdown_after,
+                        |this, value, _| this.shutdown_after = value,
+                    ))
+                    .child(check_button(
+                        cx,
+                        "classic-low-priority",
+                        "降低压缩优先级",
+                        self.low_priority,
+                        |this, value, _| this.low_priority = value,
+                    )),
             )
             .child(classic_field(
                 "分卷大小:",

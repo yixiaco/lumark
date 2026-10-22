@@ -308,6 +308,22 @@ mod ui_tests {
                         window.find("compress-window-shutdown").visible(),
                         "轻巧模式未渲染压缩后关机选项"
                     );
+                    assert!(
+                        window.find("compress-window-low-priority").visible(),
+                        "轻巧模式未渲染低优先级选项"
+                    );
+                    let low_priority = window.find("compress-window-low-priority").bounds();
+                    let window_size = window.inner_window_bounds().get_bounds().size;
+                    assert!(
+                        low_priority.origin.x + low_priority.size.width <= window_size.width,
+                        "低优先级选项超出 600px 窗口：{:?}",
+                        low_priority
+                    );
+                    assert!(
+                        low_priority.origin.y + low_priority.size.height <= window_size.height,
+                        "低优先级选项超出 330px 高度：{:?}",
+                        low_priority
+                    );
 
                     let select = window.find("compress-format-select");
                     assert!(select.visible(), "压缩格式下拉未渲染");
@@ -340,6 +356,10 @@ mod ui_tests {
                     assert!(
                         window.find("classic-shutdown").visible(),
                         "经典模式未渲染压缩后关机选项"
+                    );
+                    assert!(
+                        window.find("classic-low-priority").visible(),
+                        "经典模式未渲染低优先级选项"
                     );
 
                     window.click(("compress-window-tab", 3usize), cx);

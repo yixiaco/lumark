@@ -468,6 +468,7 @@ impl LumarkApp {
                                         }
                                     }
                                 }
+                                app.finish_low_priority(id);
                             }
                             TaskEvent::Failed { id, message } => {
                                 app.record_task_failed(id, message.clone());
@@ -496,6 +497,7 @@ impl LumarkApp {
                                     app.focus_next_running_task(id);
                                 }
                                 app.status = format!("失败：{message}");
+                                app.finish_low_priority(id);
                             }
                             TaskEvent::Cancelled { id } => {
                                 app.record_task_cancelled(id);
@@ -531,6 +533,7 @@ impl LumarkApp {
                                     app.focus_next_running_task(id);
                                 }
                                 app.status = "任务已取消".to_string();
+                                app.finish_low_priority(id);
                             }
                             TaskEvent::PasswordAttempt { id, index, total } => {
                                 let Some(job) = app.pending_password_jobs.get(&id) else {
