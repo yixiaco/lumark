@@ -620,6 +620,9 @@ mod ui_tests {
         .unwrap();
         let dropped = directory.path().join("dropped.txt");
         std::fs::write(&dropped, b"dropped").unwrap();
+        let dropped_folder = directory.path().join("dropped-folder");
+        std::fs::create_dir_all(&dropped_folder).unwrap();
+        std::fs::write(dropped_folder.join("inside.txt"), b"inside").unwrap();
         let (app, cx) = cx.add_window_view(|window, cx| {
             LumarkApp::new_with_stores(
                 window,
@@ -632,23 +635,29 @@ mod ui_tests {
         cx.update(|window, cx| {
             app.update(cx, |app, cx| {
                 app.browser.open_archive(&archive, None).unwrap();
-                app.add_files_to_current_archive(&[dropped]);
+                app.add_files_to_current_archive(&[dropped, dropped_folder]);
                 assert!(app.show_archive_add_dialog);
                 assert_eq!(app.pending_archive_additions.len(), 1);
+                assert_eq!(app.pending_archive_roots.len(), 1);
                 cx.notify();
             });
             window.draw(cx).clear(cx);
             assert!(window.find("archive-add-confirm").visible());
             assert!(window.find("archive-add-freshen").visible());
-            window.click("archive-add-newer", cx);
+            assert!(
+                window.find("archive-add-sync").visible(),
+                "拖入文件夹后应提供同步模式"
+            );
+            window.click("archive-add-sync", cx);
             window.draw(cx).clear(cx);
             app.update(cx, |app, _| {
-                assert_eq!(app.archive_add_mode, lumark_archive::UpdateMode::Newer);
+                assert_eq!(app.archive_add_mode, lumark_archive::UpdateMode::Sync);
             });
             window.click("archive-add-confirm", cx);
             app.update(cx, |app, _| {
                 assert!(!app.show_archive_add_dialog);
                 assert!(app.pending_archive_additions.is_empty());
+                assert!(app.pending_archive_roots.is_empty());
             });
         });
         let _ = app;

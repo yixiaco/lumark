@@ -397,15 +397,14 @@ impl TaskManager {
                         });
                     })
                     .map(|report| {
-                        if report.skipped == 0 {
-                            format!("已更新 {}", report.output.display())
-                        } else {
-                            format!(
-                                "已更新 {}，跳过 {} 个未变化文件",
-                                report.output.display(),
-                                report.skipped
-                            )
+                        let mut message = format!("已更新 {}", report.output.display());
+                        if report.deleted > 0 {
+                            message.push_str(&format!("，删除 {} 个条目", report.deleted));
                         }
+                        if report.skipped > 0 {
+                            message.push_str(&format!("，跳过 {} 个未变化文件", report.skipped));
+                        }
+                        message
                     })
                 }
                 TaskRequest::LoadArchive { archive, password } => {

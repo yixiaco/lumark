@@ -6,7 +6,7 @@ pub mod format;
 pub mod path;
 pub mod service;
 
-pub use edit::{EditOptions, EditProgress, EditReport};
+pub use edit::{EditOptions, EditProgress, EditReport, EditRoot};
 pub use error::ArchiveError;
 pub use format::{
     ArchiveEntry, ArchiveFormat, ArchiveInfo, ArchiveTimeSource, CompressionOptions,

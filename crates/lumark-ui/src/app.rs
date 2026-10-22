@@ -25,7 +25,7 @@ use gpui_kit::{
 use uuid::Uuid;
 
 use lumark_archive::{
-    ArchiveFormat, ArchiveService, ArchiveTimeSource, CompressionOptions, EditOptions,
+    ArchiveFormat, ArchiveService, ArchiveTimeSource, CompressionOptions, EditOptions, EditRoot,
     ExtractionOptions, FileTimeFilter, OverwritePolicy as ArchiveOverwritePolicy, PathMode,
     SevenZCompression, UpdateMode, ZipCompression, ZipEncryption,
 };
@@ -386,6 +386,8 @@ pub struct LumarkApp {
     rename_target: Option<PathBuf>,
     /// 拖入归档后等待确认更新模式的文件列表。
     pending_archive_additions: Vec<(String, PathBuf)>,
+    /// 拖入归档的目录根，同步模式据此新增、更新和删除条目。
+    pending_archive_roots: Vec<EditRoot>,
     show_archive_add_dialog: bool,
     /// 本次添加到归档时同名条目的处理方式。
     archive_add_mode: UpdateMode,
@@ -647,6 +649,7 @@ impl LumarkApp {
             rename_name,
             rename_target: None,
             pending_archive_additions: Vec::new(),
+            pending_archive_roots: Vec::new(),
             show_archive_add_dialog: false,
             archive_add_mode: UpdateMode::Replace,
             password_search,

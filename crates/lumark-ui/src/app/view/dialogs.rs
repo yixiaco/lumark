@@ -361,7 +361,8 @@ impl LumarkApp {
     /// 更新模式只在确认后生效，取消不会触发归档重建，因此可以先浏览选项
     /// 再决定是否写入。
     pub(crate) fn render_archive_add_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let count = self.pending_archive_additions.len();
+        let file_count = self.pending_archive_additions.len();
+        let folder_count = self.pending_archive_roots.len();
         let target = match &self.browser.location {
             BrowserLocation::Archive { archive, .. } => archive
                 .file_name()
@@ -370,10 +371,25 @@ impl LumarkApp {
                 .to_string(),
             BrowserLocation::FileSystem(_) => "当前归档".to_string(),
         };
+        let summary = match (file_count, folder_count) {
+            (0, folders) => format!("{folders} 个文件夹将写入 {target}，请选择更新方式："),
+            (files, 0) => format!("{files} 个文件将写入 {target}，请选择同名条目的处理方式："),
+            (files, folders) => {
+                format!("{files} 个文件、{folders} 个文件夹将写入 {target}，请选择更新方式：")
+            }
+        };
         let hint = match self.archive_add_mode {
             UpdateMode::Replace => "同名条目直接覆盖，新文件全部加入。",
             UpdateMode::Newer => "仅当磁盘文件比归档条目更新时替换，较旧条目保留原内容。",
             UpdateMode::Freshen => "只更新归档中已存在的条目，不会加入新文件。",
+            UpdateMode::Sync => {
+                "同步会新增缺少的文件、更新较新文件，并删除归档中磁盘已不存在的条目。"
+            }
+        };
+        let hint_color = if self.archive_add_mode == UpdateMode::Sync {
+            cx.theme().warning
+        } else {
+            cx.theme().muted_foreground
         };
         centered_modal(cx, "添加到归档")
             .child(
@@ -381,9 +397,7 @@ impl LumarkApp {
                     .w_full()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!(
-                        "{count} 个文件将写入 {target}，请选择同名条目的处理方式："
-                    )),
+                    .child(summary),
             )
             .child(
                 v_flex()
@@ -409,15 +423,18 @@ impl LumarkApp {
                         "仅刷新已有条目".to_string(),
                         self.archive_add_mode == UpdateMode::Freshen,
                         |app, _, _| app.archive_add_mode = UpdateMode::Freshen,
-                    )),
+                    ))
+                    .when(folder_count > 0, |this| {
+                        this.child(option_radio(
+                            cx,
+                            "archive-add-sync",
+                            "同步文件夹内容（会删除多余条目）".to_string(),
+                            self.archive_add_mode == UpdateMode::Sync,
+                            |app, _, _| app.archive_add_mode = UpdateMode::Sync,
+                        ))
+                    }),
             )
-            .child(
-                div()
-                    .w_full()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(hint),
-            )
+            .child(div().w_full().text_xs().text_color(hint_color).child(hint))
             .child(
                 h_flex()
                     .w_full()

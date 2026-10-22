@@ -213,7 +213,7 @@ pub enum OverwritePolicy {
 
 /// 向归档添加同名文件时的处理方式。
 ///
-/// 三种模式只影响同名条目的替换判断，删除和重命名始终按参数执行；
+/// 前三种模式只影响同名条目的替换判断，删除和重命名始终按参数执行；
 /// 归档条目缺少时间戳时按“需要更新”处理，避免静默丢文件。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum UpdateMode {
@@ -224,6 +224,9 @@ pub enum UpdateMode {
     Newer,
     /// 只更新归档中已存在的条目，不添加新条目。
     Freshen,
+    /// 用目录内容同步归档：新增缺少的文件、更新较新文件，并删除磁盘上
+    /// 已经不存在的条目。
+    Sync,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

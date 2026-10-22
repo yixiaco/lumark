@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use lumark_archive::{
-    ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, ExtractionOptions,
+    ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, EditRoot, ExtractionOptions,
     OverwritePolicy, UpdateMode, safe_join,
 };
 use tempfile::tempdir;
@@ -1236,5 +1236,83 @@ fn zip_edit_freshen_mode_skips_new_files() {
     assert_eq!(
         extract_text(&archive, &dir.path().join("updated"), "hello.txt"),
         "updated"
+    );
+}
+
+/// 验证同步模式会新增文件、更新较新文件并删除磁盘上已不存在的条目。
+#[test]
+fn zip_edit_sync_mode_mirrors_source_directory() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("source");
+    fs::create_dir_all(&source).unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        let path = source.join(name);
+        fs::write(&path, format!("old-{name}")).unwrap();
+        set_modified(&path, old);
+    }
+    let archive = dir.path().join("sync.zip");
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+
+    // 修改 a、新增 d、删除 b，c 保持不变。
+    fs::write(source.join("a.txt"), b"new-a").unwrap();
+    fs::write(source.join("d.txt"), b"new-d").unwrap();
+    fs::remove_file(source.join("b.txt")).unwrap();
+    let report = ArchiveService::edit(
+        &archive,
+        &EditOptions {
+            roots: vec![EditRoot {
+                prefix: "source".to_string(),
+                directory: source,
+            }],
+            update_mode: UpdateMode::Sync,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(report.deleted, 1, "磁盘上已删除的条目应同步移除");
+    assert_eq!(report.skipped, 1, "未变化的文件不应重写");
+    let info = ArchiveService::list(&archive, None).unwrap();
+    let names: Vec<&str> = info
+        .entries
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert!(names.contains(&"source/a.txt"));
+    assert!(names.contains(&"source/c.txt"));
+    assert!(names.contains(&"source/d.txt"));
+    assert!(!names.contains(&"source/b.txt"));
+
+    let synced = dir.path().join("synced");
+    ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: synced.clone(),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(synced.join("source").join("a.txt")).unwrap(),
+        "new-a"
+    );
+    assert_eq!(
+        fs::read_to_string(synced.join("source").join("c.txt")).unwrap(),
+        "old-c.txt"
+    );
+    assert_eq!(
+        fs::read_to_string(synced.join("source").join("d.txt")).unwrap(),
+        "new-d"
     );
 }

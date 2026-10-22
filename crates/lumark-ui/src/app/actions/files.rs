@@ -303,36 +303,54 @@ impl LumarkApp {
         }
     }
 
-    /// 暂存拖入文件并请求用户选择更新模式。
+    /// 暂存拖入的文件和目录并请求用户选择更新模式。
     ///
     /// 归档重建代价高，不能按一次拖放直接覆盖；这里先确认同名条目的处理
-    /// 方式，确认后才提交后台编辑任务。
+    /// 方式，确认后才提交后台编辑任务。目录会成为同步根，供同步模式比对
+    /// 归档内条目。
     pub(crate) fn add_files_to_current_archive(&mut self, paths: &[PathBuf]) {
         if !matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
             return;
         }
-        let additions: Vec<(String, PathBuf)> = paths
-            .iter()
-            .filter(|path| path.is_file())
-            .filter_map(|path| {
-                path.file_name()
-                    .and_then(|value| value.to_str())
-                    .map(|name| (name.to_string(), path.clone()))
-            })
-            .collect();
-        if additions.is_empty() {
-            self.status = "当前仅支持将文件拖入归档；文件夹请先压缩".to_string();
+        let mut additions = Vec::new();
+        let mut roots = Vec::new();
+        for path in paths {
+            if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+                    additions.push((name.to_string(), path.clone()));
+                }
+            } else if path.is_dir()
+                && let Some(prefix) = path.file_name().and_then(|value| value.to_str())
+            {
+                roots.push(EditRoot {
+                    prefix: prefix.to_string(),
+                    directory: path.clone(),
+                });
+            }
+        }
+        if additions.is_empty() && roots.is_empty() {
+            self.status = "请拖入文件或文件夹".to_string();
             return;
         }
-        self.status = format!("准备向归档添加 {} 个文件", additions.len());
+        // 没有目录根时同步模式无从比对，退回替换模式避免误删条目。
+        if roots.is_empty() && self.archive_add_mode == UpdateMode::Sync {
+            self.archive_add_mode = UpdateMode::Replace;
+        }
+        self.status = format!(
+            "准备添加 {} 个文件、{} 个文件夹",
+            additions.len(),
+            roots.len()
+        );
         self.pending_archive_additions = additions;
+        self.pending_archive_roots = roots;
         self.show_archive_add_dialog = true;
     }
 
-    /// 按所选更新模式提交归档添加任务。
+    /// 按所选更新模式提交归档添加或同步任务。
     pub(crate) fn confirm_archive_add(&mut self, cx: &mut Context<Self>) {
         self.show_archive_add_dialog = false;
         let additions = std::mem::take(&mut self.pending_archive_additions);
+        let roots = std::mem::take(&mut self.pending_archive_roots);
         let BrowserLocation::Archive { archive, .. } = &self.browser.location else {
             self.status = "当前不在归档位置".to_string();
             cx.notify();
@@ -342,6 +360,7 @@ impl LumarkApp {
         let options = EditOptions {
             source_password: self.archive_password.clone(),
             additions,
+            roots,
             update_mode: self.archive_add_mode,
             keep_backup: self.settings.get().archive_edit_backup,
             ..Default::default()
@@ -354,6 +373,7 @@ impl LumarkApp {
     pub(crate) fn cancel_archive_add(&mut self, cx: &mut Context<Self>) {
         self.show_archive_add_dialog = false;
         self.pending_archive_additions.clear();
+        self.pending_archive_roots.clear();
         self.status = "已取消添加文件".to_string();
         cx.notify();
     }

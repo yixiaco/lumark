@@ -8,13 +8,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
 use sevenz_rust2::{ArchiveReader, ArchiveWriter, EncoderConfiguration, Password};
+use walkdir::WalkDir;
 use zeroize::Zeroizing;
 use zip::write::SimpleFileOptions;
 use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::error::ArchiveError;
-use crate::format::{ArchiveFormat, UpdateMode};
+use crate::format::{ArchiveEntry, ArchiveFormat, UpdateMode};
 use crate::service::ArchiveService;
+
+/// 要同步到归档的目录根。
+///
+/// `prefix` 是归档内的目录名（空表示归档根），`directory` 是本地源目录。
+/// 同步模式会按该目录的内容新增、更新条目，并删除磁盘上已不存在的条目。
+#[derive(Debug, Clone)]
+pub struct EditRoot {
+    pub prefix: String,
+    pub directory: PathBuf,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct EditOptions {
@@ -23,6 +34,8 @@ pub struct EditOptions {
     pub delete_paths: Vec<String>,
     pub rename: Vec<(String, String)>,
     pub additions: Vec<(String, PathBuf)>,
+    /// 需要展开或同步的目录根；文件添加仍使用 `additions`。
+    pub roots: Vec<EditRoot>,
     /// 同名条目的替换规则，默认整体替换。
     pub update_mode: UpdateMode,
     pub comment: Option<String>,
@@ -45,6 +58,8 @@ pub struct EditReport {
     pub backup: Option<PathBuf>,
     /// 因更新模式判定为未变化而跳过的添加文件数。
     pub skipped: usize,
+    /// 同步模式从归档删除的条目数。
+    pub deleted: usize,
 }
 
 impl ArchiveService {
@@ -76,10 +91,14 @@ impl ArchiveService {
                 return Err(ArchiveError::Corrupt(format!("添加文件名称重复：{name}")));
             }
         }
-        // 更新模式需要读取归档条目时间戳；直接替换模式跳过这次枚举。
-        let (additions, skipped) = filter_additions(path, options)?;
+        // 展开目录根并按更新模式过滤；替换模式且没有目录根时不必枚举归档。
+        let plan = plan_additions(path, options)?;
+        let deleted = plan.deletions.len();
+        let skipped = plan.skipped;
         let mut options = options.clone();
-        options.additions = additions;
+        options.additions = plan.additions;
+        options.delete_paths.extend(plan.deletions);
+        options.roots.clear();
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(parent)?;
         let extension = path
@@ -131,20 +150,37 @@ impl ArchiveService {
             output: path.to_path_buf(),
             backup,
             skipped,
+            deleted,
         })
     }
 }
 
-/// 按更新模式过滤待添加文件，返回实际写入的列表和被跳过的数量。
+/// 一次归档编辑的准备结果：要写入的文件、跳过的数量和需要删除的条目。
+struct EditPlan {
+    additions: Vec<(String, PathBuf)>,
+    skipped: usize,
+    deletions: Vec<String>,
+}
+
+/// 展开目录根并按更新模式生成添加项、跳过数和同步删除列表。
 ///
-/// 名称匹配沿用添加流程的裸文件名语义：归档条目名与待添加名完全相等时
-/// 才视为同一文件，目录前缀不同不会被误判为替换。
-fn filter_additions(
-    archive: &Path,
-    options: &EditOptions,
-) -> Result<(Vec<(String, PathBuf)>, usize), ArchiveError> {
-    if options.update_mode == UpdateMode::Replace {
-        return Ok((options.additions.clone(), 0));
+/// 显式添加项优先于目录展开结果，避免同一文件被同一批次写两次；同步模式
+/// 在枚举归档条目后，把磁盘上已不存在的条目加入删除列表。
+fn plan_additions(archive: &Path, options: &EditOptions) -> Result<EditPlan, ArchiveError> {
+    let mut additions = options.additions.clone();
+    let mut names: HashSet<String> = additions.iter().map(|(name, _)| name.clone()).collect();
+    for (name, source) in expand_roots(&options.roots)? {
+        if names.insert(name.clone()) {
+            additions.push((name, source));
+        }
+    }
+    let needs_entries = options.update_mode != UpdateMode::Replace || !options.roots.is_empty();
+    if !needs_entries {
+        return Ok(EditPlan {
+            additions,
+            skipped: 0,
+            deletions: Vec::new(),
+        });
     }
     let info = ArchiveService::list(
         archive,
@@ -155,30 +191,113 @@ fn filter_additions(
         .iter()
         .map(|entry| (entry.path.as_str(), entry.modified))
         .collect();
+    let mode = options.update_mode;
     let mut kept = Vec::new();
     let mut skipped = 0;
-    for (name, source) in &options.additions {
+    for (name, source) in additions {
         let Some(archived) = existing.get(name.as_str()) else {
-            // 仅刷新模式不引入新条目；更新模式把新文件照常加入。
-            if options.update_mode == UpdateMode::Freshen {
+            // 仅刷新模式不引入新条目；替换、更新和同步都会加入新文件。
+            if mode == UpdateMode::Freshen {
                 skipped += 1;
             } else {
-                kept.push((name.clone(), source.clone()));
+                kept.push((name, source));
             }
             continue;
         };
-        if options.update_mode == UpdateMode::Freshen || source_is_newer(*archived, source) {
-            kept.push((name.clone(), source.clone()));
+        if mode == UpdateMode::Freshen || source_is_newer(*archived, &source) {
+            kept.push((name, source));
         } else {
             skipped += 1;
         }
     }
-    Ok((kept, skipped))
+    let deletions = if mode == UpdateMode::Sync {
+        sync_deletions(&options.roots, &info.entries)
+    } else {
+        Vec::new()
+    };
+    Ok(EditPlan {
+        additions: kept,
+        skipped,
+        deletions,
+    })
+}
+
+/// 把目录根展开成归档内的文件名列表。
+///
+/// 归档名使用 `/` 分隔，目录根的名称作为前缀保留，与压缩时“保留根目录”
+/// 的命名一致；符号链接不跟随，避免同步遍历到归档之外。
+fn expand_roots(roots: &[EditRoot]) -> Result<Vec<(String, PathBuf)>, ArchiveError> {
+    let mut files = Vec::new();
+    for root in roots {
+        if !root.directory.is_dir() {
+            return Err(ArchiveError::Corrupt(format!(
+                "同步源目录不存在：{}",
+                root.directory.display()
+            )));
+        }
+        let prefix = root.prefix.trim_end_matches('/');
+        for entry in WalkDir::new(&root.directory).follow_links(false) {
+            let entry = entry.map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            if entry.file_type().is_dir() {
+                continue;
+            }
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(&root.directory)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let name = if prefix.is_empty() {
+                relative
+            } else {
+                format!("{prefix}/{relative}")
+            };
+            files.push((name, path.to_path_buf()));
+        }
+    }
+    Ok(files)
+}
+
+/// 计算同步模式需要从归档删除的条目。
+///
+/// 只处理目录根前缀下的条目；把归档内的 POSIX 相对路径逐级拼到本地目录
+/// 后再判断存在性，避免分隔符和大小写差异造成误删。
+fn sync_deletions(roots: &[EditRoot], entries: &[ArchiveEntry]) -> Vec<String> {
+    let mut deleted = Vec::new();
+    for root in roots {
+        let prefix = root.prefix.trim_end_matches('/');
+        for entry in entries {
+            let relative = if prefix.is_empty() {
+                entry.path.as_str()
+            } else if entry.path == prefix {
+                ""
+            } else if let Some(rest) = entry.path.strip_prefix(&format!("{prefix}/")) {
+                rest
+            } else {
+                continue;
+            };
+            if relative.is_empty() {
+                continue;
+            }
+            let mut disk = root.directory.clone();
+            for part in relative.split('/') {
+                disk.push(part);
+            }
+            if !disk.exists() {
+                deleted.push(entry.path.clone());
+            }
+        }
+    }
+    deleted.sort();
+    deleted.dedup();
+    deleted
 }
 
 /// 判断磁盘文件是否比归档条目更新。
 ///
-/// 任一侧缺少时间戳时按“需要更新”返回，宁可多写一次也不静默保留旧内容。
+/// ZIP 的 DOS 时间只有 2 秒精度，比较时留出容差，避免把同一文件的微秒
+/// 差异当成更新；任一侧缺少时间戳时按“需要更新”返回，宁可多写一次也不
+/// 静默保留旧内容。
 fn source_is_newer(archived: Option<DateTime<Utc>>, source: &Path) -> bool {
     let Ok(disk) = fs::metadata(source).and_then(|metadata| metadata.modified()) else {
         return true;
@@ -186,7 +305,7 @@ fn source_is_newer(archived: Option<DateTime<Utc>>, source: &Path) -> bool {
     let Some(archived) = archived else {
         return true;
     };
-    DateTime::<Utc>::from(disk) > archived
+    DateTime::<Utc>::from(disk) > archived + chrono::Duration::seconds(2)
 }
 
 fn write_zip<F>(
