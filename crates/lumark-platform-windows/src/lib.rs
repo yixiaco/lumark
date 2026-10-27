@@ -6,6 +6,7 @@ pub mod clipboard;
 pub mod drag;
 pub mod icons;
 pub mod ipc;
+pub mod iso;
 pub mod power;
 pub mod process;
 pub mod shell;
@@ -17,6 +18,8 @@ pub enum PlatformError {
     Windows(std::io::Error),
     #[error("路径为空")]
     EmptyPaths,
+    #[error("虚拟光驱操作失败：{0}")]
+    Iso(String),
 }
 
 /// 打开文件夹，或在资源管理器中定位文件。

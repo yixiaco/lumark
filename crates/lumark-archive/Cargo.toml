@@ -39,6 +39,7 @@ libc.workspace = true
 [dev-dependencies]
 crc32fast.workspace = true
 flate2.workspace = true
+geezipx-core.workspace = true
 tempfile.workspace = true
 zeroize.workspace = true
 lumark-sfx = { path = "../lumark-sfx" }

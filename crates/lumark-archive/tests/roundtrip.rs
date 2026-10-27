@@ -461,6 +461,49 @@ fn single_stream_formats_roundtrip() {
     }
 }
 
+/// 验证 LZH 创建、列表、解压和完整性测试。
+#[test]
+fn lzh_roundtrip() {
+    let dir = tempdir().unwrap();
+    let source = make_source(dir.path());
+    let output = dir.path().join("archive.lzh");
+    ArchiveService::create(
+        &output,
+        &[source],
+        &CompressionOptions {
+            format: ArchiveFormat::Lzh,
+            test_after: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let info = ArchiveService::list(&output, None).unwrap();
+    assert_eq!(info.format, Some(ArchiveFormat::Lzh));
+    assert!(
+        info.entries
+            .iter()
+            .any(|entry| entry.path.ends_with("hello.txt"))
+    );
+    let extraction = dir.path().join("out");
+    ArchiveService::extract(
+        &output,
+        &ExtractionOptions {
+            output_dir: extraction.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(extraction.join("source").join("hello.txt")).unwrap(),
+        "hello from lumark"
+    );
+    let tested = ArchiveService::test(&output, None, |_| {}).unwrap();
+    assert!(tested.files > 0);
+}
+
 /// 单流格式遇到多个源或文件夹时返回可操作错误，而不是“归档损坏”。
 #[test]
 fn single_stream_rejects_multiple_sources_with_actionable_error() {

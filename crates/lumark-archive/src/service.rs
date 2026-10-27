@@ -9,6 +9,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use geezipx_core::archive::ArchiveReader as LegacyReader;
+use geezipx_core::archive::ArchiveWriter as LegacyWriter;
+use geezipx_core::archive::lzh::{LzhCompressionMethod, LzhWriter};
 use lzma_rust2::{LzipOptions, LzipWriter, LzmaOptions, LzmaWriter};
 use sevenz_rust2::encoder_options::{
     Bzip2Options, Lzma2Options, LzmaOptions as SevenZLzmaOptions, PpmdOptions,
@@ -35,6 +37,9 @@ pub const SFX_MAGIC: [u8; 8] = *b"LMSFX001";
 
 /// 自解压包尾部页脚长度：魔数 8 字节 + 数据段偏移 8 字节 + 数据段长度 8 字节。
 pub const SFX_FOOTER_LEN: usize = 24;
+
+/// LZH 写入器会把单个条目读入内存；超过该上限时提前拒绝，避免 OOM。
+const LZH_MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct ExtractProgress {
@@ -371,6 +376,7 @@ impl ArchiveService {
             format if crate::unarc::is_supported(format) => {
                 crate::unarc::test(&input, format, &mut progress)
             }
+            format if is_legacy_archive(format) => Self::test_legacy(&input, format, &mut progress),
             ArchiveFormat::UnixCompress => {
                 let (mut archive, entry) = open_unix_compress(&input)?;
                 let bytes = archive
@@ -645,6 +651,7 @@ impl ArchiveService {
             | ArchiveFormat::Lz4 => {
                 Self::create_single_stream(output, sources, options, &mut progress)
             }
+            ArchiveFormat::Lzh => Self::create_lzh(output, sources, options, &mut progress),
             ArchiveFormat::Zpaq => crate::zpaq::create(output, sources, options, &mut progress),
             other => Err(ArchiveError::UnsupportedFormat(other.label().to_string())),
         }
@@ -997,6 +1004,62 @@ impl ArchiveService {
                 bytes_total: report.bytes,
                 entries_done: report.files,
                 entries_total: 0,
+            });
+        }
+        Ok(report)
+    }
+
+    /// 用传统只读适配器把全部条目解压到 sink，完成完整性测试。
+    ///
+    /// 这些适配器没有独立的 test API；写出到 `io::sink()` 可以触发解码和
+    /// CRC 校验，同时不占用磁盘。预算只按条目声明大小累计。
+    fn test_legacy<F>(
+        path: &Path,
+        format: ArchiveFormat,
+        progress: &mut F,
+    ) -> Result<ExtractReport, ArchiveError>
+    where
+        F: FnMut(ExtractProgress),
+    {
+        let mut reader = open_legacy_reader(path, format)?;
+        let entries = reader
+            .entries()
+            .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+        let total = entries.len();
+        let total_bytes: u64 = entries
+            .iter()
+            .filter(|entry| !entry.is_dir)
+            .map(|entry| entry.size)
+            .sum();
+        let budget = ExtractionBudget::default();
+        let mut report = ExtractReport::default();
+        for entry in entries {
+            if entry.is_dir {
+                continue;
+            }
+            if report.files >= budget.max_entries {
+                return Err(ArchiveError::BudgetExceeded(format!(
+                    "条目数超过上限 {}",
+                    budget.max_entries
+                )));
+            }
+            if report.bytes.saturating_add(entry.size) > budget.max_bytes {
+                return Err(ArchiveError::BudgetExceeded(format!(
+                    "解压总量将超过 {} 字节上限",
+                    budget.max_bytes
+                )));
+            }
+            reader
+                .extract(&entry, &mut io::sink())
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            report.files += 1;
+            report.bytes += entry.size;
+            progress(ExtractProgress {
+                current: entry.path,
+                bytes_done: report.bytes,
+                bytes_total: total_bytes,
+                entries_done: report.files,
+                entries_total: total,
             });
         }
         Ok(report)
@@ -2285,6 +2348,67 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 创建 LZH/LHA 归档。
+    ///
+    /// 当前后端按条目整块读入内存，因此对单条目设置 512 MiB 上限；压缩方法
+    /// 由预设映射到 lh4/lh5/lh7，`level == 0` 时使用 store。后端没有逐条目
+    /// 进度和取消钩子，进度按文件上报。
+    fn create_lzh<F>(
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        F: FnMut(CreateProgress),
+    {
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let plan = build_source_plan(sources, options)?;
+        let entries_total = plan.files.len();
+        let mut writer = LzhWriter::new(File::create(output)?, lzh_method(options));
+        let mut report = CreateReport {
+            output: output.to_path_buf(),
+            ..Default::default()
+        };
+        let mut done = 0u64;
+        for (relative, source, _) in plan.files {
+            ensure_not_cancelled(&options.cancel)?;
+            let file_bytes = fs::metadata(&source)?.len();
+            if file_bytes > LZH_MAX_ENTRY_BYTES {
+                return Err(ArchiveError::InvalidRequest(format!(
+                    "LZH 创建当前需要把单个文件读入内存，暂不支持超过 {} MiB 的条目：{}",
+                    LZH_MAX_ENTRY_BYTES / (1024 * 1024),
+                    source.display()
+                )));
+            }
+            let mut input = File::open(&source)?;
+            writer
+                .add_entry_from_reader(Path::new(&relative), &mut input)
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            done += file_bytes;
+            report.files += 1;
+            report.bytes = done;
+            progress(CreateProgress {
+                current: relative,
+                bytes_done: done,
+                bytes_total: plan.total_bytes,
+                current_bytes_done: file_bytes,
+                current_bytes_total: file_bytes,
+                output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
+                entries_done: report.files,
+                entries_total,
+            });
+        }
+        let (bytes_written, file) = writer
+            .finalize()
+            .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+        file.sync_all()?;
+        let _ = bytes_written;
+        Ok(report)
+    }
+
     fn create_single_stream<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -2898,6 +3022,20 @@ fn glob_match(pattern: &str, value: &str) -> bool {
         glob.compile_matcher().is_match(&value)
     } else {
         false
+    }
+}
+
+/// 把压缩预设映射为 LZH 写入方法。
+///
+/// 显式 `level == 0` 表示仅存储；其余按速度/平衡/体积映射到 lh4/lh5/lh7。
+fn lzh_method(options: &CompressionOptions) -> LzhCompressionMethod {
+    if options.level == Some(0) {
+        return LzhCompressionMethod::Store;
+    }
+    match options.preset {
+        crate::format::CompressionPreset::Speed => LzhCompressionMethod::Lh4,
+        crate::format::CompressionPreset::Balanced => LzhCompressionMethod::Lh5,
+        crate::format::CompressionPreset::Size => LzhCompressionMethod::Lh7,
     }
 }
 

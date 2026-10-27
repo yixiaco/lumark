@@ -197,6 +197,7 @@ const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::Zip, "ZIP"),
     (ArchiveFormat::SevenZip, "7Z"),
     (ArchiveFormat::Zpaq, "ZPAQ"),
+    (ArchiveFormat::Lzh, "LZH"),
     (ArchiveFormat::Tar, "TAR"),
     (ArchiveFormat::TarGz, "TAR.GZ"),
     (ArchiveFormat::TarBz2, "TAR.BZ2"),

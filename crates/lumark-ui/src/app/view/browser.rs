@@ -43,6 +43,8 @@ enum FileMenuKind {
     Folder,
     /// 文件系统中的压缩包。
     ArchiveFileSystem,
+    /// 文件系统中的 ISO 光盘映像。
+    IsoFile,
     /// 文件系统中的可执行文件。
     ExecutableFile,
     /// 文件系统中的普通文件。
@@ -228,6 +230,8 @@ fn file_menu_kind(location: &BrowserLocation, entry: &BrowserEntry) -> FileMenuK
         BrowserLocation::FileSystem(_) => {
             if entry.is_dir {
                 FileMenuKind::Folder
+            } else if is_iso_path(&entry.path) {
+                FileMenuKind::IsoFile
             } else if is_archive_path(&entry.path) {
                 FileMenuKind::ArchiveFileSystem
             } else if is_executable_like(&entry.path) {
@@ -1315,58 +1319,79 @@ fn file_context_menu(
                 window,
                 |app, _, _| app.request_delete(),
             )),
-        FileMenuKind::ArchiveFileSystem => menu
-            .item(popup_action(
-                "用 Lumark 打开",
-                AppIcon::FolderOpen,
-                &app,
-                window,
-                |app, window, cx| app.open_selected(window, cx),
-            ))
-            .item(popup_action(
-                "解压到…",
-                AppIcon::Zip,
-                &app,
-                window,
-                |app, window, cx| app.open_extract_dialog(window, cx),
-            ))
-            .separator()
-            .item(popup_action(
-                "复制文件",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_items(cx),
-            ))
-            .item(popup_action(
-                "复制路径",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_path(cx),
-            ))
-            .item(popup_action(
-                "在资源管理器中显示",
-                AppIcon::Search,
-                &app,
-                window,
-                |app, _, _| app.reveal_selected(),
-            ))
-            .separator()
-            .item(popup_action(
-                "重命名",
-                AppIcon::Edit,
-                &app,
-                window,
-                |app, window, cx| app.start_rename(window, cx),
-            ))
-            .item(popup_action(
-                "删除",
-                AppIcon::Delete,
-                &app,
-                window,
-                |app, _, _| app.request_delete(),
-            )),
+        FileMenuKind::ArchiveFileSystem | FileMenuKind::IsoFile => {
+            let menu = menu
+                .item(popup_action(
+                    "用 Lumark 打开",
+                    AppIcon::FolderOpen,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_selected(window, cx),
+                ))
+                .item(popup_action(
+                    "解压到…",
+                    AppIcon::Zip,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_extract_dialog(window, cx),
+                ))
+                .separator()
+                .item(popup_action(
+                    "复制文件",
+                    AppIcon::Copy,
+                    &app,
+                    window,
+                    |app, _, cx| app.copy_selected_items(cx),
+                ))
+                .item(popup_action(
+                    "复制路径",
+                    AppIcon::Copy,
+                    &app,
+                    window,
+                    |app, _, cx| app.copy_selected_path(cx),
+                ))
+                .item(popup_action(
+                    "在资源管理器中显示",
+                    AppIcon::Search,
+                    &app,
+                    window,
+                    |app, _, _| app.reveal_selected(),
+                ));
+            let menu = if kind == FileMenuKind::IsoFile {
+                menu.separator()
+                    .item(popup_action(
+                        "挂载到虚拟光驱",
+                        AppIcon::Download,
+                        &app,
+                        window,
+                        |app, window, cx| app.mount_selected_iso(window, cx),
+                    ))
+                    .item(popup_action(
+                        "卸载虚拟光驱",
+                        AppIcon::Close,
+                        &app,
+                        window,
+                        |app, window, cx| app.unmount_selected_iso(window, cx),
+                    ))
+            } else {
+                menu
+            };
+            menu.separator()
+                .item(popup_action(
+                    "重命名",
+                    AppIcon::Edit,
+                    &app,
+                    window,
+                    |app, window, cx| app.start_rename(window, cx),
+                ))
+                .item(popup_action(
+                    "删除",
+                    AppIcon::Delete,
+                    &app,
+                    window,
+                    |app, _, _| app.request_delete(),
+                ))
+        }
         FileMenuKind::ExecutableFile | FileMenuKind::File => menu
             .item(popup_action(
                 if kind == FileMenuKind::ExecutableFile {
@@ -1524,6 +1549,7 @@ mod tests {
         let plain = entry("notes.txt", false, None);
         let inside_file = entry("docs/readme.txt", false, Some("deflate"));
         let executable = entry("setup.exe", false, None);
+        let iso = entry("image.iso", false, None);
 
         assert_eq!(
             file_menu_kind(&inside, &folder),
@@ -1538,6 +1564,7 @@ mod tests {
             file_menu_kind(&outside, &archive_file),
             FileMenuKind::ArchiveFileSystem
         );
+        assert_eq!(file_menu_kind(&outside, &iso), FileMenuKind::IsoFile);
         assert_eq!(file_menu_kind(&outside, &plain), FileMenuKind::File);
         assert_eq!(
             file_menu_kind(&outside, &executable),

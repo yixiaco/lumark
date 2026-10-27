@@ -9,10 +9,11 @@
 - [x] ZIP/7Z 创建、读取、解压、AES 密码、7Z 固实压缩、条目级加密探测。
 - [x] ZIP 默认使用 AES-256；可在密码页启用带警告的 ZipCrypto 兼容写入，并有往返测试。
 - [x] TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA；GZ、BZ2、XZ、ZST、Brotli、LZ4 单文件流。ZIPX/旧 ZIP 通过 `zip` 的 `deflate64`、`legacy-zip` 特性只读支持 Deflate64、Shrink、Reduce、Implode。
+- [x] LZH 创建：使用 `geezipx-core` 的 `LzhWriter`，按预设映射 lh4/lh5/lh7（显式 level 0 时 lh0/store），支持列表、解压、测试和 `test_after`；单条目超过 512 MiB 提前拒绝，避免整块缓冲导致 OOM。
 - [x] 压缩窗口按源类型过滤格式：多文件或文件夹源隐藏 GZ/BZ2/XZ/ZST/Brotli/LZ4 单流格式，设置中的单流默认格式自动改用对应 TAR 变体；核心创建接口对多源单流请求返回可操作的“无法继续”错误，而不是“归档损坏”。
 - [x] ZPAQ 读写：使用 `zpaq_rs` 内嵌的 libzpaq/JIDAC 参考引擎创建标准归档，支持 1–5 级压缩级别（轻巧模式“体积小”对应 5 级）、AES-256 密码、列表、完整测试、密码校验、选择性解压、覆盖策略、资源预算、分卷和删除源文件；普通批次按 32 MiB / 64 文件分批上报进度并检查取消，含 ≥32 MiB 单文件的批次交给隐藏的 `--zpaq-worker` 子进程执行，取消时直接终止子进程；创建后重新列表校验路径集合；解压先落暂存区再按策略移动，失败不留半成品。源计划跳过符号链接和 Windows 目录联接，避免 zpaq 跳过后条目数不一致；ZPAQ 默认保留原始时间，需要“当前/最近”时间时复制源文件并处理只读属性。同名旧归档在任务成功后原子替换。首次调用前把无控制台 release 进程的无效 stdio 句柄绑定到 NUL，保证引擎输出捕获可用。PAQ8/LPAQ 无许可兼容的成熟后端，不列入支持范围。
 - [x] RAR 只读列表、普通/加密密码验证、完整测试和解压（UnRAR 后端，保留许可声明）；损坏 RAR 不再误报为加密；解压按条目声明大小接入资源预算。
-- [x] 只读适配 40+ 格式：ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM、ASAR、LZH/LHA、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE 等（传统格式通过 `unarc-rs` 适配层）。
+- [x] 只读适配 40+ 格式：ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像，XPRESS/LZX）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE 等（传统格式通过 `unarc-rs` 适配层）；WIM 的 LZMS 压缩和 SWM 分卷暂不支持。
 - [x] ALZ 只读列表、密码探测/校验、完整测试和解压：支持 Store、Deflate、ALZ 改造 Bzip2、ZipCrypto、`.alz`/`.a00` 分卷；解压按路径安全、覆盖策略、资源预算和 CRC 校验处理，失败不留半成品。
 - [x] ZIP/7Z 原子编辑：删除、重命名、添加文件；失败不替换原归档；可选 `.lumark.bak`。
 - [x] 归档内同名添加按替换处理，不再生成重复条目。
@@ -48,7 +49,8 @@
 - [x] 快速/高级压缩入口：格式、预设、密码、固实、头加密、排除/仅存储通配符、分卷、注释页。
 - [x] 压缩后测试、成功后删除源文件，并阻止输出归档位于待删除源目录。
 - [x] 任务管理：后台压缩、解压、测试、编辑、记录密码验证、进度、暂停/继续、取消、状态栏、任务中心页面和独立进度窗口。
-- [x] Windows：当前用户经典右键菜单注册/移除、默认应用设置入口、单实例保护、回收站、Send To“Lumark 压缩”快捷方式、安装/卸载脚本；可选关联 22 种压缩格式，包含 `.alz`、`.tar.br`、`.tar.lz4`、`.tar.lz`、`.tar.lzma`、`.tar.z`、`.zpaq` / `.zpq`。
+- [x] Windows：当前用户经典右键菜单注册/移除、默认应用设置入口、单实例保护、回收站、Send To“Lumark 压缩”快捷方式、安装/卸载脚本；可选关联 24 种压缩格式，包含 `.lzh`、`.lha`、`.alz`、`.tar.br`、`.tar.lz4`、`.tar.lz`、`.tar.lzma`、`.tar.z`、`.zpaq` / `.zpq`。
+- [x] ISO 虚拟光驱：文件列表右键 ISO 挂载/卸载，调用系统 `Mount-DiskImage`/`Dismount-DiskImage`，挂载后自动打开盘符；使用隐藏 PowerShell 子进程和 30 秒超时，客户端普通用户通常无需管理员。
 - [x] 单实例多窗口：Shell 请求按文件打开独立窗口并级联错开，窗口共享设置与密码库、各自独立任务中心，关闭全部窗口后进程退出。
 - [x] 内置只读文本查看器：右键菜单直接在内置窗口查看文本文件，归档条目解压后展示，打开条目的解压进度窗口完成后自动关闭。
 - [x] 从归档拖出：条目先解压到受控临时目录再交给系统拖放，拖出和复制期间显示临时解压进度，失败时清理临时文件。
@@ -75,7 +77,8 @@
 - [ ] 压缩后邮件通知仍待实现（需要 SMTP 配置界面）。
 - [ ] 100k 行目录的真实性能验收和逐列自由调整列宽仍未完成；列宽当前只有紧凑/标准/宽松三档预设。
 - [ ] Windows 11 稀疏 MSIX `IExplorerCommand`、代码签名、Shell 多选请求转发（一次请求包含多个路径时仍只打开第一个）、Windows 会话锁定、命名管道单实例和卸载数据保留选项。
-- [ ] RPM、XAR/PKG、MSI、CHM、SquashFS、DMG、EGG、NSIS 安装包和 PAQ8/LPAQ 仍未支持；SWM 多分卷 WIM、Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
+- [ ] RPM、XAR/PKG、MSI、CHM、SquashFS、DMG、EGG、NSIS 安装包和 PAQ8/LPAQ 仍未支持；WIM 的 LZMS 压缩、SWM 多分卷和 WIM 创建仍未实现，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
+- [ ] LZH 创建仍受单条目 512 MiB 内存上限限制，且上游写入器没有条目内进度和取消钩子；后续可评估流式 LZH 编码器。
 - [ ] 扩展 UI 自动化到密码编辑窗口、自动解压提示、任务暂停/取消和拖放；传统格式的实际写入上限仍取决于上游适配器，模糊测试、性能基准、完整键盘/高对比度验收和中英文资源文件仍待完成。
 - [ ] 将 `geezipx-core` 所需适配器复制进项目并移除整体直接依赖，减少重复 ZIP/7z 依赖。
 

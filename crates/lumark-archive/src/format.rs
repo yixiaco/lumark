@@ -186,6 +186,7 @@ impl ArchiveFormat {
                 | Self::Zstd
                 | Self::Brotli
                 | Self::Lz4
+                | Self::Lzh
                 | Self::Zpaq
         )
     }

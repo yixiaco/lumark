@@ -196,6 +196,13 @@ pub(crate) fn is_archive_path(path: &Path) -> bool {
     ArchiveService::detect(path) != ArchiveFormat::Unknown
 }
 
+/// 判断路径是否为 ISO 光盘映像。
+pub(crate) fn is_iso_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("iso"))
+}
+
 /// 识别需要显式打开确认的可执行文件和脚本扩展名。
 pub(crate) fn is_executable_like(path: &Path) -> bool {
     path.extension()
@@ -224,6 +231,7 @@ pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
     match settings.default_format.to_ascii_lowercase().as_str() {
         "7z" | "sevenzip" => ArchiveFormat::SevenZip,
         "zpaq" => ArchiveFormat::Zpaq,
+        "lzh" | "lha" => ArchiveFormat::Lzh,
         "tar" => ArchiveFormat::Tar,
         "tar.gz" | "tgz" => ArchiveFormat::TarGz,
         "tar.bz2" | "tbz2" => ArchiveFormat::TarBz2,
@@ -299,7 +307,8 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     match format {
         ArchiveFormat::Zip => ArchiveFormat::SevenZip,
         ArchiveFormat::SevenZip => ArchiveFormat::Zpaq,
-        ArchiveFormat::Zpaq => ArchiveFormat::Tar,
+        ArchiveFormat::Zpaq => ArchiveFormat::Lzh,
+        ArchiveFormat::Lzh => ArchiveFormat::Tar,
         ArchiveFormat::Tar => ArchiveFormat::TarGz,
         ArchiveFormat::TarGz => ArchiveFormat::TarBz2,
         ArchiveFormat::TarBz2 => ArchiveFormat::TarXz,
@@ -344,6 +353,8 @@ pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> P
         ".7z",
         ".zpaq",
         ".zpq",
+        ".lzh",
+        ".lha",
         ".tar",
         ".gz",
         ".bz2",
@@ -627,6 +638,7 @@ mod tests {
     #[test]
     fn new_writable_settings_and_extension_replace() {
         for (extension, format) in [
+            ("lzh", ArchiveFormat::Lzh),
             ("tar.br", ArchiveFormat::TarBr),
             ("tar.lz4", ArchiveFormat::TarLz4),
             ("tar.lz", ArchiveFormat::TarLz),
@@ -648,6 +660,15 @@ mod tests {
         }
         assert_eq!(
             replace_archive_extension(Path::new(r"C:\data\backup.taz"), ArchiveFormat::Zip),
+            PathBuf::from(r"C:\data\backup.zip")
+        );
+        let lha = Settings {
+            default_format: "lha".to_string(),
+            ..Settings::default()
+        };
+        assert_eq!(format_from_settings(&lha), ArchiveFormat::Lzh);
+        assert_eq!(
+            replace_archive_extension(Path::new(r"C:\data\backup.lha"), ArchiveFormat::Zip),
             PathBuf::from(r"C:\data\backup.zip")
         );
     }
