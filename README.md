@@ -13,7 +13,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 标题栏工作区按钮和模态遮罩使用阻塞命中区域，右上角密码库/设置按钮不再被拖拽区域吞掉，压缩/解压设置对话框也不会把鼠标事件穿透到下层文件表。
 - IconPark 官方 SVG 图标已本地打包并按主题着色，运行时不依赖网络；来源与许可保存在 `crates/lumark-ui/assets/icons/iconpark/`。
 - ZIP、7Z、TAR、TAR.GZ/BZ2/XZ/ZST；GZ、BZ2、XZ、ZSTD、Brotli、LZ4；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩。
-- ZPAQ 读写（内嵌 libzpaq/JIDAC 引擎）：创建标准归档、AES 密码、列表、完整测试、预算解压、分卷和密码库联动；压缩按 32 MiB / 64 文件分批上报进度，批内不可中断。PAQ8/LPAQ 系列暂无许可兼容的成熟后端，不在支持范围。
+- ZPAQ 读写（内嵌 libzpaq/JIDAC 引擎）：创建标准归档、AES-256 密码、列表、完整测试、预算解压、分卷和密码库联动；压缩级别 1–5 可选，≥32 MiB 的单文件批次交给可杀死的隐藏工作进程执行，压缩中可直接取消；普通小文件批次按 32 MiB / 64 文件分批上报进度。PAQ8/LPAQ 系列暂无许可兼容的成熟后端，不在支持范围。
 - RAR 只读列表、密码验证和解压（UnRAR 后端，保留许可声明）；Unix `.Z` 与 AES `.enc` 只读解压。
 - ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM、ASAR、LZH/LHA、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA 等 30+ 只读格式适配。
 - ZIP/7Z 归档内浏览、选择性解压、删除/重命名/添加文件，临时重建后原子替换；把文件或文件夹拖入归档时可选择“替换同名文件”“只更新较新的文件”“仅刷新已有条目”或“同步文件夹内容”，同步会删除归档中磁盘已不存在的条目，结果消息会给出跳过和删除数量；可选 `.lumark.bak`。

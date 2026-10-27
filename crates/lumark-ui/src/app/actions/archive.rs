@@ -405,6 +405,7 @@ impl LumarkApp {
             } else {
                 ZipEncryption::Aes256
             },
+            zpaq_compression: ZpaqCompression::from_preset(archive_preset(self.compress_preset)),
             ..Default::default()
         };
         let id = self.tasks.submit(lumark_tasks::TaskRequest::Compress {

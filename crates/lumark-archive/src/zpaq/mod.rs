@@ -8,10 +8,11 @@ mod command;
 mod create;
 mod extract;
 mod listing;
+mod worker;
 
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use zpaq_rs::ZpaqCommandOutput;
 
@@ -21,6 +22,21 @@ use crate::service::ExtractProgress;
 
 pub(crate) use create::create;
 pub(crate) use extract::extract;
+
+/// 配置用于超大文件批次的可杀死工作进程。
+///
+/// 应用启动时把当前可执行文件传进来；未配置时所有批次回退到进程内执行。
+pub fn configure_zpaq_worker(path: PathBuf) {
+    worker::configure(path);
+}
+
+/// 运行内置工作进程入口，返回进程退出码。
+///
+/// 由应用在收到 `--zpaq-worker` 参数时调用，从 stdin 读取任务并执行一条
+/// `zpaq` 命令。
+pub fn run_zpaq_worker() -> i32 {
+    worker::run_stdio()
+}
 
 /// 未加密 ZPAQ 归档固定以 JIDAC 标签或旧版 `zPQ` 头开始。
 const ZPAQ_TAG: [u8; 4] = *b"7kSt";

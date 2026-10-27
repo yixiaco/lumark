@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use crate::error::ArchiveError;
-use crate::format::{ArchiveTimeSource, CompressionOptions, CompressionPreset, CreateReport};
+use crate::format::{ArchiveTimeSource, CompressionOptions, CreateReport};
 use crate::path::ArchivePath;
 use crate::service::{CreateProgress, build_source_plan, ensure_not_cancelled};
 
@@ -95,7 +95,7 @@ where
 
     let archive = path_string(output)?.to_string();
     let password = options.password.as_deref().map(String::as_str);
-    let method = method_for(options.preset).to_string();
+    let method = options.zpaq_compression.method().to_string();
     let threads = options.threads.clamp(1, 64).to_string();
     let ranges = batch_ranges(&files);
     let mut done_bytes = 0u64;
@@ -122,7 +122,12 @@ where
             args.push(password.to_string());
         }
         let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        command::run(&refs, password.is_some())?;
+        if super::worker::needs_worker(batch.iter().map(|file| file.bytes)) {
+            // 含超大文件的批次交给可杀死的子进程，支持批内取消。
+            super::worker::run_batch(&args, password.is_some(), &options.cancel)?;
+        } else {
+            command::run(&refs, password.is_some())?;
+        }
 
         let batch_bytes = batch.iter().map(|file| file.bytes).sum::<u64>();
         done_bytes = done_bytes.saturating_add(batch_bytes);
@@ -212,18 +217,6 @@ fn validate_created(
     Ok(())
 }
 
-/// 把预设映射为 zpaq 数字方法。
-///
-/// 4/5 级压缩比更高但耗时成倍增加，当前界面不提供 ZPAQ 专用方法选择，
-/// 因此体积优先只到 3 级。
-fn method_for(preset: CompressionPreset) -> &'static str {
-    match preset {
-        CompressionPreset::Speed => "1",
-        CompressionPreset::Balanced => "2",
-        CompressionPreset::Size => "3",
-    }
-}
-
 /// 按字节上限和文件数上限切分批次。
 ///
 /// 单个文件超过字节上限时独占一批，避免出现无法推进的空批次。
@@ -252,6 +245,7 @@ fn batch_ranges(files: &[PlannedFile]) -> Vec<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format::{CompressionPreset, ZpaqCompression};
 
     /// 构造只关心大小的计划文件。
     fn planned(sizes: &[u64]) -> Vec<PlannedFile> {
@@ -266,12 +260,26 @@ mod tests {
             .collect()
     }
 
-    /// 三个预设应映射到 1/2/3 级方法。
+    /// 五个 ZPAQ 级别应映射到 1..=5 级方法，预设只决定默认档位。
     #[test]
-    fn maps_presets_to_methods() {
-        assert_eq!(method_for(CompressionPreset::Speed), "1");
-        assert_eq!(method_for(CompressionPreset::Balanced), "2");
-        assert_eq!(method_for(CompressionPreset::Size), "3");
+    fn maps_zpaq_levels_to_methods() {
+        assert_eq!(ZpaqCompression::Fast.method(), "1");
+        assert_eq!(ZpaqCompression::Balanced.method(), "2");
+        assert_eq!(ZpaqCompression::Better.method(), "3");
+        assert_eq!(ZpaqCompression::Maximum.method(), "4");
+        assert_eq!(ZpaqCompression::Ultra.method(), "5");
+        assert_eq!(
+            ZpaqCompression::from_preset(CompressionPreset::Speed),
+            ZpaqCompression::Fast
+        );
+        assert_eq!(
+            ZpaqCompression::from_preset(CompressionPreset::Balanced),
+            ZpaqCompression::Balanced
+        );
+        assert_eq!(
+            ZpaqCompression::from_preset(CompressionPreset::Size),
+            ZpaqCompression::Better
+        );
     }
 
     /// 按文件数上限切分，并保持顺序连续。

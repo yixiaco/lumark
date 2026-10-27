@@ -8,7 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use lumark_archive::{
     ArchiveError, ArchiveFormat, ArchiveService, CompressionOptions, CompressionPreset,
-    ExtractionBudget, ExtractionOptions, OverwritePolicy, PathMode,
+    ExtractionBudget, ExtractionOptions, OverwritePolicy, PathMode, ZpaqCompression,
+    configure_zpaq_worker,
 };
 use tempfile::TempDir;
 use zeroize::Zeroizing;
@@ -28,6 +29,7 @@ fn create_options(format: ArchiveFormat) -> CompressionOptions {
         format,
         level: Some(1),
         preset: CompressionPreset::Speed,
+        zpaq_compression: ZpaqCompression::Fast,
         threads: 2,
         ..Default::default()
     }
@@ -120,6 +122,29 @@ fn zpaq_roundtrip_lists_and_extracts_all_entries() {
     assert_eq!(
         fs::metadata(output.join("source/empty.txt")).unwrap().len(),
         0
+    );
+}
+
+/// 显式选择 ZPAQ 级别应被引擎接受并生成可读归档。
+#[test]
+fn zpaq_compression_level_is_applied() {
+    let directory = TempDir::new().unwrap();
+    let source = directory.path().join("source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("level.txt"), b"zpaq level").unwrap();
+    let archive = directory.path().join("level.zpaq");
+    let mut options = create_options(ArchiveFormat::Zpaq);
+    options.zpaq_compression = ZpaqCompression::Better;
+    ArchiveService::create(&archive, std::slice::from_ref(&source), &options, |_| {})
+        .expect("3 级 ZPAQ 创建应成功");
+    let info = ArchiveService::list(&archive, None).expect("3 级 ZPAQ 列表应成功");
+    assert_eq!(info.entries.len(), 1);
+    let output = directory.path().join("out");
+    ArchiveService::extract(&archive, &extract_options(output.clone()), |_| {})
+        .expect("3 级 ZPAQ 解压应成功");
+    assert_eq!(
+        fs::read(output.join("source/level.txt")).unwrap(),
+        b"zpaq level"
     );
 }
 
@@ -478,6 +503,33 @@ fn zpaq_create_rejects_invalid_plans() {
         ),
         Err(ArchiveError::InvalidRequest(_))
     ));
+}
+
+/// 当环境变量提供支持 `--zpaq-worker` 的可执行文件时，大文件批次应走工作进程。
+///
+/// 该用例默认跳过；手动验收时用 `LUMARK_ZPAQ_WORKER=<lumark-app.exe>` 运行，
+/// 普通 CI 不会依赖应用二进制。
+#[test]
+fn zpaq_large_file_uses_configured_worker() {
+    let Ok(worker) = std::env::var("LUMARK_ZPAQ_WORKER") else {
+        return;
+    };
+    configure_zpaq_worker(PathBuf::from(worker));
+    let directory = TempDir::new().unwrap();
+    let source = directory.path().join("large.bin");
+    fs::write(&source, vec![0u8; 33 * 1024 * 1024]).unwrap();
+    let archive = directory.path().join("large.zpaq");
+    let report = ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &create_options(ArchiveFormat::Zpaq),
+        |_| {},
+    )
+    .expect("大文件批次应通过工作进程完成");
+    assert_eq!(report.files, 1);
+    assert!(archive.is_file());
+    let info = ArchiveService::list(&archive, None).expect("工作进程创建的归档应可列表");
+    assert_eq!(info.entries.len(), 1);
 }
 
 /// 外部生成的流式归档应能列表和解压，大小未知时按 0 展示。

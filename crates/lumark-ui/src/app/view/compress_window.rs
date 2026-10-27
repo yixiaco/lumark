@@ -37,6 +37,7 @@ pub(crate) struct CompressInit {
     pub threads: u32,
     pub zip_compression: ZipCompression,
     pub sevenz_compression: SevenZCompression,
+    pub zpaq_compression: ZpaqCompression,
     pub dictionary_mb: u32,
     pub word_size: u32,
     pub solid_block_mb: u32,
@@ -76,6 +77,7 @@ pub(crate) struct CompressWindowView {
     error: Option<String>,
     zip_compression: ZipCompression,
     sevenz_compression: SevenZCompression,
+    zpaq_compression: ZpaqCompression,
     dictionary_mb: u32,
     word_size: u32,
     solid_block_mb: u32,
@@ -85,6 +87,7 @@ pub(crate) struct CompressWindowView {
     format_select: ChoiceState,
     zip_method_select: ChoiceState,
     seven_method_select: ChoiceState,
+    zpaq_method_select: ChoiceState,
     dictionary_select: ChoiceState,
     word_select: ChoiceState,
     solid_select: ChoiceState,
@@ -98,6 +101,13 @@ type ChoiceState = Entity<SelectState<SearchableVec<&'static str>>>;
 
 const ZIP_METHOD_LABELS: [&str; 3] = ["Deflate（推荐）", "BZip2", "LZMA"];
 const SEVEN_METHOD_LABELS: [&str; 4] = ["LZMA2（推荐）", "LZMA", "PPMd", "BZip2"];
+const ZPAQ_METHOD_LABELS: [&str; 5] = [
+    "1 - 快速",
+    "2 - 平衡（推荐）",
+    "3 - 较高",
+    "4 - 更高（较慢）",
+    "5 - 极限（最慢）",
+];
 const DICTIONARY_LABELS: [&str; 17] = [
     "1 MB", "2 MB", "4 MB", "8 MB", "16 MB", "24 MB", "32 MB", "48 MB", "64 MB", "96 MB", "128 MB",
     "192 MB", "256 MB", "384 MB", "512 MB", "768 MB", "1024 MB",
@@ -168,6 +178,7 @@ impl CompressWindowView {
             SevenZCompression::Ppmd => 2,
             SevenZCompression::Bzip2 => 3,
         };
+        let zpaq_method_index = zpaq_method_index(init.zpaq_compression);
         let dictionary_label = format!("{} MB", init.dictionary_mb);
         let dictionary_index = DICTIONARY_LABELS
             .iter()
@@ -204,6 +215,8 @@ impl CompressWindowView {
             new_select(window, cx, ZIP_METHOD_LABELS.to_vec(), zip_method_index);
         let seven_method_select =
             new_select(window, cx, SEVEN_METHOD_LABELS.to_vec(), seven_method_index);
+        let zpaq_method_select =
+            new_select(window, cx, ZPAQ_METHOD_LABELS.to_vec(), zpaq_method_index);
         let dictionary_select =
             new_select(window, cx, DICTIONARY_LABELS.to_vec(), dictionary_index);
         let word_select = new_select(window, cx, WORD_LABELS.to_vec(), word_index);
@@ -248,6 +261,18 @@ impl CompressWindowView {
                         "BZip2" => SevenZCompression::Bzip2,
                         _ => SevenZCompression::Lzma2,
                     };
+                    cx.notify();
+                }
+            },
+        ));
+        select_subscriptions.push(cx.subscribe(
+            &zpaq_method_select,
+            |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event
+                    && let Some(index) =
+                        ZPAQ_METHOD_LABELS.iter().position(|label| *label == *value)
+                {
+                    this.zpaq_compression = zpaq_compression_for_index(index);
                     cx.notify();
                 }
             },
@@ -363,6 +388,7 @@ impl CompressWindowView {
             error: None,
             zip_compression: init.zip_compression,
             sevenz_compression: init.sevenz_compression,
+            zpaq_compression: init.zpaq_compression,
             dictionary_mb: init.dictionary_mb,
             word_size: init.word_size,
             solid_block_mb: init.solid_block_mb,
@@ -372,6 +398,7 @@ impl CompressWindowView {
             format_select,
             zip_method_select,
             seven_method_select,
+            zpaq_method_select,
             dictionary_select,
             word_select,
             solid_select,
@@ -522,6 +549,7 @@ impl CompressWindowView {
             threads: self.threads.clamp(1, 64),
             zip_compression: self.zip_compression,
             sevenz_compression: self.sevenz_compression,
+            zpaq_compression: self.zpaq_compression,
             word_size: (self.format == ArchiveFormat::SevenZip).then_some(self.word_size),
             solid_block_size: (self.format == ArchiveFormat::SevenZip)
                 .then_some(self.solid_block_mb as u64 * 1024 * 1024),
@@ -1013,7 +1041,7 @@ impl CompressWindowView {
             ))
             .child(hint_text(
                 cx,
-                "ZIP 使用 AES-256；7Z 设置密码后同时加密文件内容。",
+                "ZIP 使用 AES-256；7Z 设置密码后同时加密文件内容；ZPAQ 固定使用 AES-256（唯一加密算法）。",
             ))
             .when(self.format == ArchiveFormat::Zip, |this| {
                 this.child(check_button(
@@ -1087,6 +1115,7 @@ impl CompressWindowView {
     fn render_algorithm_tab(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let zip = self.format == ArchiveFormat::Zip;
         let seven = self.format == ArchiveFormat::SevenZip;
+        let zpaq = self.format == ArchiveFormat::Zpaq;
         v_flex()
             .w_full()
             .gap_3()
@@ -1170,7 +1199,29 @@ impl CompressWindowView {
                         .child(hint_text(cx, self.memory_hint())),
                 ))
             })
-            .when(!zip && !seven, |this| {
+            .when(zpaq, |this| {
+                this.child(classic_group(
+                    cx,
+                    "ZPAQ 压缩",
+                    v_flex()
+                        .gap_3()
+                        .child(classic_field(
+                            "压缩级别:",
+                            92.,
+                            choice_select(
+                                "compress-zpaq-method-select",
+                                &self.zpaq_method_select,
+                                220.,
+                                "ZPAQ 压缩级别",
+                            ),
+                        ))
+                        .child(hint_text(
+                            cx,
+                            "级别越高压缩率越高、耗时越长；4/5 级明显更慢。密码固定使用 AES-256 加密（ZPAQ 唯一算法）。",
+                        )),
+                ))
+            })
+            .when(!zip && !seven && !zpaq, |this| {
                 this.child(classic_group(
                     cx,
                     "压缩算法",
@@ -1342,6 +1393,7 @@ impl LumarkApp {
                 .clamp(1, 8),
             zip_compression: ZipCompression::Deflate,
             sevenz_compression: SevenZCompression::Lzma2,
+            zpaq_compression: ZpaqCompression::from_preset(archive_preset(self.compress_preset)),
             dictionary_mb: 16,
             word_size: 32,
             solid_block_mb: 2048,
@@ -1471,6 +1523,28 @@ fn solid_label_for(mb: u32) -> String {
     }
 }
 
+/// 把 ZPAQ 压缩级别映射为下拉索引。
+fn zpaq_method_index(compression: ZpaqCompression) -> usize {
+    match compression {
+        ZpaqCompression::Fast => 0,
+        ZpaqCompression::Balanced => 1,
+        ZpaqCompression::Better => 2,
+        ZpaqCompression::Maximum => 3,
+        ZpaqCompression::Ultra => 4,
+    }
+}
+
+/// 把 ZPAQ 下拉索引映射为压缩级别。
+fn zpaq_compression_for_index(index: usize) -> ZpaqCompression {
+    match index {
+        0 => ZpaqCompression::Fast,
+        2 => ZpaqCompression::Better,
+        3 => ZpaqCompression::Maximum,
+        4 => ZpaqCompression::Ultra,
+        _ => ZpaqCompression::Balanced,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1486,6 +1560,23 @@ mod tests {
         );
         for (format, _) in WRITABLE_FORMATS {
             assert!(format.is_writable(), "格式未声明可写：{format:?}");
+        }
+    }
+
+    /// ZPAQ 级别下拉索引与压缩级别必须双向一致。
+    #[test]
+    fn zpaq_levels_round_trip_through_select_index() {
+        let levels = [
+            ZpaqCompression::Fast,
+            ZpaqCompression::Balanced,
+            ZpaqCompression::Better,
+            ZpaqCompression::Maximum,
+            ZpaqCompression::Ultra,
+        ];
+        assert_eq!(ZPAQ_METHOD_LABELS.len(), levels.len());
+        for (index, level) in levels.into_iter().enumerate() {
+            assert_eq!(zpaq_method_index(level), index);
+            assert_eq!(zpaq_compression_for_index(index), level);
         }
     }
 }

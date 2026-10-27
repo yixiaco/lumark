@@ -13,7 +13,8 @@ pub use format::{
     ArchiveEntry, ArchiveFormat, ArchiveInfo, ArchiveTimeSource, CompressionOptions,
     CompressionPreset, CreateReport, EncryptionInfo, ExtractReport, ExtractionBudget,
     ExtractionOptions, FileTimeFilter, OverwritePolicy, PathMode, SevenZCompression, UpdateMode,
-    ZipCompression, ZipEncryption,
+    ZipCompression, ZipEncryption, ZpaqCompression,
 };
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
 pub use service::{ArchiveService, CreateProgress, ExtractProgress, SFX_FOOTER_LEN, SFX_MAGIC};
+pub use zpaq::{configure_zpaq_worker, run_zpaq_worker};

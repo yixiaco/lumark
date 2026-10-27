@@ -250,6 +250,46 @@ pub enum SevenZCompression {
     Bzip2,
 }
 
+/// ZPAQ 压缩级别，对应 zpaq 引擎的数字方法 `1..=5`。
+///
+/// 4/5 级压缩率更高但耗时明显增加，界面默认只到 3 级。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ZpaqCompression {
+    /// 1 级：最快，压缩率最低。
+    Fast,
+    /// 2 级：默认平衡档。
+    #[default]
+    Balanced,
+    /// 3 级：更高压缩率。
+    Better,
+    /// 4 级：接近极限，耗时明显增加。
+    Maximum,
+    /// 5 级：极限压缩，耗时最长。
+    Ultra,
+}
+
+impl ZpaqCompression {
+    /// 返回传给 zpaq 引擎的数字方法字符串。
+    pub fn method(self) -> &'static str {
+        match self {
+            Self::Fast => "1",
+            Self::Balanced => "2",
+            Self::Better => "3",
+            Self::Maximum => "4",
+            Self::Ultra => "5",
+        }
+    }
+
+    /// 按界面预设推导默认级别；体积优先只到 3 级，避免默认任务过慢。
+    pub fn from_preset(preset: CompressionPreset) -> Self {
+        match preset {
+            CompressionPreset::Speed => Self::Fast,
+            CompressionPreset::Balanced => Self::Balanced,
+            CompressionPreset::Size => Self::Better,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ArchiveTimeSource {
     #[default]
@@ -280,6 +320,8 @@ pub struct CompressionOptions {
     pub threads: u32,
     pub zip_compression: ZipCompression,
     pub sevenz_compression: SevenZCompression,
+    /// ZPAQ 数字压缩级别；其他格式忽略。
+    pub zpaq_compression: ZpaqCompression,
     pub word_size: Option<u32>,
     pub solid_block_size: Option<u64>,
     pub archive_time: ArchiveTimeSource,
@@ -312,6 +354,7 @@ impl Default for CompressionOptions {
             threads: 1,
             zip_compression: ZipCompression::Deflate,
             sevenz_compression: SevenZCompression::Lzma2,
+            zpaq_compression: ZpaqCompression::Balanced,
             word_size: None,
             solid_block_size: None,
             archive_time: ArchiveTimeSource::Original,

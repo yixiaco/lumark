@@ -374,6 +374,45 @@ mod ui_tests {
     }
 
     #[gpui_kit::test]
+    /// 验证选择 ZPAQ 后算法页渲染 1-5 级压缩级别下拉。
+    fn compress_window_shows_zpaq_level_selector(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("sample.txt");
+        std::fs::write(&source, b"lumark").unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.compress_format = ArchiveFormat::Zpaq;
+                app.open_compress_window_for_sources(vec![source.clone()], window, cx);
+            });
+            window.draw(cx).clear(cx);
+            let handle = app.read(cx).compress_window.expect("压缩窗口应已打开");
+            handle
+                .update(cx, |_, window, cx| {
+                    window.draw(cx).clear(cx);
+                    window.click("compress-window-switch", cx);
+                    window.click(("compress-window-tab", 3usize), cx);
+                    window.draw(cx).clear(cx);
+                    assert!(
+                        window.find("compress-zpaq-method-select").visible(),
+                        "ZPAQ 算法页未渲染压缩级别下拉"
+                    );
+                })
+                .unwrap();
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
     /// 验证打开加密归档时会弹出独立密码输入框，而不是只改状态栏。
     fn encrypted_archive_requests_password_dialog(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);

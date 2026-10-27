@@ -4994,6 +4994,7 @@ dependencies = [
  "lumark-sfx",
  "lz4_flex",
  "serde",
+ "serde_json",
  "sevenz-rust2 0.24.1",
  "tar",
  "tempfile",

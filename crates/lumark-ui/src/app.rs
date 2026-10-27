@@ -28,7 +28,7 @@ use uuid::Uuid;
 use lumark_archive::{
     ArchiveFormat, ArchiveService, ArchiveTimeSource, CompressionOptions, EditOptions, EditRoot,
     ExtractionOptions, FileTimeFilter, OverwritePolicy as ArchiveOverwritePolicy, PathMode,
-    SevenZCompression, UpdateMode, ZipCompression, ZipEncryption,
+    SevenZCompression, UpdateMode, ZipCompression, ZipEncryption, ZpaqCompression,
 };
 use lumark_browser::{BrowserEntry, BrowserLocation, BrowserModel, SearchMode};
 use lumark_platform_windows as platform;
@@ -893,6 +893,11 @@ fn window_options(stores: &SharedStores) -> gpui_kit::WindowOptions {
 pub fn run() -> anyhow::Result<()> {
     // 先装 panic 日志：GUI 进程没有控制台，崩溃信息只能落盘。
     diagnostics::install_panic_log();
+    // 隐藏的 ZPAQ 工作进程入口必须在单实例转发之前处理，否则子进程会把
+    // 任务转发给正在运行的父进程。
+    if std::env::args().any(|argument| argument == "--zpaq-worker") {
+        std::process::exit(lumark_archive::run_zpaq_worker());
+    }
     if std::env::args().any(|argument| argument == "--register-shell") {
         lumark_platform_windows::shell::register_current_user()?;
         return Ok(());
@@ -900,6 +905,11 @@ pub fn run() -> anyhow::Result<()> {
     if std::env::args().any(|argument| argument == "--unregister-shell") {
         lumark_platform_windows::shell::unregister_current_user()?;
         return Ok(());
+    }
+    // 超大单文件批次通过当前可执行文件的隐藏工作进程执行，以便取消时
+    // 直接终止子进程。
+    if let Ok(executable) = std::env::current_exe() {
+        lumark_archive::configure_zpaq_worker(executable);
     }
     let instance = lumark_platform_windows::InstanceGuard::acquire("Lumark.SingleInstance")?;
     if instance.is_none() {
