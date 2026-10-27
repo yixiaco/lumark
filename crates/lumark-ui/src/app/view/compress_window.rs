@@ -429,6 +429,20 @@ impl CompressWindowView {
         cx.notify();
     }
 
+    /// 切换压缩预设，并同步 ZPAQ 的当前级别。
+    ///
+    /// 轻巧模式只有这三个预设、没有算法页；如果只改标签而不同步级别，
+    /// “体积小”仍会沿用窗口打开时的 ZPAQ 方法，压缩效果自然和平衡接近。
+    fn set_preset(&mut self, preset: SettingsPreset, window: &mut Window, cx: &mut Context<Self>) {
+        self.preset = preset;
+        self.zpaq_compression = ZpaqCompression::from_preset(archive_preset(preset));
+        let index = zpaq_method_index(self.zpaq_compression);
+        self.zpaq_method_select.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::new(index)), window, cx);
+        });
+        cx.notify();
+    }
+
     /// 切换自解压输出，并把输出扩展名在 `.exe` 与当前格式扩展名之间同步。
     fn set_sfx(&mut self, enabled: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.sfx = enabled;
@@ -538,6 +552,8 @@ impl CompressWindowView {
                 parse_date(&input_value(&self.before, cx)),
             ),
         };
+        let zpaq_compression =
+            effective_zpaq_compression(self.classic, self.preset, self.zpaq_compression);
         let options = CompressionOptions {
             format: self.format,
             level: Some(level_for_preset(self.preset)),
@@ -549,7 +565,7 @@ impl CompressWindowView {
             threads: self.threads.clamp(1, 64),
             zip_compression: self.zip_compression,
             sevenz_compression: self.sevenz_compression,
-            zpaq_compression: self.zpaq_compression,
+            zpaq_compression,
             word_size: (self.format == ArchiveFormat::SevenZip).then_some(self.word_size),
             solid_block_size: (self.format == ArchiveFormat::SevenZip)
                 .then_some(self.solid_block_mb as u64 * 1024 * 1024),
@@ -730,21 +746,21 @@ impl CompressWindowView {
                         "compress-window-preset-speed",
                         "速度快",
                         self.preset == SettingsPreset::Speed,
-                        |this, _, _| this.preset = SettingsPreset::Speed,
+                        |this, _, window, cx| this.set_preset(SettingsPreset::Speed, window, cx),
                     ))
                     .child(radio_button(
                         cx,
                         "compress-window-preset-balanced",
                         "平衡",
                         self.preset == SettingsPreset::Balanced,
-                        |this, _, _| this.preset = SettingsPreset::Balanced,
+                        |this, _, window, cx| this.set_preset(SettingsPreset::Balanced, window, cx),
                     ))
                     .child(radio_button(
                         cx,
                         "compress-window-preset-size",
                         "体积小",
                         self.preset == SettingsPreset::Size,
-                        |this, _, _| this.preset = SettingsPreset::Size,
+                        |this, _, window, cx| this.set_preset(SettingsPreset::Size, window, cx),
                     )),
             ))
             .child(
@@ -1091,21 +1107,21 @@ impl CompressWindowView {
                         "classic-path-relative",
                         "保留相对路径",
                         self.path_mode == PathMode::Relative,
-                        |this, _, _| this.path_mode = PathMode::Relative,
+                        |this, _, _, _| this.path_mode = PathMode::Relative,
                     ))
                     .child(radio_button(
                         cx,
                         "classic-path-noroot",
                         "去掉顶层目录",
                         self.path_mode == PathMode::NoRoot,
-                        |this, _, _| this.path_mode = PathMode::NoRoot,
+                        |this, _, _, _| this.path_mode = PathMode::NoRoot,
                     ))
                     .child(radio_button(
                         cx,
                         "classic-path-flatten",
                         "全部平铺",
                         self.path_mode == PathMode::Flatten,
-                        |this, _, _| this.path_mode = PathMode::Flatten,
+                        |this, _, _, _| this.path_mode = PathMode::Flatten,
                     )),
             ))
             .into_any_element()
@@ -1217,7 +1233,7 @@ impl CompressWindowView {
                         ))
                         .child(hint_text(
                             cx,
-                            "级别越高压缩率越高、耗时越长；4/5 级明显更慢。密码固定使用 AES-256 加密（ZPAQ 唯一算法）。“当前/最近”归档时间会复制全部源文件以改写时间，默认保留原始时间。",
+                            "级别越高压缩率越高、耗时越长；轻巧模式的“体积小”对应 5 级，4/5 级明显更慢。密码固定使用 AES-256 加密（ZPAQ 唯一算法）。“当前/最近”归档时间会复制全部源文件以改写时间，默认保留原始时间。",
                         )),
                 ))
             })
@@ -1486,13 +1502,14 @@ fn radio_button(
     id: &'static str,
     label: &'static str,
     checked: bool,
-    handler: impl Fn(&mut CompressWindowView, bool, &mut Context<CompressWindowView>) + 'static,
+    handler: impl Fn(&mut CompressWindowView, bool, &mut Window, &mut Context<CompressWindowView>)
+    + 'static,
 ) -> Radio {
     Radio::new(id)
         .label(label)
         .checked(checked)
-        .on_click(cx.listener(move |this, value: &bool, _, cx| {
-            handler(this, *value, cx);
+        .on_click(cx.listener(move |this, value: &bool, window, cx| {
+            handler(this, *value, window, cx);
             cx.notify();
         }))
 }
@@ -1532,6 +1549,22 @@ fn default_archive_time(format: ArchiveFormat) -> ArchiveTimeSource {
         ArchiveTimeSource::Original
     } else {
         ArchiveTimeSource::Current
+    }
+}
+
+/// 计算本次任务实际使用的 ZPAQ 级别。
+///
+/// 轻巧模式只有三个预设，没有算法页，因此提交时必须以预设为准；经典
+/// 模式允许在算法页单独选择 1–5 级，使用显式选择值。
+fn effective_zpaq_compression(
+    classic: bool,
+    preset: SettingsPreset,
+    selected: ZpaqCompression,
+) -> ZpaqCompression {
+    if classic {
+        selected
+    } else {
+        ZpaqCompression::from_preset(archive_preset(preset))
     }
 }
 
@@ -1606,6 +1639,23 @@ mod tests {
         assert_eq!(
             default_archive_time(ArchiveFormat::Zpaq),
             ArchiveTimeSource::Original
+        );
+    }
+
+    /// 轻巧模式提交时以预设为准，经典模式保留显式级别。
+    #[test]
+    fn light_mode_preset_overrides_zpaq_level() {
+        assert_eq!(
+            effective_zpaq_compression(false, SettingsPreset::Size, ZpaqCompression::Fast),
+            ZpaqCompression::Ultra
+        );
+        assert_eq!(
+            effective_zpaq_compression(false, SettingsPreset::Balanced, ZpaqCompression::Ultra),
+            ZpaqCompression::Balanced
+        );
+        assert_eq!(
+            effective_zpaq_compression(true, SettingsPreset::Size, ZpaqCompression::Fast),
+            ZpaqCompression::Fast
         );
     }
 }

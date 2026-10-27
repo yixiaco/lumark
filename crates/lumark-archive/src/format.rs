@@ -280,12 +280,12 @@ impl ZpaqCompression {
         }
     }
 
-    /// 按界面预设推导默认级别；体积优先只到 3 级，避免默认任务过慢。
+    /// 按界面预设推导默认级别；体积优先使用最高的 5 级。
     pub fn from_preset(preset: CompressionPreset) -> Self {
         match preset {
             CompressionPreset::Speed => Self::Fast,
             CompressionPreset::Balanced => Self::Balanced,
-            CompressionPreset::Size => Self::Better,
+            CompressionPreset::Size => Self::Ultra,
         }
     }
 }

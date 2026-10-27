@@ -363,27 +363,6 @@ pub(crate) fn parse_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     ))
 }
 
-/// 追加数字后缀，直到得到未占用的归档输出路径。
-pub(crate) fn unique_output_path(path: PathBuf, format: ArchiveFormat) -> PathBuf {
-    if !path.exists() {
-        return path;
-    }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("archive");
-    let suffix = format!(".{}", format.extension());
-    let stem = name.strip_suffix(&suffix).unwrap_or("archive");
-    for index in 1..1000 {
-        let candidate = parent.join(format!("{stem} ({index}){suffix}"));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    path
-}
-
 /// 使用二进制单位格式化字节数，供紧凑界面标签显示。
 pub(crate) fn format_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];

@@ -413,6 +413,39 @@ mod ui_tests {
     }
 
     #[gpui_kit::test]
+    /// 验证已存在的同名压缩包复用原路径，由创建流程原子替换。
+    fn compress_dialog_reuses_existing_output_path(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("sample.txt");
+        std::fs::write(&source, b"lumark").unwrap();
+        let existing = directory.path().join("sample.zip");
+        std::fs::write(&existing, b"old archive").unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.compress_format = ArchiveFormat::Zip;
+                app.open_compress_dialog_with_sources(vec![source.clone()], window, cx);
+            });
+            let value = input_value(&app.read(cx).compress_output, cx);
+            assert_eq!(
+                PathBuf::from(value),
+                existing,
+                "同名压缩包不应自动改名为带序号的新文件"
+            );
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
     /// 验证打开加密归档时会弹出独立密码输入框，而不是只改状态栏。
     fn encrypted_archive_requests_password_dialog(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);

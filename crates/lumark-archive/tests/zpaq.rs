@@ -564,6 +564,37 @@ fn zpaq_current_time_handles_read_only_file() {
     fs::set_permissions(&extracted, permissions).unwrap();
 }
 
+/// 重新压缩到同一路径应原子替换旧归档，而不是生成带序号的新文件。
+#[test]
+fn zpaq_recreate_replaces_existing_archive() {
+    let directory = TempDir::new().unwrap();
+    let source = directory.path().join("data.txt");
+    fs::write(&source, b"first").unwrap();
+    let archive = directory.path().join("replace.zpaq");
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &create_options(ArchiveFormat::Zpaq),
+        |_| {},
+    )
+    .expect("首次创建应成功");
+    fs::write(&source, b"second").unwrap();
+    ArchiveService::create(
+        &archive,
+        std::slice::from_ref(&source),
+        &create_options(ArchiveFormat::Zpaq),
+        |_| {},
+    )
+    .expect("覆盖已有归档应成功");
+    let info = ArchiveService::list(&archive, None).expect("覆盖后的归档应可列表");
+    assert_eq!(info.entries.len(), 1);
+    let output = directory.path().join("out");
+    ArchiveService::extract(&archive, &extract_options(output.clone()), |_| {})
+        .expect("覆盖后的归档应可解压");
+    assert_eq!(fs::read(output.join("data.txt")).unwrap(), b"second");
+    assert!(!directory.path().join("replace (1).zpaq").exists());
+}
+
 /// 外部生成的流式归档应能列表和解压，大小未知时按 0 展示。
 #[test]
 fn zpaq_streaming_archive_lists_and_extracts() {

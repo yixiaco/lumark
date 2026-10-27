@@ -178,10 +178,9 @@ impl LumarkApp {
             .filter(|path| path.is_dir())
             .or_else(|| first.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| PathBuf::from("."));
-        let mut output = unique_output_path(
-            output_dir.join(format!("{default_name}.{}", format.extension())),
-            format,
-        );
+        // 同名旧压缩包不再自动追加 (1)：创建流程先写临时文件，成功后再
+        // 原子替换目标路径，失败时旧归档保持不变。
+        let mut output = output_dir.join(format!("{default_name}.{}", format.extension()));
         if self.compress_sfx {
             output.set_extension("exe");
         }

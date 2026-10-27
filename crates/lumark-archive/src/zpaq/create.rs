@@ -331,7 +331,7 @@ mod tests {
         );
         assert_eq!(
             ZpaqCompression::from_preset(CompressionPreset::Size),
-            ZpaqCompression::Better
+            ZpaqCompression::Ultra
         );
     }
 
