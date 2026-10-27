@@ -522,8 +522,23 @@ impl LumarkApp {
                             }
                             TaskEvent::Failed { id, message } => {
                                 app.record_task_failed(id, message.clone());
-                                // 失败同样是终态，自动打开的进度窗口不再停留。
+                                // Shell 压缩宿主没有可见主窗口；失败时保留
+                                // 结果窗口，避免进度窗口关闭后宿主立即退出，
+                                // 让用户看不到具体失败原因。
+                                let show_failure_window = app.headless_compress_host
+                                    && app.task_record(id).is_some_and(|record| {
+                                        matches!(
+                                            record.kind,
+                                            TaskKind::Compress
+                                                | TaskKind::Extract
+                                                | TaskKind::Test
+                                                | TaskKind::Edit
+                                        )
+                                    });
                                 app.dismiss_progress_window_for(id, cx);
+                                if show_failure_window {
+                                    app.open_progress_window_for(id, window, cx);
+                                }
                                 app.pending_extract_saves.remove(&id);
                                 app.pending_extract_open_dirs.remove(&id);
                                 if app.pending_shutdown_task == Some(id) {

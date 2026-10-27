@@ -170,11 +170,59 @@ fn stage_sources(
     for (index, file) in files.iter_mut().enumerate() {
         ensure_not_cancelled(cancel)?;
         let target = directory.path().join(format!("{index:010}.dat"));
-        fs::copy(&file.source, &target)?;
-        filetime::set_file_mtime(&target, filetime::FileTime::from_system_time(time))?;
+        let metadata = fs::metadata(&file.source).map_err(|error| {
+            ArchiveError::Io(std::io::Error::new(
+                error.kind(),
+                format!("读取源文件属性失败：{}（{error}）", file.source.display()),
+            ))
+        })?;
+        let readonly = metadata.permissions().readonly();
+        fs::copy(&file.source, &target).map_err(|error| {
+            ArchiveError::Io(std::io::Error::new(
+                error.kind(),
+                format!(
+                    "复制源文件到 ZPAQ 暂存目录失败：{}（{error}）",
+                    file.source.display()
+                ),
+            ))
+        })?;
+        // Windows 只读文件不允许直接修改时间属性；先临时去掉只读位，
+        // 设置完 mtime 后再恢复，让 zpaq 仍能记录原始属性。
+        if readonly {
+            set_readonly(&target, false)?;
+        }
+        filetime::set_file_mtime(&target, filetime::FileTime::from_system_time(time)).map_err(
+            |error| {
+                ArchiveError::Io(std::io::Error::new(
+                    error.kind(),
+                    format!(
+                        "设置 ZPAQ 暂存文件时间失败：{}（{error}）",
+                        file.source.display()
+                    ),
+                ))
+            },
+        )?;
+        if readonly {
+            set_readonly(&target, true)?;
+        }
         file.source = target;
     }
     Ok(directory)
+}
+
+/// 设置暂存文件的只读位，并保留原始错误上下文。
+fn set_readonly(path: &Path, readonly: bool) -> Result<(), ArchiveError> {
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_readonly(readonly);
+    fs::set_permissions(path, permissions).map_err(|error| {
+        ArchiveError::Io(std::io::Error::new(
+            error.kind(),
+            format!(
+                "设置 ZPAQ 暂存文件只读属性失败：{}（{error}）",
+                path.display()
+            ),
+        ))
+    })
 }
 
 /// 重新列出刚创建的归档，确认条目集合与计划一致。
@@ -189,29 +237,34 @@ fn validate_created(
         ));
     }
     let info = super::list(output, password)?;
-    let mut listed = info
+    let listed = info
         .entries
         .iter()
         .filter(|entry| !entry.is_dir)
         .map(|entry| entry.path.clone())
         .collect::<HashSet<_>>();
-    if listed.len() != expected.len() {
+    let missing = expected
+        .iter()
+        .filter(|path| !listed.contains(*path))
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
         return Err(ArchiveError::InvalidRequest(format!(
-            "ZPAQ 归档校验失败：计划 {} 个文件，归档内有 {} 个",
-            expected.len(),
-            listed.len()
+            "ZPAQ 归档校验失败：缺少条目 {}",
+            missing.join("、")
         )));
     }
-    for path in expected {
-        if !listed.remove(path) {
-            return Err(ArchiveError::InvalidRequest(format!(
-                "ZPAQ 归档校验失败：缺少条目 {path}"
-            )));
-        }
-    }
-    if let Some(extra) = listed.into_iter().next() {
+    let unexpected = listed
+        .iter()
+        .filter(|path| !expected.contains(*path))
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unexpected.is_empty() {
         return Err(ArchiveError::InvalidRequest(format!(
-            "ZPAQ 归档校验失败：出现未预期条目 {extra}"
+            "ZPAQ 归档校验失败：出现未预期条目 {}",
+            unexpected.join("、")
         )));
     }
     Ok(())

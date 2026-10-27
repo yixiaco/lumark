@@ -2593,6 +2593,12 @@ pub(crate) fn build_source_plan(
     for source in sources {
         for entry in WalkDir::new(source).follow_links(false) {
             let entry = entry.map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            // 符号链接和 Windows 目录联接不作为普通文件加入归档。zpaq 会
+            // 直接跳过重解析点，ZIP/TAR 也无法把目录当文件读取；链接目标
+            // 如果位于源树内，会按真实路径另行收录。
+            if entry.file_type().is_symlink() || entry.path_is_symlink() {
+                continue;
+            }
             if entry.file_type().is_dir() {
                 continue;
             }
@@ -3575,5 +3581,46 @@ mod progress_tests {
         assert_eq!(total, 16 * 1024);
         assert!(reports.len() >= 2, "单文件内部应多次上报进度：{reports:?}");
         assert!(reports.iter().all(|done| *done > 0 && *done <= total));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod source_plan_tests {
+    use super::*;
+    use std::process::Command;
+
+    /// 目录联接不应被当作普通文件加入源计划。
+    #[test]
+    fn skips_directory_junctions() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("real.txt"), b"real").unwrap();
+        let link = directory.path().join("link");
+        let status = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .status();
+        if !status.is_ok_and(|status| status.success()) {
+            // 非 NTFS 或缺少联接权限时跳过；普通 CI 环境通常可以创建。
+            return;
+        }
+        let source = directory.path().to_path_buf();
+        let plan = build_source_plan(
+            std::slice::from_ref(&source),
+            &CompressionOptions::default(),
+        )
+        .expect("源计划应成功");
+        let paths = plan
+            .files
+            .iter()
+            .map(|(path, _, _)| path.as_str())
+            .collect::<Vec<_>>();
+        assert!(paths.iter().any(|path| path.ends_with("target/real.txt")));
+        assert!(
+            !paths.iter().any(|path| path.ends_with("link")),
+            "目录联接入口不应进入计划：{paths:?}"
+        );
     }
 }

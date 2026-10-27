@@ -532,6 +532,38 @@ fn zpaq_large_file_uses_configured_worker() {
     assert_eq!(info.entries.len(), 1);
 }
 
+/// Windows 只读文件在“当前时间”模式下应能复制暂存并改写时间。
+#[cfg(windows)]
+#[allow(clippy::permissions_set_readonly_false)]
+#[test]
+fn zpaq_current_time_handles_read_only_file() {
+    let directory = TempDir::new().unwrap();
+    let source = directory.path().join("readonly.txt");
+    fs::write(&source, b"readonly").unwrap();
+    let mut permissions = fs::metadata(&source).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&source, permissions).unwrap();
+    let archive = directory.path().join("readonly.zpaq");
+    let mut options = create_options(ArchiveFormat::Zpaq);
+    options.archive_time = lumark_archive::ArchiveTimeSource::Current;
+    let result = ArchiveService::create(&archive, std::slice::from_ref(&source), &options, |_| {});
+    // 无论创建是否成功都先去掉只读位，保证临时目录能清理干净。
+    let mut permissions = fs::metadata(&source).unwrap().permissions();
+    permissions.set_readonly(false);
+    fs::set_permissions(&source, permissions).unwrap();
+    result.expect("只读文件在当前时间模式下应能创建");
+    let info = ArchiveService::list(&archive, None).expect("只读文件归档应可列表");
+    assert_eq!(info.entries.len(), 1);
+    let output = directory.path().join("out");
+    ArchiveService::extract(&archive, &extract_options(output.clone()), |_| {})
+        .expect("只读文件归档应可解压");
+    let extracted = output.join("readonly.txt");
+    assert_eq!(fs::read(&extracted).unwrap(), b"readonly");
+    let mut permissions = fs::metadata(&extracted).unwrap().permissions();
+    permissions.set_readonly(false);
+    fs::set_permissions(&extracted, permissions).unwrap();
+}
+
 /// 外部生成的流式归档应能列表和解压，大小未知时按 0 展示。
 #[test]
 fn zpaq_streaming_archive_lists_and_extracts() {

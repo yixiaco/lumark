@@ -1217,7 +1217,7 @@ impl CompressWindowView {
                         ))
                         .child(hint_text(
                             cx,
-                            "级别越高压缩率越高、耗时越长；4/5 级明显更慢。密码固定使用 AES-256 加密（ZPAQ 唯一算法）。",
+                            "级别越高压缩率越高、耗时越长；4/5 级明显更慢。密码固定使用 AES-256 加密（ZPAQ 唯一算法）。“当前/最近”归档时间会复制全部源文件以改写时间，默认保留原始时间。",
                         )),
                 ))
             })
@@ -1398,7 +1398,7 @@ impl LumarkApp {
             word_size: 32,
             solid_block_mb: 2048,
             file_time_filter: FileTimeFilter::Any,
-            archive_time: ArchiveTimeSource::Current,
+            archive_time: default_archive_time(self.compress_format),
             classic: false,
         };
         let app = cx.entity();
@@ -1523,6 +1523,18 @@ fn solid_label_for(mb: u32) -> String {
     }
 }
 
+/// 按格式选择压缩窗口的默认归档时间。
+///
+/// ZPAQ 的“当前/最近”时间需要复制全部源文件，代码目录动辄数百 MB；
+/// 默认保留原始时间，既符合 zpaq 惯例，也避免只读/被占用文件导致失败。
+fn default_archive_time(format: ArchiveFormat) -> ArchiveTimeSource {
+    if format == ArchiveFormat::Zpaq {
+        ArchiveTimeSource::Original
+    } else {
+        ArchiveTimeSource::Current
+    }
+}
+
 /// 把 ZPAQ 压缩级别映射为下拉索引。
 fn zpaq_method_index(compression: ZpaqCompression) -> usize {
     match compression {
@@ -1578,5 +1590,22 @@ mod tests {
             assert_eq!(zpaq_method_index(level), index);
             assert_eq!(zpaq_compression_for_index(index), level);
         }
+    }
+
+    /// ZPAQ 默认保留原始时间，其他格式继续默认当前时间。
+    #[test]
+    fn zpaq_defaults_to_original_archive_time() {
+        assert_eq!(
+            default_archive_time(ArchiveFormat::Zip),
+            ArchiveTimeSource::Current
+        );
+        assert_eq!(
+            default_archive_time(ArchiveFormat::SevenZip),
+            ArchiveTimeSource::Current
+        );
+        assert_eq!(
+            default_archive_time(ArchiveFormat::Zpaq),
+            ArchiveTimeSource::Original
+        );
     }
 }
