@@ -15,6 +15,11 @@ pub enum ArchiveFormat {
     TarBz2,
     TarXz,
     TarZst,
+    TarBr,
+    TarLz4,
+    TarLz,
+    TarLzma,
+    TarZ,
     Gzip,
     Bzip2,
     Xz,
@@ -29,6 +34,14 @@ pub enum ArchiveFormat {
     Ace,
     Arc,
     Alz,
+    Zoo,
+    Ha,
+    Hyp,
+    Sq,
+    Sqz,
+    Uc2,
+    Ice,
+    PackIce,
     UnixCompress,
     Lzh,
     Cpio,
@@ -46,6 +59,60 @@ pub enum ArchiveFormat {
 }
 
 impl ArchiveFormat {
+    /// 全部已识别格式，不包含 `Unknown`。
+    ///
+    /// 该列表用于检测矩阵、可写格式覆盖和界面选项一致性测试；新增格式时
+    /// 必须同步登记，避免再次出现“核心支持但界面漏项”的偏差。
+    pub const ALL: &'static [ArchiveFormat] = &[
+        Self::Zip,
+        Self::SevenZip,
+        Self::Tar,
+        Self::TarGz,
+        Self::TarBz2,
+        Self::TarXz,
+        Self::TarZst,
+        Self::TarBr,
+        Self::TarLz4,
+        Self::TarLz,
+        Self::TarLzma,
+        Self::TarZ,
+        Self::Gzip,
+        Self::Bzip2,
+        Self::Xz,
+        Self::Zstd,
+        Self::Brotli,
+        Self::Lz4,
+        Self::Rar,
+        Self::Iso,
+        Self::Udf,
+        Self::Cab,
+        Self::Arj,
+        Self::Ace,
+        Self::Arc,
+        Self::Alz,
+        Self::Zoo,
+        Self::Ha,
+        Self::Hyp,
+        Self::Sq,
+        Self::Sqz,
+        Self::Uc2,
+        Self::Ice,
+        Self::PackIce,
+        Self::UnixCompress,
+        Self::Lzh,
+        Self::Cpio,
+        Self::Wim,
+        Self::Isz,
+        Self::Deb,
+        Self::Asar,
+        Self::Zpaq,
+        Self::Uu,
+        Self::Img,
+        Self::Bin,
+        Self::Enc,
+        Self::Lzip,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Zip => "ZIP 压缩文件",
@@ -55,6 +122,11 @@ impl ArchiveFormat {
             Self::TarBz2 => "TAR.BZ2 归档",
             Self::TarXz => "TAR.XZ 归档",
             Self::TarZst => "TAR.ZST 归档",
+            Self::TarBr => "TAR.BR 归档",
+            Self::TarLz4 => "TAR.LZ4 归档",
+            Self::TarLz => "TAR.LZ 归档",
+            Self::TarLzma => "TAR.LZMA 归档",
+            Self::TarZ => "TAR.Z 归档",
             Self::Gzip => "GZIP 文件",
             Self::Bzip2 => "BZIP2 文件",
             Self::Xz => "XZ 文件",
@@ -69,6 +141,14 @@ impl ArchiveFormat {
             Self::Ace => "ACE 压缩文件",
             Self::Arc => "ARC 压缩文件",
             Self::Alz => "ALZ 压缩文件",
+            Self::Zoo => "ZOO 压缩文件",
+            Self::Ha => "HA 压缩文件",
+            Self::Hyp => "HYP 压缩文件",
+            Self::Sq => "SQ 压缩文件",
+            Self::Sqz => "SQZ 压缩文件",
+            Self::Uc2 => "UC2 压缩文件",
+            Self::Ice => "ICE 压缩文件",
+            Self::PackIce => "PACKICE 压缩文件",
             Self::UnixCompress => "Z 压缩文件",
             Self::Lzh => "LZH 压缩文件",
             Self::Cpio => "CPIO 归档",
@@ -96,6 +176,10 @@ impl ArchiveFormat {
                 | Self::TarBz2
                 | Self::TarXz
                 | Self::TarZst
+                | Self::TarBr
+                | Self::TarLz4
+                | Self::TarLz
+                | Self::TarLzma
                 | Self::Gzip
                 | Self::Bzip2
                 | Self::Xz
@@ -106,10 +190,38 @@ impl ArchiveFormat {
         )
     }
 
+    /// 是否为可写的单文件流格式。
+    ///
+    /// 这些格式只编码一段字节流，没有归档目录，因此一次只能压缩一个普通
+    /// 文件；多文件或文件夹需要改用对应的 TAR 变体。
+    pub fn is_single_stream(self) -> bool {
+        matches!(
+            self,
+            Self::Gzip | Self::Bzip2 | Self::Xz | Self::Zstd | Self::Brotli | Self::Lz4
+        )
+    }
+
+    /// 返回单文件流格式对应的 TAR 变体。
+    ///
+    /// 用于多文件压缩时把 GZ/BZ2/XZ/ZST/Brotli/LZ4 自动切换为
+    /// TAR.GZ/TAR.BZ2/TAR.XZ/TAR.ZST/TAR.BR/TAR.LZ4，而不是给出
+    /// “归档损坏”这类误导性错误。
+    pub fn single_stream_tar_variant(self) -> Option<Self> {
+        match self {
+            Self::Gzip => Some(Self::TarGz),
+            Self::Bzip2 => Some(Self::TarBz2),
+            Self::Xz => Some(Self::TarXz),
+            Self::Zstd => Some(Self::TarZst),
+            Self::Brotli => Some(Self::TarBr),
+            Self::Lz4 => Some(Self::TarLz4),
+            _ => None,
+        }
+    }
+
     pub fn supports_password(self) -> bool {
         matches!(
             self,
-            Self::Zip | Self::SevenZip | Self::Rar | Self::Zpaq | Self::Enc
+            Self::Zip | Self::SevenZip | Self::Rar | Self::Zpaq | Self::Alz | Self::Enc
         )
     }
 
@@ -126,6 +238,11 @@ impl ArchiveFormat {
             Self::TarBz2 => "tar.bz2",
             Self::TarXz => "tar.xz",
             Self::TarZst => "tar.zst",
+            Self::TarBr => "tar.br",
+            Self::TarLz4 => "tar.lz4",
+            Self::TarLz => "tar.lz",
+            Self::TarLzma => "tar.lzma",
+            Self::TarZ => "tar.z",
             Self::Gzip => "gz",
             Self::Bzip2 => "bz2",
             Self::Xz => "xz",
@@ -140,6 +257,14 @@ impl ArchiveFormat {
             Self::Ace => "ace",
             Self::Arc => "arc",
             Self::Alz => "alz",
+            Self::Zoo => "zoo",
+            Self::Ha => "ha",
+            Self::Hyp => "hyp",
+            Self::Sq => "sq",
+            Self::Sqz => "sqz",
+            Self::Uc2 => "uc2",
+            Self::Ice => "ice",
+            Self::PackIce => "pi9",
             Self::UnixCompress => "Z",
             Self::Lzh => "lzh",
             Self::Cpio => "cpio",
@@ -450,6 +575,24 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".tar.zst") || name.ends_with(".tzst") {
         return ArchiveFormat::TarZst;
     }
+    // 带压缩后缀的 TAR 必须先于同名单流格式判断：`.tar.br`、`.tar.lz4`、
+    // `.tar.lz`、`.tar.z` 分别以 `.br`、`.lz4`、`.lz`、`.z` 结尾，顺序
+    // 反过来会把整个归档当成单文件流。`.tar.Z` 会先统一转成小写。
+    if name.ends_with(".tar.br") {
+        return ArchiveFormat::TarBr;
+    }
+    if name.ends_with(".tar.lz4") {
+        return ArchiveFormat::TarLz4;
+    }
+    if name.ends_with(".tar.lz") {
+        return ArchiveFormat::TarLz;
+    }
+    if name.ends_with(".tar.lzma") {
+        return ArchiveFormat::TarLzma;
+    }
+    if name.ends_with(".tar.z") || name.ends_with(".taz") {
+        return ArchiveFormat::TarZ;
+    }
     if name.ends_with(".zip")
         || name.ends_with(".zipx")
         || name.ends_with(".jar")
@@ -547,6 +690,32 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".lz") || name.ends_with(".lzma") {
         return ArchiveFormat::Lzip;
     }
+    // 传统格式通常没有稳定的魔数，只能按扩展名识别；解码由 `unarc-rs`
+    // 统一适配层完成。
+    if name.ends_with(".zoo") {
+        return ArchiveFormat::Zoo;
+    }
+    if name.ends_with(".ha") {
+        return ArchiveFormat::Ha;
+    }
+    if name.ends_with(".hyp") {
+        return ArchiveFormat::Hyp;
+    }
+    if name.ends_with(".sq") || name.ends_with(".sq2") || name.ends_with(".qqq") {
+        return ArchiveFormat::Sq;
+    }
+    if name.ends_with(".sqz") {
+        return ArchiveFormat::Sqz;
+    }
+    if name.ends_with(".uc2") {
+        return ArchiveFormat::Uc2;
+    }
+    if name.ends_with(".ice") {
+        return ArchiveFormat::Ice;
+    }
+    if name.ends_with(".pi9") {
+        return ArchiveFormat::PackIce;
+    }
     ArchiveFormat::Unknown
 }
 
@@ -556,6 +725,10 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     }
     if bytes.starts_with(b"7z\xbc\xaf\x27\x1c") {
         return ArchiveFormat::SevenZip;
+    }
+    // ALZ 头固定为 "ALZ\x01"；多卷拆分由 `unalz` 在打开时自行拼接。
+    if bytes.starts_with(b"ALZ\x01") {
+        return ArchiveFormat::Alz;
     }
     // 加密 ZPAQ 以随机 salt 开头，只能靠扩展名识别；明文流式归档统一
     // 以 JIDAC 标签 `7kSt` 或旧版 `zPQ` 版本头开始。
@@ -592,4 +765,107 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
         return ArchiveFormat::Cpio;
     }
     ArchiveFormat::Unknown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ArchiveFormat, detect_format, detect_magic};
+    use std::path::Path;
+
+    /// 验证新增 TAR 变体不会被同名单流格式抢先识别。
+    #[test]
+    fn compressed_tar_extensions_win_over_single_stream() {
+        for (name, expected) in [
+            ("backup.tar.br", ArchiveFormat::TarBr),
+            ("backup.tar.lz4", ArchiveFormat::TarLz4),
+            ("backup.tar.lz", ArchiveFormat::TarLz),
+            ("backup.tar.lzma", ArchiveFormat::TarLzma),
+            ("backup.tar.z", ArchiveFormat::TarZ),
+            ("backup.tar.Z", ArchiveFormat::TarZ),
+            ("backup.taz", ArchiveFormat::TarZ),
+            ("backup.TAR.BR", ArchiveFormat::TarBr),
+        ] {
+            assert_eq!(detect_format(Path::new(name)), expected, "{name}");
+        }
+        assert_eq!(detect_format(Path::new("backup.br")), ArchiveFormat::Brotli);
+        assert_eq!(detect_format(Path::new("backup.lz4")), ArchiveFormat::Lz4);
+        assert_eq!(detect_format(Path::new("backup.lz")), ArchiveFormat::Lzip);
+        assert_eq!(
+            detect_format(Path::new("backup.Z")),
+            ArchiveFormat::UnixCompress
+        );
+    }
+
+    /// 验证传统格式按扩展名识别，并覆盖常见大小写别名。
+    #[test]
+    fn legacy_format_extensions_are_recognized() {
+        for (name, expected) in [
+            ("old.zoo", ArchiveFormat::Zoo),
+            ("old.ha", ArchiveFormat::Ha),
+            ("old.hyp", ArchiveFormat::Hyp),
+            ("old.sq", ArchiveFormat::Sq),
+            ("old.sq2", ArchiveFormat::Sq),
+            ("old.qqq", ArchiveFormat::Sq),
+            ("old.sqz", ArchiveFormat::Sqz),
+            ("old.uc2", ArchiveFormat::Uc2),
+            ("old.ice", ArchiveFormat::Ice),
+            ("old.pi9", ArchiveFormat::PackIce),
+            ("old.PI9", ArchiveFormat::PackIce),
+        ] {
+            assert_eq!(detect_format(Path::new(name)), expected, "{name}");
+        }
+    }
+
+    /// 验证 ALZ 的固定头即使改名也能被魔数识别。
+    #[test]
+    fn alz_magic_is_detected() {
+        assert_eq!(detect_magic(b"ALZ\x01rest"), ArchiveFormat::Alz);
+    }
+
+    /// 验证所有已登记格式都有非空标签和扩展名，且 Unknown 不在列表中。
+    #[test]
+    fn all_formats_are_fully_described() {
+        assert!(!ArchiveFormat::ALL.contains(&ArchiveFormat::Unknown));
+        for format in ArchiveFormat::ALL {
+            assert!(!format.label().is_empty(), "{format:?} 缺少标签");
+            assert!(!format.extension().is_empty(), "{format:?} 缺少扩展名");
+        }
+    }
+
+    /// 验证单文件流格式与 TAR 变体的对应关系。
+    #[test]
+    fn single_stream_formats_have_tar_variants() {
+        for (stream, tar) in [
+            (ArchiveFormat::Gzip, ArchiveFormat::TarGz),
+            (ArchiveFormat::Bzip2, ArchiveFormat::TarBz2),
+            (ArchiveFormat::Xz, ArchiveFormat::TarXz),
+            (ArchiveFormat::Zstd, ArchiveFormat::TarZst),
+            (ArchiveFormat::Brotli, ArchiveFormat::TarBr),
+            (ArchiveFormat::Lz4, ArchiveFormat::TarLz4),
+        ] {
+            assert!(stream.is_single_stream(), "{stream:?}");
+            assert_eq!(stream.single_stream_tar_variant(), Some(tar), "{stream:?}");
+            assert!(tar.is_writable(), "{tar:?}");
+            assert!(!tar.is_single_stream(), "{tar:?}");
+        }
+        assert!(!ArchiveFormat::Zip.is_single_stream());
+        assert_eq!(ArchiveFormat::Zip.single_stream_tar_variant(), None);
+    }
+
+    /// 验证可写格式包含本次新增的 TAR 变体与已有的 Brotli/LZ4。
+    #[test]
+    fn writable_formats_include_new_tar_variants() {
+        for format in [
+            ArchiveFormat::TarBr,
+            ArchiveFormat::TarLz4,
+            ArchiveFormat::TarLz,
+            ArchiveFormat::TarLzma,
+            ArchiveFormat::Brotli,
+            ArchiveFormat::Lz4,
+        ] {
+            assert!(format.is_writable(), "{format:?} 应可写");
+        }
+        assert!(!ArchiveFormat::TarZ.is_writable());
+        assert!(ArchiveFormat::Alz.supports_password());
+    }
 }

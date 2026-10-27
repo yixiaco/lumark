@@ -4993,12 +4993,14 @@ dependencies = [
  "libc",
  "lumark-sfx",
  "lz4_flex",
+ "lzma-rust2 0.22.0",
  "serde",
  "serde_json",
  "sevenz-rust2 0.24.1",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
+ "unalz",
  "unarc-rs",
  "unrar",
  "walkdir",
@@ -8807,6 +8809,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "unalz"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c40c67bcc4b15db1e841062582d318c4abf7f3b2553217e97a2ee2178ae9d4d2"
+dependencies = [
+ "bzip2",
+ "chrono",
+ "crc32fast",
+ "encoding_rs",
+ "flate2",
+ "rpassword",
+]
+
+[[package]]
 name = "unarc-rs"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10755,10 +10771,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
  "aes 0.9.3",
+ "bitstream-io",
  "bzip2",
  "chrono",
  "constant_time_eq 0.6.1",
  "crc32fast",
+ "deflate64",
  "flate2",
  "getrandom 0.4.3",
  "hmac 0.13.0",

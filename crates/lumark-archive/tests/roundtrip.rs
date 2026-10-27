@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use lumark_archive::{
-    ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, EditRoot, ExtractionBudget,
-    ExtractionOptions, OverwritePolicy, UpdateMode, safe_join,
+    ArchiveError, ArchiveFormat, ArchiveService, CompressionOptions, EditOptions, EditRoot,
+    ExtractionBudget, ExtractionOptions, OverwritePolicy, UpdateMode, safe_join,
 };
 use tempfile::tempdir;
 
@@ -362,6 +362,11 @@ fn tar_gz_roundtrip() {
 #[test]
 fn tar_compression_variants_roundtrip() {
     for (format, extension) in [
+        (ArchiveFormat::Tar, "tar"),
+        (ArchiveFormat::TarBr, "tar.br"),
+        (ArchiveFormat::TarLz4, "tar.lz4"),
+        (ArchiveFormat::TarLz, "tar.lz"),
+        (ArchiveFormat::TarLzma, "tar.lzma"),
         (ArchiveFormat::TarBz2, "tar.bz2"),
         (ArchiveFormat::TarXz, "tar.xz"),
         (ArchiveFormat::TarZst, "tar.zst"),
@@ -386,6 +391,25 @@ fn tar_compression_variants_roundtrip() {
                 .iter()
                 .any(|entry| entry.path.ends_with("hello.txt"))
         );
+        let extraction = dir.path().join("out");
+        ArchiveService::extract(
+            &output,
+            &ExtractionOptions {
+                output_dir: extraction.clone(),
+                overwrite: true,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        let extracted = extraction.join("source").join("hello.txt");
+        assert_eq!(
+            fs::read_to_string(&extracted).unwrap_or_else(|error| {
+                panic!("{format:?} 缺少解压结果 {}：{error}", extracted.display())
+            }),
+            "hello from lumark"
+        );
+        ArchiveService::test(&output, None, |_| {}).unwrap();
     }
 }
 
@@ -435,6 +459,45 @@ fn single_stream_formats_roundtrip() {
             b"stream payload for lumark"
         );
     }
+}
+
+/// 单流格式遇到多个源或文件夹时返回可操作错误，而不是“归档损坏”。
+#[test]
+fn single_stream_rejects_multiple_sources_with_actionable_error() {
+    let dir = tempdir().unwrap();
+    let first = dir.path().join("a.docx");
+    let second = dir.path().join("b.docx");
+    fs::write(&first, b"a").unwrap();
+    fs::write(&second, b"b").unwrap();
+    let output = dir.path().join("out.br");
+    let error = ArchiveService::create(
+        &output,
+        &[first.clone(), second],
+        &CompressionOptions {
+            format: ArchiveFormat::Brotli,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap_err();
+    assert!(matches!(error, ArchiveError::InvalidRequest(_)), "{error}");
+    assert!(error.to_string().contains("TAR.BR"), "{error}");
+    assert!(!output.exists());
+
+    let folder = dir.path().join("folder");
+    fs::create_dir(&folder).unwrap();
+    let error = ArchiveService::create(
+        &output,
+        &[folder],
+        &CompressionOptions {
+            format: ArchiveFormat::Brotli,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap_err();
+    assert!(matches!(error, ArchiveError::InvalidRequest(_)), "{error}");
+    assert!(error.to_string().contains("TAR.BR"), "{error}");
 }
 
 #[test]
@@ -915,6 +978,8 @@ fn rar_sample_can_be_listed_when_provided() {
         )
         .unwrap();
         assert!(report.files > 0);
+        let tested = ArchiveService::test(&path, None, |_| {}).unwrap();
+        assert!(tested.files > 0);
     }
 }
 

@@ -160,6 +160,18 @@ pub fn is_archive_extension(path: &Path) -> bool {
             | "enc"
             | "lz"
             | "lzma"
+            | "z"
+            | "taz"
+            | "zoo"
+            | "ha"
+            | "hyp"
+            | "sq"
+            | "sq2"
+            | "qqq"
+            | "sqz"
+            | "uc2"
+            | "ice"
+            | "pi9"
     )
 }
 

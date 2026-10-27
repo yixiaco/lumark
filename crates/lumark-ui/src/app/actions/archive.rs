@@ -170,6 +170,9 @@ impl LumarkApp {
         } else {
             self.compress_format
         };
+        // 单文件流格式不能容纳多个源；多选或文件夹源自动改用对应的 TAR
+        // 变体，避免用户看到“归档损坏”这类误导性错误。
+        let format = resolve_compress_format(format, &sources);
         self.compress_format = format;
         self.compress_preset = settings.default_preset;
         let default_name = default_archive_name(&sources);
@@ -180,6 +183,7 @@ impl LumarkApp {
             .unwrap_or_else(|| PathBuf::from("."));
         // 同名旧压缩包不再自动追加 (1)：创建流程先写临时文件，成功后再
         // 原子替换目标路径，失败时旧归档保持不变。
+        self.compress_sfx &= format == ArchiveFormat::Zip;
         let mut output = output_dir.join(format!("{default_name}.{}", format.extension()));
         if self.compress_sfx {
             output.set_extension("exe");

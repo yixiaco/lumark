@@ -1,10 +1,12 @@
 //! 归档格式适配器和安全解压基础能力。
 
+mod alz;
 pub mod edit;
 pub mod error;
 pub mod format;
 pub mod path;
 pub mod service;
+mod unarc;
 mod zpaq;
 
 pub use edit::{EditOptions, EditProgress, EditReport, EditRoot};

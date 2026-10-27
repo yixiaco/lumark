@@ -11,7 +11,7 @@ use lumark_settings::OverwritePolicy;
 pub(super) type CompressionSelect = Entity<SelectState<SearchableVec<&'static str>>>;
 
 /// 默认格式下拉项：第一项写入设置，第二项显示给用户。
-const FORMAT_OPTIONS: [(&str, &str); 12] = [
+const FORMAT_OPTIONS: [(&str, &str); 18] = [
     ("zip", "ZIP"),
     ("7z", "7Z"),
     ("zpaq", "ZPAQ"),
@@ -20,10 +20,16 @@ const FORMAT_OPTIONS: [(&str, &str); 12] = [
     ("tar.bz2", "TAR.BZ2"),
     ("tar.xz", "TAR.XZ"),
     ("tar.zst", "TAR.ZST"),
+    ("tar.br", "TAR.BR"),
+    ("tar.lz4", "TAR.LZ4"),
+    ("tar.lz", "TAR.LZ"),
+    ("tar.lzma", "TAR.LZMA"),
     ("gz", "GZ"),
     ("bz2", "BZ2"),
     ("xz", "XZ"),
     ("zst", "ZST"),
+    ("br", "BROTLI"),
+    ("lz4", "LZ4"),
 ];
 
 /// 压缩预设下拉项，顺序与设置枚举保持一致。
@@ -187,9 +193,30 @@ mod tests {
         assert_eq!(format_index("7Z"), 1);
         assert_eq!(format_index("zpaq"), 2);
         assert_eq!(format_index("tar.zst"), 7);
+        assert_eq!(format_index("tar.br"), 8);
+        assert_eq!(format_index("tar.lz4"), 9);
+        assert_eq!(format_index("tar.lz"), 10);
+        assert_eq!(format_index("tar.lzma"), 11);
+        assert_eq!(format_index("gz"), 12);
+        assert_eq!(format_index("br"), 16);
+        assert_eq!(format_index("lz4"), 17);
         assert_eq!(format_index("unknown-format"), 0);
         assert_eq!(preset_index(SettingsPreset::Balanced), 1);
         assert_eq!(overwrite_index(OverwritePolicy::Rename), 3);
+    }
+
+    /// 设置里的每个默认格式都必须映射回可写格式，且扩展名一致。
+    #[test]
+    fn format_options_map_to_writable_formats() {
+        for (value, _) in FORMAT_OPTIONS {
+            let settings = lumark_settings::Settings {
+                default_format: value.to_string(),
+                ..Default::default()
+            };
+            let format = crate::app::util::format_from_settings(&settings);
+            assert!(format.is_writable(), "{value} 未映射到可写格式：{format:?}");
+            assert_eq!(format.extension(), value, "{value} 与扩展名不一致");
+        }
     }
 
     #[gpui_kit::test]

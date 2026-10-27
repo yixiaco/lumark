@@ -229,6 +229,10 @@ pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
         "tar.bz2" | "tbz2" => ArchiveFormat::TarBz2,
         "tar.xz" | "txz" => ArchiveFormat::TarXz,
         "tar.zst" | "tzst" => ArchiveFormat::TarZst,
+        "tar.br" => ArchiveFormat::TarBr,
+        "tar.lz4" => ArchiveFormat::TarLz4,
+        "tar.lz" => ArchiveFormat::TarLz,
+        "tar.lzma" => ArchiveFormat::TarLzma,
         "gz" | "gzip" => ArchiveFormat::Gzip,
         "bz2" => ArchiveFormat::Bzip2,
         "xz" => ArchiveFormat::Xz,
@@ -236,6 +240,23 @@ pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
         "br" | "brotli" => ArchiveFormat::Brotli,
         "lz4" => ArchiveFormat::Lz4,
         _ => ArchiveFormat::Zip,
+    }
+}
+
+/// 判断当前源是否允许单文件流格式：必须恰好是一个普通文件。
+pub(crate) fn single_stream_allowed(sources: &[PathBuf]) -> bool {
+    sources.len() == 1 && sources.first().is_some_and(|path| path.is_file())
+}
+
+/// 多文件或文件夹源下把单文件流格式切换为对应的 TAR 变体。
+///
+/// 压缩窗口会用 `single_stream_allowed` 直接隐藏这些格式；此函数处理
+/// 设置里的默认格式或已有会话格式，保证输出扩展名和实际写入格式一致。
+pub(crate) fn resolve_compress_format(format: ArchiveFormat, sources: &[PathBuf]) -> ArchiveFormat {
+    if format.is_single_stream() && !single_stream_allowed(sources) {
+        format.single_stream_tar_variant().unwrap_or(format)
+    } else {
+        format
     }
 }
 
@@ -283,7 +304,11 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
         ArchiveFormat::TarGz => ArchiveFormat::TarBz2,
         ArchiveFormat::TarBz2 => ArchiveFormat::TarXz,
         ArchiveFormat::TarXz => ArchiveFormat::TarZst,
-        ArchiveFormat::TarZst => ArchiveFormat::Gzip,
+        ArchiveFormat::TarZst => ArchiveFormat::TarBr,
+        ArchiveFormat::TarBr => ArchiveFormat::TarLz4,
+        ArchiveFormat::TarLz4 => ArchiveFormat::TarLz,
+        ArchiveFormat::TarLz => ArchiveFormat::TarLzma,
+        ArchiveFormat::TarLzma => ArchiveFormat::Gzip,
         ArchiveFormat::Gzip => ArchiveFormat::Bzip2,
         ArchiveFormat::Bzip2 => ArchiveFormat::Xz,
         ArchiveFormat::Xz => ArchiveFormat::Zstd,
@@ -301,8 +326,31 @@ pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> P
         .unwrap_or("archive");
     let lower = name.to_ascii_lowercase();
     let stripped = [
-        ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tgz", ".tbz2", ".txz", ".tzst", ".zip",
-        ".7z", ".zpaq", ".zpq", ".tar", ".gz", ".bz2", ".xz", ".zst", ".br", ".lz4",
+        ".tar.lzma",
+        ".tar.lz4",
+        ".tar.zst",
+        ".tar.br",
+        ".tar.lz",
+        ".tar.bz2",
+        ".tar.gz",
+        ".tar.xz",
+        ".tar.z",
+        ".taz",
+        ".tgz",
+        ".tbz2",
+        ".txz",
+        ".tzst",
+        ".zip",
+        ".7z",
+        ".zpaq",
+        ".zpq",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".zst",
+        ".br",
+        ".lz4",
     ]
     .iter()
     .find_map(|suffix| {
@@ -573,6 +621,69 @@ mod tests {
         );
         assert!(ArchiveFormat::Zpaq.is_writable());
         assert!(ArchiveFormat::Zpaq.supports_password());
+    }
+
+    /// 验证新增可写格式的设置映射和扩展名替换。
+    #[test]
+    fn new_writable_settings_and_extension_replace() {
+        for (extension, format) in [
+            ("tar.br", ArchiveFormat::TarBr),
+            ("tar.lz4", ArchiveFormat::TarLz4),
+            ("tar.lz", ArchiveFormat::TarLz),
+            ("tar.lzma", ArchiveFormat::TarLzma),
+            ("br", ArchiveFormat::Brotli),
+            ("lz4", ArchiveFormat::Lz4),
+        ] {
+            let settings = Settings {
+                default_format: extension.to_string(),
+                ..Settings::default()
+            };
+            assert_eq!(format_from_settings(&settings), format, "{extension}");
+            let source = format!(r"C:\data\backup.{extension}");
+            assert_eq!(
+                replace_archive_extension(Path::new(&source), ArchiveFormat::Zip),
+                PathBuf::from(r"C:\data\backup.zip"),
+                "{extension}"
+            );
+        }
+        assert_eq!(
+            replace_archive_extension(Path::new(r"C:\data\backup.taz"), ArchiveFormat::Zip),
+            PathBuf::from(r"C:\data\backup.zip")
+        );
+    }
+
+    /// 验证单流格式只允许单个普通文件，多文件或文件夹自动改用 TAR 变体。
+    #[test]
+    fn single_stream_formats_resolve_by_source_shape() {
+        let directory = tempdir().unwrap();
+        let one = directory.path().join("one.docx");
+        let two = directory.path().join("two.docx");
+        std::fs::write(&one, b"one").unwrap();
+        std::fs::write(&two, b"two").unwrap();
+        let folder = directory.path().join("folder");
+        std::fs::create_dir(&folder).unwrap();
+
+        assert!(single_stream_allowed(std::slice::from_ref(&one)));
+        assert!(!single_stream_allowed(&[one.clone(), two.clone()]));
+        assert!(!single_stream_allowed(std::slice::from_ref(&folder)));
+        assert!(!single_stream_allowed(&[]));
+
+        assert_eq!(
+            resolve_compress_format(ArchiveFormat::Brotli, std::slice::from_ref(&one)),
+            ArchiveFormat::Brotli
+        );
+        assert_eq!(
+            resolve_compress_format(ArchiveFormat::Brotli, &[one.clone(), two.clone()]),
+            ArchiveFormat::TarBr
+        );
+        assert_eq!(
+            resolve_compress_format(ArchiveFormat::Brotli, &[folder]),
+            ArchiveFormat::TarBr
+        );
+        assert_eq!(
+            resolve_compress_format(ArchiveFormat::Zip, &[one, two]),
+            ArchiveFormat::Zip
+        );
     }
 
     /// 分卷提示保留两位精度，并去掉多余的小数零。

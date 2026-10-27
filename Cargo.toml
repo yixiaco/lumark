@@ -40,6 +40,7 @@ geezipx-core = "0.7.4"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 libc = "0.2"
 lz4_flex = { version = "0.13", features = ["frame"] }
+lzma-rust2 = { version = "0.22", default-features = false, features = ["std", "encoder", "lzip"] }
 natord = "1"
 parking_lot = "0.12"
 rand = "0.8"
@@ -56,6 +57,7 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 unrar = "0.5.8"
 unarc-rs = "0.6.3"
+unalz = "0.2.1"
 walkdir = "2.5"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
@@ -73,6 +75,6 @@ windows-sys = { version = "0.59", features = [
 winreg = "0.56"
 xz2 = { version = "0.1", features = ["static"] }
 zeroize = { version = "1.9", features = ["derive"] }
-zip = { version = "=9.0.5", default-features = false, features = ["aes-crypto", "deflate-flate2", "bzip2", "ppmd", "time", "chrono", "xz", "zstd", "lzma"] }
+zip = { version = "=9.0.5", default-features = false, features = ["aes-crypto", "deflate-flate2", "deflate64", "legacy-zip", "bzip2", "ppmd", "time", "chrono", "xz", "zstd", "lzma"] }
 zpaq_rs = "=1.0.4"
 zstd = "0.14"

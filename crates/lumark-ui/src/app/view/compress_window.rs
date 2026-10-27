@@ -67,6 +67,8 @@ pub(crate) struct CompressWindowView {
     after: Entity<InputState>,
     before: Entity<InputState>,
     format: ArchiveFormat,
+    /// 当前源可选的格式；多文件或文件夹源会隐藏单文件流格式。
+    format_options: Vec<(ArchiveFormat, &'static str)>,
     preset: SettingsPreset,
     solid: bool,
     encrypt_header: bool,
@@ -200,11 +202,29 @@ const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::TarBz2, "TAR.BZ2"),
     (ArchiveFormat::TarXz, "TAR.XZ"),
     (ArchiveFormat::TarZst, "TAR.ZST"),
+    (ArchiveFormat::TarBr, "TAR.BR"),
+    (ArchiveFormat::TarLz4, "TAR.LZ4"),
+    (ArchiveFormat::TarLz, "TAR.LZ"),
+    (ArchiveFormat::TarLzma, "TAR.LZMA"),
     (ArchiveFormat::Gzip, "GZ"),
     (ArchiveFormat::Bzip2, "BZ2"),
     (ArchiveFormat::Xz, "XZ"),
     (ArchiveFormat::Zstd, "ZST"),
+    (ArchiveFormat::Brotli, "BROTLI"),
+    (ArchiveFormat::Lz4, "LZ4"),
 ];
+
+/// 根据源类型过滤压缩格式。
+///
+/// 单文件流格式没有归档目录，只能压缩一个普通文件；多选文件或文件夹时
+/// 从下拉框隐藏这些格式，避免用户选到必然失败的选项。
+fn writable_format_options(allow_single_stream: bool) -> Vec<(ArchiveFormat, &'static str)> {
+    WRITABLE_FORMATS
+        .iter()
+        .copied()
+        .filter(|(format, _)| allow_single_stream || !format.is_single_stream())
+        .collect()
+}
 
 impl CompressWindowView {
     /// 创建窗口状态，并初始化注释多行文本框。
@@ -228,10 +248,34 @@ impl CompressWindowView {
                 .rows(5)
                 .placeholder("压缩包注释（可选，支持多行）")
         });
-        let format_index = WRITABLE_FORMATS
+        let allow_single_stream = single_stream_allowed(&sources);
+        let format_options = writable_format_options(allow_single_stream);
+        // 如果设置默认格式是 GZ/Brotli 等单流格式，但源有多个文件或目录，
+        // 优先落到对应的 TAR 变体，而不是静默回落到 ZIP。
+        let preferred = init
+            .format
+            .single_stream_tar_variant()
+            .unwrap_or(ArchiveFormat::Zip);
+        let format_index = format_options
             .iter()
             .position(|(format, _)| *format == init.format)
+            .or_else(|| {
+                format_options
+                    .iter()
+                    .position(|(format, _)| *format == preferred)
+            })
             .unwrap_or(0);
+        let initial_format = format_options
+            .get(format_index)
+            .map(|(format, _)| *format)
+            .unwrap_or(ArchiveFormat::Zip);
+        if initial_format != init.format {
+            let current = PathBuf::from(input_value(&output, cx));
+            if !current.as_os_str().is_empty() {
+                let replacement = replace_archive_extension(&current, initial_format);
+                set_input(&output, replacement.to_string_lossy().as_ref(), window, cx);
+            }
+        }
         let zip_method_index = match init.zip_compression {
             ZipCompression::Deflate => 0,
             ZipCompression::Bzip2 => 1,
@@ -273,7 +317,7 @@ impl CompressWindowView {
         let format_select = new_select(
             window,
             cx,
-            WRITABLE_FORMATS.iter().map(|(_, label)| *label).collect(),
+            format_options.iter().map(|(_, label)| *label).collect(),
             format_index,
         );
         let zip_method_select =
@@ -302,8 +346,10 @@ impl CompressWindowView {
             window,
             |this, _, event: &SelectEvent<SearchableVec<&'static str>>, window, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event
-                    && let Some((format, _)) =
-                        WRITABLE_FORMATS.iter().find(|(_, label)| *label == *value)
+                    && let Some((format, _)) = this
+                        .format_options
+                        .iter()
+                        .find(|(_, label)| *label == *value)
                 {
                     this.set_format(*format, window, cx);
                 }
@@ -454,7 +500,8 @@ impl CompressWindowView {
             split_unit: init.split_unit,
             after,
             before,
-            format: init.format,
+            format: initial_format,
+            format_options,
             preset: init.preset,
             solid: init.solid,
             encrypt_header: init.encrypt_header,
@@ -511,6 +558,19 @@ impl CompressWindowView {
             );
         }
         cx.notify();
+    }
+
+    /// 格式选择旁的解释文本。
+    ///
+    /// 单文件源只显示扩展名；多文件或文件夹源会提示已限制为可容纳多条目的
+    /// 格式，避免用户误以为 GZ/Brotli 等单流格式仍可用。
+    fn format_hint(&self) -> String {
+        let extension = self.format.extension();
+        if !single_stream_allowed(&self.sources) && extension.starts_with("tar") {
+            format!("扩展名 .{extension}（多文件源用 TAR 变体）")
+        } else {
+            format!("扩展名 .{extension}")
+        }
     }
 
     /// 切换压缩预设，并同步 ZPAQ 的当前级别。
@@ -606,6 +666,22 @@ impl CompressWindowView {
         }
         if self.sources.is_empty() {
             self.error = Some("当前没有可压缩的项目".to_string());
+            cx.notify();
+            return;
+        }
+        // 正常流程在打开窗口时已隐藏单流格式；这里防御直接调用或文件状态
+        // 变化（例如唯一源在窗口打开后被换成目录）导致的无效组合。
+        if self.format.is_single_stream() && !single_stream_allowed(&self.sources) {
+            let suggestion = self
+                .format
+                .single_stream_tar_variant()
+                .map(|format| format.label())
+                .unwrap_or("TAR 归档");
+            self.error = Some(format!(
+                "{} 只能压缩一个普通文件；压缩多个文件或文件夹请改用 {}。",
+                self.format.label(),
+                suggestion
+            ));
             cx.notify();
             return;
         }
@@ -922,10 +998,7 @@ impl CompressWindowView {
                         200.,
                         "压缩格式",
                     ))
-                    .child(hint_text(
-                        cx,
-                        format!("扩展名 .{}", self.format.extension()),
-                    )),
+                    .child(hint_text(cx, self.format_hint())),
             ))
             .child(classic_field(
                 "压缩配置:",
@@ -1168,10 +1241,7 @@ impl CompressWindowView {
                         200.,
                         "压缩格式",
                     ))
-                    .child(hint_text(
-                        cx,
-                        format!("扩展名 .{}", self.format.extension()),
-                    )),
+                    .child(hint_text(cx, self.format_hint())),
             ))
             .child(
                 h_flex()
@@ -1600,7 +1670,7 @@ impl LumarkApp {
             zipcrypto: self.compress_zipcrypto,
             test_after: self.compress_test_after,
             delete_source: self.compress_delete_source,
-            sfx: self.compress_sfx,
+            sfx: self.compress_sfx && self.compress_format == ArchiveFormat::Zip,
             path_mode: self.compress_path_mode,
             threads: std::thread::available_parallelism()
                 .map(|count| count.get() as u32)
@@ -1810,18 +1880,66 @@ fn zpaq_compression_for_index(index: usize) -> ZpaqCompression {
 mod tests {
     use super::*;
 
-    /// 可写格式下拉必须与归档层声明保持一致，并包含 ZPAQ。
+    /// 压缩窗口的可写格式必须与归档层的 `is_writable()` 双向一致，
+    /// 避免再出现核心支持但界面漏项（例如 Brotli/LZ4）的情况。
     #[test]
     fn writable_formats_cover_archive_service() {
-        assert!(
-            WRITABLE_FORMATS
-                .iter()
-                .any(|(format, _)| *format == ArchiveFormat::Zpaq),
-            "压缩窗口缺少 ZPAQ 选项"
-        );
-        for (format, _) in WRITABLE_FORMATS {
+        let expected: Vec<_> = ArchiveFormat::ALL
+            .iter()
+            .copied()
+            .filter(|format| format.is_writable())
+            .collect();
+        let actual: Vec<_> = WRITABLE_FORMATS.iter().map(|(format, _)| *format).collect();
+        for format in &expected {
+            assert!(actual.contains(format), "压缩窗口缺少可写格式：{format:?}");
+        }
+        for format in &actual {
             assert!(format.is_writable(), "格式未声明可写：{format:?}");
         }
+        assert_eq!(actual.len(), expected.len(), "可写格式数量与界面不一致");
+        assert!(
+            actual.contains(&ArchiveFormat::Zpaq),
+            "压缩窗口缺少 ZPAQ 选项"
+        );
+    }
+
+    /// 多文件或文件夹源必须隐藏单文件流格式，只保留可容纳多条目的格式。
+    #[test]
+    fn multiple_sources_hide_single_stream_formats() {
+        let single_file = writable_format_options(true);
+        assert_eq!(single_file, WRITABLE_FORMATS.to_vec());
+
+        let multiple = writable_format_options(false);
+        for (format, _) in &multiple {
+            assert!(
+                !format.is_single_stream(),
+                "多文件源仍显示单流格式：{format:?}"
+            );
+        }
+        for format in [
+            ArchiveFormat::Gzip,
+            ArchiveFormat::Bzip2,
+            ArchiveFormat::Xz,
+            ArchiveFormat::Zstd,
+            ArchiveFormat::Brotli,
+            ArchiveFormat::Lz4,
+        ] {
+            assert!(
+                single_file.iter().any(|(item, _)| *item == format),
+                "单文件源缺少 {format:?}"
+            );
+            assert!(
+                !multiple.iter().any(|(item, _)| *item == format),
+                "多文件源不应包含 {format:?}"
+            );
+        }
+        assert!(
+            multiple
+                .iter()
+                .any(|(format, _)| *format == ArchiveFormat::TarBr),
+            "多文件源缺少 TAR.BR"
+        );
+        assert_eq!(multiple.len(), single_file.len() - 6);
     }
 
     /// ZPAQ 级别下拉索引与压缩级别必须双向一致。

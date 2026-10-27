@@ -15,6 +15,7 @@ flate2.workspace = true
 globset.workspace = true
 geezipx-core.workspace = true
 lz4_flex.workspace = true
+lzma-rust2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sevenz-rust2.workspace = true
@@ -23,6 +24,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 unrar.workspace = true
 unarc-rs.workspace = true
+unalz.workspace = true
 walkdir.workspace = true
 windows-sys.workspace = true
 xz2.workspace = true
@@ -35,5 +37,8 @@ zeroize.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
+crc32fast.workspace = true
+flate2.workspace = true
 tempfile.workspace = true
+zeroize.workspace = true
 lumark-sfx = { path = "../lumark-sfx" }

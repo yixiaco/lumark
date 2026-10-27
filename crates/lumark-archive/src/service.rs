@@ -9,7 +9,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use geezipx_core::archive::ArchiveReader as LegacyReader;
-use sevenz_rust2::encoder_options::{Bzip2Options, Lzma2Options, LzmaOptions, PpmdOptions};
+use lzma_rust2::{LzipOptions, LzipWriter, LzmaOptions, LzmaWriter};
+use sevenz_rust2::encoder_options::{
+    Bzip2Options, Lzma2Options, LzmaOptions as SevenZLzmaOptions, PpmdOptions,
+};
 use sevenz_rust2::{
     ArchiveReader, ArchiveWriter, EncoderConfiguration, NtTime, Password, SourceReader,
 };
@@ -23,7 +26,7 @@ use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};
 use crate::error::ArchiveError;
 use crate::format::{
     ArchiveEntry, ArchiveFormat, ArchiveInfo, CompressionOptions, CreateReport, EncryptionInfo,
-    ExtractReport, ExtractionOptions, ZipEncryption, detect_format, detect_magic,
+    ExtractReport, ExtractionBudget, ExtractionOptions, ZipEncryption, detect_format, detect_magic,
 };
 use crate::path::{ensure_no_symlink_components, safe_join};
 
@@ -67,6 +70,11 @@ impl ArchiveService {
                 | ArchiveFormat::TarBz2
                 | ArchiveFormat::TarXz
                 | ArchiveFormat::TarZst
+                | ArchiveFormat::TarBr
+                | ArchiveFormat::TarLz4
+                | ArchiveFormat::TarLz
+                | ArchiveFormat::TarLzma
+                | ArchiveFormat::TarZ
         ) {
             return extension_format;
         }
@@ -129,6 +137,7 @@ impl ArchiveService {
             }
             ArchiveFormat::Rar => Self::probe_rar(path),
             ArchiveFormat::Zpaq => crate::zpaq::probe_encryption(path),
+            ArchiveFormat::Alz => crate::alz::probe_encryption(path),
             ArchiveFormat::Enc => Ok(EncryptionInfo {
                 encrypted: true,
                 header_encrypted: false,
@@ -154,12 +163,18 @@ impl ArchiveService {
             ArchiveFormat::SevenZip => Self::list_seven_zip(path, password.unwrap_or_default()),
             ArchiveFormat::Rar => Self::list_rar(path, password),
             ArchiveFormat::Zpaq => crate::zpaq::list(path, password),
+            ArchiveFormat::Alz => crate::alz::list(path),
             format if is_legacy_archive(format) => Self::list_legacy(path, format),
+            format if crate::unarc::is_supported(format) => crate::unarc::list(path, format),
             ArchiveFormat::Tar
             | ArchiveFormat::TarGz
             | ArchiveFormat::TarBz2
             | ArchiveFormat::TarXz
-            | ArchiveFormat::TarZst => Self::list_tar(path, format),
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
+            | ArchiveFormat::TarLz
+            | ArchiveFormat::TarLzma => Self::list_tar(path, format),
             ArchiveFormat::Gzip
             | ArchiveFormat::Bzip2
             | ArchiveFormat::Xz
@@ -233,6 +248,7 @@ impl ArchiveService {
                 Err(_) => Ok(false),
             },
             ArchiveFormat::Zpaq => crate::zpaq::verify_password(path, password),
+            ArchiveFormat::Alz => crate::alz::verify_password(path, password),
             ArchiveFormat::Enc => Ok(decrypt_encrypted_container(path, password).is_ok()),
             _ => Ok(true),
         }
@@ -323,7 +339,11 @@ impl ArchiveService {
             | ArchiveFormat::TarGz
             | ArchiveFormat::TarBz2
             | ArchiveFormat::TarXz
-            | ArchiveFormat::TarZst => {
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
+            | ArchiveFormat::TarLz
+            | ArchiveFormat::TarLzma => {
                 let mut reader = tar_reader(&input, format)?;
                 let mut report = ExtractReport::default();
                 let total = 0;
@@ -345,6 +365,11 @@ impl ArchiveService {
                     });
                 }
                 Ok(report)
+            }
+            ArchiveFormat::Alz => crate::alz::test(&input, password, progress),
+            ArchiveFormat::Rar => Self::test_rar(&input, &mut progress),
+            format if crate::unarc::is_supported(format) => {
+                crate::unarc::test(&input, format, &mut progress)
             }
             ArchiveFormat::UnixCompress => {
                 let (mut archive, entry) = open_unix_compress(&input)?;
@@ -409,7 +434,11 @@ impl ArchiveService {
             | ArchiveFormat::TarGz
             | ArchiveFormat::TarBz2
             | ArchiveFormat::TarXz
-            | ArchiveFormat::TarZst => Self::extract_tar(path, format, options, &mut progress),
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
+            | ArchiveFormat::TarLz
+            | ArchiveFormat::TarLzma => Self::extract_tar(path, format, options, &mut progress),
             ArchiveFormat::Gzip
             | ArchiveFormat::Bzip2
             | ArchiveFormat::Xz
@@ -420,6 +449,10 @@ impl ArchiveService {
             }
             ArchiveFormat::Rar => Self::extract_rar(path, options, &mut progress),
             ArchiveFormat::Zpaq => crate::zpaq::extract(path, options, &mut progress),
+            ArchiveFormat::Alz => crate::alz::extract(path, options, &mut progress),
+            format if crate::unarc::is_supported(format) => {
+                crate::unarc::extract(path, format, options, &mut progress)
+            }
             ArchiveFormat::UnixCompress => {
                 Self::extract_unix_compress(path, options, &mut progress)
             }
@@ -599,7 +632,11 @@ impl ArchiveService {
             | ArchiveFormat::TarGz
             | ArchiveFormat::TarBz2
             | ArchiveFormat::TarXz
-            | ArchiveFormat::TarZst => Self::create_tar(output, sources, options, &mut progress),
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
+            | ArchiveFormat::TarLz
+            | ArchiveFormat::TarLzma => Self::create_tar(output, sources, options, &mut progress),
             ArchiveFormat::Gzip
             | ArchiveFormat::Bzip2
             | ArchiveFormat::Xz
@@ -789,6 +826,9 @@ impl ArchiveService {
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent)?;
             }
+            // 传统只读适配器只能按条目声明大小做预算预检；真正的写入量仍由
+            // 上游解码器决定，因此这里不做 `copy_cancellable_limited` 的兜底。
+            ensure_budget(options, &report, entry.size)?;
             let mut output = File::create(&destination)?;
             if let Err(error) = reader.extract(&entry, &mut output) {
                 drop(output);
@@ -890,6 +930,9 @@ impl ArchiveService {
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent)?;
             }
+            // RAR 解压由 UnRAR 直接写文件，只能按头部声明大小预检预算；
+            // 真正的写入量由后端保证。
+            ensure_budget(options, &report, size)?;
             archive = match header.extract_to(&destination) {
                 Ok(archive) => archive,
                 Err(error) => {
@@ -897,6 +940,55 @@ impl ArchiveService {
                     return Err(ArchiveError::Corrupt(error.to_string()));
                 }
             };
+            report.files += 1;
+            report.bytes += size;
+            progress(ExtractProgress {
+                current: name,
+                bytes_done: report.bytes,
+                bytes_total: report.bytes,
+                entries_done: report.files,
+                entries_total: 0,
+            });
+        }
+        Ok(report)
+    }
+
+    /// 用 UnRAR 的完整性测试模式校验 RAR，不写出文件。
+    ///
+    /// `test` 只需要知道成功/失败和条目统计，因此复用默认资源预算防止
+    /// 异常归档把测试任务拖成不可中断的长任务。
+    fn test_rar<F>(path: &Path, progress: &mut F) -> Result<ExtractReport, ArchiveError>
+    where
+        F: FnMut(ExtractProgress),
+    {
+        let mut archive = UnrarArchive::new(path)
+            .open_for_processing()
+            .map_err(map_rar_error)?;
+        let budget = ExtractionBudget::default();
+        let mut report = ExtractReport::default();
+        loop {
+            let Some(header) = archive.read_header().map_err(map_rar_error)? else {
+                break;
+            };
+            let name = header.entry().filename.to_string_lossy().replace('\\', "/");
+            if header.entry().is_directory() {
+                archive = header.skip().map_err(map_rar_error)?;
+                continue;
+            }
+            let size = header.entry().unpacked_size;
+            if report.files >= budget.max_entries {
+                return Err(ArchiveError::BudgetExceeded(format!(
+                    "条目数超过上限 {}",
+                    budget.max_entries
+                )));
+            }
+            if report.bytes.saturating_add(size) > budget.max_bytes {
+                return Err(ArchiveError::BudgetExceeded(format!(
+                    "解压总量将超过 {} 字节上限",
+                    budget.max_bytes
+                )));
+            }
+            archive = header.test().map_err(map_rar_error)?;
             report.files += 1;
             report.bytes += size;
             progress(ExtractProgress {
@@ -1860,7 +1952,7 @@ impl ArchiveService {
                 vec![EncoderConfiguration::from(lzma2)]
             }
             crate::format::SevenZCompression::Lzma => {
-                let mut lzma = LzmaOptions::from_level(level);
+                let mut lzma = SevenZLzmaOptions::from_level(level);
                 if let Some(dictionary_size) = options.dictionary_size {
                     lzma.set_dictionary_size(dictionary_size);
                 }
@@ -2140,6 +2232,50 @@ impl ArchiveService {
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.into_inner()?.finish()?;
             }
+            ArchiveFormat::TarBr => {
+                // Brotli 质量范围是 0–11，与 TAR 其他变体的 1–9 不同。
+                let quality = options.level.unwrap_or(6).clamp(0, 11) as u32;
+                let encoder =
+                    brotli::CompressorWriter::new(File::create(output)?, 64 * 1024, quality, 22);
+                let mut builder = tar::Builder::new(encoder);
+                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                builder.into_inner()?.into_inner();
+            }
+            ArchiveFormat::TarLz4 => {
+                let encoder = lz4_flex::frame::FrameEncoder::new(File::create(output)?);
+                let mut builder = tar::Builder::new(encoder);
+                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                builder
+                    .into_inner()?
+                    .finish()
+                    .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            }
+            ArchiveFormat::TarLz => {
+                let preset = options.level.unwrap_or(6).clamp(0, 9) as u32;
+                let encoder =
+                    LzipWriter::new(File::create(output)?, LzipOptions::with_preset(preset));
+                let mut builder = tar::Builder::new(encoder);
+                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                builder
+                    .into_inner()?
+                    .finish()
+                    .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            }
+            ArchiveFormat::TarLzma => {
+                let preset = options.level.unwrap_or(6).clamp(0, 9) as u32;
+                let encoder = LzmaWriter::new_use_header(
+                    File::create(output)?,
+                    &LzmaOptions::with_preset(preset),
+                    None,
+                )
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+                let mut builder = tar::Builder::new(encoder);
+                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                builder
+                    .into_inner()?
+                    .finish()
+                    .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            }
             _ => {
                 return Err(ArchiveError::UnsupportedFormat(
                     options.format.label().to_string(),
@@ -2158,14 +2294,28 @@ impl ArchiveService {
     where
         F: FnMut(CreateProgress),
     {
-        let source = sources
-            .first()
-            .filter(|path| path.is_file())
-            .ok_or_else(|| ArchiveError::Corrupt("单文件流格式只支持一个源文件".into()))?;
+        let suggestion = options
+            .format
+            .single_stream_tar_variant()
+            .map(|format| format.label())
+            .unwrap_or("TAR 归档");
+        let source = sources.first().ok_or_else(|| {
+            ArchiveError::InvalidRequest(format!(
+                "{} 需要一个源文件；压缩多个文件请改用 {suggestion}。",
+                options.format.label()
+            ))
+        })?;
         if sources.len() != 1 {
-            return Err(ArchiveError::Corrupt(
-                "GZ/BZ2/XZ/ZST 写入只支持一个源文件".into(),
-            ));
+            return Err(ArchiveError::InvalidRequest(format!(
+                "{} 是单文件流格式，只能压缩一个源文件；压缩多个文件请改用 {suggestion}。",
+                options.format.label()
+            )));
+        }
+        if !source.is_file() {
+            return Err(ArchiveError::InvalidRequest(format!(
+                "{} 只能压缩单个文件，不能压缩文件夹；请改用 {suggestion}。",
+                options.format.label()
+            )));
         }
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
@@ -2761,6 +2911,13 @@ fn tar_reader(
         ArchiveFormat::TarBz2 => Box::new(bzip2::read::BzDecoder::new(file)),
         ArchiveFormat::TarXz => Box::new(xz2::read::XzDecoder::new(file)),
         ArchiveFormat::TarZst => Box::new(zstd::stream::read::Decoder::new(file)?),
+        ArchiveFormat::TarBr => Box::new(brotli::Decompressor::new(file, 64 * 1024)),
+        ArchiveFormat::TarLz4 => Box::new(lz4_flex::frame::FrameDecoder::new(file)),
+        ArchiveFormat::TarLz => Box::new(lzma_rust2::LzipReader::new(file)),
+        ArchiveFormat::TarLzma => Box::new(
+            lzma_rust2::LzmaReader::new_mem_limit(file, u32::MAX, None)
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
+        ),
         _ => Box::new(file),
     };
     Ok(tar::Archive::new(reader))

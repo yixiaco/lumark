@@ -17,9 +17,29 @@ const CAPABILITIES_SUBKEY: &str = "Software\\Lumark\\Capabilities";
 const REGISTERED_APPLICATIONS: &str = "Software\\RegisteredApplications";
 
 /// Lumark 注册为打开方式的压缩格式。
-pub const ARCHIVE_EXTENSIONS: [&str; 16] = [
-    ".zip", ".7z", ".rar", ".zpaq", ".zpq", ".tar", ".gz", ".bz2", ".xz", ".zst", ".lz4", ".cab",
-    ".iso", ".wim", ".arj", ".ace",
+pub const ARCHIVE_EXTENSIONS: [&str; 22] = [
+    ".zip",
+    ".7z",
+    ".rar",
+    ".zpaq",
+    ".zpq",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".zst",
+    ".lz4",
+    ".cab",
+    ".iso",
+    ".wim",
+    ".arj",
+    ".ace",
+    ".alz",
+    ".tar.br",
+    ".tar.lz4",
+    ".tar.lz",
+    ".tar.lzma",
+    ".tar.z",
 ];
 
 /// 为当前用户注册全部文件关联和资源管理器右键菜单。
