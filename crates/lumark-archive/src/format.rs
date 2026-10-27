@@ -102,11 +102,15 @@ impl ArchiveFormat {
                 | Self::Zstd
                 | Self::Brotli
                 | Self::Lz4
+                | Self::Zpaq
         )
     }
 
     pub fn supports_password(self) -> bool {
-        matches!(self, Self::Zip | Self::SevenZip | Self::Rar | Self::Enc)
+        matches!(
+            self,
+            Self::Zip | Self::SevenZip | Self::Rar | Self::Zpaq | Self::Enc
+        )
     }
 
     pub fn supports_comment(self) -> bool {
@@ -509,6 +513,13 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     }
     if bytes.starts_with(b"7z\xbc\xaf\x27\x1c") {
         return ArchiveFormat::SevenZip;
+    }
+    // 加密 ZPAQ 以随机 salt 开头，只能靠扩展名识别；明文流式归档统一
+    // 以 JIDAC 标签 `7kSt` 或旧版 `zPQ` 版本头开始。
+    if bytes.starts_with(b"7kSt")
+        || (bytes.starts_with(b"zPQ") && bytes.get(3).is_some_and(|version| *version >= 1))
+    {
+        return ArchiveFormat::Zpaq;
     }
     if bytes.starts_with(b"Rar!\x1a\x07") {
         return ArchiveFormat::Rar;

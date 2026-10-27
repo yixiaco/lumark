@@ -11,9 +11,10 @@ use lumark_settings::OverwritePolicy;
 pub(super) type CompressionSelect = Entity<SelectState<SearchableVec<&'static str>>>;
 
 /// 默认格式下拉项：第一项写入设置，第二项显示给用户。
-const FORMAT_OPTIONS: [(&str, &str); 11] = [
+const FORMAT_OPTIONS: [(&str, &str); 12] = [
     ("zip", "ZIP"),
     ("7z", "7Z"),
+    ("zpaq", "ZPAQ"),
     ("tar", "TAR"),
     ("tar.gz", "TAR.GZ"),
     ("tar.bz2", "TAR.BZ2"),
@@ -184,7 +185,8 @@ mod tests {
     fn option_tables_map_saved_settings() {
         assert_eq!(format_index("zip"), 0);
         assert_eq!(format_index("7Z"), 1);
-        assert_eq!(format_index("tar.zst"), 6);
+        assert_eq!(format_index("zpaq"), 2);
+        assert_eq!(format_index("tar.zst"), 7);
         assert_eq!(format_index("unknown-format"), 0);
         assert_eq!(preset_index(SettingsPreset::Balanced), 1);
         assert_eq!(overwrite_index(OverwritePolicy::Rename), 3);

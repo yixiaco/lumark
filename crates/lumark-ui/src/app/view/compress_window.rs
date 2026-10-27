@@ -119,6 +119,7 @@ const ARCHIVE_TIME_LABELS: [&str; 3] = ["当前系统时间", "原始压缩时�
 const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::Zip, "ZIP"),
     (ArchiveFormat::SevenZip, "7Z"),
+    (ArchiveFormat::Zpaq, "ZPAQ"),
     (ArchiveFormat::Tar, "TAR"),
     (ArchiveFormat::TarGz, "TAR.GZ"),
     (ArchiveFormat::TarBz2, "TAR.BZ2"),
@@ -1467,5 +1468,24 @@ fn solid_label_for(mb: u32) -> String {
         format!("{} GB", mb / 1024)
     } else {
         format!("{mb} MB")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 可写格式下拉必须与归档层声明保持一致，并包含 ZPAQ。
+    #[test]
+    fn writable_formats_cover_archive_service() {
+        assert!(
+            WRITABLE_FORMATS
+                .iter()
+                .any(|(format, _)| *format == ArchiveFormat::Zpaq),
+            "压缩窗口缺少 ZPAQ 选项"
+        );
+        for (format, _) in WRITABLE_FORMATS {
+            assert!(format.is_writable(), "格式未声明可写：{format:?}");
+        }
     }
 }

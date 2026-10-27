@@ -128,6 +128,7 @@ impl ArchiveService {
                 })
             }
             ArchiveFormat::Rar => Self::probe_rar(path),
+            ArchiveFormat::Zpaq => crate::zpaq::probe_encryption(path),
             ArchiveFormat::Enc => Ok(EncryptionInfo {
                 encrypted: true,
                 header_encrypted: false,
@@ -152,6 +153,7 @@ impl ArchiveService {
             ArchiveFormat::Zip => Self::list_zip(path),
             ArchiveFormat::SevenZip => Self::list_seven_zip(path, password.unwrap_or_default()),
             ArchiveFormat::Rar => Self::list_rar(path, password),
+            ArchiveFormat::Zpaq => crate::zpaq::list(path, password),
             format if is_legacy_archive(format) => Self::list_legacy(path, format),
             ArchiveFormat::Tar
             | ArchiveFormat::TarGz
@@ -230,6 +232,7 @@ impl ArchiveService {
                 Ok(verified) => Ok(verified),
                 Err(_) => Ok(false),
             },
+            ArchiveFormat::Zpaq => crate::zpaq::verify_password(path, password),
             ArchiveFormat::Enc => Ok(decrypt_encrypted_container(path, password).is_ok()),
             _ => Ok(true),
         }
@@ -246,6 +249,7 @@ impl ArchiveService {
         let (input, _guard) = materialize_input(path)?;
         let format = Self::detect(&input);
         match format {
+            ArchiveFormat::Zpaq => crate::zpaq::test(&input, password, progress),
             ArchiveFormat::Zip => {
                 let file = File::open(&input)?;
                 let mut archive = ZipArchive::new(file)?;
@@ -415,6 +419,7 @@ impl ArchiveService {
                 Self::extract_single_stream(path, format, options, &mut progress)
             }
             ArchiveFormat::Rar => Self::extract_rar(path, options, &mut progress),
+            ArchiveFormat::Zpaq => crate::zpaq::extract(path, options, &mut progress),
             ArchiveFormat::UnixCompress => {
                 Self::extract_unix_compress(path, options, &mut progress)
             }
@@ -603,6 +608,7 @@ impl ArchiveService {
             | ArchiveFormat::Lz4 => {
                 Self::create_single_stream(output, sources, options, &mut progress)
             }
+            ArchiveFormat::Zpaq => crate::zpaq::create(output, sources, options, &mut progress),
             other => Err(ArchiveError::UnsupportedFormat(other.label().to_string())),
         }
     }
@@ -2549,7 +2555,7 @@ fn zip_time_to_chrono(value: Option<zip::DateTime>) -> Option<DateTime<Utc>> {
     Some(local.with_timezone(&Utc))
 }
 
-fn selected(name: &str, selected_paths: &[String]) -> bool {
+pub(crate) fn selected(name: &str, selected_paths: &[String]) -> bool {
     if selected_paths.is_empty() {
         return true;
     }
@@ -2560,11 +2566,11 @@ fn selected(name: &str, selected_paths: &[String]) -> bool {
     })
 }
 
-struct SourcePlan {
+pub(crate) struct SourcePlan {
     /// 归档内相对路径、源文件路径和规划时的字节数。
-    files: Vec<(String, PathBuf, u64)>,
-    total_bytes: u64,
-    latest_modified: Option<SystemTime>,
+    pub(crate) files: Vec<(String, PathBuf, u64)>,
+    pub(crate) total_bytes: u64,
+    pub(crate) latest_modified: Option<SystemTime>,
 }
 
 /// 组装自解压包尾部页脚：魔数 + 数据段偏移 + 数据段长度。
@@ -2576,7 +2582,7 @@ fn sfx_footer(offset: u64, length: u64) -> [u8; SFX_FOOTER_LEN] {
     footer
 }
 
-fn build_source_plan(
+pub(crate) fn build_source_plan(
     sources: &[PathBuf],
     options: &CompressionOptions,
 ) -> Result<SourcePlan, ArchiveError> {
@@ -2914,7 +2920,7 @@ fn map_rar_error(error: unrar::error::UnrarError) -> ArchiveError {
     }
 }
 
-fn ensure_not_cancelled(flag: &Option<Arc<AtomicBool>>) -> Result<(), ArchiveError> {
+pub(crate) fn ensure_not_cancelled(flag: &Option<Arc<AtomicBool>>) -> Result<(), ArchiveError> {
     if is_cancelled(flag) {
         Err(ArchiveError::Cancelled)
     } else {
@@ -2934,7 +2940,6 @@ fn is_legacy_archive(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Udf
             | ArchiveFormat::Wim
             | ArchiveFormat::Asar
-            | ArchiveFormat::Zpaq
             | ArchiveFormat::Lzh
             | ArchiveFormat::Deb
     )
@@ -2947,7 +2952,7 @@ fn open_legacy_reader(
     use geezipx_core::archive::{
         ace::AceReader, arc::ArcReader, arj::ArjReader, asar::AsarReader, cab::CabReader,
         cpio::CpioReader, deb::DebReader, iso::IsoReader, lzh::LzhReader, udf::UdfReader,
-        wim::WimReader, zpaq::ZpaqReader,
+        wim::WimReader,
     };
 
     let reader: Box<dyn LegacyReader> = match format {
@@ -2966,7 +2971,6 @@ fn open_legacy_reader(
         ArchiveFormat::Wim => Box::new(
             WimReader::open(path).map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
         ),
-        ArchiveFormat::Zpaq => Box::new(ZpaqReader::new(path)),
         other => {
             return Err(ArchiveError::UnsupportedFormat(other.label().to_string()));
         }
@@ -3033,7 +3037,7 @@ fn copy_entry_with_progress<R: Read + ?Sized, W: Write>(
 ///
 /// 条目大小来自归档元数据，可能小于实际解压量；真正的写入上限由
 /// `copy_cancellable_limited` 在复制时兜底。
-fn ensure_budget(
+pub(crate) fn ensure_budget(
     options: &ExtractionOptions,
     report: &ExtractReport,
     next_bytes: u64,
@@ -3106,7 +3110,7 @@ impl Write for CancelWriter<'_> {
     }
 }
 
-fn unique_destination(path: &Path) -> PathBuf {
+pub(crate) fn unique_destination(path: &Path) -> PathBuf {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let stem = path
         .file_stem()

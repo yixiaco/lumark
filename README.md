@@ -13,8 +13,9 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 标题栏工作区按钮和模态遮罩使用阻塞命中区域，右上角密码库/设置按钮不再被拖拽区域吞掉，压缩/解压设置对话框也不会把鼠标事件穿透到下层文件表。
 - IconPark 官方 SVG 图标已本地打包并按主题着色，运行时不依赖网络；来源与许可保存在 `crates/lumark-ui/assets/icons/iconpark/`。
 - ZIP、7Z、TAR、TAR.GZ/BZ2/XZ/ZST；GZ、BZ2、XZ、ZSTD、Brotli、LZ4；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩。
+- ZPAQ 读写（内嵌 libzpaq/JIDAC 引擎）：创建标准归档、AES 密码、列表、完整测试、预算解压、分卷和密码库联动；压缩按 32 MiB / 64 文件分批上报进度，批内不可中断。PAQ8/LPAQ 系列暂无许可兼容的成熟后端，不在支持范围。
 - RAR 只读列表、密码验证和解压（UnRAR 后端，保留许可声明）；Unix `.Z` 与 AES `.enc` 只读解压。
-- ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM、ASAR、ZPAQ、LZH/LHA、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA 等 30+ 只读格式适配。
+- ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM、ASAR、LZH/LHA、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA 等 30+ 只读格式适配。
 - ZIP/7Z 归档内浏览、选择性解压、删除/重命名/添加文件，临时重建后原子替换；把文件或文件夹拖入归档时可选择“替换同名文件”“只更新较新的文件”“仅刷新已有条目”或“同步文件夹内容”，同步会删除归档中磁盘已不存在的条目，结果消息会给出跳过和删除数量；可选 `.lumark.bak`。
 - `.001` 原始分卷创建、列表和解压；失败时保留旧卷并清理半成品。
 - 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、记录时间、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI（计算机绑定）、可选主密码、加密导入导出和明文 CSV 导出；导出位置通过文件夹选择器指定，锁定时需先解锁，操作结果通过官方 Notification 提示；独立设置窗口可查看密码库位置并迁移到自定义文件夹。
@@ -28,7 +29,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 解压资源预算：默认单次解压总量 128 GiB、条目 100 万，超出时中止并删除半成品；ZIP/7Z/TAR 在写文件前检查，单文件流、加密容器和容器复制按剩余预算分块中止。
 - 压缩后关机：压缩窗口可勾选“完成后关闭计算机”，压缩、测试和删除源文件都成功后由系统 `shutdown.exe` 安排 60 秒倒计时关机，期间可用 `shutdown /a` 取消；失败或取消的任务不会关机。
 - CPU 占用：压缩窗口可勾选“降低压缩优先级”，任务运行期间进程以普通以下优先级调度，全部低优先级任务结束后恢复；压缩线程数仍可在算法页单独限制。
-- Windows 当前用户文件关联：可勾选 ZIP、7Z、RAR 等 14 种压缩格式，注册后直接打开 Lumark 的 Windows 默认应用页，由系统确认默认值；同时提供经典右键菜单、Send To、回收站删除和安装/卸载脚本。
+- Windows 当前用户文件关联：可勾选 ZIP、7Z、RAR 等 16 种压缩格式，注册后直接打开 Lumark 的 Windows 默认应用页，由系统确认默认值；同时提供经典右键菜单、Send To、回收站删除和安装/卸载脚本。
 - 单实例多窗口：双击或右键打开压缩包时每个文件生成独立窗口，窗口之间共享设置和密码库、各自保留浏览状态，关闭全部窗口后退出进程。
 - 内置只读文本查看器：右键菜单可在独立窗口中查看压缩包内外的文本文件，归档条目自动解压到临时目录后显示，超过 4 MB 或二进制内容会给出提示。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
@@ -165,7 +166,8 @@ cargo test --workspace
 
 - 密码库默认由与当前计算机绑定的 Windows DPAPI 保护；设置主密码后改用 Argon2id + XChaCha20-Poly1305，并移除 DPAPI 包裹。主密码无法找回。
 - 密码列表默认掩码，单条显示 10 秒；复制后 30 秒只在剪贴板内容仍匹配时清空。
-- 当前原生读写格式为 ZIP、7Z、TAR 系列、常用单文件流、Brotli/LZ4；其余 30+ 扩展名已纳入格式识别和界面类型判断，具体只读解码仍按 `IMPLEMENTATION_STATUS.md` 推进。
+- 当前原生读写格式为 ZIP、7Z、ZPAQ、TAR 系列、常用单文件流、Brotli/LZ4；其余 30+ 扩展名已纳入格式识别和界面类型判断，具体只读解码仍按 `IMPLEMENTATION_STATUS.md` 推进。
+- ZPAQ 使用 `zpaq_rs` 内嵌的 libzpaq/JIDAC 参考实现，而不是只读适配层或整包缓冲的写入器：压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），暂不支持。
 - 自解压包使用自有运行时模块，只解压无密码、不分卷的 ZIP：格式固定使模块保持很小，也不需要在解压端处理密码对话框；解压路径的包含性、符号链接和覆盖行为复用 `zip` 自带的解压器，不自研第二套校验。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规；7Z 自解压和带密码的自解压仍未实现。
 - CPU 限制采用进程优先级而不是百分比硬限速：硬限速会把界面线程一起限流，暂停、取消和进度刷新都会变迟钝；需要更精细控制时使用压缩线程数选项。
 - 7Z 后端继续使用 `sevenz-rust2`：`zesven` 的解压进度、流式和编辑 API 更全，但更年轻（2026 年首版、下载量约为前者 1/27、七个月跨了三个大版本），整体迁移要重写 list/extract/create/edit/probe/verify 并重跑 7-Zip 互操作矩阵；现阶段用读取器包装和编码块完成量补进度（加密归档退回读取进度），等需要“7Z 编辑避免全量重压缩”等能力时再做 spike 评估。
@@ -174,4 +176,4 @@ cargo test --workspace
 
 ## 许可与来源
 
-本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。
+本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；ZPAQ 后端使用 CC0-1.0 的 [zpaq_rs](https://github.com/turtle261/zpaq-rs)，其内置的 libzpaq/zpaq.cpp 为公有领域软件；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。

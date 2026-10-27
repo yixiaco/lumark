@@ -5,6 +5,7 @@ pub mod error;
 pub mod format;
 pub mod path;
 pub mod service;
+mod zpaq;
 
 pub use edit::{EditOptions, EditProgress, EditReport, EditRoot};
 pub use error::ArchiveError;

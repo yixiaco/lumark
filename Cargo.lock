@@ -4990,6 +4990,7 @@ dependencies = [
  "flate2",
  "geezipx-core",
  "globset",
+ "libc",
  "lumark-sfx",
  "lz4_flex",
  "serde",
@@ -5004,6 +5005,7 @@ dependencies = [
  "xz2",
  "zeroize",
  "zip 9.0.5",
+ "zpaq_rs",
  "zstd 0.14.3",
 ]
 

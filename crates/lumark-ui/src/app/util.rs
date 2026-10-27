@@ -223,6 +223,7 @@ pub(crate) fn column_layout_widths(layout: u8) -> (f32, f32, f32) {
 pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
     match settings.default_format.to_ascii_lowercase().as_str() {
         "7z" | "sevenzip" => ArchiveFormat::SevenZip,
+        "zpaq" => ArchiveFormat::Zpaq,
         "tar" => ArchiveFormat::Tar,
         "tar.gz" | "tgz" => ArchiveFormat::TarGz,
         "tar.bz2" | "tbz2" => ArchiveFormat::TarBz2,
@@ -276,7 +277,8 @@ pub(crate) fn truncate_title(text: &str, limit: usize) -> String {
 pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     match format {
         ArchiveFormat::Zip => ArchiveFormat::SevenZip,
-        ArchiveFormat::SevenZip => ArchiveFormat::Tar,
+        ArchiveFormat::SevenZip => ArchiveFormat::Zpaq,
+        ArchiveFormat::Zpaq => ArchiveFormat::Tar,
         ArchiveFormat::Tar => ArchiveFormat::TarGz,
         ArchiveFormat::TarGz => ArchiveFormat::TarBz2,
         ArchiveFormat::TarBz2 => ArchiveFormat::TarXz,
@@ -300,7 +302,7 @@ pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> P
     let lower = name.to_ascii_lowercase();
     let stripped = [
         ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tgz", ".tbz2", ".txz", ".tzst", ".zip",
-        ".7z", ".tar", ".gz", ".bz2", ".xz", ".zst", ".br", ".lz4",
+        ".7z", ".zpaq", ".zpq", ".tar", ".gz", ".bz2", ".xz", ".zst", ".br", ".lz4",
     ]
     .iter()
     .find_map(|suffix| {
@@ -479,5 +481,25 @@ mod tests {
         assert_eq!(members.len(), 1);
         assert!(members[0].1);
         assert!(output.join("docs/readme.txt").exists());
+    }
+
+    /// 验证设置里的 ZPAQ 默认格式和输出扩展名替换。
+    #[test]
+    fn zpaq_settings_and_extension_replace() {
+        let settings = Settings {
+            default_format: "zpaq".to_string(),
+            ..Settings::default()
+        };
+        assert_eq!(format_from_settings(&settings), ArchiveFormat::Zpaq);
+        assert_eq!(
+            replace_archive_extension(Path::new(r"C:\data\backup.zip"), ArchiveFormat::Zpaq),
+            PathBuf::from(r"C:\data\backup.zpaq")
+        );
+        assert_eq!(
+            replace_archive_extension(Path::new(r"C:\data\backup.zpaq"), ArchiveFormat::Zip),
+            PathBuf::from(r"C:\data\backup.zip")
+        );
+        assert!(ArchiveFormat::Zpaq.is_writable());
+        assert!(ArchiveFormat::Zpaq.supports_password());
     }
 }

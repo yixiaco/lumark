@@ -26,8 +26,12 @@ walkdir.workspace = true
 windows-sys.workspace = true
 xz2.workspace = true
 zip.workspace = true
+zpaq_rs.workspace = true
 zstd.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

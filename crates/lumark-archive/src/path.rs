@@ -151,6 +151,7 @@ pub fn is_archive_extension(path: &Path) -> bool {
             | "deb"
             | "asar"
             | "zpaq"
+            | "zpq"
             | "uu"
             | "uue"
             | "xxe"

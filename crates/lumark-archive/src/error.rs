@@ -20,6 +20,9 @@ pub enum ArchiveError {
     SevenZ(String),
     #[error("任务已取消")]
     Cancelled,
+    /// 用户输入或当前后端无法满足的请求，例如空压缩计划、重复归档路径。
+    #[error("无法继续：{0}")]
+    InvalidRequest(String),
     /// 解压超出资源预算，通常是压缩炸弹或异常巨大的归档。
     #[error("解压超出资源预算：{0}")]
     BudgetExceeded(String),
