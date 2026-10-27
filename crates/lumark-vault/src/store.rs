@@ -400,6 +400,27 @@ impl VaultStore {
         VaultCrypto::export(path, &inner.entries, &inner.settings, passphrase)
     }
 
+    /// 把当前条目导出为明文 CSV，并返回写入的记录数。
+    ///
+    /// CSV 没有任何加密保护，调用方必须先向用户说明风险；密码库锁定时
+    /// 内存中不保留条目，因此这里和加密导出一样要求处于解锁状态。
+    pub fn export_csv(&self, path: &Path) -> Result<usize, VaultError> {
+        self.ensure_unlocked()?;
+        let inner = self.inner.read();
+        let mut content = entries_to_csv(&inner.entries);
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        let result = std::fs::write(path, content.as_bytes()).map_err(VaultError::from);
+        // 明文密码不应留在堆上继续被后续分配复用。
+        zeroize::Zeroize::zeroize(&mut content);
+        result?;
+        Ok(inner.entries.len())
+    }
+
     pub fn import(
         &self,
         path: &Path,
@@ -426,6 +447,47 @@ impl VaultStore {
         let count = inner.entries.len();
         save_inner(&self.path, &mut inner)?;
         Ok(count)
+    }
+}
+
+/// 生成供 Excel 直接打开的 UTF-8 CSV，文件开头带 BOM，行尾使用 CRLF。
+fn entries_to_csv(entries: &[PasswordEntry]) -> String {
+    let mut output =
+        String::from("\u{feff}名称,密码,适用压缩包,备注,创建时间,更新时间,最近使用,使用次数\r\n");
+    for entry in entries {
+        let fields = [
+            entry.label.clone(),
+            entry.password.expose().to_string(),
+            entry.archive_pattern.clone().unwrap_or_default(),
+            entry.note.clone(),
+            entry.created_at.to_rfc3339(),
+            entry.updated_at.to_rfc3339(),
+            entry
+                .last_used_at
+                .map(|time| time.to_rfc3339())
+                .unwrap_or_default(),
+            entry.use_count.to_string(),
+        ];
+        for (index, field) in fields.iter().enumerate() {
+            if index > 0 {
+                output.push(',');
+            }
+            output.push_str(&csv_field(field));
+        }
+        output.push_str("\r\n");
+    }
+    output
+}
+
+/// 按 RFC 4180 给包含逗号、引号或换行的字段加引号。
+fn csv_field(value: &str) -> String {
+    if value
+        .chars()
+        .any(|character| matches!(character, ',' | '"' | '\r' | '\n'))
+    {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
     }
 }
 

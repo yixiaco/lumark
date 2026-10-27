@@ -320,7 +320,7 @@ impl LumarkApp {
                                         app.active_task_kind = Some(kind);
                                         app.active_task_label = Some(label.clone());
                                         cx.defer_in(window, move |app, window, cx| {
-                                            app.open_progress_window_for(id, window, cx);
+                                            app.open_auto_progress_window_for(id, window, cx);
                                         });
                                     }
                                 }
@@ -341,6 +341,10 @@ impl LumarkApp {
                             }
                             TaskEvent::Completed { id, message } => {
                                 app.record_task_completed(id, message.clone());
+                                // 任务已经结束，先收回自动打开的进度窗口；后续分支
+                                // 可能继续打开查看器或结果窗口，但都不应留下一个停在
+                                // 100% 的进度窗口。
+                                app.dismiss_progress_window_for(id, cx);
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
                                     app.clear_password_attempt(id);
@@ -387,9 +391,6 @@ impl LumarkApp {
                                             app.active_task = None;
                                             app.task_progress = None;
                                         }
-                                        // 条目只为“打开”服务，解压完成即关闭进度窗口，
-                                        // 否则窗口会一直挡住刚打开的文档。
-                                        app.dismiss_progress_window_for(id, cx);
                                         let target = lumark_archive::safe_join(
                                             &pending.temporary,
                                             &pending.relative,
@@ -471,7 +472,6 @@ impl LumarkApp {
                                     }
                                     continue;
                                 }
-                                app.dismiss_progress_window_for(id, cx);
                                 if app.active_task == Some(id) {
                                     app.focus_next_running_task(id);
                                 }
@@ -522,6 +522,8 @@ impl LumarkApp {
                             }
                             TaskEvent::Failed { id, message } => {
                                 app.record_task_failed(id, message.clone());
+                                // 失败同样是终态，自动打开的进度窗口不再停留。
+                                app.dismiss_progress_window_for(id, cx);
                                 app.pending_extract_saves.remove(&id);
                                 app.pending_extract_open_dirs.remove(&id);
                                 if app.pending_shutdown_task == Some(id) {
@@ -542,7 +544,6 @@ impl LumarkApp {
                                 {
                                     app.pending_open_entry = None;
                                 }
-                                app.dismiss_progress_window_for(id, cx);
                                 if app.active_task == Some(id) {
                                     app.focus_next_running_task(id);
                                 }
@@ -551,6 +552,8 @@ impl LumarkApp {
                             }
                             TaskEvent::Cancelled { id } => {
                                 app.record_task_cancelled(id);
+                                // 取消是终态，自动打开的进度窗口随之收回。
+                                app.dismiss_progress_window_for(id, cx);
                                 app.pending_extract_saves.remove(&id);
                                 app.pending_extract_open_dirs.remove(&id);
                                 if app.pending_shutdown_task == Some(id) {
@@ -559,7 +562,6 @@ impl LumarkApp {
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
                                     app.clear_password_attempt(id);
-                                    app.dismiss_progress_window_for(id, cx);
                                     if app.active_task == Some(id) {
                                         app.focus_next_running_task(id);
                                     }
@@ -578,7 +580,6 @@ impl LumarkApp {
                                 {
                                     app.pending_open_entry = None;
                                 }
-                                app.dismiss_progress_window_for(id, cx);
                                 if app.active_task == Some(id) {
                                     app.focus_next_running_task(id);
                                 }

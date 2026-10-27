@@ -452,6 +452,232 @@ mod ui_tests {
     }
 
     #[gpui_kit::test]
+    /// 验证密码库导入/导出弹窗提供带标签的路径行，并使用标准按钮高度。
+    fn vault_transfer_dialog_uses_standard_buttons(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) =
+            VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            let export_dir = app.read(cx).vault_export_dir.clone();
+            set_input(&export_dir, directory.path().to_str().unwrap(), window, cx);
+            app.update(cx, |app, cx| {
+                app.vault.unlock("master-pass").unwrap();
+                app.screen = Screen::Passwords;
+                app.show_vault_transfer = true;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            for id in [
+                "vault-export-dir",
+                "vault-import-path",
+                "vault-export-browse",
+            ] {
+                assert!(window.find(id).visible(), "导入/导出弹窗缺少控件：{id}");
+            }
+            for id in [
+                "vault-export",
+                "vault-export-csv",
+                "vault-import",
+                "vault-transfer-cancel",
+                "vault-export-browse",
+            ] {
+                let button = window.find(id);
+                assert!(
+                    button.bounds().size.height >= px(30.),
+                    "弹窗按钮仍为小尺寸：{id} 高度 {:?}",
+                    button.bounds().size.height
+                );
+            }
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证密码库锁定时，导入/导出弹窗先要求解锁，解锁后切换为完整表单。
+    fn vault_transfer_dialog_requires_unlock_when_locked(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) =
+            VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.screen = Screen::Passwords;
+                app.show_vault_transfer = true;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            assert!(
+                window.find("vault-transfer-unlock").visible(),
+                "锁定时应显示主密码输入框"
+            );
+            assert!(
+                window.find("vault-transfer-unlock-confirm").visible(),
+                "锁定时应显示解锁按钮"
+            );
+            assert!(
+                window.try_find("vault-export").is_none(),
+                "锁定时不应显示导出按钮"
+            );
+            assert!(
+                window.try_find("vault-export-csv").is_none(),
+                "锁定时不应显示 CSV 按钮"
+            );
+
+            app.update(cx, |app, cx| {
+                app.vault.unlock("master-pass").unwrap();
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            assert!(
+                window.find("vault-export-dir").visible(),
+                "解锁后应显示导出位置"
+            );
+            assert!(window.find("vault-import-path").visible());
+            assert!(
+                window.try_find("vault-transfer-unlock").is_none(),
+                "解锁后不应继续显示解锁输入框"
+            );
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证密码库锁定时只能导出明文 CSV，解锁后同一弹窗写入所选文件夹。
+    fn vault_csv_export_requires_unlock(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) = VaultCrypto::new_master(
+            vec![PasswordEntry::new("CSV 记录", "csv-secret-123")],
+            VaultSettings::default(),
+            "master-pass",
+        )
+        .unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            let export_dir = app.read(cx).vault_export_dir.clone();
+            set_input(&export_dir, directory.path().to_str().unwrap(), window, cx);
+            app.update(cx, |app, cx| {
+                app.screen = Screen::Passwords;
+                app.show_vault_transfer = true;
+                app.export_vault_csv(window, cx);
+                assert!(
+                    app.status.contains("请先"),
+                    "锁定状态应提示先解锁：{}",
+                    app.status
+                );
+            });
+            assert!(
+                !std::fs::read_dir(directory.path())
+                    .unwrap()
+                    .flatten()
+                    .any(|entry| entry.path().extension().is_some_and(|ext| ext == "csv")),
+                "锁定状态不应写入 CSV"
+            );
+
+            app.update(cx, |app, cx| {
+                app.vault.unlock("master-pass").unwrap();
+                app.export_vault_csv(window, cx);
+                assert!(
+                    app.status.contains("已导出 1 条明文记录"),
+                    "CSV 导出状态异常：{}",
+                    app.status
+                );
+            });
+            let csv = std::fs::read_dir(directory.path())
+                .unwrap()
+                .flatten()
+                .map(|entry| entry.path())
+                .find(|path| path.extension().is_some_and(|ext| ext == "csv"))
+                .expect("应生成 CSV 文件");
+            let content = std::fs::read_to_string(&csv).unwrap();
+            assert!(content.contains("CSV 记录"));
+            assert!(content.contains("csv-secret-123"));
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证加密备份写入所选导出文件夹，而不是把输入当作完整文件路径。
+    fn vault_encrypted_export_writes_into_selected_folder(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let export_dir = directory.path().join("exports");
+        std::fs::create_dir(&export_dir).unwrap();
+        let vault_path = directory.path().join("vault.dat");
+        let (vault, _) =
+            VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+        VaultCrypto::write_file(&vault_path, &vault).unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            let export_dir_input = app.read(cx).vault_export_dir.clone();
+            let passphrase = app.read(cx).vault_transfer_passphrase.clone();
+            set_input(&export_dir_input, export_dir.to_str().unwrap(), window, cx);
+            set_input(&passphrase, "export-password", window, cx);
+            app.update(cx, |app, cx| {
+                app.vault.unlock("master-pass").unwrap();
+                app.vault
+                    .add_entry(PasswordEntry::new("备份记录", "backup-secret-123"))
+                    .unwrap();
+                app.export_vault(window, cx);
+                assert!(
+                    app.status.contains("已加密导出"),
+                    "加密导出状态异常：{}",
+                    app.status
+                );
+            });
+            let exported = std::fs::read_dir(&export_dir)
+                .unwrap()
+                .flatten()
+                .map(|entry| entry.path())
+                .find(|path| path.extension().is_some_and(|ext| ext == "lumarkvault"))
+                .expect("应在导出文件夹生成加密备份");
+            assert_eq!(exported.parent(), Some(export_dir.as_path()));
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
     /// 验证密码记录新增、修改和删除都直接写入持久化密码库。
     fn password_records_are_written_without_draft(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);
@@ -906,6 +1132,40 @@ mod ui_tests {
         assert_eq!(aggregate.bytes_done, 60);
         assert_eq!(aggregate.bytes_total, 200);
         assert!((aggregate.ratio() - 0.3).abs() < f32::EPSILON);
+    }
+
+    #[gpui_kit::test]
+    /// 验证自动进度窗口不会为已经结束的任务补开窗口。
+    fn auto_progress_window_skips_finished_task(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.task_records.push(TaskRecord {
+                    id: 7,
+                    kind: TaskKind::Extract,
+                    label: "解压 note.txt".to_string(),
+                    state: TaskState::Completed,
+                    progress: TaskProgress::default(),
+                    message: Some("已解压 1 个文件".to_string()),
+                });
+                app.open_auto_progress_window_for(7, window, cx);
+                assert!(
+                    app.progress_windows.is_empty(),
+                    "已结束任务不应自动补开进度窗口"
+                );
+            });
+        });
+        let _ = app;
     }
 
     #[gpui_kit::test]

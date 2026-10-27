@@ -1,5 +1,5 @@
 use super::super::*;
-use super::components::{AppIcon, card, form_label, option_radio};
+use super::components::{AppIcon, card, form_label, hint_text, option_radio};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::progress::Progress;
 
@@ -614,59 +614,175 @@ impl LumarkApp {
             )
     }
 
-    /// 使用独立口令导入或导出加密密码库。
+    /// 使用独立口令导入或导出加密密码库，并可导出明文 CSV。
+    ///
+    /// 主密码保护的密码库锁定时不保留记录，因此弹窗先提供解锁入口；
+    /// 解锁后同一层立即切换为导入/导出表单。
     pub(crate) fn render_vault_transfer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let locked = self.vault.state() == VaultState::Locked;
         centered_modal(cx, "加密密码库导入 / 导出")
             .child(
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(
-                        "导出文件使用独立口令和 Argon2id + XChaCha20-Poly1305，不提供明文 CSV。",
+                        "加密备份使用独立口令和 Argon2id + XChaCha20-Poly1305；CSV 为明文，任何程序都能读取。",
                     ),
             )
-            .child(
-                Input::new(&self.vault_transfer_path)
-                    .id("vault-transfer-path")
-                    .w_full(),
-            )
-            .child(
-                Input::new(&self.vault_transfer_passphrase)
-                    .id("vault-transfer-passphrase")
-                    .w_full(),
-            )
-            .child(
-                button("toggle-import-replace")
-                    .small()
-                    .cursor_pointer()
-                    .label(if self.vault_transfer_replace {
-                        "导入策略：替换现有记录"
-                    } else {
-                        "导入策略：合并去重"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.vault_transfer_replace = !this.vault_transfer_replace;
-                        cx.notify();
-                    })),
-            )
+            .when(locked, |this| {
+                this.child(
+                    v_flex()
+                        .w_full()
+                        .gap_2()
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(cx.theme().warning.opacity(0.45))
+                        .bg(cx.theme().warning.opacity(0.14))
+                        .p_3()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(AppIcon::Lock.element(15.))
+                                .child(div().text_sm().font_semibold().child("密码库已锁定")),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("锁定时不保留记录，导入、导出和 CSV 都需要先解锁。"),
+                        )
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    Input::new(&self.vault_transfer_unlock)
+                                        .id("vault-transfer-unlock")
+                                        .flex_1()
+                                        .min_w_0(),
+                                )
+                                .child(
+                                    button("vault-transfer-unlock-confirm")
+                                        .primary()
+                                        .label("解锁")
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.unlock_vault_transfer(window, cx);
+                                            cx.notify();
+                                        })),
+                                ),
+                        ),
+                )
+            })
+            .when(!locked, |this| {
+                this.child(labeled_input(
+                    cx,
+                    "导出位置",
+                    h_flex()
+                        .w_full()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            Input::new(&self.vault_export_dir)
+                                .id("vault-export-dir")
+                                .flex_1()
+                                .min_w_0(),
+                        )
+                        .child(
+                            button("vault-export-browse")
+                                .ghost()
+                                .icon(AppIcon::FolderOpen.element(15.))
+                                .label("浏览…")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browse_vault_export_dir(cx);
+                                })),
+                        ),
+                ))
+                .child(hint_text(
+                    cx,
+                    "导出文件写入所选文件夹，文件名自动附带本地时间戳，不覆盖旧备份。",
+                ))
+                .child(labeled_input(
+                    cx,
+                    "独立口令",
+                    Input::new(&self.vault_transfer_passphrase)
+                        .id("vault-transfer-passphrase")
+                        .w_full(),
+                ))
+                .child(labeled_input(
+                    cx,
+                    "导入文件",
+                    h_flex()
+                        .w_full()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            Input::new(&self.vault_import_path)
+                                .id("vault-import-path")
+                                .flex_1()
+                                .min_w_0(),
+                        )
+                        .child(
+                            button("vault-import-browse")
+                                .ghost()
+                                .icon(AppIcon::FolderOpen.element(15.))
+                                .label("浏览…")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browse_vault_import(cx);
+                                })),
+                        ),
+                ))
+                .child(
+                    button("toggle-import-replace")
+                        .cursor_pointer()
+                        .label(if self.vault_transfer_replace {
+                            "导入策略：替换现有记录"
+                        } else {
+                            "导入策略：合并去重"
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.vault_transfer_replace = !this.vault_transfer_replace;
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 h_flex()
+                    .w_full()
                     .gap_2()
-                    .child(
-                        button("vault-export")
-                            .primary()
-                            .label("导出")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.export_vault(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(button("vault-import").label("导入").on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.import_vault(cx);
-                            cx.notify();
-                        },
-                    )))
+                    .justify_end()
+                    .flex_wrap()
+                    .when(!locked, |this| {
+                        this.child(
+                            button("vault-export")
+                                .primary()
+                                .icon(AppIcon::Save.element(15.))
+                                .label("导出加密备份")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.export_vault(window, cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            button("vault-export-csv")
+                                .warning()
+                                .icon(AppIcon::Doc.element(15.))
+                                .label("导出明文 CSV")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.export_vault_csv(window, cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            button("vault-import")
+                                .label("导入")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.import_vault(window, cx);
+                                    cx.notify();
+                                })),
+                        )
+                    })
                     .child(
                         button("vault-transfer-cancel")
                             .label("关闭")
@@ -732,8 +848,8 @@ impl LumarkApp {
                         button("confirm-clear-vault")
                             .danger()
                             .label("确认清除")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.clear_vault(cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.clear_vault(window, cx);
                                 cx.notify();
                             })),
                     ),

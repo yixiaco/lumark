@@ -271,7 +271,6 @@ impl PasswordEditorWindowView {
             .child(
                 button("password-editor-cancel")
                     .ghost()
-                    .small()
                     .rounded(px(6.))
                     .label("取消")
                     .on_click(cx.listener(|_, _, window, _| {
@@ -281,7 +280,6 @@ impl PasswordEditorWindowView {
             .child(
                 button("password-editor-save")
                     .primary()
-                    .small()
                     .rounded(px(6.))
                     .icon(AppIcon::Save.element(14.))
                     .label(if self.editing.is_some() {
@@ -533,7 +531,6 @@ impl MasterPasswordWindowView {
             .child(
                 button("master-window-cancel")
                     .ghost()
-                    .small()
                     .rounded(px(6.))
                     .label("取消")
                     .on_click(cx.listener(|_, _, window, _| {
@@ -543,7 +540,6 @@ impl MasterPasswordWindowView {
             .child(
                 button("master-window-save")
                     .primary()
-                    .small()
                     .rounded(px(6.))
                     .icon(AppIcon::Shield.element(14.))
                     .label(if self.has_master {

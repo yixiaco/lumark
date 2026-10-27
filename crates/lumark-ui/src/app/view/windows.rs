@@ -534,6 +534,33 @@ impl LumarkApp {
         }
     }
 
+    /// 为仍在进行的任务自动打开进度窗口。
+    ///
+    /// 事件桥按批次处理任务事件，短任务可能在延迟回调执行前就已经结束；
+    /// 此时终态进度窗口已经被收回，这里不能再补开一个停在 100% 的结果窗口。
+    /// 任务中心仍通过 [`Self::open_progress_window_for`] 主动查看已结束任务。
+    pub(crate) fn open_auto_progress_window_for(
+        &mut self,
+        task_id: u64,
+        parent: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(record) = self.task_record(task_id) else {
+            return;
+        };
+        // 同时检查任务控制句柄：完成事件可能还没被轮询取走，仅看任务记录
+        // 会让窗口先弹出来再立刻关闭。
+        let terminal = is_terminal_task_state(record.state)
+            || self
+                .tasks
+                .control(task_id)
+                .is_some_and(|control| is_terminal_task_state(control.state()));
+        if terminal {
+            return;
+        }
+        self.open_progress_window_for(task_id, parent, cx);
+    }
+
     /// 打开或激活指定任务的进度窗口，包括已结束任务的结果窗口。
     ///
     /// 每个任务维护独立窗口，多个压缩/解压任务并行时不会互相覆盖；

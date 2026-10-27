@@ -142,9 +142,9 @@ impl LumarkApp {
         match self.vault.unlock(&password) {
             Ok(()) => {
                 set_input(&self.master_unlock, "", window, cx);
-                self.status = "密码库已解锁".to_string();
+                self.notify(window, cx, NotificationType::Success, "密码库已解锁");
             }
-            Err(error) => self.status = error.to_string(),
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
     }
 
@@ -167,7 +167,12 @@ impl LumarkApp {
                         }
                     };
                     if !self.begin_vault_password_resolution(&archive, action, cx) {
-                        self.status = "没有可用的记录密码，请手动输入或新增密码".to_string();
+                        self.notify(
+                            window,
+                            cx,
+                            NotificationType::Warning,
+                            "没有可用的记录密码，请手动输入或新增密码",
+                        );
                         let intent = if self.unlock_for_browse {
                             ArchiveOpenIntent::Browse
                         } else {
@@ -182,7 +187,7 @@ impl LumarkApp {
                 }
                 self.unlock_for_browse = false;
             }
-            Err(error) => self.status = error.to_string(),
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
     }
 
@@ -263,26 +268,133 @@ impl LumarkApp {
         }
     }
 
-    /// 使用独立口令导出加密密码库快照。
-    pub(crate) fn export_vault(&mut self, cx: &mut Context<Self>) {
-        let path = PathBuf::from(input_value(&self.vault_transfer_path, cx));
-        let passphrase = input_value(&self.vault_transfer_passphrase, cx);
-        if path.as_os_str().is_empty() || passphrase.chars().count() < 8 {
-            self.status = "请输入导出路径和至少 8 位独立口令".to_string();
+    /// 在导入或导出前确认密码库已经解锁。
+    ///
+    /// 主密码保护的密码库锁定时内存中没有条目；如果继续导出只会得到空
+    /// 备份，因此要求用户先在弹窗内输入主密码。
+    fn require_transfer_unlocked(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        action: &str,
+    ) -> bool {
+        if self.vault.state() != VaultState::Locked {
+            return true;
+        }
+        self.notify(
+            window,
+            cx,
+            NotificationType::Warning,
+            format!("密码库已锁定，请先输入主密码解锁后再{action}"),
+        );
+        false
+    }
+
+    /// 读取并校验导入/导出弹窗中的导出文件夹。
+    fn transfer_export_directory(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<PathBuf> {
+        let directory = PathBuf::from(input_value(&self.vault_export_dir, cx).trim());
+        if directory.as_os_str().is_empty() {
+            self.notify(window, cx, NotificationType::Warning, "请先选择导出文件夹");
+            return None;
+        }
+        if !directory.is_dir() {
+            self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                format!("导出文件夹不存在：{}", directory.display()),
+            );
+            return None;
+        }
+        Some(directory)
+    }
+
+    /// 使用独立口令把加密密码库快照导出到所选文件夹。
+    pub(crate) fn export_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.require_transfer_unlocked(window, cx, "导出") {
             return;
         }
+        let Some(directory) = self.transfer_export_directory(window, cx) else {
+            return;
+        };
+        let passphrase = input_value(&self.vault_transfer_passphrase, cx);
+        if passphrase.chars().count() < 8 {
+            self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                "请输入至少 8 位独立导出口令",
+            );
+            return;
+        }
+        let path = transfer_output_path(&directory, "Lumark-密码库备份", "lumarkvault");
         match self.vault.export(&path, &passphrase) {
-            Ok(()) => self.status = format!("密码库已加密导出到 {}", path.display()),
-            Err(error) => self.status = error.to_string(),
+            Ok(()) => self.notify(
+                window,
+                cx,
+                NotificationType::Success,
+                format!("密码库已加密导出到 {}", path.display()),
+            ),
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
+        }
+    }
+
+    /// 把密码库记录导出为明文 CSV；锁定时必须先在弹窗内解锁。
+    pub(crate) fn export_vault_csv(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.require_transfer_unlocked(window, cx, "导出 CSV") {
+            return;
+        }
+        let Some(directory) = self.transfer_export_directory(window, cx) else {
+            return;
+        };
+        let path = transfer_output_path(&directory, "Lumark-密码库", "csv");
+        match self.vault.export_csv(&path) {
+            Ok(count) => self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                format!("已导出 {count} 条明文记录到 {}，请妥善保管", path.display()),
+            ),
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
     }
 
     /// 按合并或替换语义导入加密密码库快照。
-    pub(crate) fn import_vault(&mut self, cx: &mut Context<Self>) {
-        let path = PathBuf::from(input_value(&self.vault_transfer_path, cx));
+    pub(crate) fn import_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.require_transfer_unlocked(window, cx, "导入") {
+            return;
+        }
+        let path = PathBuf::from(input_value(&self.vault_import_path, cx).trim());
+        if path.as_os_str().is_empty() {
+            self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                "请选择要导入的加密密码库文件",
+            );
+            return;
+        }
+        if !path.is_file() {
+            self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                format!("导入文件不存在：{}", path.display()),
+            );
+            return;
+        }
         let passphrase = input_value(&self.vault_transfer_passphrase, cx);
-        if path.as_os_str().is_empty() || passphrase.is_empty() {
-            self.status = "请输入导入文件和导出口令".to_string();
+        if passphrase.is_empty() {
+            self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                "请输入导入文件使用的独立口令",
+            );
             return;
         }
         match self
@@ -290,12 +402,127 @@ impl LumarkApp {
             .import(&path, &passphrase, self.vault_transfer_replace)
         {
             Ok(count) => {
-                self.status = format!("密码库已导入，共 {count} 条记录");
+                self.notify(
+                    window,
+                    cx,
+                    NotificationType::Success,
+                    format!("密码库已导入，共 {count} 条记录"),
+                );
                 self.show_vault_transfer = false;
                 self.selected_password = None;
             }
-            Err(error) => self.status = error.to_string(),
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
+    }
+
+    /// 在导入/导出弹窗内解锁密码库，解锁后继续使用同一弹窗。
+    pub(crate) fn unlock_vault_transfer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let password = input_value(&self.vault_transfer_unlock, cx);
+        if password.is_empty() {
+            self.notify(window, cx, NotificationType::Warning, "请输入主密码");
+            return;
+        }
+        match self.vault.unlock(&password) {
+            Ok(()) => {
+                set_input(&self.vault_transfer_unlock, "", window, cx);
+                self.notify(window, cx, NotificationType::Success, "密码库已解锁");
+            }
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
+        }
+    }
+
+    /// 打开系统文件夹选择器，把导出目录填入输入框。
+    pub(crate) fn browse_vault_export_dir(&mut self, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("选择密码库导出文件夹".into()),
+        });
+        cx.spawn(async move |this, cx| match receiver.await {
+            Ok(Ok(Some(paths))) => {
+                if let Some(directory) = paths.into_iter().next() {
+                    let _ = this.update_in(cx, |view, window, cx| {
+                        set_input(
+                            &view.vault_export_dir,
+                            directory.to_string_lossy().as_ref(),
+                            window,
+                            cx,
+                        );
+                        cx.notify();
+                    });
+                }
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(error)) => {
+                let _ = this.update_in(cx, |view, window, cx| {
+                    view.notify(
+                        window,
+                        cx,
+                        NotificationType::Error,
+                        format!("无法打开文件夹选择器：{error}"),
+                    );
+                });
+            }
+            Err(error) => {
+                let _ = this.update_in(cx, |view, window, cx| {
+                    view.notify(
+                        window,
+                        cx,
+                        NotificationType::Error,
+                        format!("文件夹选择器已关闭：{error}"),
+                    );
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 打开系统文件选择器，把加密密码库文件填入导入输入框。
+    pub(crate) fn browse_vault_import(&mut self, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("选择要导入的加密密码库文件".into()),
+        });
+        cx.spawn(async move |this, cx| match receiver.await {
+            Ok(Ok(Some(paths))) => {
+                if let Some(file) = paths.into_iter().next() {
+                    let _ = this.update_in(cx, |view, window, cx| {
+                        set_input(
+                            &view.vault_import_path,
+                            file.to_string_lossy().as_ref(),
+                            window,
+                            cx,
+                        );
+                        cx.notify();
+                    });
+                }
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(error)) => {
+                let _ = this.update_in(cx, |view, window, cx| {
+                    view.notify(
+                        window,
+                        cx,
+                        NotificationType::Error,
+                        format!("无法打开文件选择器：{error}"),
+                    );
+                });
+            }
+            Err(error) => {
+                let _ = this.update_in(cx, |view, window, cx| {
+                    view.notify(
+                        window,
+                        cx,
+                        NotificationType::Error,
+                        format!("文件选择器已关闭：{error}"),
+                    );
+                });
+            }
+        })
+        .detach();
     }
 
     /// 验证当前主密码，并让密码库恢复 DPAPI 包裹。
@@ -305,22 +532,45 @@ impl LumarkApp {
             Ok(()) => {
                 set_input(&self.master_remove, "", window, cx);
                 self.show_confirm_remove_master = false;
-                self.status =
-                    "主密码已删除，密码库改由与当前计算机绑定的 Windows DPAPI 保护".to_string();
+                self.notify(
+                    window,
+                    cx,
+                    NotificationType::Success,
+                    "主密码已删除，密码库改由与当前计算机绑定的 Windows DPAPI 保护",
+                );
             }
-            Err(error) => self.status = error.to_string(),
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
     }
 
     /// 确认对话框通过后清除密码库全部记录。
-    pub(crate) fn clear_vault(&mut self, _cx: &mut Context<Self>) {
+    pub(crate) fn clear_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.vault.clear_entries() {
             Ok(()) => {
                 self.show_confirm_clear_vault = false;
                 self.selected_password = None;
-                self.status = "密码库记录已清空".to_string();
+                self.notify(window, cx, NotificationType::Success, "密码库记录已清空");
             }
-            Err(error) => self.status = error.to_string(),
+            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
     }
+}
+
+/// 在所选文件夹中生成带本地时间戳的导出路径，避免覆盖旧备份。
+///
+/// 文件名保留用户可见的中文前缀；同一秒内重复导出时追加序号。
+fn transfer_output_path(directory: &Path, stem: &str, extension: &str) -> PathBuf {
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let mut path = directory
+        .join(format!("{stem}-{timestamp}"))
+        .with_extension(extension);
+    for index in 1..1000 {
+        if !path.exists() {
+            break;
+        }
+        path = directory
+            .join(format!("{stem}-{timestamp} ({index})"))
+            .with_extension(extension);
+    }
+    path
 }

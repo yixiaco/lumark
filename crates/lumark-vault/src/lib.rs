@@ -131,6 +131,32 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    fn csv_export_escapes_fields_and_requires_unlock() {
+        let dir = tempdir().unwrap();
+        let store = VaultStore::open(dir.path().join("vault.dat")).unwrap();
+        let mut entry = PasswordEntry::new("带,逗号", "p\"a,ss");
+        entry.note = "第一行\n第二行".to_string();
+        store.add_entry(entry).unwrap();
+
+        let csv_path = dir.path().join("passwords.csv");
+        assert_eq!(store.export_csv(&csv_path).unwrap(), 1);
+        let content = fs::read_to_string(&csv_path).unwrap();
+        assert!(content.starts_with('\u{feff}'), "CSV 缺少 UTF-8 BOM");
+        assert!(content.contains("名称,密码,适用压缩包"));
+        assert!(content.contains("\"带,逗号\""));
+        assert!(content.contains("\"p\"\"a,ss\""));
+        assert!(content.contains("\"第一行\n第二行\""));
+
+        store.set_master_password(None, "master-pass").unwrap();
+        store.lock();
+        assert!(
+            matches!(store.export_csv(&csv_path), Err(VaultError::Locked)),
+            "锁定状态不应导出明文 CSV"
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn encrypted_export_import_roundtrip() {
         let dir = tempdir().unwrap();
         let store_path = dir.path().join("vault.dat");

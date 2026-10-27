@@ -77,17 +77,25 @@ impl LumarkApp {
                                     } else {
                                         "未设置主密码时不需要锁定密码库"
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                    .on_click(cx.listener(|this, _, window, cx| {
                                         if !this.vault.has_master_password() {
-                                            this.status = "未设置主密码，密码库不需要锁定".to_string();
-                                            cx.notify();
+                                            this.notify(
+                                                window,
+                                                cx,
+                                                NotificationType::Warning,
+                                                "未设置主密码，密码库不需要锁定",
+                                            );
                                             return;
                                         }
                                         this.vault.lock();
                                         this.dismiss_password_windows(cx);
                                         this.selected_password = None;
-                                        this.status = "密码库已锁定".to_string();
-                                        cx.notify();
+                                        this.notify(
+                                            window,
+                                            cx,
+                                            NotificationType::Success,
+                                            "密码库已锁定",
+                                        );
                                     })),
                             )
                             .child(
@@ -95,20 +103,21 @@ impl LumarkApp {
                                     .icon(AppIcon::Copy.element(15.))
                                     .label("导入 / 导出")
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        if input_value(&this.vault_transfer_path, cx)
+                                        if input_value(&this.vault_export_dir, cx)
                                             .trim()
                                             .is_empty()
                                         {
                                             let target = dirs::document_dir()
-                                                .unwrap_or_else(std::env::temp_dir)
-                                                .join("Lumark.lumarkvault");
+                                                .filter(|path| path.is_dir())
+                                                .unwrap_or_else(std::env::temp_dir);
                                             set_input(
-                                                &this.vault_transfer_path,
+                                                &this.vault_export_dir,
                                                 target.to_string_lossy().as_ref(),
                                                 window,
                                                 cx,
                                             );
                                         }
+                                        set_input(&this.vault_transfer_unlock, "", window, cx);
                                         this.show_vault_transfer = true;
                                         cx.notify();
                                     })),

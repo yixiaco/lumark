@@ -16,7 +16,8 @@ static IPC_POLL_OWNER: AtomicBool = AtomicBool::new(false);
 use gpui_kit::base::{StyledExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{ActiveTheme, Selectable, Sizable, TitleBar};
+use gpui_kit::component::notification::{Notification, NotificationType};
+use gpui_kit::component::{ActiveTheme, Selectable, Sizable, TitleBar, WindowExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     ClipboardItem, Context, FocusHandle, IntoElement, ParentElement, Render, Styled, Window, div,
@@ -415,8 +416,13 @@ pub struct LumarkApp {
     password_list_scroll: gpui_kit::ScrollHandle,
     revealed_password: Option<Uuid>,
     show_vault_transfer: bool,
-    vault_transfer_path: gpui_kit::Entity<InputState>,
+    /// 导出文件夹；加密备份和 CSV 都写入该目录。
+    vault_export_dir: gpui_kit::Entity<InputState>,
+    /// 待导入的加密密码库文件。
+    vault_import_path: gpui_kit::Entity<InputState>,
     vault_transfer_passphrase: gpui_kit::Entity<InputState>,
+    /// 密码库锁定时在导入/导出弹窗内输入的主密码。
+    vault_transfer_unlock: gpui_kit::Entity<InputState>,
     vault_transfer_replace: bool,
     show_confirm_remove_master: bool,
     show_confirm_clear_vault: bool,
@@ -573,8 +579,10 @@ impl LumarkApp {
         let rename_name = new_input(window, cx, "新名称", false);
         let password_search = new_input(window, cx, "搜索名称、备注或匹配规则", false);
         let password_note = new_input(window, cx, "备注（可选）", false);
-        let vault_transfer_path = new_input(window, cx, "导出/导入文件路径", false);
+        let vault_export_dir = new_input(window, cx, "导出文件夹", false);
+        let vault_import_path = new_input(window, cx, "导入文件路径", false);
         let vault_transfer_passphrase = new_input(window, cx, "独立导出口令", true);
+        let vault_transfer_unlock = new_input(window, cx, "主密码", true);
         let browser_focus = cx.focus_handle();
         let details_visible = settings_snapshot.details_visible;
 
@@ -679,8 +687,10 @@ impl LumarkApp {
             password_list_scroll: gpui_kit::ScrollHandle::new(),
             revealed_password: None,
             show_vault_transfer: false,
-            vault_transfer_path,
+            vault_export_dir,
+            vault_import_path,
             vault_transfer_passphrase,
+            vault_transfer_unlock,
             vault_transfer_replace: false,
             show_confirm_remove_master: false,
             show_confirm_clear_vault: false,
@@ -825,6 +835,30 @@ mod view;
 /// 所有可点击操作都显示明确的可点击反馈。
 pub(crate) fn button(id: impl Into<gpui_kit::ElementId>) -> Button {
     Button::new(id).cursor_pointer()
+}
+
+impl LumarkApp {
+    /// 通过官方 Notification 组件提示操作结果，并同步状态栏文本。
+    ///
+    /// 集成测试窗口没有 Root 通知层；这种情况下只更新状态栏，避免测试环境
+    /// 因缺少插件而失败。生产窗口由 `gpui_kit::open_window` 挂载 Root。
+    pub(crate) fn notify(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        kind: NotificationType,
+        message: impl Into<String>,
+    ) {
+        let message = message.into();
+        self.status = message.clone();
+        if window
+            .root::<gpui_kit::component::Root>()
+            .flatten()
+            .is_some()
+        {
+            window.push_notification(Notification::new().with_type(kind).message(message), cx);
+        }
+    }
 }
 
 pub(crate) use actions::tasks::{

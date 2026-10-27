@@ -335,7 +335,7 @@ impl LumarkApp {
             None => format!("开始压缩：{}", output.display()),
         };
         // 先创建进度窗口，避免短任务在首次轮询前就结束而只看到 100%。
-        self.open_progress_window_for(id, window, cx);
+        self.open_auto_progress_window_for(id, window, cx);
         cx.notify();
     }
 
