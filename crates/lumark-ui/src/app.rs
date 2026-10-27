@@ -325,6 +325,8 @@ pub struct LumarkApp {
     compress_exclude: gpui_kit::Entity<InputState>,
     compress_store: gpui_kit::Entity<InputState>,
     compress_split: gpui_kit::Entity<InputState>,
+    /// 分卷大小输入框上次使用的单位，重新打开压缩窗口时沿用。
+    compress_split_unit: SizeUnit,
     compress_dictionary: gpui_kit::Entity<InputState>,
     compress_threads: gpui_kit::Entity<InputState>,
     compress_after: gpui_kit::Entity<InputState>,
@@ -559,7 +561,7 @@ impl LumarkApp {
         let compress_comment = new_input(window, cx, "压缩包注释（可选）", false);
         let compress_exclude = new_input(window, cx, "排除通配符，用 ; 分隔", false);
         let compress_store = new_input(window, cx, "仅存储通配符，用 ; 分隔", false);
-        let compress_split = new_input(window, cx, "分卷大小，例如 100M", false);
+        let compress_split = new_input(window, cx, "留空表示不分卷", false);
         let compress_dictionary = new_input(window, cx, "7Z 字典大小，例如 64M", false);
         let compress_threads = new_input(window, cx, "线程数，例如 4", false);
         let compress_after = new_input(window, cx, "起始日期 YYYY-MM-DD", false);
@@ -602,6 +604,7 @@ impl LumarkApp {
             compress_exclude,
             compress_store,
             compress_split,
+            compress_split_unit: SizeUnit::default(),
             compress_dictionary,
             compress_threads,
             compress_after,

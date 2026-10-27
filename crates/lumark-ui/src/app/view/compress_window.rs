@@ -7,7 +7,11 @@ use gpui_kit::Entity;
 use gpui_kit::Subscription;
 use gpui_kit::component::IndexPath;
 use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::input::{
+    InputGroup, InputGroupAddon, InputGroupAddonAlignment, InputGroupButton, InputGroupInput,
+};
 use gpui_kit::component::input::{Textarea, TextareaState};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::radio::Radio;
 use gpui_kit::component::select::{SearchableVec, SelectEvent, SelectState};
 use std::path::PathBuf;
@@ -41,6 +45,8 @@ pub(crate) struct CompressInit {
     pub dictionary_mb: u32,
     pub word_size: u32,
     pub solid_block_mb: u32,
+    /// 分卷大小输入框的初始单位。
+    pub split_unit: SizeUnit,
     pub file_time_filter: FileTimeFilter,
     pub archive_time: ArchiveTimeSource,
     pub classic: bool,
@@ -56,6 +62,8 @@ pub(crate) struct CompressWindowView {
     exclude: Entity<InputState>,
     store: Entity<InputState>,
     split: Entity<InputState>,
+    /// 分卷大小输入框右侧下拉框选中的单位。
+    split_unit: SizeUnit,
     after: Entity<InputState>,
     before: Entity<InputState>,
     format: ArchiveFormat,
@@ -94,6 +102,7 @@ pub(crate) struct CompressWindowView {
     thread_select: ChoiceState,
     filter_select: ChoiceState,
     archive_time_select: ChoiceState,
+    split_unit_select: ChoiceState,
     _select_subscriptions: Vec<Subscription>,
 }
 
@@ -125,6 +134,62 @@ const THREAD_LABELS: [&str; 32] = [
 ];
 const FILTER_LABELS: [&str; 4] = ["任意时间", "早于", "晚于", "日期范围"];
 const ARCHIVE_TIME_LABELS: [&str; 3] = ["当前系统时间", "原始压缩时间", "最近文件时间"];
+
+/// 常用分卷大小预设。
+///
+/// 数值和单位分开保存，选中后分别写入输入框与单位下拉；标签沿用参考
+/// 产品的“大小 - 用途”写法，方便按论坛附件、刻录介质等场景快速选择。
+#[derive(Clone, Copy)]
+struct SplitPreset {
+    amount: &'static str,
+    unit: SizeUnit,
+    label: &'static str,
+}
+
+impl SplitPreset {
+    /// 返回预设对应的字节数，用于在菜单里标记当前选中项。
+    fn bytes(self) -> u64 {
+        parse_size_in_unit(self.amount, self.unit).unwrap_or_default()
+    }
+}
+
+static SPLIT_PRESETS: [SplitPreset; 7] = [
+    SplitPreset {
+        amount: "512",
+        unit: SizeUnit::Kilobyte,
+        label: "512KB - 论坛附件 小",
+    },
+    SplitPreset {
+        amount: "1",
+        unit: SizeUnit::Megabyte,
+        label: "1MB - 论坛附件 中",
+    },
+    SplitPreset {
+        amount: "2",
+        unit: SizeUnit::Megabyte,
+        label: "2MB - 论坛附件 大",
+    },
+    SplitPreset {
+        amount: "100",
+        unit: SizeUnit::Megabyte,
+        label: "100MB - 网盘",
+    },
+    SplitPreset {
+        amount: "700",
+        unit: SizeUnit::Megabyte,
+        label: "700MB - CD刻录",
+    },
+    SplitPreset {
+        amount: "4.38",
+        unit: SizeUnit::Gigabyte,
+        label: "4.38GB - DVD刻录",
+    },
+    SplitPreset {
+        amount: "7.96",
+        unit: SizeUnit::Gigabyte,
+        label: "7.96GB - 双层DVD刻录",
+    },
+];
 
 const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::Zip, "ZIP"),
@@ -225,6 +290,12 @@ impl CompressWindowView {
         let filter_select = new_select(window, cx, FILTER_LABELS.to_vec(), filter_index);
         let archive_time_select =
             new_select(window, cx, ARCHIVE_TIME_LABELS.to_vec(), archive_time_index);
+        let split_unit_select = new_select(
+            window,
+            cx,
+            SizeUnit::LABELS.to_vec(),
+            init.split_unit.index(),
+        );
         let mut select_subscriptions = Vec::new();
         select_subscriptions.push(cx.subscribe_in(
             &format_select,
@@ -354,6 +425,17 @@ impl CompressWindowView {
                 }
             },
         ));
+        select_subscriptions.push(cx.subscribe(
+            &split_unit_select,
+            |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    let unit = SizeUnit::from_label(value);
+                    this.split_unit = unit;
+                    this.app.update(cx, |app, _| app.compress_split_unit = unit);
+                    cx.notify();
+                }
+            },
+        ));
         let output_for_focus = output.clone();
         window.on_next_frame(move |window, cx| {
             output_for_focus.update(cx, |state, cx| {
@@ -369,6 +451,7 @@ impl CompressWindowView {
             exclude,
             store,
             split,
+            split_unit: init.split_unit,
             after,
             before,
             format: init.format,
@@ -405,6 +488,7 @@ impl CompressWindowView {
             thread_select,
             filter_select,
             archive_time_select,
+            split_unit_select,
             _select_subscriptions: select_subscriptions,
         }
     }
@@ -533,7 +617,17 @@ impl CompressWindowView {
             cx.notify();
             return;
         }
-        let split_size = parse_size(&input_value(&self.split, cx));
+        let split_value = input_value(&self.split, cx);
+        let split_size = match split_size_or_error(&split_value, self.split_unit) {
+            Ok(size) => size,
+            Err(message) if self.classic => {
+                self.error = Some(message.to_string());
+                cx.notify();
+                return;
+            }
+            // 轻巧模式没有分卷字段，隐藏的旧值按原有规则静默忽略。
+            Err(_) => None,
+        };
         if sfx && split_size.is_some_and(|size| size >= 64 * 1024) {
             self.error = Some("自解压不支持分卷".to_string());
             cx.notify();
@@ -599,6 +693,104 @@ impl CompressWindowView {
             app.start_compress_from_options(output, sources, options, task_options, window, cx);
         });
         window.remove_window();
+    }
+
+    /// 渲染分卷大小组合控件：数值输入、常用大小下拉和单位下拉。
+    ///
+    /// 数值框保留手动输入能力，可以直接写 `100M`、`4.38G`；下拉箭头只负责
+    /// 填入常用数值并同步单位，不会锁住输入框。显式后缀在解析时优先于单位
+    /// 下拉，两种输入方式不会互相覆盖。
+    fn split_size_field(&self, cx: &Context<Self>) -> impl IntoElement {
+        let view = cx.entity().downgrade();
+        let current = parse_size_in_unit(&input_value(&self.split, cx), self.split_unit);
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_2()
+            .child(
+                InputGroup::new("classic-split-group")
+                    .flex_1()
+                    .min_w_0()
+                    .input(
+                        InputGroupInput::new(&self.split)
+                            .id("classic-split")
+                            .aria_label("分卷大小数值"),
+                    )
+                    .addon(
+                        InputGroupAddon::new("classic-split-preset-addon")
+                            .align(InputGroupAddonAlignment::InlineEnd)
+                            .child(
+                                InputGroupButton::new("classic-split-presets")
+                                    .cursor_pointer()
+                                    .accessibility_label("常用分卷大小")
+                                    .tooltip("从常用大小中选择，也可以直接输入")
+                                    .dropdown_caret(true)
+                                    .dropdown_menu_with_anchor(
+                                        gpui_kit::Anchor::TopRight,
+                                        move |menu, _, _| {
+                                            SPLIT_PRESETS.iter().fold(menu, |menu, preset| {
+                                                let view = view.clone();
+                                                let amount = preset.amount;
+                                                let unit = preset.unit;
+                                                menu.item(
+                                                    PopupMenuItem::new(preset.label)
+                                                        .checked(current == Some(preset.bytes()))
+                                                        .on_click(move |_, window, cx| {
+                                                            view.update(cx, |this, cx| {
+                                                                this.apply_split_preset(
+                                                                    amount, unit, window, cx,
+                                                                );
+                                                            })
+                                                            .ok();
+                                                        }),
+                                                )
+                                            })
+                                        },
+                                    ),
+                            ),
+                    ),
+            )
+            .child(choice_select(
+                "compress-split-unit",
+                &self.split_unit_select,
+                92.,
+                "分卷大小单位",
+            ))
+    }
+
+    /// 把常用分卷预设写入数值输入框，并同步单位下拉。
+    fn apply_split_preset(
+        &mut self,
+        amount: &str,
+        unit: SizeUnit,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        set_input(&self.split, amount, window, cx);
+        self.split_unit = unit;
+        self.app.update(cx, |app, _| app.compress_split_unit = unit);
+        self.split_unit_select.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::new(unit.index())), window, cx);
+        });
+        cx.notify();
+    }
+
+    /// 生成分卷提示：单位换算结果实时可见，并说明留空和手动输入的语义。
+    fn split_hint(&self, cx: &Context<Self>) -> String {
+        let value = input_value(&self.split, cx);
+        match parse_size_in_unit(&value, self.split_unit) {
+            Some(bytes) => {
+                format!(
+                    "当前分卷大小：{}；留空表示不分卷。",
+                    format_size_precise(bytes)
+                )
+            }
+            None if value.trim().is_empty() => {
+                "留空表示不分卷；最小 64KB，可从下拉选择或输入 100M、2G。".to_string()
+            }
+            None => "无法识别分卷大小；请输入数字或 100M、2G 等写法。".to_string(),
+        }
     }
 
     /// 渲染窗口标题栏。
@@ -937,6 +1129,17 @@ impl CompressWindowView {
             .min_h_0()
             .child(div().w_full().px_4().pt_3().child(self.render_tabs(cx)))
             .child(content)
+            .when_some(self.error.clone(), |this, error| {
+                this.child(
+                    div()
+                        .w_full()
+                        .px_4()
+                        .pb_1()
+                        .text_xs()
+                        .text_color(cx.theme().danger_foreground)
+                        .child(error),
+                )
+            })
             .child(self.render_footer(cx, true))
             .into_any_element()
     }
@@ -1034,12 +1237,8 @@ impl CompressWindowView {
                         |this, value, _| this.low_priority = value,
                     )),
             )
-            .child(classic_field(
-                "分卷大小:",
-                92.,
-                Input::new(&self.split).id("classic-split").w_full(),
-            ))
-            .child(hint_text(cx, "支持 100M、2G 等写法；留空表示不分卷。"))
+            .child(classic_field("分卷大小:", 92., self.split_size_field(cx)))
+            .child(hint_text(cx, self.split_hint(cx)))
             .into_any_element()
     }
 
@@ -1413,6 +1612,7 @@ impl LumarkApp {
             dictionary_mb: 16,
             word_size: 32,
             solid_block_mb: 2048,
+            split_unit: self.compress_split_unit,
             file_time_filter: FileTimeFilter::Any,
             archive_time: default_archive_time(self.compress_format),
             classic: false,
@@ -1540,6 +1740,22 @@ fn solid_label_for(mb: u32) -> String {
     }
 }
 
+/// 解析并校验分卷大小。
+///
+/// 留空表示不分卷；无法识别或低于归档层 64KB 下限时返回可直接展示的
+/// 错误文本，避免用户以为已经分卷、实际却只生成了单个文件。
+fn split_size_or_error(value: &str, unit: SizeUnit) -> Result<Option<u64>, &'static str> {
+    if value.trim().is_empty() {
+        return Ok(None);
+    }
+    let size =
+        parse_size_in_unit(value, unit).ok_or("分卷大小无法识别，请输入数字或 100M、2G 等写法")?;
+    if size < 64 * 1024 {
+        return Err("分卷大小至少为 64KB");
+    }
+    Ok(Some(size))
+}
+
 /// 按格式选择压缩窗口的默认归档时间。
 ///
 /// ZPAQ 的“当前/最近”时间需要复制全部源文件，代码目录动辄数百 MB；
@@ -1656,6 +1872,108 @@ mod tests {
         assert_eq!(
             effective_zpaq_compression(true, SettingsPreset::Size, ZpaqCompression::Fast),
             ZpaqCompression::Fast
+        );
+    }
+
+    /// 常用分卷预设的标签和字节数必须与参考列表一致。
+    #[test]
+    fn split_presets_match_reference_sizes() {
+        let labels: Vec<&str> = SPLIT_PRESETS.iter().map(|preset| preset.label).collect();
+        assert_eq!(
+            labels,
+            [
+                "512KB - 论坛附件 小",
+                "1MB - 论坛附件 中",
+                "2MB - 论坛附件 大",
+                "100MB - 网盘",
+                "700MB - CD刻录",
+                "4.38GB - DVD刻录",
+                "7.96GB - 双层DVD刻录",
+            ]
+        );
+        assert_eq!(SPLIT_PRESETS[0].bytes(), 512 * 1024);
+        assert_eq!(SPLIT_PRESETS[1].bytes(), 1024 * 1024);
+        assert_eq!(SPLIT_PRESETS[2].bytes(), 2 * 1024 * 1024);
+        assert_eq!(SPLIT_PRESETS[3].bytes(), 100 * 1024 * 1024);
+        assert_eq!(SPLIT_PRESETS[4].bytes(), 700 * 1024 * 1024);
+        assert_eq!(
+            SPLIT_PRESETS[5].bytes(),
+            (4.38 * 1024.0 * 1024.0 * 1024.0) as u64
+        );
+        assert_eq!(
+            SPLIT_PRESETS[6].bytes(),
+            (7.96 * 1024.0 * 1024.0 * 1024.0) as u64
+        );
+    }
+
+    /// 纯数字按单位换算，显式后缀和空值按既有规则处理。
+    #[test]
+    fn split_size_follows_selected_unit() {
+        assert_eq!(parse_size_in_unit("", SizeUnit::Megabyte), None);
+        assert_eq!(parse_size_in_unit("  ", SizeUnit::Megabyte), None);
+        assert_eq!(parse_size_in_unit("0", SizeUnit::Megabyte), None);
+        assert_eq!(parse_size_in_unit("abc", SizeUnit::Megabyte), None);
+        assert_eq!(parse_size_in_unit("512", SizeUnit::Byte), Some(512));
+        assert_eq!(
+            parse_size_in_unit("512", SizeUnit::Kilobyte),
+            Some(512 * 1024)
+        );
+        assert_eq!(
+            parse_size_in_unit("100", SizeUnit::Megabyte),
+            Some(100 * 1024 * 1024)
+        );
+        assert_eq!(
+            parse_size_in_unit("1.5", SizeUnit::Gigabyte),
+            Some(1_610_612_736)
+        );
+        assert_eq!(
+            parse_size_in_unit("100M", SizeUnit::Gigabyte),
+            Some(100 * 1024 * 1024)
+        );
+        assert_eq!(
+            parse_size_in_unit("2G", SizeUnit::Byte),
+            Some(2 * 1024 * 1024 * 1024)
+        );
+    }
+
+    /// 单位标签与索引必须双向一致，未知标签回退到 MB。
+    #[test]
+    fn size_unit_labels_round_trip() {
+        let units = [
+            SizeUnit::Byte,
+            SizeUnit::Kilobyte,
+            SizeUnit::Megabyte,
+            SizeUnit::Gigabyte,
+        ];
+        for unit in units {
+            assert_eq!(SizeUnit::from_label(SizeUnit::LABELS[unit.index()]), unit);
+        }
+        assert_eq!(SizeUnit::from_label("TB"), SizeUnit::Megabyte);
+        assert_eq!(SizeUnit::Byte.multiplier(), 1);
+        assert_eq!(SizeUnit::Kilobyte.multiplier(), 1024);
+        assert_eq!(SizeUnit::Megabyte.multiplier(), 1024 * 1024);
+        assert_eq!(SizeUnit::Gigabyte.multiplier(), 1024 * 1024 * 1024);
+    }
+
+    /// 分卷大小留空表示不分卷，过小或无法识别时返回提示。
+    #[test]
+    fn split_size_validation_matches_archive_floor() {
+        assert_eq!(split_size_or_error("", SizeUnit::Megabyte), Ok(None));
+        assert_eq!(
+            split_size_or_error("100", SizeUnit::Megabyte),
+            Ok(Some(100 * 1024 * 1024))
+        );
+        assert_eq!(
+            split_size_or_error("64", SizeUnit::Kilobyte),
+            Ok(Some(64 * 1024))
+        );
+        assert_eq!(
+            split_size_or_error("10", SizeUnit::Byte),
+            Err("分卷大小至少为 64KB")
+        );
+        assert_eq!(
+            split_size_or_error("abc", SizeUnit::Megabyte),
+            Err("分卷大小无法识别，请输入数字或 100M、2G 等写法")
         );
     }
 }

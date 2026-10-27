@@ -371,7 +371,10 @@ impl LumarkApp {
         let comment = input_value(&self.compress_comment, cx);
         let exclude = input_value(&self.compress_exclude, cx);
         let store_only = input_value(&self.compress_store, cx);
-        let split_size = parse_size(&input_value(&self.compress_split, cx));
+        let split_size = parse_size_in_unit(
+            &input_value(&self.compress_split, cx),
+            self.compress_split_unit,
+        );
         let dictionary_size = parse_size(&input_value(&self.compress_dictionary, cx))
             .map(|value| value.min(u32::MAX as u64) as u32);
         let threads = input_value(&self.compress_threads, cx)

@@ -265,6 +265,102 @@ mod ui_tests {
     }
 
     #[gpui_kit::test]
+    /// 验证压缩窗口的文本框点击后都能获得焦点，避免只有输出文件名可输入。
+    fn compress_window_inputs_take_focus_on_click(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("sample.txt");
+        std::fs::write(&source, b"lumark").unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.open_compress_window_for_sources(vec![source.clone()], window, cx);
+            });
+            window.draw(cx).clear(cx);
+            let handle = app.read(cx).compress_window.expect("压缩窗口应已打开");
+            handle
+                .update(cx, |_, window, cx| {
+                    window.draw(cx).clear(cx);
+                    window.click("compress-window-output", cx);
+                    window.draw(cx).clear(cx);
+                    assert_eq!(
+                        window.find("compress-window-output").focused(),
+                        Some(true),
+                        "轻巧模式输出路径输入框未获得焦点"
+                    );
+
+                    window.click("compress-window-password-toggle", cx);
+                    window.draw(cx).clear(cx);
+                    window.click("compress-window-password", cx);
+                    window.draw(cx).clear(cx);
+                    assert_eq!(
+                        window.find("compress-window-password").focused(),
+                        Some(true),
+                        "轻巧模式密码输入框未获得焦点"
+                    );
+
+                    window.click("compress-window-switch", cx);
+                    window.draw(cx).clear(cx);
+                    window.click("compress-window-output-classic", cx);
+                    window.draw(cx).clear(cx);
+                    assert_eq!(
+                        window.find("compress-window-output-classic").focused(),
+                        Some(true),
+                        "经典模式输出路径输入框未获得焦点"
+                    );
+
+                    window.click(("compress-window-tab", 2usize), cx);
+                    window.draw(cx).clear(cx);
+                    window.click("classic-exclude", cx);
+                    window.draw(cx).clear(cx);
+                    assert_eq!(
+                        window.find("classic-exclude").focused(),
+                        Some(true),
+                        "经典模式排除规则输入框未获得焦点"
+                    );
+
+                    window.click(("compress-window-tab", 1usize), cx);
+                    window.draw(cx).clear(cx);
+                    window.click("compress-window-password-classic", cx);
+                    window.draw(cx).clear(cx);
+                    assert_eq!(
+                        window.find("compress-window-password-classic").focused(),
+                        Some(true),
+                        "经典模式密码输入框未获得焦点"
+                    );
+
+                    // 测试窗口固定为轻巧模式高度，常规页底部会被页脚遮住；
+                    // 在可见的输出路径输入框上滚轮滚动，再点击分卷输入框。
+                    window.click(("compress-window-tab", 0usize), cx);
+                    window.draw(cx).clear(cx);
+                    window.scroll(
+                        "compress-window-output-classic",
+                        gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-160.))),
+                        cx,
+                    );
+                    window.draw(cx).clear(cx);
+                    window.click("classic-split", cx);
+                    window.draw(cx).clear(cx);
+                    assert_eq!(
+                        window.find("classic-split").focused(),
+                        Some(true),
+                        "分卷大小输入框未获得焦点"
+                    );
+                })
+                .unwrap();
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
     /// 验证压缩窗口的下拉框按字段宽度渲染，经典模式选项卡可正常切换。
     fn compress_window_uses_compact_controls(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);
@@ -360,6 +456,29 @@ mod ui_tests {
                     assert!(
                         window.find("classic-low-priority").visible(),
                         "经典模式未渲染低优先级选项"
+                    );
+
+                    // 分卷大小位于常规页底部，先滚动到可视区再检查组合控件。
+                    window.scroll(
+                        "classic-split",
+                        gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-160.))),
+                        cx,
+                    );
+                    window.draw(cx).clear(cx);
+                    assert!(
+                        window.find("classic-split").visible(),
+                        "经典模式未渲染分卷大小输入框"
+                    );
+                    assert!(
+                        window.find("classic-split-presets").visible(),
+                        "分卷大小缺少常用大小下拉"
+                    );
+                    let split_unit = window.find("compress-split-unit");
+                    assert!(split_unit.visible(), "经典模式未渲染分卷大小单位下拉");
+                    assert!(
+                        (split_unit.bounds().size.width - px(92.)).abs() < px(1.),
+                        "分卷单位下拉宽度不正确：{:?}",
+                        split_unit.bounds().size.width
                     );
 
                     window.click(("compress-window-tab", 3usize), cx);

@@ -353,6 +353,79 @@ pub(crate) fn parse_size(value: &str) -> Option<u64> {
         .map(|number| (number * multiplier as f64) as u64)
 }
 
+/// 分卷大小输入框可选的计量单位。
+///
+/// 数值输入框只保存数字，单位由右侧下拉框决定；用户也可以直接写出
+/// `100M`、`2G` 等带后缀的写法，此时后缀优先于下拉单位。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SizeUnit {
+    Byte,
+    Kilobyte,
+    #[default]
+    Megabyte,
+    Gigabyte,
+}
+
+impl SizeUnit {
+    /// 单位下拉框的固定顺序，Byte 到 GB 依次放大。
+    pub(crate) const LABELS: [&'static str; 4] = ["Byte", "KB", "MB", "GB"];
+
+    /// 返回该单位对应的字节倍数；沿用归档层 1024 进制的约定。
+    pub(crate) fn multiplier(self) -> u64 {
+        match self {
+            Self::Byte => 1,
+            Self::Kilobyte => 1024,
+            Self::Megabyte => 1024 * 1024,
+            Self::Gigabyte => 1024 * 1024 * 1024,
+        }
+    }
+
+    /// 返回单位在 [`Self::LABELS`] 中的索引。
+    pub(crate) fn index(self) -> usize {
+        match self {
+            Self::Byte => 0,
+            Self::Kilobyte => 1,
+            Self::Megabyte => 2,
+            Self::Gigabyte => 3,
+        }
+    }
+
+    /// 按下拉标签还原单位；未知标签回退到 MB，避免界面出现空单位。
+    pub(crate) fn from_label(label: &str) -> Self {
+        match label {
+            "Byte" => Self::Byte,
+            "KB" => Self::Kilobyte,
+            "GB" => Self::Gigabyte,
+            _ => Self::Megabyte,
+        }
+    }
+}
+
+/// 解析“数字 + 下拉单位”形式的分卷大小。
+///
+/// 空值表示不分卷；带字母后缀的写法沿用 [`parse_size`] 的规则，因此
+/// `100M`、`1.5G` 仍然有效，并且显式后缀优先于下拉单位。纯数字按所选
+/// 单位换算，零值、负数和无法识别的文本返回 `None`。
+pub(crate) fn parse_size_in_unit(value: &str, unit: SizeUnit) -> Option<u64> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value
+        .chars()
+        .last()
+        .is_some_and(|value| value.is_ascii_alphabetic())
+    {
+        return parse_size(value);
+    }
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite() && *number > 0.0)?;
+    let bytes = number * unit.multiplier() as f64;
+    (bytes < u64::MAX as f64).then_some(bytes as u64)
+}
+
 /// 从紧凑日期字段解析可选的 UTC 日期过滤条件。
 pub(crate) fn parse_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     let date = chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").ok()?;
@@ -377,6 +450,26 @@ pub(crate) fn format_size(bytes: u64) -> String {
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
+}
+
+/// 使用最多两位二进制单位格式化分卷大小。
+///
+/// 与 [`format_size`] 的固定一位小数不同，这里去掉末尾的零，让
+/// `4.38 GB`、`700 MB` 等常用预设回显时与用户选择的标签一致。
+pub(crate) fn format_size_precise(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        return format!("{bytes} B");
+    }
+    let text = format!("{value:.2}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    format!("{text} {}", UNITS[unit])
 }
 
 /// 把秒数格式化为 HH:MM:SS，供任务进度窗口显示。
@@ -480,5 +573,15 @@ mod tests {
         );
         assert!(ArchiveFormat::Zpaq.is_writable());
         assert!(ArchiveFormat::Zpaq.supports_password());
+    }
+
+    /// 分卷提示保留两位精度，并去掉多余的小数零。
+    #[test]
+    fn precise_size_keeps_split_preset_precision() {
+        assert_eq!(format_size_precise(512 * 1024), "512 KB");
+        assert_eq!(format_size_precise(700 * 1024 * 1024), "700 MB");
+        assert_eq!(format_size_precise(1_610_612_736), "1.5 GB");
+        assert_eq!(format_size_precise(4_702_989_189), "4.38 GB");
+        assert_eq!(format_size_precise(100), "100 B");
     }
 }
