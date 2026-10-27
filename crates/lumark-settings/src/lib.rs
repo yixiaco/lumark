@@ -3,5 +3,7 @@
 pub mod model;
 pub mod store;
 
-pub use model::{CompressionPreset, OverwritePolicy, Settings, ThemePreference};
+pub use model::{
+    CompressionPreset, DisguiseMaskPreference, OverwritePolicy, Settings, ThemePreference,
+};
 pub use store::SettingsStore;

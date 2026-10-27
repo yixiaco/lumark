@@ -33,6 +33,7 @@ pub(crate) struct SettingsWindowView {
     pub(super) format_select: CompressionSelect,
     pub(super) preset_select: CompressionSelect,
     pub(super) overwrite_select: CompressionSelect,
+    pub(super) disguise_select: CompressionSelect,
     _select_subscriptions: Vec<Subscription>,
 }
 
@@ -93,7 +94,7 @@ impl SettingsWindowView {
             });
         let vault_location_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("密码库保存文件夹".to_string()));
-        let (format_select, preset_select, overwrite_select, select_subscriptions) =
+        let (format_select, preset_select, overwrite_select, disguise_select, select_subscriptions) =
             Self::new_compression_selects(&snapshot.settings, window, cx);
         Self {
             app,
@@ -115,6 +116,7 @@ impl SettingsWindowView {
             format_select,
             preset_select,
             overwrite_select,
+            disguise_select,
             _select_subscriptions: select_subscriptions,
         }
     }

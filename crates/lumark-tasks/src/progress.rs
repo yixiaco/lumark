@@ -10,6 +10,10 @@ pub enum TaskKind {
     Edit,
     LoadArchive,
     PasswordResolve,
+    /// 把普通文件批量伪装成媒体外观。
+    Disguise,
+    /// 把伪装文件还原成原归档或原文件。
+    Restore,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

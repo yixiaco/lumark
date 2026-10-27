@@ -33,11 +33,17 @@ impl LumarkApp {
                 settings.prompt_save_password = defaults.prompt_save_password;
                 settings.auto_lock_minutes = defaults.auto_lock_minutes;
                 settings.archive_edit_backup = defaults.archive_edit_backup;
+                settings.disguise_enabled = defaults.disguise_enabled;
+                settings.disguise_mask = defaults.disguise_mask;
+                settings.disguise_custom_mask = defaults.disguise_custom_mask.clone();
                 settings.vault_path = vault_path;
             })
             .map_err(|error| error.to_string())?;
         self.details_visible = defaults.details_visible;
         self.column_layout = defaults.column_layout.min(2);
+        self.compress_disguise = defaults.disguise_enabled;
+        self.compress_disguise_mask = defaults.disguise_mask;
+        self.compress_disguise_custom = defaults.disguise_custom_mask.clone();
         apply_theme(defaults.theme, &defaults.accent_color, window, cx);
         self.status = "已恢复默认设置".to_string();
         Ok(())
@@ -146,6 +152,53 @@ impl LumarkApp {
                         lumark_settings::OverwritePolicy::Rename => "重命名",
                     }
                 )
+            }
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    /// 切换新压缩窗口默认是否启用伪装输出。
+    pub(crate) fn set_disguise_enabled(&mut self, enabled: bool) {
+        match self
+            .settings
+            .update(|settings| settings.disguise_enabled = enabled)
+        {
+            Ok(()) => {
+                self.compress_disguise = enabled;
+                self.status = if enabled {
+                    "新压缩默认启用伪装".to_string()
+                } else {
+                    "新压缩默认不启用伪装".to_string()
+                };
+            }
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    /// 设置新压缩窗口默认使用的面具类型。
+    pub(crate) fn set_disguise_mask(&mut self, preference: DisguiseMaskPreference) {
+        match self
+            .settings
+            .update(|settings| settings.disguise_mask = preference)
+        {
+            Ok(()) => {
+                self.compress_disguise_mask = preference;
+                self.status = format!("默认伪装面具：{}", disguise_mask_label(preference));
+            }
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    /// 设置自定义面具文件，并自动把默认面具类型切到“自定义文件”。
+    pub(crate) fn set_disguise_custom_mask(&mut self, path: PathBuf) {
+        match self.settings.update(|settings| {
+            settings.disguise_custom_mask = Some(path.clone());
+            settings.disguise_mask = DisguiseMaskPreference::Custom;
+        }) {
+            Ok(()) => {
+                self.compress_disguise_custom = Some(path.clone());
+                self.compress_disguise_mask = DisguiseMaskPreference::Custom;
+                self.status = format!("自定义伪装面具：{}", path.display());
             }
             Err(error) => self.status = error.to_string(),
         }

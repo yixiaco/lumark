@@ -68,6 +68,8 @@ impl Render for ProgressWindowView {
             TaskKind::Compress => "压缩文件",
             TaskKind::Extract => "解压文件",
             TaskKind::Test => "测试压缩文件",
+            TaskKind::Disguise => "伪装文件",
+            TaskKind::Restore => "还原伪装文件",
             _ => "后台任务",
         };
         let elapsed = if paused || cancelling {

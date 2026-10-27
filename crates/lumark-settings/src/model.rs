@@ -30,6 +30,12 @@ pub struct Settings {
     pub prompt_save_password: bool,
     pub auto_lock_minutes: u32,
     pub archive_edit_backup: bool,
+    /// 新建压缩窗口默认是否勾选伪装输出。
+    pub disguise_enabled: bool,
+    /// 默认面具类型。
+    pub disguise_mask: DisguiseMaskPreference,
+    /// 自定义面具文件路径；仅 `disguise_mask == Custom` 时使用。
+    pub disguise_custom_mask: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -58,6 +64,9 @@ impl Default for Settings {
             prompt_save_password: true,
             auto_lock_minutes: 10,
             archive_edit_backup: false,
+            disguise_enabled: false,
+            disguise_mask: DisguiseMaskPreference::Video,
+            disguise_custom_mask: None,
         }
     }
 }
@@ -82,6 +91,18 @@ pub enum OverwritePolicy {
     Overwrite,
     Skip,
     Rename,
+}
+
+/// 伪装面具的默认类型。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DisguiseMaskPreference {
+    /// 内置 MP4 视频面具。
+    #[default]
+    Video,
+    /// 内置 JPG 图片面具。
+    Image,
+    /// 用户选择的自定义媒体文件。
+    Custom,
 }
 
 #[cfg(test)]

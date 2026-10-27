@@ -79,6 +79,11 @@ impl ArchiveService {
                 "分卷归档暂不支持原地编辑，请先合并为单文件".into(),
             ));
         }
+        if format == ArchiveFormat::Disguised {
+            return Err(ArchiveError::InvalidRequest(
+                "伪装压缩包请在还原后编辑".into(),
+            ));
+        }
         if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
             return Err(ArchiveError::UnsupportedFormat(format.label().to_string()));
         }

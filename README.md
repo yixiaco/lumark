@@ -26,6 +26,10 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 后台任务：固定工作线程池按提交顺序排队执行归档加载、压缩、解压、测试、编辑和记录密码验证，排队中的任务可直接取消；支持进度、暂停/继续、取消、状态栏和独立进度窗口，任务中心同时显示运行中/排队中/已完成数量和跨任务合并进度。
 - 压缩后可测试归档并在成功时删除源文件。
 - 自解压 EXE：压缩窗口可勾选“自解压 EXE”（仅无密码、不分卷的 ZIP），生成的可执行文件内置 `lumark-sfx` 运行时，双击后按需解压到同目录下的同名文件夹并打开资源管理器；模块随安装脚本分发。
+- 伪装压缩（全格式）：压缩窗口可勾选“伪装为媒体文件”，把 ZIP、7Z、LZH、ZPAQ、TAR 系列、GZ/BZ2/XZ/ZST/Brotli/LZ4 的输出包装成可正常播放/查看的 MP4/JPG 外观；内层归档格式保持不变，载荷按 128 KiB 分块用 BLAKE3 密钥流混淆，尾部 512 字节记录载荷偏移/长度、原文件名、混淆盐和载荷类型。内置视频/图片面具，也可选择自定义媒体文件；伪装不提供加密。
+- 一键打开与一键还原：Lumark 文件表双击伪装归档、或资源管理器“用 Lumark 打开”，直接浏览/选择性解压/测试内层归档；ZIP/7Z/TAR 系列/单文件流/LZH 使用读取视图不复制载荷，ZPAQ/RAR/ALZ/传统只读格式物化到临时目录并做进程内缓存。右键“还原伪装文件”或资源管理器“Lumark 一键还原”把真身写回伪装文件旁，同名文件自动追加序号。
+- 任意文件伪装：文件或归档右键“伪装为媒体文件…”打开独立伪装窗口，可选择输出目录、面具和“伪装后删除源文件”；已有 ZIP/7Z 等归档伪装后仍可直接浏览，普通文件伪装只能还原。
+- 设置的“压缩”页可配置新压缩默认启用伪装、默认面具类型和自定义面具文件；不注册 `.mp4`/`.jpg` 等媒体扩展名的默认关联，只通过右键菜单打开或还原。
 - 解压资源预算：默认单次解压总量 128 GiB、条目 100 万，超出时中止并删除半成品；ZIP/7Z/TAR 在写文件前检查，单文件流、加密容器和容器复制按剩余预算分块中止；RAR、ALZ 和传统只读格式按条目声明大小做预算检查，ALZ 的写入器还会按剩余预算兜底。
 - 压缩后关机：压缩窗口可勾选“完成后关闭计算机”，压缩、测试和删除源文件都成功后由系统 `shutdown.exe` 安排 60 秒倒计时关机，期间可用 `shutdown /a` 取消；失败或取消的任务不会关机。
 - CPU 占用：压缩窗口可勾选“降低压缩优先级”，任务运行期间进程以普通以下优先级调度，全部低优先级任务结束后恢复；压缩线程数仍可在算法页单独限制。
@@ -39,6 +43,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 
 - **读写**：ZIP（AES/传统加密、Deflate/Bzip2/LZMA 写入）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4。
 - **只读解压**：RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像和 XPRESS/LZX）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
+- **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
 - **暂不支持**：RPM、XAR/PKG、MSI、CHM、SquashFS、DMG、EGG、NSIS 安装包、PAQ8/LPAQ；WIM 创建、WIM 的 LZMS/SWM、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
 
 ## 运行
@@ -74,6 +79,7 @@ cargo test --workspace
 - 压缩后关机参数（倒计时下限、原因文本）和任务成功/失败/取消时的关机计划清理。
 - 进程优先级开关的读写往返和多任务并存时的恢复时机。
 - 密码库候选密码自动解压加密 ZIP/7Z/RAR。
+- 全格式伪装矩阵（ZIP/7Z/LZH/ZPAQ/TAR 系列/单文件流）的创建、浏览、解压、测试与还原；任意文件伪装、已有归档伪装、只读格式物化打开、尾部损坏、取消和同名还原。
 - 多选、范围选择、历史导航和高级搜索过滤。
 - `gpui-kit::test` 真实窗口测试覆盖虚拟文件行、平铺视图切换、密码校验弹窗与归档更新模式确认框。
 - 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、任务中心、独立进度窗口、密码库、独立密码编辑窗口、主密码窗口、独立设置窗口与文件关联的视觉验收，截图位于 `artifacts/`。
@@ -86,6 +92,7 @@ cargo test --workspace
 |---|---|
 | `app/actions/files.rs` | 导航、选择、搜索、目录树和文件操作 |
 | `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程 |
+| `app/actions/disguise.rs` | 伪装窗口、批量伪装、一键还原和 Shell 错误提示 |
 | `app/actions/passwords.rs` | 密码即时写入、解锁、主密码和导入导出 |
 | `app/actions/settings.rs` | 主题、默认压缩参数、密码库位置、文件关联和 Shell 集成 |
 | `app/actions/tasks.rs` | 任务记录、事件桥、Shell 压缩批次、后台宿主托盘和任务中心数据维护 |
@@ -102,7 +109,8 @@ cargo test --workspace
 | `app/view/settings_window_pages.rs` | 综合、外观和关于选项卡 |
 | `app/view/settings_window_tabs.rs` | 压缩、文件关联和密码库选项卡 |
 | `app/view/password_windows.rs` | 独立密码编辑窗口和主密码设置窗口 |
-| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项 |
+| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项、伪装选项卡 |
+| `app/view/disguise_window.rs` | 独立伪装窗口、输出目录、面具选择和删除源文件选项 |
 | `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
 | `app/view/dialogs.rs` | 确认对话框、密码提示和导入导出表单 |
 | `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
@@ -179,6 +187,10 @@ cargo test --workspace
 - ZIP 旧方法（Deflate64/Shrink/Reduce/Implode）只读：启用 `zip` 的 `deflate64` 与 `legacy-zip` 特性，不提供这些方法的写入入口。
 - ZPAQ 使用 `zpaq_rs` 内嵌的 libzpaq/JIDAC 参考实现，而不是只读适配层或整包缓冲的写入器：压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），暂不支持。
 - 自解压包使用自有运行时模块，只解压无密码、不分卷的 ZIP：格式固定使模块保持很小，也不需要在解压端处理密码对话框；解压路径的包含性、符号链接和覆盖行为复用 `zip` 自带的解压器，不自研第二套校验。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规；7Z 自解压和带密码的自解压仍未实现。
+- 伪装容器使用自有格式，不与 Apate 做二进制互通：Apate 为 GPL-3.0，读取或生成其格式需要研究并受其许可约束；Lumark 只借鉴“伪装/一键还原”的功能形态，容器、实现和内置面具均为独立实现。容器固定为“面具 + 混淆载荷 + 512 字节尾部”，尾部保存载荷边界、原文件名、混淆盐和载荷类型，因此还原不依赖面具内容。
+- 伪装创建先写内层归档到同目录临时文件，再流式包装成媒体外观；峰值磁盘约等于压缩包的两倍，换取所有可写格式共用同一套包装逻辑。后续可对 ZIP/7Z/TAR/单文件流的泛型写入器做单遍写入优化。
+- 伪装归档的打开策略分两类：ZIP/7Z/TAR 系列/单文件流/LZH 直接读取解密视图，不复制载荷；ZPAQ、RAR、ALZ 和 `geezipx-core`/`unarc-rs` 传统格式只接受路径，物化到 `%TEMP%\Lumark\disguise-*` 并按（路径、长度、修改时间、盐）缓存，最多 4 项 / 16 GiB，启动时清理 24 小时前的残留。
+- 伪装只混淆载荷和文件名，不提供加密：盐随文件保存，能读取文件的人都能还原；真正的机密性仍依赖 ZIP/7Z 密码。尾部信息是还原的唯一入口，文件被截断或追加后无法还原，原文件名上限为 240 字节。
 - CPU 限制采用进程优先级而不是百分比硬限速：硬限速会把界面线程一起限流，暂停、取消和进度刷新都会变迟钝；需要更精细控制时使用压缩线程数选项。
 - 7Z 后端继续使用 `sevenz-rust2`：`zesven` 的解压进度、流式和编辑 API 更全，但更年轻（2026 年首版、下载量约为前者 1/27、七个月跨了三个大版本），整体迁移要重写 list/extract/create/edit/probe/verify 并重跑 7-Zip 互操作矩阵；现阶段用读取器包装和编码块完成量补进度（加密归档退回读取进度），等需要“7Z 编辑避免全量重压缩”等能力时再做 spike 评估。
 - LZH 创建复用 `geezipx-core` 的 `LzhWriter`，按预设映射到 lh4/lh5/lh7；该写入器需要把单个文件整块读入内存，因此项目对单条目限制 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
@@ -188,4 +200,4 @@ cargo test --workspace
 
 ## 许可与来源
 
-本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；ZPAQ 后端使用 CC0-1.0 的 [zpaq_rs](https://github.com/turtle261/zpaq-rs)，其内置的 libzpaq/zpaq.cpp 为公有领域软件；ALZ 后端使用 MIT 的 [unalz](https://github.com/alkegi/unalz)；LZIP/LZMA 编码使用 Apache-2.0 的 [lzma-rust2](https://github.com/hasenbanck/lzma-rust2)；传统格式适配使用 MIT OR Apache-2.0 的 [unarc-rs](https://github.com/mkrueger/unarc-rs)；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。
+本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)；伪装压缩和“一键还原”的功能形态参考 GPL-3.0 的 [rippod/apate](https://github.com/rippod/apate)，未复用其代码或文件格式。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；ZPAQ 后端使用 CC0-1.0 的 [zpaq_rs](https://github.com/turtle261/zpaq-rs)，其内置的 libzpaq/zpaq.cpp 为公有领域软件；ALZ 后端使用 MIT 的 [unalz](https://github.com/alkegi/unalz)；LZIP/LZMA 编码使用 Apache-2.0 的 [lzma-rust2](https://github.com/hasenbanck/lzma-rust2)；传统格式适配使用 MIT OR Apache-2.0 的 [unarc-rs](https://github.com/mkrueger/unarc-rs)；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。

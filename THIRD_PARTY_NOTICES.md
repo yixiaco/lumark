@@ -24,6 +24,8 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **bitstream-io** — MIT OR Apache-2.0 — https://github.com/tuffy/bitstream-io — ZIP 旧方法（Shrink/Reduce/Implode）只读解码
 - **Lucide icons** (through gpui-kit assets) — ISC — https://lucide.dev
 - **IconPark** — Apache-2.0 — https://iconpark.oceanengine.com/official — selected SVG assets are stored under `crates/lumark-ui/assets/icons/iconpark/` with the upstream license.
+- **内置伪装面具媒体** — `crates/lumark-archive/assets/disguise/cover.mp4` 和 `cover.jpg` 由本项目使用本地 ffmpeg 生成（渐变画面，无第三方素材），以 CC0 方式随项目分发；ffmpeg 仅用于生成资源，不随安装包分发。
+- **rippod/apate** — GPL-3.0 — https://github.com/rippod/apate — 仅作为“文件伪装/一键还原”功能形态的参考，未复用其代码、二进制或容器格式。
 
 RAR support is read-only. The embedded UnRAR source and its license must be included in release artifacts; no RAR creation is implemented.
 

@@ -327,14 +327,13 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     }
 }
 
-/// 用户切换归档格式时替换输出文件扩展名。
-pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> PathBuf {
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("archive");
+/// 去掉文件名末尾的归档扩展名，返回主名。
+///
+/// 复合扩展名（`.tar.gz` 等）优先整体剥离，避免切换格式或切换伪装时把
+/// `backup.tar.gz` 变成 `backup.tar.mp4`。
+fn strip_archive_extension(name: &str) -> &str {
     let lower = name.to_ascii_lowercase();
-    let stripped = [
+    [
         ".tar.lzma",
         ".tar.lz4",
         ".tar.zst",
@@ -369,8 +368,86 @@ pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> P
             .strip_suffix(suffix)
             .map(|_| &name[..name.len() - suffix.len()])
     })
-    .unwrap_or(name);
+    .unwrap_or(name)
+}
+
+/// 用户切换归档格式时替换输出文件扩展名。
+pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> PathBuf {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("archive");
+    let stripped = strip_archive_extension(name);
     path.with_file_name(format!("{stripped}.{}", format.extension()))
+}
+
+/// 把输出扩展名替换为面具扩展名，用于开启伪装时同步文件名。
+pub(crate) fn replace_disguise_extension(path: &Path, extension: &str) -> PathBuf {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("archive");
+    let stripped = strip_archive_extension(name);
+    path.with_file_name(format!("{stripped}.{extension}"))
+}
+
+/// 把设置中的面具偏好解析为具体面具。
+///
+/// 自定义面具缺失或无效时返回可直接展示给用户的错误；预设面具始终可用。
+pub(crate) fn resolve_disguise_mask(
+    preference: DisguiseMaskPreference,
+    custom: Option<&Path>,
+) -> Result<DisguiseMask, String> {
+    match preference {
+        DisguiseMaskPreference::Video => Ok(DisguiseMask::PresetVideo),
+        DisguiseMaskPreference::Image => Ok(DisguiseMask::PresetImage),
+        DisguiseMaskPreference::Custom => {
+            let path = custom.ok_or_else(|| "请选择自定义面具文件".to_string())?;
+            let mask = DisguiseMask::File(path.to_path_buf());
+            mask.validate().map_err(|error| error.to_string())?;
+            Ok(mask)
+        }
+    }
+}
+
+/// 返回当前面具偏好对应的输出扩展名；无法解析时返回 `None`。
+pub(crate) fn disguise_extension(
+    preference: DisguiseMaskPreference,
+    custom: Option<&Path>,
+) -> Option<String> {
+    resolve_disguise_mask(preference, custom)
+        .ok()
+        .and_then(|mask| mask.extension().ok())
+}
+
+/// 面具偏好在界面中的标签。
+pub(crate) fn disguise_mask_label(preference: DisguiseMaskPreference) -> &'static str {
+    match preference {
+        DisguiseMaskPreference::Video => "视频（MP4）",
+        DisguiseMaskPreference::Image => "图片（JPG）",
+        DisguiseMaskPreference::Custom => "自定义文件",
+    }
+}
+
+/// 把界面标签还原为面具偏好；未知标签回退到内置视频面具。
+pub(crate) fn disguise_mask_from_label(label: &str) -> DisguiseMaskPreference {
+    match label {
+        "图片（JPG）" => DisguiseMaskPreference::Image,
+        "自定义文件" => DisguiseMaskPreference::Custom,
+        _ => DisguiseMaskPreference::Video,
+    }
+}
+
+/// 面具下拉框的固定选项顺序。
+pub(crate) const DISGUISE_MASK_LABELS: [&str; 3] = ["视频（MP4）", "图片（JPG）", "自定义文件"];
+
+/// 返回面具偏好在下拉框中的索引。
+pub(crate) fn disguise_mask_index(preference: DisguiseMaskPreference) -> usize {
+    match preference {
+        DisguiseMaskPreference::Video => 0,
+        DisguiseMaskPreference::Image => 1,
+        DisguiseMaskPreference::Custom => 2,
+    }
 }
 
 /// 把分号分隔的匹配模式字段解析为规范化通配模式。
@@ -715,5 +792,71 @@ mod tests {
         assert_eq!(format_size_precise(1_610_612_736), "1.5 GB");
         assert_eq!(format_size_precise(4_702_989_189), "4.38 GB");
         assert_eq!(format_size_precise(100), "100 B");
+    }
+
+    /// 验证面具偏好解析、扩展名替换和自定义面具缺失时的提示。
+    #[test]
+    fn disguise_mask_resolution_and_extension_replace() {
+        assert_eq!(
+            resolve_disguise_mask(DisguiseMaskPreference::Video, None).unwrap(),
+            DisguiseMask::PresetVideo
+        );
+        assert_eq!(
+            resolve_disguise_mask(DisguiseMaskPreference::Image, None).unwrap(),
+            DisguiseMask::PresetImage
+        );
+        assert_eq!(
+            resolve_disguise_mask(DisguiseMaskPreference::Video, None)
+                .unwrap()
+                .extension()
+                .unwrap(),
+            "mp4"
+        );
+        assert!(
+            resolve_disguise_mask(DisguiseMaskPreference::Custom, None)
+                .unwrap_err()
+                .contains("自定义面具")
+        );
+
+        let directory = tempdir().unwrap();
+        let mask = directory.path().join("cover.jpg");
+        std::fs::write(&mask, vec![0x42; 4096]).unwrap();
+        assert_eq!(
+            resolve_disguise_mask(DisguiseMaskPreference::Custom, Some(&mask))
+                .unwrap()
+                .extension()
+                .unwrap(),
+            "jpg"
+        );
+        assert_eq!(
+            disguise_extension(DisguiseMaskPreference::Custom, Some(&mask)).as_deref(),
+            Some("jpg")
+        );
+        assert_eq!(
+            disguise_extension(DisguiseMaskPreference::Image, None).as_deref(),
+            Some("jpg")
+        );
+        assert_eq!(
+            disguise_mask_label(DisguiseMaskPreference::Video),
+            "视频（MP4）"
+        );
+        assert_eq!(
+            disguise_mask_from_label("自定义文件"),
+            DisguiseMaskPreference::Custom
+        );
+        assert_eq!(disguise_mask_index(DisguiseMaskPreference::Image), 1);
+
+        assert_eq!(
+            replace_disguise_extension(Path::new(r"C:\data\backup.tar.gz"), "mp4"),
+            PathBuf::from(r"C:\data\backup.mp4")
+        );
+        assert_eq!(
+            replace_disguise_extension(Path::new(r"C:\data\backup.7z"), "jpg"),
+            PathBuf::from(r"C:\data\backup.jpg")
+        );
+        assert_eq!(
+            replace_disguise_extension(Path::new(r"C:\data\backup"), "mp4"),
+            PathBuf::from(r"C:\data\backup.mp4")
+        );
     }
 }

@@ -1,4 +1,5 @@
 mod archive;
+mod disguise;
 mod files;
 mod iso;
 mod passwords;

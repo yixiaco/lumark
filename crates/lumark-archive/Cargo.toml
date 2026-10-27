@@ -6,7 +6,9 @@ license.workspace = true
 
 [dependencies]
 chrono.workspace = true
+blake3.workspace = true
 crc32fast.workspace = true
+rand.workspace = true
 bzip2.workspace = true
 brotli.workspace = true
 encoding_rs.workspace = true

@@ -6,6 +6,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+use crate::disguise::DisguiseOptions;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ArchiveFormat {
     Zip,
@@ -55,11 +57,16 @@ pub enum ArchiveFormat {
     Bin,
     Enc,
     Lzip,
+    /// Lumark 伪装容器：内层格式由尾部信息保存的原文件名决定。
+    ///
+    /// 该变体只由 `ArchiveService::detect` 在识别到尾部信息时返回，不会
+    /// 出现在扩展名或魔数识别结果中，也不属于可写格式。
+    Disguised,
     Unknown,
 }
 
 impl ArchiveFormat {
-    /// 全部已识别格式，不包含 `Unknown`。
+    /// 全部已识别格式，不包含 `Unknown` 和仅由尾部探测得到的 `Disguised`。
     ///
     /// 该列表用于检测矩阵、可写格式覆盖和界面选项一致性测试；新增格式时
     /// 必须同步登记，避免再次出现“核心支持但界面漏项”的偏差。
@@ -162,6 +169,7 @@ impl ArchiveFormat {
             Self::Bin => "BIN 镜像",
             Self::Enc => "AES 加密容器",
             Self::Lzip => "LZIP 文件",
+            Self::Disguised => "Lumark 伪装压缩文件",
             Self::Unknown => "文件",
         }
     }
@@ -279,6 +287,8 @@ impl ArchiveFormat {
             Self::Bin => "bin",
             Self::Enc => "enc",
             Self::Lzip => "lz",
+            // 伪装容器的扩展名由面具决定，检测逻辑不依赖它。
+            Self::Disguised => "",
             Self::Unknown => "",
         }
     }
@@ -466,6 +476,11 @@ pub struct CompressionOptions {
     pub exclude_patterns: Vec<String>,
     pub store_only_patterns: Vec<String>,
     pub cancel: Option<Arc<AtomicBool>>,
+    /// 伪装输出参数；`None` 表示普通归档。
+    ///
+    /// 只有 `ArchiveService::create` 会读取该字段：设置后先生成内层归档，
+    /// 再包装成媒体外观；`create_sfx` 与该字段互斥。
+    pub disguise: Option<DisguiseOptions>,
 }
 
 impl Default for CompressionOptions {
@@ -498,6 +513,7 @@ impl Default for CompressionOptions {
             exclude_patterns: Vec::new(),
             store_only_patterns: Vec::new(),
             cancel: None,
+            disguise: None,
         }
     }
 }
@@ -827,6 +843,7 @@ mod tests {
     #[test]
     fn all_formats_are_fully_described() {
         assert!(!ArchiveFormat::ALL.contains(&ArchiveFormat::Unknown));
+        assert!(!ArchiveFormat::ALL.contains(&ArchiveFormat::Disguised));
         for format in ArchiveFormat::ALL {
             assert!(!format.label().is_empty(), "{format:?} 缺少标签");
             assert!(!format.extension().is_empty(), "{format:?} 缺少扩展名");

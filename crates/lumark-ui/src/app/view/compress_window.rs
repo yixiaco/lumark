@@ -37,6 +37,12 @@ pub(crate) struct CompressInit {
     pub delete_source: bool,
     /// 生成自解压 EXE；只在 ZIP 格式下生效。
     pub sfx: bool,
+    /// 是否默认启用伪装输出。
+    pub disguise: bool,
+    /// 伪装面具类型。
+    pub disguise_mask: DisguiseMaskPreference,
+    /// 自定义面具文件路径。
+    pub disguise_custom: Option<PathBuf>,
     pub path_mode: PathMode,
     pub threads: u32,
     pub zip_compression: ZipCompression,
@@ -76,6 +82,11 @@ pub(crate) struct CompressWindowView {
     test_after: bool,
     delete_source: bool,
     sfx: bool,
+    /// 是否把输出包装成媒体外观。
+    disguise: bool,
+    /// 当前面具类型和自定义面具路径。
+    disguise_mask: DisguiseMaskPreference,
+    disguise_custom: Option<PathBuf>,
     /// 压缩成功后安排系统关机；每次打开窗口都从关闭状态开始。
     shutdown_after: bool,
     /// 压缩期间降低进程优先级，减少界面卡顿。
@@ -105,6 +116,7 @@ pub(crate) struct CompressWindowView {
     filter_select: ChoiceState,
     archive_time_select: ChoiceState,
     split_unit_select: ChoiceState,
+    disguise_select: ChoiceState,
     _select_subscriptions: Vec<Subscription>,
 }
 
@@ -341,6 +353,12 @@ impl CompressWindowView {
             SizeUnit::LABELS.to_vec(),
             init.split_unit.index(),
         );
+        let disguise_select = new_select(
+            window,
+            cx,
+            DISGUISE_MASK_LABELS.to_vec(),
+            disguise_mask_index(init.disguise_mask),
+        );
         let mut select_subscriptions = Vec::new();
         select_subscriptions.push(cx.subscribe_in(
             &format_select,
@@ -483,6 +501,15 @@ impl CompressWindowView {
                 }
             },
         ));
+        select_subscriptions.push(cx.subscribe_in(
+            &disguise_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<&'static str>>, window, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    this.set_disguise_mask(disguise_mask_from_label(value), window, cx);
+                }
+            },
+        ));
         let output_for_focus = output.clone();
         window.on_next_frame(move |window, cx| {
             output_for_focus.update(cx, |state, cx| {
@@ -499,6 +526,9 @@ impl CompressWindowView {
             store,
             split,
             split_unit: init.split_unit,
+            disguise: init.disguise,
+            disguise_mask: init.disguise_mask,
+            disguise_custom: init.disguise_custom,
             after,
             before,
             format: initial_format,
@@ -537,6 +567,7 @@ impl CompressWindowView {
             filter_select,
             archive_time_select,
             split_unit_select,
+            disguise_select,
             _select_subscriptions: select_subscriptions,
         }
     }
@@ -550,7 +581,11 @@ impl CompressWindowView {
         }
         let current = PathBuf::from(input_value(&self.output, cx));
         if !current.as_os_str().is_empty() {
-            let replacement = replace_archive_extension(&current, format);
+            let replacement = if self.disguise {
+                replace_disguise_extension(&current, &self.disguise_output_extension())
+            } else {
+                replace_archive_extension(&current, format)
+            };
             set_input(
                 &self.output,
                 replacement.to_string_lossy().as_ref(),
@@ -564,13 +599,117 @@ impl CompressWindowView {
     /// 格式选择旁的解释文本。
     ///
     /// 单文件源只显示扩展名；多文件或文件夹源会提示已限制为可容纳多条目的
-    /// 格式，避免用户误以为 GZ/Brotli 等单流格式仍可用。
+    /// 格式，避免用户误以为 GZ/Brotli 等单流格式仍可用。开启伪装后同时
+    /// 显示面具扩展名和内层归档扩展名。
     fn format_hint(&self) -> String {
+        if self.disguise {
+            let extension = disguise_extension(self.disguise_mask, self.disguise_custom.as_deref())
+                .unwrap_or_else(|| "mp4".to_string());
+            return format!(
+                "输出扩展名 .{extension}（内层 .{}）",
+                self.format.extension()
+            );
+        }
         let extension = self.format.extension();
         if !single_stream_allowed(&self.sources) && extension.starts_with("tar") {
             format!("扩展名 .{extension}（多文件源用 TAR 变体）")
         } else {
             format!("扩展名 .{extension}")
+        }
+    }
+
+    /// 当前面具偏好对应的输出扩展名；无法解析时回退到当前格式扩展名。
+    fn disguise_output_extension(&self) -> String {
+        disguise_extension(self.disguise_mask, self.disguise_custom.as_deref())
+            .unwrap_or_else(|| self.format.extension().to_string())
+    }
+
+    /// 切换伪装输出，并同步输出扩展名、取消自解压和分卷。
+    fn set_disguise(&mut self, enabled: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.disguise = enabled;
+        if enabled {
+            // 自解压与分卷都不能和伪装同时使用；分卷输入框只在经典模式可见。
+            self.sfx = false;
+            set_input(&self.split, "", window, cx);
+        }
+        let current = PathBuf::from(input_value(&self.output, cx));
+        if !current.as_os_str().is_empty() {
+            let replacement = if enabled {
+                replace_disguise_extension(&current, &self.disguise_output_extension())
+            } else {
+                replace_archive_extension(&current, self.format)
+            };
+            set_input(
+                &self.output,
+                replacement.to_string_lossy().as_ref(),
+                window,
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
+    /// 切换面具类型；伪装已开启时同步输出扩展名。
+    fn set_disguise_mask(
+        &mut self,
+        preference: DisguiseMaskPreference,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.disguise_mask = preference;
+        let index = disguise_mask_index(preference);
+        self.disguise_select.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::new(index)), window, cx);
+        });
+        if self.disguise {
+            let current = PathBuf::from(input_value(&self.output, cx));
+            if !current.as_os_str().is_empty() {
+                let replacement =
+                    replace_disguise_extension(&current, &self.disguise_output_extension());
+                set_input(
+                    &self.output,
+                    replacement.to_string_lossy().as_ref(),
+                    window,
+                    cx,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    /// 选择自定义面具文件；选择成功后自动切换为“自定义文件”。
+    fn choose_disguise_mask(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("选择伪装面具文件".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let _ = this.update_in(cx, |view, window, cx| {
+                    view.disguise_custom = Some(path);
+                    view.set_disguise_mask(DisguiseMaskPreference::Custom, window, cx);
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 伪装区域的状态提示。
+    fn disguise_hint(&self) -> String {
+        if !self.disguise {
+            return "把输出包装成可正常播放/查看的媒体文件；内层格式保持不变。".to_string();
+        }
+        match resolve_disguise_mask(self.disguise_mask, self.disguise_custom.as_deref()) {
+            Ok(mask) => format!(
+                "面具：{}，输出扩展名 .{}；伪装不加密，只能由 Lumark 打开或还原。",
+                mask.display_name(),
+                mask.extension().unwrap_or_default()
+            ),
+            Err(error) => error,
         }
     }
 
@@ -591,10 +730,16 @@ impl CompressWindowView {
     /// 切换自解压输出，并把输出扩展名在 `.exe` 与当前格式扩展名之间同步。
     fn set_sfx(&mut self, enabled: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.sfx = enabled;
+        if enabled {
+            // 自解压与伪装互斥。
+            self.disguise = false;
+        }
         let current = PathBuf::from(input_value(&self.output, cx));
         if !current.as_os_str().is_empty() {
             let replacement = if enabled {
                 current.with_extension("exe")
+            } else if self.disguise {
+                replace_disguise_extension(&current, &self.disguise_output_extension())
             } else {
                 replace_archive_extension(&current, self.format)
             };
@@ -687,8 +832,26 @@ impl CompressWindowView {
             return;
         }
         let password = input_value(&self.password, cx);
+        // 伪装先把面具解析成具体文件，自定义面具缺失时直接给出可操作提示。
+        let disguise = if self.disguise {
+            match resolve_disguise_mask(self.disguise_mask, self.disguise_custom.as_deref()) {
+                Ok(mask) => Some(mask),
+                Err(message) => {
+                    self.error = Some(message);
+                    cx.notify();
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         // 自解压只在 ZIP 下有效；运行时模块不处理密码和分卷。
         let sfx = self.sfx && self.format == ArchiveFormat::Zip;
+        if sfx && disguise.is_some() {
+            self.error = Some("自解压与伪装不能同时启用".to_string());
+            cx.notify();
+            return;
+        }
         if sfx && !password.is_empty() {
             self.error = Some("自解压暂不支持密码，请先关闭密码".to_string());
             cx.notify();
@@ -710,7 +873,17 @@ impl CompressWindowView {
             cx.notify();
             return;
         }
-        if sfx {
+        if disguise.is_some() && split_size.is_some_and(|size| size >= 64 * 1024) {
+            self.error = Some("伪装不支持分卷，请先清空分卷大小".to_string());
+            cx.notify();
+            return;
+        }
+        if let Some(mask) = &disguise {
+            let extension = mask
+                .extension()
+                .unwrap_or_else(|_| self.format.extension().to_string());
+            output = replace_disguise_extension(&output, &extension);
+        } else if sfx {
             output.set_extension("exe");
         }
         let comment = self.comment.read(cx).value().to_string();
@@ -756,6 +929,10 @@ impl CompressWindowView {
             test_after: self.test_after,
             delete_source: self.delete_source,
             sfx,
+            disguise: disguise.map(|mask| DisguiseOptions {
+                mask,
+                original_name: None,
+            }),
             exclude_patterns: parse_patterns(&input_value(&self.exclude, cx)),
             store_only_patterns: parse_patterns(&input_value(&self.store, cx)),
             ..Default::default()
@@ -1080,6 +1257,14 @@ impl CompressWindowView {
                                 })),
                         )
                     })
+                    .child(
+                        Checkbox::new("compress-window-disguise")
+                            .label("伪装为媒体文件")
+                            .checked(self.disguise)
+                            .on_click(cx.listener(|this, value: &bool, window, cx| {
+                                this.set_disguise(*value, window, cx);
+                            })),
+                    )
                     .child(check_button(
                         cx,
                         "compress-window-shutdown",
@@ -1152,6 +1337,7 @@ impl CompressWindowView {
             (AppIcon::Tool, "算法"),
             (AppIcon::Time, "时间"),
             (AppIcon::Edit, "注释"),
+            (AppIcon::Video, "伪装"),
         ];
         let items = tabs
             .iter()
@@ -1196,7 +1382,8 @@ impl CompressWindowView {
                 2 => self.render_files_tab(cx),
                 3 => self.render_algorithm_tab(cx),
                 4 => self.render_time_tab(cx),
-                _ => self.render_comment_tab(cx),
+                5 => self.render_comment_tab(cx),
+                _ => self.render_disguise_tab(cx),
             });
         v_flex()
             .flex_1()
@@ -1310,6 +1497,61 @@ impl CompressWindowView {
             )
             .child(classic_field("分卷大小:", 92., self.split_size_field(cx)))
             .child(hint_text(cx, self.split_hint(cx)))
+            .into_any_element()
+    }
+
+    /// 渲染“伪装”选项卡：开启开关、面具选择和自定义面具文件。
+    fn render_disguise_tab(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        v_flex()
+            .w_full()
+            .gap_3()
+            .child(classic_group(
+                cx,
+                "伪装输出",
+                v_flex()
+                    .gap_3()
+                    .child(
+                        Checkbox::new("classic-disguise")
+                            .label("伪装为媒体文件")
+                            .checked(self.disguise)
+                            .on_click(cx.listener(|this, value: &bool, window, cx| {
+                                this.set_disguise(*value, window, cx);
+                            })),
+                    )
+                    .child(classic_field(
+                        "面具:",
+                        92.,
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .items_center()
+                            .child(choice_select(
+                                "compress-disguise-mask",
+                                &self.disguise_select,
+                                200.,
+                                "伪装面具",
+                            ))
+                            .child(
+                                button("classic-disguise-choose-mask")
+                                    .small()
+                                    .rounded(px(6.))
+                                    .cursor_pointer()
+                                    .label("选择面具文件…")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.choose_disguise_mask(window, cx);
+                                    })),
+                            ),
+                    ))
+                    .child(hint_text(cx, self.disguise_hint())),
+            ))
+            .child(classic_group(
+                cx,
+                "说明",
+                v_flex().gap_2().child(hint_text(
+                    cx,
+                    "伪装只改变文件外观，不提供加密；载荷经过混淆，只能由 Lumark 直接打开或一键还原。内层归档格式保持不变。",
+                )),
+            ))
             .into_any_element()
     }
 
@@ -1672,6 +1914,9 @@ impl LumarkApp {
             test_after: self.compress_test_after,
             delete_source: self.compress_delete_source,
             sfx: self.compress_sfx && self.compress_format == ArchiveFormat::Zip,
+            disguise: self.compress_disguise,
+            disguise_mask: self.compress_disguise_mask,
+            disguise_custom: self.compress_disguise_custom.clone(),
             path_mode: self.compress_path_mode,
             threads: std::thread::available_parallelism()
                 .map(|count| count.get() as u32)

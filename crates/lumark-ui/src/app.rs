@@ -26,14 +26,16 @@ use gpui_kit::{
 use uuid::Uuid;
 
 use lumark_archive::{
-    ArchiveFormat, ArchiveService, ArchiveTimeSource, CompressionOptions, EditOptions, EditRoot,
-    ExtractionOptions, FileTimeFilter, OverwritePolicy as ArchiveOverwritePolicy, PathMode,
-    SevenZCompression, UpdateMode, ZipCompression, ZipEncryption, ZpaqCompression,
+    ArchiveFormat, ArchiveService, ArchiveTimeSource, CompressionOptions, DisguiseMask,
+    DisguiseOptions, EditOptions, EditRoot, ExtractionOptions, FileTimeFilter,
+    OverwritePolicy as ArchiveOverwritePolicy, PathMode, SevenZCompression, UpdateMode,
+    ZipCompression, ZipEncryption, ZpaqCompression,
 };
 use lumark_browser::{BrowserEntry, BrowserLocation, BrowserModel, SearchMode};
 use lumark_platform_windows as platform;
 use lumark_settings::{
-    CompressionPreset as SettingsPreset, Settings, SettingsStore, ThemePreference,
+    CompressionPreset as SettingsPreset, DisguiseMaskPreference, Settings, SettingsStore,
+    ThemePreference,
 };
 use lumark_tasks::{TaskEvent, TaskKind, TaskManager, TaskProgress, TaskRequest, TaskState};
 use lumark_vault::{PasswordEntry, VaultState, VaultStore};
@@ -172,13 +174,15 @@ pub(crate) struct TreeRow {
     expanded: bool,
 }
 
-/// Shell 请求的打开方式，对应 `--open`、`--extract`、`--compress`
-/// 以及 ISO 的 `--mount-iso` / `--unmount-iso`。
+/// Shell 请求的打开方式，对应 `--open`、`--extract`、`--compress`、
+/// `--restore` 以及 ISO 的 `--mount-iso` / `--unmount-iso`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupMode {
     Open,
     Extract,
     Compress,
+    /// 把伪装文件还原成原归档或原文件。
+    Restore,
     MountIso,
     UnmountIso,
 }
@@ -214,6 +218,7 @@ impl StartupRequest {
                 "--open" => mode = StartupMode::Open,
                 "--extract" => mode = StartupMode::Extract,
                 "--compress" => mode = StartupMode::Compress,
+                "--restore" => mode = StartupMode::Restore,
                 "--mount-iso" => mode = StartupMode::MountIso,
                 "--unmount-iso" => mode = StartupMode::UnmountIso,
                 value if value.starts_with('-') => {}
@@ -236,6 +241,7 @@ impl StartupRequest {
             .map(PathBuf::as_path)
             .find(|path| match self.mode {
                 StartupMode::Compress => path.exists(),
+                StartupMode::Restore => path.is_file(),
                 StartupMode::MountIso | StartupMode::UnmountIso => {
                     path.is_file() && is_iso_path(path)
                 }
@@ -348,6 +354,12 @@ pub struct LumarkApp {
     compress_delete_source: bool,
     /// 下一次打开压缩窗口时是否默认创建自解压文件。
     compress_sfx: bool,
+    /// 下一次打开压缩窗口时是否默认启用伪装输出。
+    compress_disguise: bool,
+    /// 下一次打开压缩窗口时使用的面具类型。
+    compress_disguise_mask: DisguiseMaskPreference,
+    /// 自定义面具文件路径；仅面具类型为 Custom 时使用。
+    compress_disguise_custom: Option<PathBuf>,
     /// 等待完成后关机的压缩任务。
     pending_shutdown_task: Option<u64>,
     /// 正在以低优先级运行的压缩任务；最后一个结束时恢复普通优先级。
@@ -378,6 +390,11 @@ pub struct LumarkApp {
     compress_window: Option<gpui_kit::AnyWindowHandle>,
     extract_window: Option<gpui_kit::AnyWindowHandle>,
     extract_view: Option<gpui_kit::Entity<view::extract_window::ExtractWindowView>>,
+    /// 独立伪装窗口句柄和视图。
+    disguise_window: Option<gpui_kit::AnyWindowHandle>,
+    disguise_view: Option<gpui_kit::Entity<view::disguise_window::DisguiseWindowView>>,
+    /// 伪装窗口使用的输出目录输入框，和主应用共享。
+    disguise_output: gpui_kit::Entity<InputState>,
     pending_extract_saves: HashMap<u64, (PathBuf, zeroize::Zeroizing<String>)>,
     pending_extract_open_dirs: HashMap<u64, PathBuf>,
     show_save_prompt: bool,
@@ -460,8 +477,8 @@ pub struct LumarkApp {
     main_window: gpui_kit::AnyWindowHandle,
     /// 后台压缩任务没有可见窗口时显示的系统托盘图标。
     tray_icon: Option<platform::tray::TrayIcon>,
-    /// 由 Shell 压缩请求启动的隐藏主窗口，在压缩窗口和任务结束后自动关闭。
-    headless_compress_host: bool,
+    /// 由 Shell 压缩或还原请求启动的隐藏主窗口，在任务结束后自动关闭。
+    headless_shell_host: bool,
     /// 当前窗口是否负责消费单实例请求。
     ipc_poll_owner: bool,
     /// Shell 多选压缩请求按批次合并，避免每个文件各开一个窗口。
@@ -542,9 +559,9 @@ impl LumarkApp {
         let settings = stores.settings.clone();
         let settings_error = stores.settings_error.clone();
         let settings_snapshot = settings.get();
-        let headless_compress_host = request
-            .as_ref()
-            .is_some_and(|request| request.mode == StartupMode::Compress);
+        let headless_shell_host = request.as_ref().is_some_and(|request| {
+            matches!(request.mode, StartupMode::Compress | StartupMode::Restore)
+        });
         apply_theme(
             settings_snapshot.theme,
             &settings_snapshot.accent_color,
@@ -576,6 +593,7 @@ impl LumarkApp {
         let compress_before = new_input(window, cx, "结束日期 YYYY-MM-DD", false);
         let extract_output = new_input(window, cx, "解压目录", false);
         let extract_password = new_input(window, cx, "解压密码", true);
+        let disguise_output = new_input(window, cx, "伪装输出目录", false);
         let password_label = new_input(window, cx, "名称，例如：工作压缩包", false);
         let password_value = new_input(window, cx, "密码", true);
         let password_pattern = new_input(window, cx, "适用路径或通配符（可选）", false);
@@ -625,6 +643,9 @@ impl LumarkApp {
             compress_test_after: false,
             compress_delete_source: false,
             compress_sfx: false,
+            compress_disguise: settings_snapshot.disguise_enabled,
+            compress_disguise_mask: settings_snapshot.disguise_mask,
+            compress_disguise_custom: settings_snapshot.disguise_custom_mask.clone(),
             pending_shutdown_task: None,
             low_priority_tasks: HashSet::new(),
             compress_path_mode: PathMode::Relative,
@@ -652,6 +673,9 @@ impl LumarkApp {
             compress_window: None,
             extract_window: None,
             extract_view: None,
+            disguise_window: None,
+            disguise_view: None,
+            disguise_output,
             pending_extract_saves: HashMap::new(),
             pending_extract_open_dirs: HashMap::new(),
             show_save_prompt: false,
@@ -730,7 +754,7 @@ impl LumarkApp {
             file_association_count: platform::shell::registered_extension_count(),
             main_window: window.window_handle(),
             tray_icon: None,
-            headless_compress_host,
+            headless_shell_host,
             ipc_poll_owner: false,
             pending_shell_compress: Vec::new(),
             shell_compress_deadline: None,
@@ -785,6 +809,9 @@ impl LumarkApp {
             }
             StartupMode::Open => {
                 self.open_archive_with_auto_password(target, ArchiveOpenIntent::Browse, window, cx);
+            }
+            StartupMode::Restore => {
+                self.start_restore_disguise(target, window, cx);
             }
             StartupMode::MountIso => {
                 self.mount_iso_path(target, window, cx);
@@ -969,12 +996,21 @@ pub fn run() -> anyhow::Result<()> {
         }
         return Ok(());
     }
+    // 一键还原由资源管理器菜单触发，隐藏主窗口只显示进度窗口；目标缺失时
+    // 直接提示并退出，避免留下不可见的后台进程。
+    if let Some(request) = &request
+        && request.mode == StartupMode::Restore
+        && request.target().is_none()
+    {
+        platform::show_message("Lumark 一键还原", "请选择一个有效文件。", true);
+        return Ok(());
+    }
     let mut window_options = window_options(&stores);
-    // 资源管理器压缩只需要压缩窗口；主窗口仅作为隐藏的宿主，
-    // 压缩窗口关闭或任务结束后再自动退出。
+    // 资源管理器压缩和还原只需要进度窗口；主窗口仅作为隐藏的宿主，
+    // 任务结束后再自动退出。
     if request
         .as_ref()
-        .is_some_and(|request| request.mode == StartupMode::Compress)
+        .is_some_and(|request| matches!(request.mode, StartupMode::Compress | StartupMode::Restore))
     {
         window_options.show = false;
         window_options.focus = false;

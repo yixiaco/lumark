@@ -188,6 +188,8 @@ impl LumarkApp {
             TaskKind::Edit => AppIcon::Edit,
             TaskKind::LoadArchive => AppIcon::FileZip,
             TaskKind::PasswordResolve => AppIcon::Key,
+            TaskKind::Disguise => AppIcon::Video,
+            TaskKind::Restore => AppIcon::Unlock,
         };
         let detail = record
             .message

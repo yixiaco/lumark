@@ -184,7 +184,7 @@ impl LumarkApp {
 
     /// 关闭仅供 Shell 压缩使用的隐藏主窗口；所有压缩相关窗口都结束后才执行。
     fn maybe_close_headless_host(&mut self, cx: &mut Context<Self>) {
-        if !self.headless_compress_host || !self.pending_shell_compress.is_empty() {
+        if !self.headless_shell_host || !self.pending_shell_compress.is_empty() {
             return;
         }
         if self.compress_window.is_some_and(|handle| {
@@ -212,7 +212,7 @@ impl LumarkApp {
         }) {
             return;
         }
-        self.headless_compress_host = false;
+        self.headless_shell_host = false;
         let _ = self
             .main_window
             .update(cx, |_, window, _| window.remove_window());
@@ -222,7 +222,7 @@ impl LumarkApp {
 
     /// 后台任务没有可见窗口时显示托盘图标，并把点击转成进度窗口或主窗口。
     fn sync_tray(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.headless_compress_host {
+        if !self.headless_shell_host {
             self.tray_icon = None;
             let _ = platform::tray::take_activation_request();
             return;
@@ -239,7 +239,7 @@ impl LumarkApp {
                 self.open_progress_window_for(task_id, window, cx);
             } else {
                 self.spawn_window(None, None, cx);
-                self.headless_compress_host = false;
+                self.headless_shell_host = false;
                 let _ = self
                     .main_window
                     .update(cx, |_, window, _| window.remove_window());
@@ -315,7 +315,11 @@ impl LumarkApp {
                                     app.task_progress = None;
                                     if matches!(
                                         kind,
-                                        TaskKind::Compress | TaskKind::Extract | TaskKind::Test
+                                        TaskKind::Compress
+                                            | TaskKind::Extract
+                                            | TaskKind::Test
+                                            | TaskKind::Disguise
+                                            | TaskKind::Restore
                                     ) {
                                         app.active_task_kind = Some(kind);
                                         app.active_task_label = Some(label.clone());
@@ -476,6 +480,22 @@ impl LumarkApp {
                                     app.focus_next_running_task(id);
                                 }
                                 app.status = message;
+                                // 还原任务完成后定位结果文件；伪装任务完成后
+                                // 刷新当前目录，让新生成的媒体文件立即可见。
+                                if let Some(restored) = tasks.take_restore_result(id) {
+                                    if app.current_directory().as_deref()
+                                        == restored.parent()
+                                    {
+                                        let _ = app.browser.refresh();
+                                    }
+                                    let _ = platform::reveal(&restored);
+                                } else if app
+                                    .task_record(id)
+                                    .is_some_and(|record| record.kind == TaskKind::Disguise)
+                                    && matches!(app.browser.location, BrowserLocation::FileSystem(_))
+                                {
+                                    let _ = app.browser.refresh();
+                                }
                                 if let Some(directory) = app.pending_extract_open_dirs.remove(&id) {
                                     let _ = std::process::Command::new("explorer.exe")
                                         .arg(directory)
@@ -525,7 +545,7 @@ impl LumarkApp {
                                 // Shell 压缩宿主没有可见主窗口；失败时保留
                                 // 结果窗口，避免进度窗口关闭后宿主立即退出，
                                 // 让用户看不到具体失败原因。
-                                let show_failure_window = app.headless_compress_host
+                                let show_failure_window = app.headless_shell_host
                                     && app.task_record(id).is_some_and(|record| {
                                         matches!(
                                             record.kind,
@@ -533,6 +553,8 @@ impl LumarkApp {
                                                 | TaskKind::Extract
                                                 | TaskKind::Test
                                                 | TaskKind::Edit
+                                                | TaskKind::Disguise
+                                                | TaskKind::Restore
                                         )
                                     });
                                 app.dismiss_progress_window_for(id, cx);
@@ -637,6 +659,11 @@ impl LumarkApp {
                                         } else {
                                             app.unmount_iso_path(path, window, cx);
                                         }
+                                    }
+                                }
+                                StartupMode::Restore => {
+                                    if let Some(path) = request.paths.first().cloned() {
+                                        app.start_restore_disguise(path, window, cx);
                                     }
                                 }
                                 _ => app.open_request_window(request, cx),

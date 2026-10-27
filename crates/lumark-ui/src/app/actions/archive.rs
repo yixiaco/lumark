@@ -187,6 +187,13 @@ impl LumarkApp {
         let mut output = output_dir.join(format!("{default_name}.{}", format.extension()));
         if self.compress_sfx {
             output.set_extension("exe");
+        } else if self.compress_disguise {
+            let extension = disguise_extension(
+                self.compress_disguise_mask,
+                self.compress_disguise_custom.as_deref(),
+            )
+            .unwrap_or_else(|| format.extension().to_string());
+            output = replace_disguise_extension(&output, &extension);
         }
         set_input(
             &self.compress_output,
@@ -299,6 +306,18 @@ impl LumarkApp {
         }
         // 记住勾选状态，下次打开压缩窗口时沿用。
         self.compress_sfx = options.sfx;
+        self.compress_disguise = options.disguise.is_some();
+        if let Some(disguise) = &options.disguise {
+            self.compress_disguise_mask = match &disguise.mask {
+                lumark_archive::DisguiseMask::PresetVideo => DisguiseMaskPreference::Video,
+                lumark_archive::DisguiseMask::PresetImage => DisguiseMaskPreference::Image,
+                lumark_archive::DisguiseMask::File(path) => {
+                    self.compress_disguise_custom = Some(path.clone());
+                    DisguiseMaskPreference::Custom
+                }
+            };
+        }
+        let disguised = options.disguise.is_some();
         // 自解压运行时模块随安装包分发；开发环境可用环境变量覆盖路径。
         let sfx_stub = if options.sfx { sfx_stub_path() } else { None };
         if options.sfx && sfx_stub.is_none() {
@@ -326,7 +345,11 @@ impl LumarkApp {
                 priority_error = Some(error);
             }
         }
-        let label = format!("压缩 {}", output.display());
+        let label = format!(
+            "{} {}",
+            if disguised { "伪装压缩" } else { "压缩" },
+            output.display()
+        );
         self.record_task_queued(id, TaskKind::Compress, label.clone());
         self.active_task = Some(id);
         self.active_task_kind = Some(TaskKind::Compress);
@@ -335,6 +358,7 @@ impl LumarkApp {
         self.show_compress = false;
         self.status = match priority_error {
             Some(error) => format!("开始压缩：{}（降低优先级失败：{error}）", output.display()),
+            None if disguised => format!("开始伪装压缩：{}", output.display()),
             None => format!("开始压缩：{}", output.display()),
         };
         // 先创建进度窗口，避免短任务在首次轮询前就结束而只看到 100%。

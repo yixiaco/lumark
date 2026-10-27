@@ -1,6 +1,7 @@
 //! 归档格式适配器和安全解压基础能力。
 
 mod alz;
+pub mod disguise;
 pub mod edit;
 pub mod error;
 pub mod format;
@@ -9,6 +10,11 @@ pub mod service;
 mod unarc;
 mod zpaq;
 
+pub use disguise::{
+    DISGUISE_MAGIC, DISGUISE_TRAILER_LEN, DisguiseFileOptions, DisguiseInfo, DisguiseMask,
+    DisguiseOptions, DisguisePayloadKind, DisguiseReport, MAX_DISGUISE_NAME_BYTES, RestoreReport,
+    clear_materialized_cache,
+};
 pub use edit::{EditOptions, EditProgress, EditReport, EditRoot};
 pub use error::ArchiveError;
 pub use format::{

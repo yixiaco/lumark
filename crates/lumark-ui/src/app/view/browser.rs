@@ -824,7 +824,6 @@ fn render_file_row(
     let context_id = id.clone();
     let selected = app.browser.selection.is_selected(&id);
     let icon_color = entry_icon_color(cx, &entry);
-    let menu_kind = file_menu_kind(&app.browser.location, &entry);
     let drag_item = inside_archive
         .then(|| archive_drag_item(app, &entry))
         .flatten();
@@ -999,7 +998,11 @@ fn render_file_row(
                 preview
             })
         })
-        .context_menu(file_context_menu(cx.entity(), menu_kind))
+        .context_menu(file_context_menu(
+            cx.entity(),
+            app.browser.location.clone(),
+            entry.clone(),
+        ))
         .into_any_element()
 }
 
@@ -1085,7 +1088,6 @@ fn render_tile_row(
             } else {
                 entry_icon(&entry)
             };
-            let menu_kind = file_menu_kind(&app.browser.location, &entry);
             let drag_item = matches!(&app.browser.location, BrowserLocation::Archive { .. })
                 .then(|| archive_drag_item(app, &entry))
                 .flatten();
@@ -1170,7 +1172,11 @@ fn render_tile_row(
                             preview
                         })
                     })
-                    .context_menu(file_context_menu(cx.entity(), menu_kind))
+                    .context_menu(file_context_menu(
+                        cx.entity(),
+                        app.browser.location.clone(),
+                        entry.clone(),
+                    ))
                     .into_any_element(),
             )
         }))
@@ -1184,149 +1190,38 @@ fn render_tile_row(
 /// 也不提供新窗口入口；文件系统内的压缩包才提供解压动作。
 fn file_context_menu(
     app: gpui_kit::Entity<LumarkApp>,
-    kind: FileMenuKind,
+    location: BrowserLocation,
+    entry: BrowserEntry,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
-    move |menu, window, _| match kind {
-        FileMenuKind::ArchiveFolder | FileMenuKind::ArchiveFile => {
-            let icon = if kind == FileMenuKind::ArchiveFolder {
-                AppIcon::FolderOpen
-            } else {
-                AppIcon::Doc
-            };
-            menu.item(popup_action(
-                "打开",
-                icon,
-                &app,
-                window,
-                |app, window, cx| app.open_selected(window, cx),
-            ))
-            .item(popup_action(
-                "使用内置查看器打开",
-                AppIcon::Doc,
-                &app,
-                window,
-                |app, window, cx| app.open_selected_in_viewer(window, cx),
-            ))
-            .item(popup_action(
-                "解压到…",
-                AppIcon::Zip,
-                &app,
-                window,
-                |app, window, cx| app.open_extract_dialog(window, cx),
-            ))
-            .separator()
-            .item(popup_action(
-                "复制文件",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_items(cx),
-            ))
-            .item(popup_action(
-                "复制路径",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_path(cx),
-            ))
-            .item(popup_action(
-                "打开压缩包所在目录",
-                AppIcon::Search,
-                &app,
-                window,
-                |app, _, _| app.reveal_selected(),
-            ))
-            .separator()
-            .item(popup_action(
-                "重命名",
-                AppIcon::Edit,
-                &app,
-                window,
-                |app, window, cx| app.start_rename(window, cx),
-            ))
-            .item(popup_action(
-                "删除",
-                AppIcon::Delete,
-                &app,
-                window,
-                |app, _, _| app.request_delete(),
-            ))
-        }
-        FileMenuKind::Folder => menu
-            .item(popup_action(
-                "打开",
-                AppIcon::FolderOpen,
-                &app,
-                window,
-                |app, window, cx| app.open_selected(window, cx),
-            ))
-            .item(popup_action(
-                "在新窗口打开",
-                AppIcon::Grid,
-                &app,
-                window,
-                |app, _, cx| app.open_directory_window(cx),
-            ))
-            .separator()
-            .item(popup_action(
-                "压缩为 Lumark 归档",
-                AppIcon::Compression,
-                &app,
-                window,
-                |app, window, cx| app.open_compress_dialog(window, cx),
-            ))
-            .separator()
-            .item(popup_action(
-                "新建文件夹",
-                AppIcon::FolderPlus,
-                &app,
-                window,
-                |app, window, cx| app.start_new_folder(window, cx),
-            ))
-            .item(popup_action(
-                "复制文件",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_items(cx),
-            ))
-            .item(popup_action(
-                "复制路径",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_path(cx),
-            ))
-            .item(popup_action(
-                "在资源管理器中显示",
-                AppIcon::Search,
-                &app,
-                window,
-                |app, _, _| app.reveal_selected(),
-            ))
-            .separator()
-            .item(popup_action(
-                "重命名",
-                AppIcon::Edit,
-                &app,
-                window,
-                |app, window, cx| app.start_rename(window, cx),
-            ))
-            .item(popup_action(
-                "删除",
-                AppIcon::Delete,
-                &app,
-                window,
-                |app, _, _| app.request_delete(),
-            )),
-        FileMenuKind::ArchiveFileSystem | FileMenuKind::IsoFile => {
-            let menu = menu
-                .item(popup_action(
-                    "用 Lumark 打开",
-                    AppIcon::FolderOpen,
+    move |menu, window, _| {
+        let kind = file_menu_kind(&location, &entry);
+        // 伪装探测只在菜单真正打开时执行；文件行渲染不再逐帧读取文件尾。
+        let disguised = !entry.is_dir
+            && matches!(location, BrowserLocation::FileSystem(_))
+            && ArchiveService::probe_disguise(&entry.path)
+                .ok()
+                .flatten()
+                .is_some();
+        match kind {
+            FileMenuKind::ArchiveFolder | FileMenuKind::ArchiveFile => {
+                let icon = if kind == FileMenuKind::ArchiveFolder {
+                    AppIcon::FolderOpen
+                } else {
+                    AppIcon::Doc
+                };
+                menu.item(popup_action(
+                    "打开",
+                    icon,
                     &app,
                     window,
                     |app, window, cx| app.open_selected(window, cx),
+                ))
+                .item(popup_action(
+                    "使用内置查看器打开",
+                    AppIcon::Doc,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_selected_in_viewer(window, cx),
                 ))
                 .item(popup_action(
                     "解压到…",
@@ -1351,32 +1246,13 @@ fn file_context_menu(
                     |app, _, cx| app.copy_selected_path(cx),
                 ))
                 .item(popup_action(
-                    "在资源管理器中显示",
+                    "打开压缩包所在目录",
                     AppIcon::Search,
                     &app,
                     window,
                     |app, _, _| app.reveal_selected(),
-                ));
-            let menu = if kind == FileMenuKind::IsoFile {
-                menu.separator()
-                    .item(popup_action(
-                        "加载至虚拟光驱",
-                        AppIcon::Download,
-                        &app,
-                        window,
-                        |app, window, cx| app.mount_selected_iso(window, cx),
-                    ))
-                    .item(popup_action(
-                        "卸载虚拟光驱",
-                        AppIcon::Close,
-                        &app,
-                        window,
-                        |app, window, cx| app.unmount_selected_iso(window, cx),
-                    ))
-            } else {
-                menu
-            };
-            menu.separator()
+                ))
+                .separator()
                 .item(popup_action(
                     "重命名",
                     AppIcon::Edit,
@@ -1391,70 +1267,256 @@ fn file_context_menu(
                     window,
                     |app, _, _| app.request_delete(),
                 ))
-        }
-        FileMenuKind::ExecutableFile | FileMenuKind::File => menu
-            .item(popup_action(
-                if kind == FileMenuKind::ExecutableFile {
-                    "运行"
+            }
+            FileMenuKind::Folder => menu
+                .item(popup_action(
+                    "打开",
+                    AppIcon::FolderOpen,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_selected(window, cx),
+                ))
+                .item(popup_action(
+                    "在新窗口打开",
+                    AppIcon::Grid,
+                    &app,
+                    window,
+                    |app, _, cx| app.open_directory_window(cx),
+                ))
+                .separator()
+                .item(popup_action(
+                    "压缩为 Lumark 归档",
+                    AppIcon::Compression,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_compress_dialog(window, cx),
+                ))
+                .item(popup_action(
+                    "伪装压缩…",
+                    AppIcon::Video,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_compress_dialog_for_disguise(window, cx),
+                ))
+                .separator()
+                .item(popup_action(
+                    "新建文件夹",
+                    AppIcon::FolderPlus,
+                    &app,
+                    window,
+                    |app, window, cx| app.start_new_folder(window, cx),
+                ))
+                .item(popup_action(
+                    "复制文件",
+                    AppIcon::Copy,
+                    &app,
+                    window,
+                    |app, _, cx| app.copy_selected_items(cx),
+                ))
+                .item(popup_action(
+                    "复制路径",
+                    AppIcon::Copy,
+                    &app,
+                    window,
+                    |app, _, cx| app.copy_selected_path(cx),
+                ))
+                .item(popup_action(
+                    "在资源管理器中显示",
+                    AppIcon::Search,
+                    &app,
+                    window,
+                    |app, _, _| app.reveal_selected(),
+                ))
+                .separator()
+                .item(popup_action(
+                    "重命名",
+                    AppIcon::Edit,
+                    &app,
+                    window,
+                    |app, window, cx| app.start_rename(window, cx),
+                ))
+                .item(popup_action(
+                    "删除",
+                    AppIcon::Delete,
+                    &app,
+                    window,
+                    |app, _, _| app.request_delete(),
+                )),
+            FileMenuKind::ArchiveFileSystem | FileMenuKind::IsoFile => {
+                let menu = menu
+                    .item(popup_action(
+                        "用 Lumark 打开",
+                        AppIcon::FolderOpen,
+                        &app,
+                        window,
+                        |app, window, cx| app.open_selected(window, cx),
+                    ))
+                    .item(popup_action(
+                        "解压到…",
+                        AppIcon::Zip,
+                        &app,
+                        window,
+                        |app, window, cx| app.open_extract_dialog(window, cx),
+                    ))
+                    .item(popup_action(
+                        "伪装为媒体文件…",
+                        AppIcon::Video,
+                        &app,
+                        window,
+                        |app, window, cx| app.open_disguise_dialog(window, cx),
+                    ))
+                    .separator()
+                    .item(popup_action(
+                        "复制文件",
+                        AppIcon::Copy,
+                        &app,
+                        window,
+                        |app, _, cx| app.copy_selected_items(cx),
+                    ))
+                    .item(popup_action(
+                        "复制路径",
+                        AppIcon::Copy,
+                        &app,
+                        window,
+                        |app, _, cx| app.copy_selected_path(cx),
+                    ))
+                    .item(popup_action(
+                        "在资源管理器中显示",
+                        AppIcon::Search,
+                        &app,
+                        window,
+                        |app, _, _| app.reveal_selected(),
+                    ));
+                let menu = if kind == FileMenuKind::IsoFile {
+                    menu.separator()
+                        .item(popup_action(
+                            "加载至虚拟光驱",
+                            AppIcon::Download,
+                            &app,
+                            window,
+                            |app, window, cx| app.mount_selected_iso(window, cx),
+                        ))
+                        .item(popup_action(
+                            "卸载虚拟光驱",
+                            AppIcon::Close,
+                            &app,
+                            window,
+                            |app, window, cx| app.unmount_selected_iso(window, cx),
+                        ))
                 } else {
-                    "打开"
-                },
-                AppIcon::Doc,
-                &app,
-                window,
-                |app, window, cx| app.open_selected(window, cx),
-            ))
-            .item(popup_action(
-                "使用内置查看器打开",
-                AppIcon::Doc,
-                &app,
-                window,
-                |app, window, cx| app.open_selected_in_viewer(window, cx),
-            ))
-            .item(popup_action(
-                "压缩为 Lumark 归档",
-                AppIcon::Compression,
-                &app,
-                window,
-                |app, window, cx| app.open_compress_dialog(window, cx),
-            ))
-            .separator()
-            .item(popup_action(
-                "复制文件",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_items(cx),
-            ))
-            .item(popup_action(
-                "复制路径",
-                AppIcon::Copy,
-                &app,
-                window,
-                |app, _, cx| app.copy_selected_path(cx),
-            ))
-            .item(popup_action(
-                "在资源管理器中显示",
-                AppIcon::Search,
-                &app,
-                window,
-                |app, _, _| app.reveal_selected(),
-            ))
-            .separator()
-            .item(popup_action(
-                "重命名",
-                AppIcon::Edit,
-                &app,
-                window,
-                |app, window, cx| app.start_rename(window, cx),
-            ))
-            .item(popup_action(
-                "删除",
-                AppIcon::Delete,
-                &app,
-                window,
-                |app, _, _| app.request_delete(),
-            )),
+                    menu
+                };
+                let menu = if disguised {
+                    menu.separator().item(popup_action(
+                        "还原伪装文件",
+                        AppIcon::Unlock,
+                        &app,
+                        window,
+                        |app, window, cx| app.restore_selected_disguise(window, cx),
+                    ))
+                } else {
+                    menu
+                };
+                menu.separator()
+                    .item(popup_action(
+                        "重命名",
+                        AppIcon::Edit,
+                        &app,
+                        window,
+                        |app, window, cx| app.start_rename(window, cx),
+                    ))
+                    .item(popup_action(
+                        "删除",
+                        AppIcon::Delete,
+                        &app,
+                        window,
+                        |app, _, _| app.request_delete(),
+                    ))
+            }
+            FileMenuKind::ExecutableFile | FileMenuKind::File => {
+                let menu = menu
+                    .item(popup_action(
+                        if kind == FileMenuKind::ExecutableFile {
+                            "运行"
+                        } else {
+                            "打开"
+                        },
+                        AppIcon::Doc,
+                        &app,
+                        window,
+                        |app, window, cx| app.open_selected(window, cx),
+                    ))
+                    .item(popup_action(
+                        "使用内置查看器打开",
+                        AppIcon::Doc,
+                        &app,
+                        window,
+                        |app, window, cx| app.open_selected_in_viewer(window, cx),
+                    ))
+                    .item(popup_action(
+                        "压缩为 Lumark 归档",
+                        AppIcon::Compression,
+                        &app,
+                        window,
+                        |app, window, cx| app.open_compress_dialog(window, cx),
+                    ))
+                    .item(popup_action(
+                        "伪装为媒体文件…",
+                        AppIcon::Video,
+                        &app,
+                        window,
+                        |app, window, cx| app.open_disguise_dialog(window, cx),
+                    ));
+                let menu = if disguised {
+                    menu.separator().item(popup_action(
+                        "还原伪装文件",
+                        AppIcon::Unlock,
+                        &app,
+                        window,
+                        |app, window, cx| app.restore_selected_disguise(window, cx),
+                    ))
+                } else {
+                    menu
+                };
+                menu.separator()
+                    .item(popup_action(
+                        "复制文件",
+                        AppIcon::Copy,
+                        &app,
+                        window,
+                        |app, _, cx| app.copy_selected_items(cx),
+                    ))
+                    .item(popup_action(
+                        "复制路径",
+                        AppIcon::Copy,
+                        &app,
+                        window,
+                        |app, _, cx| app.copy_selected_path(cx),
+                    ))
+                    .item(popup_action(
+                        "在资源管理器中显示",
+                        AppIcon::Search,
+                        &app,
+                        window,
+                        |app, _, _| app.reveal_selected(),
+                    ))
+                    .separator()
+                    .item(popup_action(
+                        "重命名",
+                        AppIcon::Edit,
+                        &app,
+                        window,
+                        |app, window, cx| app.start_rename(window, cx),
+                    ))
+                    .item(popup_action(
+                        "删除",
+                        AppIcon::Delete,
+                        &app,
+                        window,
+                        |app, _, _| app.request_delete(),
+                    ))
+            }
+        }
     }
 }
 
@@ -1569,6 +1631,41 @@ mod tests {
         assert_eq!(
             file_menu_kind(&outside, &executable),
             FileMenuKind::ExecutableFile
+        );
+    }
+
+    /// 伪装归档在文件系统里必须归类为可打开归档，菜单才提供打开/解压/还原入口。
+    #[test]
+    fn disguised_archive_is_classified_as_archive_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("hello.txt");
+        std::fs::write(&source, b"hello").unwrap();
+        let output = directory.path().join("cover.jpg");
+        let options = lumark_archive::CompressionOptions {
+            disguise: Some(lumark_archive::DisguiseOptions {
+                mask: lumark_archive::DisguiseMask::PresetImage,
+                original_name: None,
+            }),
+            ..Default::default()
+        };
+        lumark_archive::ArchiveService::create(&output, &[source], &options, |_| {}).unwrap();
+        let disguised = BrowserEntry {
+            id: "fs:cover.jpg".to_string(),
+            name: "cover.jpg".to_string(),
+            path: output,
+            is_dir: false,
+            size: 0,
+            modified: None,
+            kind: String::new(),
+            archive_entry: None,
+            encrypted: false,
+        };
+        assert_eq!(
+            file_menu_kind(
+                &BrowserLocation::FileSystem(directory.path().to_path_buf()),
+                &disguised
+            ),
+            FileMenuKind::ArchiveFileSystem
         );
     }
 

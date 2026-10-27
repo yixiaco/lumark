@@ -9,8 +9,8 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use parking_lot::{Condvar, Mutex};
 
 use lumark_archive::{
-    ArchiveFormat, ArchiveInfo, ArchiveService, CompressionOptions, EditOptions, ExtractionOptions,
-    SevenZCompression,
+    ArchiveFormat, ArchiveInfo, ArchiveService, CompressionOptions, DisguiseFileOptions,
+    EditOptions, ExtractionOptions, SevenZCompression,
 };
 use zeroize::Zeroizing;
 
@@ -111,6 +111,16 @@ pub enum TaskRequest {
         archive: PathBuf,
         password: Option<Zeroizing<String>>,
     },
+    /// 把普通文件批量伪装成媒体外观。
+    Disguise {
+        sources: Vec<PathBuf>,
+        options: DisguiseFileOptions,
+    },
+    /// 把伪装文件还原成原归档或原文件。
+    Restore {
+        archive: PathBuf,
+        output_dir: PathBuf,
+    },
 }
 
 pub struct ResolvedPassword {
@@ -129,6 +139,8 @@ pub struct TaskManager {
     controls: Mutex<std::collections::HashMap<u64, Arc<TaskControl>>>,
     password_results: Arc<Mutex<std::collections::HashMap<u64, ResolvedPassword>>>,
     archive_results: Arc<Mutex<std::collections::HashMap<u64, ArchiveLoadResult>>>,
+    /// 还原任务生成的文件路径，供界面在完成后定位结果。
+    restore_results: Arc<Mutex<std::collections::HashMap<u64, PathBuf>>>,
     next_id: Mutex<u64>,
     /// 工作线程共享的排队队列。
     pool: Arc<PoolState>,
@@ -198,12 +210,22 @@ impl TaskManager {
         });
         let password_results = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let archive_results = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let restore_results = Arc::new(Mutex::new(std::collections::HashMap::new()));
         for _ in 0..workers.max(1) {
             let pool = pool.clone();
             let sender = sender.clone();
             let password_results = password_results.clone();
             let archive_results = archive_results.clone();
-            thread::spawn(move || worker_loop(pool, sender, password_results, archive_results));
+            let restore_results = restore_results.clone();
+            thread::spawn(move || {
+                worker_loop(
+                    pool,
+                    sender,
+                    password_results,
+                    archive_results,
+                    restore_results,
+                )
+            });
         }
         Self {
             sender,
@@ -211,6 +233,7 @@ impl TaskManager {
             controls: Mutex::new(Default::default()),
             password_results,
             archive_results,
+            restore_results,
             next_id: Mutex::new(1),
             pool,
         }
@@ -232,6 +255,11 @@ impl TaskManager {
         self.archive_results.lock().remove(&id)
     }
 
+    /// 取出还原任务生成的文件路径。
+    pub fn take_restore_result(&self, id: u64) -> Option<PathBuf> {
+        self.restore_results.lock().remove(&id)
+    }
+
     pub fn submit(&self, request: TaskRequest) -> u64 {
         let id = {
             let mut next = self.next_id.lock();
@@ -242,8 +270,15 @@ impl TaskManager {
         let control = Arc::new(TaskControl::new());
         self.controls.lock().insert(id, control.clone());
         let (kind, label) = match &request {
-            TaskRequest::Compress { output, .. } => {
-                (TaskKind::Compress, format!("压缩 {}", output.display()))
+            TaskRequest::Compress {
+                output, options, ..
+            } => {
+                let action = if options.disguise.is_some() {
+                    "伪装压缩"
+                } else {
+                    "压缩"
+                };
+                (TaskKind::Compress, format!("{action} {}", output.display()))
             }
             TaskRequest::Extract { archive, .. } => {
                 (TaskKind::Extract, format!("解压 {}", archive.display()))
@@ -268,6 +303,12 @@ impl TaskManager {
             }
             TaskRequest::LoadArchive { archive, .. } => {
                 (TaskKind::LoadArchive, format!("打开 {}", archive.display()))
+            }
+            TaskRequest::Disguise { sources, .. } => {
+                (TaskKind::Disguise, format!("伪装 {} 个文件", sources.len()))
+            }
+            TaskRequest::Restore { archive, .. } => {
+                (TaskKind::Restore, format!("还原 {}", archive.display()))
             }
         };
         let _ = self.sender.send(TaskEvent::Queued { id, kind, label });
@@ -330,6 +371,7 @@ fn run_job(
     sender: &Sender<TaskEvent>,
     password_results: &Mutex<std::collections::HashMap<u64, ResolvedPassword>>,
     archive_results: &Mutex<std::collections::HashMap<u64, ArchiveLoadResult>>,
+    restore_results: &Mutex<std::collections::HashMap<u64, PathBuf>>,
 ) {
     let started = Instant::now();
     let _ = sender.send(TaskEvent::StateChanged {
@@ -403,6 +445,8 @@ fn run_job(
             created.map(|report| {
                 let mut message = if options.sfx {
                     format!("已创建自解压 {}", report.output.display())
+                } else if options.disguise.is_some() {
+                    format!("已创建伪装压缩文件 {}", report.output.display())
                 } else {
                     format!("已创建 {}", report.output.display())
                 };
@@ -580,6 +624,82 @@ fn run_job(
                 format!("已加载 {}", archive.display())
             })
         }
+        TaskRequest::Disguise {
+            sources,
+            mut options,
+        } => {
+            options.cancel = Some(control.cancelled_flag());
+            ArchiveService::disguise_files(&sources, &options, |progress| {
+                control.wait_if_paused();
+                if control.is_cancelled() {
+                    return;
+                }
+                let _ = sender.send(TaskEvent::Progress {
+                    id,
+                    progress: TaskProgress {
+                        current: progress.current,
+                        bytes_done: progress.bytes_done,
+                        bytes_total: progress.bytes_total,
+                        current_file_done: progress.current_bytes_done,
+                        current_file_total: progress.current_bytes_total,
+                        output_bytes: progress.output_bytes,
+                        entries_done: progress.entries_done,
+                        entries_total: progress.entries_total,
+                        speed_bps: speed(progress.bytes_done, started.elapsed().as_secs_f64()),
+                        elapsed_seconds: started.elapsed().as_secs(),
+                        display_bytes: progress.bytes_done,
+                        updated_at: Some(Instant::now()),
+                        recent_speed_bps: 0.0,
+                        chunk_bytes: 0,
+                    },
+                });
+            })
+            .map(|report| {
+                let mut message = format!("已伪装 {} 个文件", report.files);
+                if !report.cleanup_errors.is_empty() {
+                    message.push_str(&format!(
+                        "；{} 个源文件未能删除",
+                        report.cleanup_errors.len()
+                    ));
+                }
+                message
+            })
+        }
+        TaskRequest::Restore {
+            archive,
+            output_dir,
+        } => {
+            let cancel = control.cancelled_flag();
+            ArchiveService::restore_disguise(&archive, &output_dir, Some(&cancel), |progress| {
+                control.wait_if_paused();
+                if control.is_cancelled() {
+                    return;
+                }
+                let _ = sender.send(TaskEvent::Progress {
+                    id,
+                    progress: TaskProgress {
+                        current: progress.current,
+                        bytes_done: progress.bytes_done,
+                        bytes_total: progress.bytes_total,
+                        current_file_done: 0,
+                        current_file_total: 0,
+                        output_bytes: 0,
+                        entries_done: progress.entries_done,
+                        entries_total: progress.entries_total,
+                        speed_bps: speed(progress.bytes_done, started.elapsed().as_secs_f64()),
+                        elapsed_seconds: started.elapsed().as_secs(),
+                        display_bytes: progress.bytes_done,
+                        updated_at: Some(Instant::now()),
+                        recent_speed_bps: 0.0,
+                        chunk_bytes: 0,
+                    },
+                });
+            })
+            .map(|report| {
+                restore_results.lock().insert(id, report.output.clone());
+                format!("已还原为 {}", report.output.display())
+            })
+        }
     }));
     let result = match result {
         Ok(result) => result,
@@ -621,6 +741,7 @@ fn worker_loop(
     sender: Sender<TaskEvent>,
     password_results: Arc<Mutex<std::collections::HashMap<u64, ResolvedPassword>>>,
     archive_results: Arc<Mutex<std::collections::HashMap<u64, ArchiveLoadResult>>>,
+    restore_results: Arc<Mutex<std::collections::HashMap<u64, PathBuf>>>,
 ) {
     while let Some(job) = pool.pop() {
         // 排队期间被取消的任务不启动，直接回传取消事件。
@@ -637,6 +758,7 @@ fn worker_loop(
             &sender,
             &password_results,
             &archive_results,
+            &restore_results,
         );
     }
 }

@@ -41,6 +41,66 @@ mod startup_tests {
         ])
         .expect("unmount iso request");
         assert_eq!(request.mode, StartupMode::UnmountIso);
+
+        let request = StartupRequest::parse(vec![
+            "--restore".to_string(),
+            r"C:\downloads\cover.mp4".to_string(),
+        ])
+        .expect("restore request");
+        assert_eq!(request.mode, StartupMode::Restore);
+    }
+
+    /// 验证还原请求接受任意存在的文件，目标缺失时返回空。
+    #[test]
+    fn restore_request_accepts_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("cover.mp4");
+        std::fs::write(&path, b"not a disguise").unwrap();
+        let request = StartupRequest::parse(vec![
+            "--restore".to_string(),
+            path.to_string_lossy().into_owned(),
+        ])
+        .expect("restore request");
+        assert_eq!(request.mode, StartupMode::Restore);
+        assert_eq!(request.target(), Some(path.as_path()));
+
+        let request = StartupRequest::parse(vec![
+            "--restore".to_string(),
+            directory
+                .path()
+                .join("missing.mp4")
+                .to_string_lossy()
+                .into_owned(),
+        ])
+        .expect("restore request");
+        assert!(request.target().is_none());
+    }
+
+    /// 伪装归档必须被识别为可打开归档，`--open` 能接受它。
+    #[test]
+    fn open_request_accepts_disguised_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("hello.txt");
+        std::fs::write(&source, b"hello disguise").unwrap();
+        let output = directory.path().join("cover.jpg");
+        let options = lumark_archive::CompressionOptions {
+            disguise: Some(lumark_archive::DisguiseOptions {
+                mask: lumark_archive::DisguiseMask::PresetImage,
+                original_name: None,
+            }),
+            ..Default::default()
+        };
+        lumark_archive::ArchiveService::create(&output, &[source], &options, |_| {}).unwrap();
+        assert_eq!(
+            lumark_archive::ArchiveService::detect(&output),
+            lumark_archive::ArchiveFormat::Disguised
+        );
+        let request = StartupRequest::parse(vec![
+            "--open".to_string(),
+            output.to_string_lossy().into_owned(),
+        ])
+        .expect("open request");
+        assert_eq!(request.target(), Some(output.as_path()));
     }
 
     /// 验证 ISO 挂载请求只接受真实存在的 .iso 文件。
@@ -455,6 +515,16 @@ mod ui_tests {
                         "低优先级选项超出 330px 高度：{:?}",
                         low_priority
                     );
+                    assert!(
+                        window.find("compress-window-disguise").visible(),
+                        "轻巧模式未渲染伪装选项"
+                    );
+                    let disguise = window.find("compress-window-disguise").bounds();
+                    assert!(
+                        disguise.origin.x + disguise.size.width <= window_size.width,
+                        "伪装选项超出 600px 窗口：{:?}",
+                        disguise
+                    );
 
                     let select = window.find("compress-format-select");
                     assert!(select.visible(), "压缩格式下拉未渲染");
@@ -520,6 +590,68 @@ mod ui_tests {
                     assert!(
                         window.find("compress-zip-method-select").visible(),
                         "切换到算法选项卡后未渲染压缩方法"
+                    );
+
+                    window.click(("compress-window-tab", 6usize), cx);
+                    window.draw(cx).clear(cx);
+                    assert!(
+                        window.find("classic-disguise").visible(),
+                        "伪装选项卡未渲染开关"
+                    );
+                    assert!(
+                        window.find("compress-disguise-mask").visible(),
+                        "伪装选项卡未渲染面具下拉"
+                    );
+                    assert!(
+                        window.find("classic-disguise-choose-mask").visible(),
+                        "伪装选项卡未渲染选择面具按钮"
+                    );
+                })
+                .unwrap();
+        });
+        let _ = app;
+    }
+
+    #[gpui_kit::test]
+    /// 验证独立伪装窗口渲染源文件、输出目录、面具和开始按钮。
+    fn disguise_window_renders_controls(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("sample.txt");
+        std::fs::write(&source, b"lumark").unwrap();
+        let (app, cx) = cx.add_window_view(|window, cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.open_disguise_dialog_with_sources(vec![source.clone()], window, cx);
+            });
+            window.draw(cx).clear(cx);
+            let handle = app.read(cx).disguise_window.expect("伪装窗口应已打开");
+            handle
+                .update(cx, |_, window, cx| {
+                    window.draw(cx).clear(cx);
+                    assert!(
+                        window.find("disguise-window-output").visible(),
+                        "伪装窗口未渲染输出目录"
+                    );
+                    assert!(
+                        window.find("disguise-window-mask-select").visible(),
+                        "伪装窗口未渲染面具下拉"
+                    );
+                    assert!(
+                        window.find("disguise-window-choose-mask").visible(),
+                        "伪装窗口未渲染选择面具按钮"
+                    );
+                    assert!(
+                        window.find("disguise-window-start").visible(),
+                        "伪装窗口未渲染开始按钮"
                     );
                 })
                 .unwrap();

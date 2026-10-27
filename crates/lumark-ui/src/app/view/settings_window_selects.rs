@@ -49,12 +49,13 @@ const OVERWRITE_OPTIONS: [(OverwritePolicy, &str); 4] = [
 ];
 
 impl SettingsWindowView {
-    /// 按当前设置创建三个下拉状态，并订阅用户的确认操作。
+    /// 按当前设置创建四个下拉状态，并订阅用户的确认操作。
     pub(super) fn new_compression_selects(
         settings: &Settings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (
+        CompressionSelect,
         CompressionSelect,
         CompressionSelect,
         CompressionSelect,
@@ -77,6 +78,12 @@ impl SettingsWindowView {
             cx,
             OVERWRITE_OPTIONS.iter().map(|(_, label)| *label).collect(),
             overwrite_index(settings.overwrite_policy),
+        );
+        let disguise_select = new_select(
+            window,
+            cx,
+            DISGUISE_MASK_LABELS.to_vec(),
+            disguise_mask_index(settings.disguise_mask),
         );
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe(
@@ -113,19 +120,31 @@ impl SettingsWindowView {
                 }
             },
         ));
+        subscriptions.push(cx.subscribe(
+            &disguise_select,
+            |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
+                if let SelectEvent::Confirm(Some(label)) = event {
+                    this.update_app(cx, |app, _| {
+                        app.set_disguise_mask(disguise_mask_from_label(label));
+                    });
+                }
+            },
+        ));
         (
             format_select,
             preset_select,
             overwrite_select,
+            disguise_select,
             subscriptions,
         )
     }
 
-    /// 设置值被外部重置后，把三个下拉的选中项同步回来。
+    /// 设置值被外部重置后，把四个下拉的选中项同步回来。
     pub(super) fn sync_compression_selects(&self, window: &mut Window, cx: &mut Context<Self>) {
         let format = format_index(&self.settings.default_format);
         let preset = preset_index(self.settings.default_preset);
         let overwrite = overwrite_index(self.settings.overwrite_policy);
+        let disguise = disguise_mask_index(self.settings.disguise_mask);
         self.format_select.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::new(format)), window, cx);
         });
@@ -134,6 +153,9 @@ impl SettingsWindowView {
         });
         self.overwrite_select.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::new(overwrite)), window, cx);
+        });
+        self.disguise_select.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::new(disguise)), window, cx);
         });
     }
 }

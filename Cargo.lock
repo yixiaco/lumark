@@ -4981,6 +4981,7 @@ dependencies = [
 name = "lumark-archive"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "brotli",
  "bzip2",
  "chrono",
@@ -4994,6 +4995,7 @@ dependencies = [
  "lumark-sfx",
  "lz4_flex",
  "lzma-rust2 0.22.0",
+ "rand 0.8.8",
  "serde",
  "serde_json",
  "sevenz-rust2 0.24.1",

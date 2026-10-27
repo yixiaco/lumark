@@ -1,6 +1,6 @@
 //! 设置窗口的压缩、文件关联和密码库选项卡。
 use super::super::*;
-use super::components::{AppIcon, choice_select};
+use super::components::{AppIcon, choice_select, hint_text};
 use super::settings_window::{
     SettingsWindowView, settings_card, settings_divider, settings_row, settings_section,
 };
@@ -78,6 +78,61 @@ impl SettingsWindowView {
                     )),
             )
             .child(
+                settings_card(cx)
+                    .p_4()
+                    .gap_3()
+                    .child(settings_section(
+                        cx,
+                        AppIcon::Video,
+                        "伪装压缩",
+                        Some("把归档输出包装成可播放/查看的媒体外观".to_string()),
+                    ))
+                    .child(settings_row(
+                        cx,
+                        "默认启用",
+                        "新建压缩窗口默认勾选伪装；不会影响已提交的任务。",
+                        button("settings-toggle-disguise")
+                            .label(if settings.disguise_enabled {
+                                "已开启"
+                            } else {
+                                "已关闭"
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_app(cx, |app, cx| {
+                                    let next = !app.settings.get().disguise_enabled;
+                                    app.set_disguise_enabled(next);
+                                    cx.notify();
+                                });
+                            })),
+                    ))
+                    .child(settings_divider(cx))
+                    .child(settings_row(
+                        cx,
+                        "默认面具",
+                        "视频/图片使用内置面具；自定义文件跟随其扩展名。",
+                        choice_select(
+                            "settings-disguise-select",
+                            &self.disguise_select,
+                            160.,
+                            "默认伪装面具",
+                        ),
+                    ))
+                    .child(settings_divider(cx))
+                    .child(settings_row(
+                        cx,
+                        "自定义面具",
+                        "仅“自定义文件”时使用；伪装不提供加密。",
+                        button("settings-disguise-choose")
+                            .label("选择文件…")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.choose_disguise_mask(window, cx);
+                            })),
+                    ))
+                    .when_some(settings.disguise_custom_mask.clone(), |this, path| {
+                        this.child(hint_text(cx, format!("当前自定义面具：{}", path.display())))
+                    }),
+            )
+            .child(
                 settings_card(cx).p_4().gap_2().child(
                     div()
                         .text_xs()
@@ -87,6 +142,30 @@ impl SettingsWindowView {
                         ),
                 ),
             )
+    }
+
+    /// 选择自定义面具文件，并写入设置。
+    fn choose_disguise_mask(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("选择伪装面具文件".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let _ = this.update_in(cx, |view, window, cx| {
+                    view.update_app(cx, |app, cx| {
+                        app.set_disguise_custom_mask(path);
+                        cx.notify();
+                    });
+                    view.sync_compression_selects(window, cx);
+                });
+            }
+        })
+        .detach();
     }
 
     /// 渲染“文件关联”选项卡：格式勾选、右键菜单和默认应用入口。

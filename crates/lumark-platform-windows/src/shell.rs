@@ -87,6 +87,11 @@ pub fn register_shell_menu() -> Result<(), PlatformError> {
             "压缩为 Lumark 归档",
             format!("{quoted} --compress \"%1\""),
         ),
+        (
+            "Lumark.Restore",
+            "Lumark 一键还原",
+            format!("{quoted} --restore \"%1\""),
+        ),
     ] {
         write_shell_verb(
             &classes,
@@ -136,6 +141,7 @@ pub fn unregister_shell_menu() -> Result<(), PlatformError> {
         "*\\shell\\Lumark.Open",
         "*\\shell\\Lumark.Extract",
         "*\\shell\\Lumark.Compress",
+        "*\\shell\\Lumark.Restore",
         "Directory\\shell\\Lumark.Compress",
         "Directory\\Background\\shell\\Lumark.Compress",
         "SystemFileAssociations\\.iso\\shell\\Lumark.MountIso",
