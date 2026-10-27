@@ -1360,7 +1360,7 @@ fn file_context_menu(
             let menu = if kind == FileMenuKind::IsoFile {
                 menu.separator()
                     .item(popup_action(
-                        "挂载到虚拟光驱",
+                        "加载至虚拟光驱",
                         AppIcon::Download,
                         &app,
                         window,

@@ -7,7 +7,7 @@ mod startup_tests {
     use super::super::{StartupMode, StartupRequest};
     use std::path::PathBuf;
 
-    /// 验证三种开关都能解析，并且路径原样保留。
+    /// 验证各种启动开关都能解析，并且路径原样保留。
     #[test]
     fn startup_request_parses_mode_and_paths() {
         let request = StartupRequest::parse(vec![
@@ -27,6 +27,41 @@ mod startup_tests {
         ])
         .expect("compress request");
         assert_eq!(request.mode, StartupMode::Compress);
+
+        let request = StartupRequest::parse(vec![
+            "--mount-iso".to_string(),
+            r"C:\images\setup.iso".to_string(),
+        ])
+        .expect("mount iso request");
+        assert_eq!(request.mode, StartupMode::MountIso);
+
+        let request = StartupRequest::parse(vec![
+            "--unmount-iso".to_string(),
+            r"C:\images\setup.iso".to_string(),
+        ])
+        .expect("unmount iso request");
+        assert_eq!(request.mode, StartupMode::UnmountIso);
+    }
+
+    /// 验证 ISO 挂载请求只接受真实存在的 .iso 文件。
+    #[test]
+    fn iso_request_requires_existing_iso_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let iso = directory.path().join("image.iso");
+        std::fs::write(&iso, b"iso").unwrap();
+        let request = StartupRequest::parse(vec![
+            "--mount-iso".to_string(),
+            iso.to_string_lossy().into_owned(),
+        ])
+        .expect("mount iso request");
+        assert_eq!(request.target(), Some(iso.as_path()));
+
+        let request = StartupRequest::parse(vec![
+            "--mount-iso".to_string(),
+            r"C:\images\missing.iso".to_string(),
+        ])
+        .expect("mount iso request");
+        assert!(request.target().is_none());
     }
 
     /// 验证没有路径时不会创建窗口，未知开关按默认浏览处理。

@@ -30,7 +30,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 压缩后关机：压缩窗口可勾选“完成后关闭计算机”，压缩、测试和删除源文件都成功后由系统 `shutdown.exe` 安排 60 秒倒计时关机，期间可用 `shutdown /a` 取消；失败或取消的任务不会关机。
 - CPU 占用：压缩窗口可勾选“降低压缩优先级”，任务运行期间进程以普通以下优先级调度，全部低优先级任务结束后恢复；压缩线程数仍可在算法页单独限制。
 - Windows 当前用户文件关联：可勾选 ZIP、7Z、RAR 等 24 种压缩格式，注册后直接打开 Lumark 的 Windows 默认应用页，由系统确认默认值；同时提供经典右键菜单、Send To、回收站删除和安装/卸载脚本。
-- ISO 虚拟光驱：文件列表右键 ISO 可挂载或卸载，挂载成功后自动打开盘符；使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`，客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。
+- ISO 虚拟光驱：Lumark 文件列表和资源管理器右键菜单都提供“加载至虚拟光驱/卸载虚拟光驱”；挂载成功后自动打开盘符，使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`。客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。资源管理器菜单位于 `HKCU\Software\Classes\SystemFileAssociations\.iso\shell`，升级后需要重新运行安装脚本或 `Lumark.exe --register-shell`。
 - 单实例多窗口：双击或右键打开压缩包时每个文件生成独立窗口，窗口之间共享设置和密码库、各自保留浏览状态，关闭全部窗口后退出进程。
 - 内置只读文本查看器：右键菜单可在独立窗口中查看压缩包内外的文本文件，归档条目自动解压到临时目录后显示，超过 4 MB 或二进制内容会给出提示。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
@@ -182,7 +182,7 @@ cargo test --workspace
 - CPU 限制采用进程优先级而不是百分比硬限速：硬限速会把界面线程一起限流，暂停、取消和进度刷新都会变迟钝；需要更精细控制时使用压缩线程数选项。
 - 7Z 后端继续使用 `sevenz-rust2`：`zesven` 的解压进度、流式和编辑 API 更全，但更年轻（2026 年首版、下载量约为前者 1/27、七个月跨了三个大版本），整体迁移要重写 list/extract/create/edit/probe/verify 并重跑 7-Zip 互操作矩阵；现阶段用读取器包装和编码块完成量补进度（加密归档退回读取进度），等需要“7Z 编辑避免全量重压缩”等能力时再做 spike 评估。
 - LZH 创建复用 `geezipx-core` 的 `LzhWriter`，按预设映射到 lh4/lh5/lh7；该写入器需要把单个文件整块读入内存，因此项目对单条目限制 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
-- ISO 挂载不引入第三方驱动，直接调用系统 `Mount-DiskImage`/`Dismount-DiskImage`；挂载状态在 Lumark 退出后仍由 Windows 保留，卸载入口在 ISO 的右键菜单。第三方软件占用 `.iso` 文件关联不影响该功能，因为它不依赖 Shell 的 mount 动词。
+- ISO 挂载不引入第三方驱动，直接调用系统 `Mount-DiskImage`/`Dismount-DiskImage`；挂载状态在 Lumark 退出后仍由 Windows 保留，卸载入口在 Lumark 文件列表和资源管理器右键菜单。资源管理器入口注册在 `SystemFileAssociations\.iso\shell`，不依赖 `.iso` 当前绑定的 ProgID，因此第三方软件占用文件关联也不影响。
 - Windows 11 稀疏 MSIX/新版菜单、会话锁定和 UI 自动化测试仍在后续阶段。
 - 视频、图片、PDF 压缩按规划暂不实现。
 

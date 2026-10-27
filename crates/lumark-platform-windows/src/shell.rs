@@ -108,6 +108,22 @@ pub fn register_shell_menu() -> Result<(), PlatformError> {
             true,
         )?;
     }
+
+    // ISO 专属菜单放在 SystemFileAssociations 下，不依赖 .iso 当前绑定的
+    // ProgID；即使第三方压缩软件抢占了默认打开方式，也能看到 Lumark 入口。
+    for (verb_key, label, argument) in [
+        ("Lumark.MountIso", "加载至虚拟光驱", "--mount-iso"),
+        ("Lumark.UnmountIso", "卸载虚拟光驱", "--unmount-iso"),
+    ] {
+        write_shell_verb(
+            &classes,
+            &format!("SystemFileAssociations\\.iso\\shell\\{verb_key}"),
+            label,
+            &format!("{quoted} {argument} \"%1\""),
+            &icon,
+            false,
+        )?;
+    }
     notify_shell();
     Ok(())
 }
@@ -122,6 +138,8 @@ pub fn unregister_shell_menu() -> Result<(), PlatformError> {
         "*\\shell\\Lumark.Compress",
         "Directory\\shell\\Lumark.Compress",
         "Directory\\Background\\shell\\Lumark.Compress",
+        "SystemFileAssociations\\.iso\\shell\\Lumark.MountIso",
+        "SystemFileAssociations\\.iso\\shell\\Lumark.UnmountIso",
     ] {
         let _ = hkcu.delete_subkey_all(format!("{classes}\\{key}"));
     }

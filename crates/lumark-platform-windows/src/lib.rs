@@ -22,6 +22,46 @@ pub enum PlatformError {
     Iso(String),
 }
 
+/// 在无控制台进程中显示一个阻塞式消息框。
+///
+/// Shell 触发的挂载/卸载请求可能没有可见窗口，失败时只能通过系统消息框
+/// 告知用户；普通窗口场景仍优先使用状态栏。
+pub fn show_message(title: &str, message: &str, is_error: bool) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MB_SETFOREGROUND, MessageBoxW,
+        };
+
+        let wide = |value: &str| {
+            std::ffi::OsStr::new(value)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>()
+        };
+        let title = wide(title);
+        let message = wide(message);
+        let icon = if is_error {
+            MB_ICONERROR
+        } else {
+            MB_ICONINFORMATION
+        };
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                message.as_ptr(),
+                title.as_ptr(),
+                MB_OK | icon | MB_SETFOREGROUND,
+            );
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        eprintln!("{title}: {message}");
+    }
+}
+
 /// 打开文件夹，或在资源管理器中定位文件。
 pub fn reveal(path: &Path) -> Result<(), PlatformError> {
     let mut command = std::process::Command::new("explorer.exe");

@@ -5,10 +5,7 @@ use lumark_platform_windows::iso as iso_platform;
 
 impl LumarkApp {
     /// 把当前选中的 ISO 挂载为 Windows 虚拟光驱。
-    ///
-    /// 挂载和卷枚举在后台执行，成功后自动打开对应盘符；失败只更新状态栏，
-    /// 不弹阻塞式对话框。已挂载的 ISO 会直接返回现有盘符。
-    pub(crate) fn mount_selected_iso(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn mount_selected_iso(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = self
             .selected_entry()
             .filter(|entry| !entry.is_dir && is_iso_path(&entry.path))
@@ -18,9 +15,27 @@ impl LumarkApp {
             cx.notify();
             return;
         };
+        self.mount_iso_path(path, window, cx);
+    }
+
+    /// 挂载指定 ISO。
+    ///
+    /// 挂载和卷枚举在后台执行，成功后自动打开对应盘符；失败只更新状态栏，
+    /// 不弹阻塞式对话框。已挂载的 ISO 会直接返回现有盘符。
+    pub(crate) fn mount_iso_path(
+        &mut self,
+        path: PathBuf,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !is_iso_path(&path) {
+            self.status = "请选择一个 ISO 文件".to_string();
+            cx.notify();
+            return;
+        }
         self.status = format!("正在挂载 {}…", path.display());
         cx.notify();
-        let mount_path = path.clone();
+        let mount_path = path;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -46,9 +61,7 @@ impl LumarkApp {
     }
 
     /// 卸载当前选中 ISO 对应的虚拟光驱。
-    ///
-    /// 未挂载时按成功处理；后台完成后刷新状态栏。
-    pub(crate) fn unmount_selected_iso(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn unmount_selected_iso(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = self
             .selected_entry()
             .filter(|entry| !entry.is_dir && is_iso_path(&entry.path))
@@ -58,9 +71,25 @@ impl LumarkApp {
             cx.notify();
             return;
         };
+        self.unmount_iso_path(path, window, cx);
+    }
+
+    /// 卸载指定 ISO；未挂载时按成功处理。
+    pub(crate) fn unmount_iso_path(
+        &mut self,
+        path: PathBuf,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !is_iso_path(&path) {
+            self.status = "请选择一个 ISO 文件".to_string();
+            cx.notify();
+            return;
+        }
         self.status = format!("正在卸载 {}…", path.display());
+        let label = path.display().to_string();
         cx.notify();
-        let unmount_path = path.clone();
+        let unmount_path = path;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -68,7 +97,7 @@ impl LumarkApp {
                 .await;
             let _ = this.update_in(cx, |app, _, cx| {
                 match result {
-                    Ok(()) => app.status = format!("已卸载虚拟光驱：{}", path.display()),
+                    Ok(()) => app.status = format!("已卸载虚拟光驱：{label}"),
                     Err(error) => app.status = format!("卸载失败：{error}"),
                 }
                 cx.notify();

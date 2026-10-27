@@ -172,12 +172,15 @@ pub(crate) struct TreeRow {
     expanded: bool,
 }
 
-/// Shell 请求的打开方式，对应 `--open`、`--extract` 和 `--compress`。
+/// Shell 请求的打开方式，对应 `--open`、`--extract`、`--compress`
+/// 以及 ISO 的 `--mount-iso` / `--unmount-iso`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupMode {
     Open,
     Extract,
     Compress,
+    MountIso,
+    UnmountIso,
 }
 
 /// 一个由独立窗口处理的启动请求。
@@ -201,7 +204,7 @@ impl StartupRequest {
         Self::parse_os(arguments.into_iter().map(std::ffi::OsString::from))
     }
 
-    /// 识别三种模式；未知开关忽略，其余参数按路径处理。
+    /// 识别启动模式；未知开关忽略，其余参数按路径处理。
     fn parse_os(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Self> {
         let mut mode = StartupMode::Open;
         let mut paths = Vec::new();
@@ -211,6 +214,8 @@ impl StartupRequest {
                 "--open" => mode = StartupMode::Open,
                 "--extract" => mode = StartupMode::Extract,
                 "--compress" => mode = StartupMode::Compress,
+                "--mount-iso" => mode = StartupMode::MountIso,
+                "--unmount-iso" => mode = StartupMode::UnmountIso,
                 value if value.starts_with('-') => {}
                 _ => paths.push(PathBuf::from(argument)),
             }
@@ -231,6 +236,9 @@ impl StartupRequest {
             .map(PathBuf::as_path)
             .find(|path| match self.mode {
                 StartupMode::Compress => path.exists(),
+                StartupMode::MountIso | StartupMode::UnmountIso => {
+                    path.is_file() && is_iso_path(path)
+                }
                 StartupMode::Open | StartupMode::Extract => path.is_file() && is_archive_path(path),
             })
     }
@@ -778,6 +786,12 @@ impl LumarkApp {
             StartupMode::Open => {
                 self.open_archive_with_auto_password(target, ArchiveOpenIntent::Browse, window, cx);
             }
+            StartupMode::MountIso => {
+                self.mount_iso_path(target, window, cx);
+            }
+            StartupMode::UnmountIso => {
+                self.unmount_iso_path(target, window, cx);
+            }
         }
     }
 
@@ -923,6 +937,38 @@ pub fn run() -> anyhow::Result<()> {
     let _instance = instance;
     let stores = SharedStores::open(SettingsStore::default_path());
     let request = StartupRequest::from_env();
+    // ISO 挂载/卸载由资源管理器菜单触发，只执行动作，不打开主窗口。
+    if let Some(request) = &request
+        && matches!(
+            request.mode,
+            StartupMode::MountIso | StartupMode::UnmountIso
+        )
+    {
+        let Some(path) = request.target().map(Path::to_path_buf) else {
+            platform::show_message("Lumark", "请选择一个有效的 ISO 文件。", true);
+            return Ok(());
+        };
+        match request.mode {
+            StartupMode::MountIso => match platform::iso::mount(&path) {
+                Ok(mounted) => {
+                    if let Some(letter) = mounted.drive_letter {
+                        let drive = PathBuf::from(format!("{letter}:\\"));
+                        let _ = platform::open_default(&drive);
+                    }
+                }
+                Err(error) => {
+                    platform::show_message("Lumark - ISO 挂载失败", &error.to_string(), true);
+                }
+            },
+            StartupMode::UnmountIso => {
+                if let Err(error) = platform::iso::unmount(&path) {
+                    platform::show_message("Lumark - ISO 卸载失败", &error.to_string(), true);
+                }
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
     let mut window_options = window_options(&stores);
     // 资源管理器压缩只需要压缩窗口；主窗口仅作为隐藏的宿主，
     // 压缩窗口关闭或任务结束后再自动退出。

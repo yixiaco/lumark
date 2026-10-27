@@ -626,10 +626,20 @@ impl LumarkApp {
                     // 当前窗口正在查看的压缩包。
                     for arguments in requests {
                         if let Some(request) = StartupRequest::parse(arguments) {
-                            if request.mode == StartupMode::Compress {
-                                app.queue_shell_compress(request.paths);
-                            } else {
-                                app.open_request_window(request, cx);
+                            match request.mode {
+                                StartupMode::Compress => app.queue_shell_compress(request.paths),
+                                StartupMode::MountIso | StartupMode::UnmountIso => {
+                                    if let Some(path) =
+                                        request.target().map(Path::to_path_buf)
+                                    {
+                                        if request.mode == StartupMode::MountIso {
+                                            app.mount_iso_path(path, window, cx);
+                                        } else {
+                                            app.unmount_iso_path(path, window, cx);
+                                        }
+                                    }
+                                }
+                                _ => app.open_request_window(request, cx),
                             }
                         }
                     }
