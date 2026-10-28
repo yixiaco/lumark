@@ -13,6 +13,8 @@ use crate::PlatformError;
 
 /// 归档文件关联的 ProgID。
 const ARCHIVE_PROG_ID: &str = "Lumark.Archive";
+/// 伪装媒体文件的“打开方式”ProgID。
+const MEDIA_PROG_ID: &str = "Lumark.Media";
 /// 注册到默认程序和开机启动项的应用名。
 const APPLICATION_NAME: &str = "Lumark";
 /// Windows 默认程序能力注册表子键。
@@ -47,6 +49,9 @@ pub const ARCHIVE_EXTENSIONS: [&str; 24] = [
     ".tar.lzma",
     ".tar.z",
 ];
+
+/// 添加“打开方式”候选的媒体扩展名；不注册默认关联。
+pub const MEDIA_EXTENSIONS: [&str; 2] = [".mp4", ".jpg"];
 
 /// 为当前用户注册全部文件关联和资源管理器右键菜单。
 pub fn register_current_user() -> Result<(), PlatformError> {
@@ -212,6 +217,33 @@ pub fn register_file_associations(extensions: &[String]) -> Result<(), PlatformE
         }
     }
 
+    let (media_prog_id, _) = classes
+        .create_subkey(MEDIA_PROG_ID)
+        .map_err(registry_error)?;
+    media_prog_id
+        .set_value("", &"Lumark 伪装媒体")
+        .map_err(registry_error)?;
+    let (media_icon, _) = media_prog_id
+        .create_subkey("DefaultIcon")
+        .map_err(registry_error)?;
+    media_icon
+        .set_value("", &icon_reference(&executable))
+        .map_err(registry_error)?;
+    let (media_command, _) = media_prog_id
+        .create_subkey("shell\\open\\command")
+        .map_err(registry_error)?;
+    media_command
+        .set_value("", &command)
+        .map_err(registry_error)?;
+    for extension in MEDIA_EXTENSIONS {
+        let (open_with, _) = classes
+            .create_subkey(format!("{extension}\\OpenWithProgids"))
+            .map_err(registry_error)?;
+        open_with
+            .set_value(MEDIA_PROG_ID, &"")
+            .map_err(registry_error)?;
+    }
+
     let application_key = application_key_name(&executable);
     let (application, _) = classes
         .create_subkey(format!("Applications\\{application_key}"))
@@ -288,6 +320,15 @@ pub fn unregister_file_associations() -> Result<(), PlatformError> {
                 let _ = open_with.delete_value(ARCHIVE_PROG_ID);
             }
         }
+        for extension in MEDIA_EXTENSIONS {
+            if let Ok(open_with) = hkcu.open_subkey_with_flags(
+                format!("Software\\Classes\\{extension}\\OpenWithProgids"),
+                KEY_READ | KEY_SET_VALUE,
+            ) {
+                let _ = open_with.delete_value(MEDIA_PROG_ID);
+            }
+        }
+        let _ = classes.delete_subkey_all(MEDIA_PROG_ID);
         let _ = classes.delete_subkey_all(ARCHIVE_PROG_ID);
         if let Ok(executable) = std::env::current_exe() {
             let _ = classes.delete_subkey_all(format!(
