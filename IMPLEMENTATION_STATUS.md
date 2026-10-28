@@ -84,6 +84,7 @@
 - [x] 10 万项目录性能验收：`bench_100k` 实测目录加载约 167 ms、全量搜索约 75 ms；基准位于 `crates/lumark-browser/examples/bench_100k.rs`。
 - [x] Shell 多选转发：一次请求包含多个归档时，第一个在当前窗口打开，其余各开独立窗口；压缩/伪装仍合并批次。
 - [x] 伪装单遍写入（TAR 系列和 GZ/BZ2/XZ/ZST/Brotli/LZ4）：直接写入伪装容器，仅保留一份输出；ZIP/7Z/LZH/ZPAQ 仍走两遍但共享同一原子提交路径。
+- [x] ZIP 伪装单遍写入：`ZipWriter::new_stream` 直接写入伪装容器，支持 AES/ZipCrypto、进度和取消；剩余 7Z/LZH/ZPAQ 仍走两遍。
 - [x] 媒体扩展名 `.mp4`/`.jpg` 注册 `Lumark.Media` 到 `OpenWithProgids`，只加入“打开方式”候选，不修改系统默认关联。
 - [x] Windows 会话锁定：每 2 秒查询一次会话标志，检测到锁定且密码库需要主密码时自动锁定并清空选中记录；DPAPI-only 密码库保持可用。
 - [x] 卸载数据保留选项：`installer/uninstall.ps1` 默认保留设置和密码库，新增 `-RemoveUserData` 显式删除并输出对应提示。

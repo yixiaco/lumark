@@ -660,7 +660,7 @@ impl<W: Write> Write for DisguiseWriter<W> {
             .as_ref()
             .is_some_and(|flag| flag.load(Ordering::Relaxed))
         {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+            return Err(io::Error::other("cancelled"));
         }
         self.ensure_mask()?;
         let mut obfuscated = buffer.to_vec();

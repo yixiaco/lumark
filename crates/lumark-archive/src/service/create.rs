@@ -16,8 +16,22 @@ impl ArchiveService {
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
         }
-        let file = File::create(output)?;
-        let mut writer = ZipWriter::new(file);
+        Self::create_zip_to(File::create(output)?, output, sources, options, progress)
+    }
+
+    /// 把 ZIP 写入任意写入器，供伪装单遍写入复用。
+    pub(crate) fn create_zip_to<W, F>(
+        destination: W,
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        W: Write,
+        F: FnMut(CreateProgress),
+    {
+        let mut writer = ZipWriter::new_stream(destination);
         if let Some(comment) = &options.comment {
             writer.set_comment(comment.as_str())?;
         }
@@ -172,7 +186,7 @@ impl ArchiveService {
             entries_before: 0,
             entries_total,
             bytes_total,
-            output_bytes: 0,
+            output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
             spans: Vec::new(),
         }));
         let mut writer = ArchiveWriter::new(ChunkTrackingWriter {

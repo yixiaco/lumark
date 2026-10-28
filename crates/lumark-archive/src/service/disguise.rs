@@ -324,7 +324,9 @@ impl ArchiveService {
                 | ArchiveFormat::Brotli
                 | ArchiveFormat::Lz4
         );
-        if direct_tar || direct_stream {
+        let direct_zip = options.format == ArchiveFormat::Zip;
+        if direct_tar || direct_stream || direct_zip {
+            ensure_not_cancelled(&options.cancel)?;
             let mut inner_options = options.clone();
             inner_options.disguise = None;
             inner_options.test_after = false;
@@ -348,8 +350,16 @@ impl ArchiveService {
                         &inner_options,
                         &mut progress,
                     )?
-                } else {
+                } else if direct_stream {
                     Self::create_single_stream_to(
+                        &mut writer,
+                        &staged,
+                        sources,
+                        &inner_options,
+                        &mut progress,
+                    )?
+                } else {
+                    Self::create_zip_to(
                         &mut writer,
                         &staged,
                         sources,
