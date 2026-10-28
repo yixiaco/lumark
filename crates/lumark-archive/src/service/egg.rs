@@ -148,7 +148,13 @@ where
     });
     for entry in entries {
         ensure_not_cancelled(&options.cancel)?;
-        if !selected(&entry.file_name, &options.selected_paths) || entry.is_directory() {
+        if !selected(&entry.file_name, &options.selected_paths) {
+            continue;
+        }
+        if entry.is_directory() {
+            let directory = safe_join(output_dir, &entry.file_name)?;
+            ensure_no_symlink_components(output_dir, &directory)?;
+            fs::create_dir_all(directory)?;
             continue;
         }
         let mut target = safe_join(output_dir, &entry.file_name)?;
