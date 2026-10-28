@@ -115,3 +115,38 @@ fn task_center_shows_aggregate_progress(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 验证任务中心为运行中任务渲染暂停按钮，点击缺少控制器时不 panic。
+#[gpui_kit::test]
+fn task_center_renders_pause_control(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.screen = Screen::Tasks;
+            app.task_records.push(TaskRecord {
+                id: 42,
+                kind: TaskKind::Compress,
+                label: "测试压缩".to_string(),
+                state: TaskState::Running,
+                progress: TaskProgress::default(),
+                message: None,
+            });
+            cx.notify();
+        });
+        window.draw(cx).clear(cx);
+        assert!(window.find("task-pause-42").visible());
+        window.click("task-pause-42", cx);
+        window.draw(cx).clear(cx);
+    });
+    let _ = app;
+}
