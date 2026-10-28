@@ -1,6 +1,7 @@
 //! 页面标签和路径/搜索导航行。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 渲染密码库和任务中心共享的页头横幅。
@@ -8,27 +9,30 @@ impl LumarkApp {
         let (icon, title, caption) = match self.screen {
             Screen::Passwords => (
                 AppIcon::Key,
-                "密码管理",
+                tr("密码管理", "Password manager"),
                 format!(
-                    "{} 条加密记录 · {}",
+                    "{}{} · {}",
                     self.vault.entry_count(),
+                    tr(" 条加密记录", " encrypted records"),
                     if self.vault.state() == VaultState::Locked {
-                        "已锁定"
+                        tr("已锁定", "Locked")
                     } else {
-                        "已解锁"
+                        tr("已解锁", "Unlocked")
                     }
                 ),
             ),
             Screen::Tasks => (
                 AppIcon::List,
-                "任务中心",
+                tr("任务中心", "Task center"),
                 format!(
-                    "{} 个任务 · {} 个进行中",
+                    "{}{} · {}{}",
                     self.task_records.len(),
+                    tr(" 个任务", " tasks"),
                     self.task_records
                         .iter()
                         .filter(|record| !is_terminal_task_state(record.state))
-                        .count()
+                        .count(),
+                    tr(" 个进行中", " running")
                 ),
             ),
             Screen::Browser => unreachable!(),
@@ -77,27 +81,29 @@ impl LumarkApp {
                             .rounded(px(6.))
                             .cursor_pointer()
                             .icon(AppIcon::ArrowLeft.element(15.))
-                            .label("返回文件")
+                            .label(tr("返回文件", "Back to files"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.switch_screen(Screen::Browser);
                                 cx.notify();
                             })),
                     )
                     .child(
-                        icon_button("banner-tasks", AppIcon::List, "任务中心").on_click(
-                            cx.listener(|this, _, _, cx| {
+                        icon_button("banner-tasks", AppIcon::List, tr("任务中心", "Task center"))
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 this.switch_screen(Screen::Tasks);
                                 cx.notify();
-                            }),
-                        ),
+                            })),
                     )
                     .child(
-                        icon_button("banner-theme", AppIcon::Tool, "切换主题").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.cycle_theme(window, cx);
-                                cx.notify();
-                            }),
-                        ),
+                        icon_button(
+                            "banner-theme",
+                            AppIcon::Tool,
+                            tr("切换主题", "Toggle theme"),
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.cycle_theme(window, cx);
+                            cx.notify();
+                        })),
                     ),
             )
     }
@@ -120,9 +126,9 @@ impl LumarkApp {
         let narrow = logical_width < 1100.;
         let search_active = self.search_results.is_some();
         let mode_label = match self.search_mode {
-            SearchMode::Contains => "包含",
-            SearchMode::Wildcard => "通配",
-            SearchMode::Regex => "正则",
+            SearchMode::Contains => tr("包含", "Contains"),
+            SearchMode::Wildcard => tr("通配", "Wildcard"),
+            SearchMode::Regex => tr("正则", "Regex"),
         };
         let contains_checked = self.search_mode == SearchMode::Contains;
         let wildcard_checked = self.search_mode == SearchMode::Wildcard;
@@ -153,9 +159,9 @@ impl LumarkApp {
                                 AppIcon::MenuUnfold
                             },
                             if self.sidebar_visible {
-                                "隐藏文件夹栏"
+                                tr("隐藏文件夹栏", "Hide folder pane")
                             } else {
-                                "显示文件夹栏"
+                                tr("显示文件夹栏", "Show folder pane")
                             },
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -164,8 +170,8 @@ impl LumarkApp {
                         })),
                     )
                     .child(
-                        icon_button("browser-back", AppIcon::ArrowLeft, "后退").on_click(
-                            cx.listener(|this, _, window, cx| {
+                        icon_button("browser-back", AppIcon::ArrowLeft, tr("后退", "Back"))
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 if let Err(error) = this.browser.go_back() {
                                     this.status = error.to_string();
                                 } else {
@@ -178,51 +184,56 @@ impl LumarkApp {
                                     );
                                 }
                                 cx.notify();
-                            }),
-                        ),
+                            })),
                     )
                     .child(
-                        icon_button("browser-forward", AppIcon::ArrowRight, "前进").on_click(
+                        icon_button(
+                            "browser-forward",
+                            AppIcon::ArrowRight,
+                            tr("前进", "Forward"),
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if let Err(error) = this.browser.go_forward() {
+                                this.status = error.to_string();
+                            } else {
+                                this.search_results = None;
+                                set_input(
+                                    &this.location_input,
+                                    this.browser.current_display().as_str(),
+                                    window,
+                                    cx,
+                                );
+                            }
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        icon_button("up", AppIcon::ArrowUp, tr("上一级", "Up")).on_click(
                             cx.listener(|this, _, window, cx| {
-                                if let Err(error) = this.browser.go_forward() {
-                                    this.status = error.to_string();
-                                } else {
-                                    this.search_results = None;
-                                    set_input(
-                                        &this.location_input,
-                                        this.browser.current_display().as_str(),
-                                        window,
-                                        cx,
-                                    );
-                                }
-                                cx.notify();
-                            }),
-                        ),
-                    )
-                    .child(
-                        icon_button("up", AppIcon::ArrowUp, "上一级").on_click(cx.listener(
-                            |this, _, window, cx| {
                                 this.navigate_up(window, cx);
                                 cx.notify();
-                            },
-                        )),
+                            }),
+                        ),
                     )
                     .child(div().w(px(1.)).h(px(20.)).mx_1().bg(cx.theme().border))
                     .child(
-                        icon_button("refresh", AppIcon::Refresh, "刷新").on_click(cx.listener(
-                            |this, _, _, cx| {
+                        icon_button("refresh", AppIcon::Refresh, tr("刷新", "Refresh")).on_click(
+                            cx.listener(|this, _, _, cx| {
                                 this.refresh();
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .child(
-                        icon_button("new-folder", AppIcon::FolderPlus, "新建文件夹").on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.start_new_folder(window, cx);
                                 cx.notify();
                             }),
                         ),
+                    )
+                    .child(
+                        icon_button(
+                            "new-folder",
+                            AppIcon::FolderPlus,
+                            tr("新建文件夹", "New folder"),
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.start_new_folder(window, cx);
+                            cx.notify();
+                        })),
                     )
                     .child(
                         icon_button(
@@ -233,9 +244,9 @@ impl LumarkApp {
                                 AppIcon::Grid
                             },
                             if self.tile_view {
-                                "详细视图"
+                                tr("详细视图", "Details view")
                             } else {
-                                "平铺视图"
+                                tr("平铺视图", "Tile view")
                             },
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -244,11 +255,15 @@ impl LumarkApp {
                         })),
                     )
                     .child(
-                        icon_button("details-toggle-panel", AppIcon::Doc, "显示或隐藏详情")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_details();
-                                cx.notify();
-                            })),
+                        icon_button(
+                            "details-toggle-panel",
+                            AppIcon::Doc,
+                            tr("显示或隐藏详情", "Show or hide details"),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_details();
+                            cx.notify();
+                        })),
                     ),
             )
             .child(
@@ -258,7 +273,7 @@ impl LumarkApp {
                     .input(
                         InputGroupInput::new(&self.location_input)
                             .id("location-input")
-                            .aria_label("当前路径"),
+                            .aria_label(tr("当前路径", "Current path")),
                     )
                     .addon(
                         InputGroupAddon::new("location-icon").child(
@@ -273,8 +288,8 @@ impl LumarkApp {
                             .child(
                                 InputGroupButton::new("go-location")
                                     .cursor_pointer()
-                                    .label("转到")
-                                    .tooltip("打开输入的路径")
+                                    .label(tr("转到", "Go"))
+                                    .tooltip(tr("打开输入的路径", "Open entered path"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.go_location(window, cx);
                                         cx.notify();
@@ -289,7 +304,7 @@ impl LumarkApp {
                     .input(
                         InputGroupInput::new(&self.search_input)
                             .id("search-input")
-                            .aria_label("搜索名称或通配符"),
+                            .aria_label(tr("搜索名称或通配符", "Search names or wildcards")),
                     )
                     .addon(
                         InputGroupAddon::new("search-icon").child(
@@ -304,8 +319,8 @@ impl LumarkApp {
                             .child(
                                 InputGroupButton::new("search-run")
                                     .cursor_pointer()
-                                    .label("搜索")
-                                    .tooltip("在当前目录搜索")
+                                    .label(tr("搜索", "Search"))
+                                    .tooltip(tr("在当前目录搜索", "Search current folder"))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.run_search(cx);
                                         cx.notify();
@@ -320,13 +335,16 @@ impl LumarkApp {
                     .rounded(px(6.))
                     .cursor_pointer()
                     .label(if narrow {
-                        "高级".to_string()
+                        tr("高级", "Advanced").to_string()
                     } else {
-                        format!("高级 · {mode_label}")
+                        format!("{} · {mode_label}", tr("高级", "Advanced"))
                     })
                     .dropdown_caret(true)
-                    .tooltip("选择搜索匹配方式：包含、通配符、正则")
-                    .accessibility_label("高级搜索模式")
+                    .tooltip(tr(
+                        "选择搜索匹配方式：包含、通配符、正则",
+                        "Choose search mode: contains, wildcard or regex",
+                    ))
+                    .accessibility_label(tr("高级搜索模式", "Advanced search mode"))
                     .dropdown_menu_with_anchor(
                         gpui_kit::Anchor::TopRight,
                         move |menu, window, _| {
@@ -334,37 +352,49 @@ impl LumarkApp {
                             let app_wildcard = app.clone();
                             let app_regex = app.clone();
                             menu.item(
-                                PopupMenuItem::new("包含")
+                                PopupMenuItem::new(tr("包含", "Contains"))
                                     .checked(contains_checked)
                                     .on_click(window.listener_for(
                                         &app_contains,
                                         |app, _: &gpui_kit::ClickEvent, _, cx| {
                                             app.search_mode = SearchMode::Contains;
-                                            app.status = "搜索匹配方式：包含".to_string();
+                                            app.status = format!(
+                                                "{}{}",
+                                                tr("搜索匹配方式：", "Search mode: "),
+                                                tr("包含", "Contains")
+                                            );
                                             cx.notify();
                                         },
                                     )),
                             )
                             .item(
-                                PopupMenuItem::new("通配符")
+                                PopupMenuItem::new(tr("通配符", "Wildcard"))
                                     .checked(wildcard_checked)
                                     .on_click(window.listener_for(
                                         &app_wildcard,
                                         |app, _: &gpui_kit::ClickEvent, _, cx| {
                                             app.search_mode = SearchMode::Wildcard;
-                                            app.status = "搜索匹配方式：通配符".to_string();
+                                            app.status = format!(
+                                                "{}{}",
+                                                tr("搜索匹配方式：", "Search mode: "),
+                                                tr("通配符", "Wildcard")
+                                            );
                                             cx.notify();
                                         },
                                     )),
                             )
                             .item(
-                                PopupMenuItem::new("正则表达式")
+                                PopupMenuItem::new(tr("正则表达式", "Regex"))
                                     .checked(regex_checked)
                                     .on_click(window.listener_for(
                                         &app_regex,
                                         |app, _: &gpui_kit::ClickEvent, _, cx| {
                                             app.search_mode = SearchMode::Regex;
-                                            app.status = "搜索匹配方式：正则表达式".to_string();
+                                            app.status = format!(
+                                                "{}{}",
+                                                tr("搜索匹配方式：", "Search mode: "),
+                                                tr("正则表达式", "Regex")
+                                            );
                                             cx.notify();
                                         },
                                     )),
@@ -380,8 +410,8 @@ impl LumarkApp {
                         .rounded(px(6.))
                         .cursor_pointer()
                         .icon(AppIcon::Close.element(14.))
-                        .tooltip("清除搜索")
-                        .accessibility_label("清除搜索")
+                        .tooltip(tr("清除搜索", "Clear search"))
+                        .accessibility_label(tr("清除搜索", "Clear search"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.search_results = None;
                             cx.notify();
