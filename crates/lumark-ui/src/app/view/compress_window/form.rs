@@ -1,6 +1,7 @@
 //! 压缩窗口表单动作、校验和任务提交。
 
 use super::*;
+use crate::i18n::tr;
 
 impl CompressWindowView {
     /// 刷新格式并把输出输入的扩展名同步过去。
@@ -42,15 +43,25 @@ impl CompressWindowView {
             let extension = disguise_extension(self.disguise_mask, self.disguise_custom.as_deref())
                 .unwrap_or_else(|| "mp4".to_string());
             return format!(
-                "输出扩展名 .{extension}（内层 .{}）",
-                self.format.extension()
+                "{}.{extension}{}.{}{}",
+                tr("输出扩展名 ", "Output extension "),
+                tr("（内层 ", " (inner "),
+                self.format.extension(),
+                tr("）", ")")
             );
         }
         let extension = self.format.extension();
         if !single_stream_allowed(&self.sources) && extension.starts_with("tar") {
-            format!("扩展名 .{extension}（多文件源用 TAR 变体）")
+            format!(
+                "{}.{extension}{}",
+                tr("扩展名 ", "Extension "),
+                tr(
+                    "（多文件源用 TAR 变体）",
+                    " (TAR variant for multiple sources)"
+                )
+            )
         } else {
-            format!("扩展名 .{extension}")
+            format!("{}.{extension}", tr("扩展名 ", "Extension "))
         }
     }
 
@@ -106,7 +117,7 @@ impl CompressWindowView {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("选择压缩包输出目录".into()),
+            prompt: Some(tr("选择压缩包输出目录", "Choose archive output folder").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await
@@ -132,7 +143,13 @@ impl CompressWindowView {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("选择自解压图标（.ico）".into()),
+            prompt: Some(
+                tr(
+                    "选择自解压图标（.ico）",
+                    "Choose self-extractor icon (.ico)",
+                )
+                .into(),
+            ),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await
@@ -150,7 +167,7 @@ impl CompressWindowView {
     /// 关闭压缩窗口，不改动主应用已经提交的任务。
     pub(super) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.app.update(cx, |app, cx| {
-            app.status = "已取消压缩".to_string();
+            app.status = tr("已取消压缩", "Compression cancelled").to_string();
             cx.notify();
         });
         window.remove_window();
@@ -160,12 +177,12 @@ impl CompressWindowView {
     pub(super) fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut output = PathBuf::from(input_value(&self.output, cx));
         if output.as_os_str().is_empty() {
-            self.error = Some("请输入输出路径".to_string());
+            self.error = Some(tr("请输入输出路径", "Enter an output path").to_string());
             cx.notify();
             return;
         }
         if self.sources.is_empty() {
-            self.error = Some("当前没有可压缩的项目".to_string());
+            self.error = Some(tr("当前没有可压缩的项目", "No items to compress").to_string());
             cx.notify();
             return;
         }
@@ -176,11 +193,16 @@ impl CompressWindowView {
                 .format
                 .single_stream_tar_variant()
                 .map(|format| format.label())
-                .unwrap_or("TAR 归档");
+                .unwrap_or(tr("TAR 归档", "TAR archive"));
             self.error = Some(format!(
-                "{} 只能压缩一个普通文件；压缩多个文件或文件夹请改用 {}。",
+                "{}{}{}{}",
                 self.format.label(),
-                suggestion
+                tr(
+                    " 只能压缩一个普通文件；压缩多个文件或文件夹请改用 ",
+                    " can only compress one regular file; use "
+                ),
+                suggestion,
+                tr("。", " for multiple files or folders.")
             ));
             cx.notify();
             return;
@@ -202,7 +224,13 @@ impl CompressWindowView {
         // 自解压支持 ZIP/7Z 和密码；分卷与伪装仍不支持。
         let sfx = self.sfx && matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip);
         if sfx && disguise.is_some() {
-            self.error = Some("自解压与伪装不能同时启用".to_string());
+            self.error = Some(
+                tr(
+                    "自解压与伪装不能同时启用",
+                    "Self-extraction and disguise cannot be enabled together",
+                )
+                .to_string(),
+            );
             cx.notify();
             return;
         }
@@ -218,12 +246,24 @@ impl CompressWindowView {
             Err(_) => None,
         };
         if sfx && split_size.is_some_and(|size| size >= 64 * 1024) {
-            self.error = Some("自解压不支持分卷".to_string());
+            self.error = Some(
+                tr(
+                    "自解压不支持分卷",
+                    "Self-extraction does not support volumes",
+                )
+                .to_string(),
+            );
             cx.notify();
             return;
         }
         if disguise.is_some() && split_size.is_some_and(|size| size >= 64 * 1024) {
-            self.error = Some("伪装不支持分卷，请先清空分卷大小".to_string());
+            self.error = Some(
+                tr(
+                    "伪装不支持分卷，请先清空分卷大小",
+                    "Disguise does not support volumes; clear the volume size first",
+                )
+                .to_string(),
+            );
             cx.notify();
             return;
         }
@@ -241,7 +281,13 @@ impl CompressWindowView {
                     .extension()
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("ico"))
             {
-                self.error = Some("自解压图标必须是 .ico 文件".to_string());
+                self.error = Some(
+                    tr(
+                        "自解压图标必须是 .ico 文件",
+                        "Self-extractor icon must be an .ico file",
+                    )
+                    .to_string(),
+                );
                 cx.notify();
                 return;
             }
@@ -318,11 +364,23 @@ impl CompressWindowView {
         if self.format == ArchiveFormat::SevenZip {
             let encoder = self.dictionary_mb.saturating_mul(10) + self.word_size;
             let decoder = self.dictionary_mb + 2;
-            format!("压缩所需内存：约 {encoder} MB；解压所需内存：约 {decoder} MB")
+            format!(
+                "{}{encoder} MB{} {decoder} MB",
+                tr("压缩所需内存：约 ", "Compression memory: about "),
+                tr("；解压所需内存：约 ", "; extraction memory: about ")
+            )
         } else if self.format == ArchiveFormat::Zip {
-            "ZIP Deflate 使用固定内存；LZMA/BZip2 方法会额外占用少量内存。".to_string()
+            tr(
+                "ZIP Deflate 使用固定内存；LZMA/BZip2 方法会额外占用少量内存。",
+                "ZIP Deflate uses fixed memory; LZMA/BZip2 use a little extra.",
+            )
+            .to_string()
         } else {
-            "该格式由流编码器处理，内存占用较小。".to_string()
+            tr(
+                "该格式由流编码器处理，内存占用较小。",
+                "This format is handled by a streaming encoder and uses little memory.",
+            )
+            .to_string()
         }
     }
     /// 在轻巧和经典布局之间切换，并调整窗口尺寸。
