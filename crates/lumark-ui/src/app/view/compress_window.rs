@@ -637,7 +637,12 @@ impl CompressWindowView {
             let replacement = if enabled {
                 replace_disguise_extension(&current, &self.disguise_output_extension())
             } else {
-                replace_archive_extension(&current, self.format)
+                // 关闭伪装时先剥掉当前面具扩展名，避免留下 `photos.mp4.zip`。
+                replace_mask_extension(
+                    &current,
+                    Some(&self.disguise_output_extension()),
+                    self.format.extension(),
+                )
             };
             set_input(
                 &self.output,
@@ -656,6 +661,9 @@ impl CompressWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 先记录旧面具扩展名，自定义面具可以是任意扩展名，需要显式剥离。
+        let previous_extension =
+            disguise_extension(self.disguise_mask, self.disguise_custom.as_deref());
         self.disguise_mask = preference;
         let index = disguise_mask_index(preference);
         self.disguise_select.update(cx, |state, cx| {
@@ -664,8 +672,11 @@ impl CompressWindowView {
         if self.disguise {
             let current = PathBuf::from(input_value(&self.output, cx));
             if !current.as_os_str().is_empty() {
-                let replacement =
-                    replace_disguise_extension(&current, &self.disguise_output_extension());
+                let replacement = replace_mask_extension(
+                    &current,
+                    previous_extension.as_deref(),
+                    &self.disguise_output_extension(),
+                );
                 set_input(
                     &self.output,
                     replacement.to_string_lossy().as_ref(),

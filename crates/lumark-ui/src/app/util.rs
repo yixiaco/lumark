@@ -327,13 +327,14 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     }
 }
 
-/// 去掉文件名末尾的归档扩展名，返回主名。
+/// 去掉文件名末尾的归档、面具或自解压扩展名，返回主名。
 ///
-/// 复合扩展名（`.tar.gz` 等）优先整体剥离，避免切换格式或切换伪装时把
-/// `backup.tar.gz` 变成 `backup.tar.mp4`。
-fn strip_archive_extension(name: &str) -> &str {
-    let lower = name.to_ascii_lowercase();
-    [
+/// 反复剥离已知后缀可以同时处理复合扩展名（`.tar.gz`）和用户多次切换
+/// 格式/面具留下的历史后缀（例如旧版本产生的 `photos.mp4.mp4`），避免
+/// 每次替换都再追加一层。只剥离已知后缀，因此 `my.photos` 这类带点的
+/// 主名不会被误伤。
+fn strip_output_extension(name: &str) -> &str {
+    const SUFFIXES: [&str; 46] = [
         ".tar.lzma",
         ".tar.lz4",
         ".tar.zst",
@@ -361,34 +362,105 @@ fn strip_archive_extension(name: &str) -> &str {
         ".zst",
         ".br",
         ".lz4",
-    ]
-    .iter()
-    .find_map(|suffix| {
-        lower
-            .strip_suffix(suffix)
-            .map(|_| &name[..name.len() - suffix.len()])
-    })
-    .unwrap_or(name)
+        ".exe",
+        ".mp4",
+        ".m4v",
+        ".mov",
+        ".mkv",
+        ".avi",
+        ".webm",
+        ".mp3",
+        ".flac",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".aac",
+        ".wav",
+        ".ogg",
+        ".pdf",
+    ];
+    let mut stem = name;
+    loop {
+        let lower = stem.to_ascii_lowercase();
+        let Some(suffix) = SUFFIXES.iter().find(|suffix| lower.ends_with(*suffix)) else {
+            break;
+        };
+        let next = &stem[..stem.len() - suffix.len()];
+        if next.is_empty() || next == "." || next == ".." {
+            break;
+        }
+        stem = next;
+    }
+    stem
+}
+
+/// 判断文件名是否已经以指定扩展名结尾（大小写不敏感）。
+fn ends_with_extension(name: &str, extension: &str) -> bool {
+    name.to_ascii_lowercase()
+        .ends_with(&format!(".{}", extension.to_ascii_lowercase()))
 }
 
 /// 用户切换归档格式时替换输出文件扩展名。
+///
+/// 会先剥掉归档、面具或 `.exe` 后缀，因此从伪装/自解压状态关闭时不会
+/// 产生 `photos.mp4.zip` 这样的叠加扩展名。
 pub(crate) fn replace_archive_extension(path: &Path, format: ArchiveFormat) -> PathBuf {
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("archive");
-    let stripped = strip_archive_extension(name);
+    let stripped = strip_output_extension(name);
     path.with_file_name(format!("{stripped}.{}", format.extension()))
 }
 
 /// 把输出扩展名替换为面具扩展名，用于开启伪装时同步文件名。
+///
+/// 输出名已经是“主名 + 目标扩展名”时原样返回，避免“压缩按钮按一次多一层
+/// `.mp4`”；历史版本留下的 `photos.mp4.mp4` 会先剥离重复后缀再归一化。
 pub(crate) fn replace_disguise_extension(path: &Path, extension: &str) -> PathBuf {
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("archive");
-    let stripped = strip_archive_extension(name);
+    let stripped = strip_output_extension(name);
+    let suffix = format!(".{extension}");
+    if name.len() == stripped.len() + suffix.len()
+        && name[stripped.len()..].eq_ignore_ascii_case(&suffix)
+    {
+        return path.to_path_buf();
+    }
     path.with_file_name(format!("{stripped}.{extension}"))
+}
+
+/// 替换面具扩展名，优先剥离调用方已知的上一次面具后缀。
+///
+/// 预设面具和常见媒体扩展名可以由 [`strip_output_extension`] 处理；自定义
+/// 面具可能是任意扩展名，因此这里显式传入旧扩展名，避免切换自定义面具时
+/// 变成 `photos.xyz.abc`。
+pub(crate) fn replace_mask_extension(
+    path: &Path,
+    previous_extension: Option<&str>,
+    extension: &str,
+) -> PathBuf {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("archive");
+    if ends_with_extension(name, extension) {
+        return replace_disguise_extension(path, extension);
+    }
+    if let Some(previous) = previous_extension {
+        let suffix = format!(".{}", previous.to_ascii_lowercase());
+        let lower = name.to_ascii_lowercase();
+        if lower.ends_with(&suffix) {
+            let stem = &name[..name.len() - suffix.len()];
+            return path.with_file_name(format!("{stem}.{extension}"));
+        }
+    }
+    replace_disguise_extension(path, extension)
 }
 
 /// 把设置中的面具偏好解析为具体面具。
@@ -857,6 +929,49 @@ mod tests {
         assert_eq!(
             replace_disguise_extension(Path::new(r"C:\data\backup"), "mp4"),
             PathBuf::from(r"C:\data\backup.mp4")
+        );
+    }
+
+    /// 回归：伪装输出不能再重复追加 `.mp4`，关闭伪装也不能留下叠加后缀。
+    #[test]
+    fn disguise_extension_is_not_appended_repeatedly() {
+        // 已经是目标扩展名：保持原样，这是“压缩一次多一个 .mp4”的直接回归点。
+        assert_eq!(
+            replace_disguise_extension(Path::new(r"C:\data\photos.mp4"), "mp4"),
+            PathBuf::from(r"C:\data\photos.mp4")
+        );
+        // 历史版本留下的多层后缀：一次归一化。
+        assert_eq!(
+            replace_disguise_extension(Path::new(r"C:\data\photos.mp4.mp4"), "mp4"),
+            PathBuf::from(r"C:\data\photos.mp4")
+        );
+        // 切换面具：替换而不是追加。
+        assert_eq!(
+            replace_disguise_extension(Path::new(r"C:\data\photos.mp4"), "jpg"),
+            PathBuf::from(r"C:\data\photos.jpg")
+        );
+        // 带点的主名不能被误伤。
+        assert_eq!(
+            replace_disguise_extension(Path::new(r"C:\data\my.photos"), "mp4"),
+            PathBuf::from(r"C:\data\my.photos.mp4")
+        );
+        // 关闭伪装/切换归档格式：剥掉面具或自解压后缀。
+        assert_eq!(
+            replace_archive_extension(Path::new(r"C:\data\photos.mp4"), ArchiveFormat::Zip),
+            PathBuf::from(r"C:\data\photos.zip")
+        );
+        assert_eq!(
+            replace_archive_extension(Path::new(r"C:\data\photos.exe"), ArchiveFormat::Zip),
+            PathBuf::from(r"C:\data\photos.zip")
+        );
+        // 自定义面具切换：显式剥离旧扩展名。
+        assert_eq!(
+            replace_mask_extension(Path::new(r"C:\data\photos.xyz"), Some("xyz"), "abc"),
+            PathBuf::from(r"C:\data\photos.abc")
+        );
+        assert_eq!(
+            replace_mask_extension(Path::new(r"C:\data\photos.jpg"), Some("jpg"), "mp4"),
+            PathBuf::from(r"C:\data\photos.mp4")
         );
     }
 }
