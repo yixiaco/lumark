@@ -1,6 +1,7 @@
 //! 归档打开、条目查看和后台加载。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 先把一个归档条目解压到受控临时目录，再交给系统默认应用打开。
@@ -56,7 +57,11 @@ impl LumarkApp {
                 self.pending_unlock_archive = Some(archive);
                 self.show_unlock_for_extract = true;
                 self.unlock_for_browse = true;
-                self.status = "压缩包已加密，解锁密码库后将尝试记录密码".to_string();
+                self.status = tr(
+                    "压缩包已加密，解锁密码库后将尝试记录密码",
+                    "Archive is encrypted; saved passwords will be tried after unlocking the vault",
+                )
+                .to_string();
                 return;
             } else {
                 let action = PendingPasswordAction::OpenEntry {
@@ -84,7 +89,11 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         if self.pending_open_entry.is_some() {
-            self.status = "请等待当前归档条目准备完成".to_string();
+            self.status = tr(
+                "请等待当前归档条目准备完成",
+                "Wait for the current archive entry to finish preparing",
+            )
+            .to_string();
             return;
         }
         let temporary = std::env::temp_dir()
@@ -107,7 +116,11 @@ impl LumarkApp {
         });
         self.active_task = Some(id);
         self.task_progress = None;
-        self.status = "正在准备打开归档条目…".to_string();
+        self.status = tr(
+            "正在准备打开归档条目…",
+            "Preparing to open archive entry...",
+        )
+        .to_string();
         let _ = window;
         let _ = cx;
     }
@@ -118,15 +131,27 @@ impl LumarkApp {
             self.pending_open_target = Some(target);
             self.show_open_executable_confirm = true;
             self.status = format!(
-                "归档条目已解压到临时目录：{}；打开可执行文件前需要确认",
-                temporary.display()
+                "{}{}{}",
+                tr(
+                    "归档条目已解压到临时目录：",
+                    "Archive entry extracted to temporary folder: "
+                ),
+                temporary.display(),
+                tr(
+                    "；打开可执行文件前需要确认",
+                    "; confirmation is required before opening an executable"
+                )
             );
             return;
         }
         let _ = std::process::Command::new("explorer.exe")
             .arg(&target)
             .spawn();
-        self.status = format!("已解压到临时目录：{}", temporary.display());
+        self.status = format!(
+            "{}{}",
+            tr("已解压到临时目录：", "Extracted to temporary folder: "),
+            temporary.display()
+        );
     }
 
     /// 执行此前已确认的归档可执行文件或脚本。
@@ -139,7 +164,11 @@ impl LumarkApp {
             let _ = std::process::Command::new("explorer.exe")
                 .arg(target)
                 .spawn();
-            self.status = "已按用户确认打开归档中的可执行文件".to_string();
+            self.status = tr(
+                "已按用户确认打开归档中的可执行文件",
+                "Opened the archive executable after confirmation",
+            )
+            .to_string();
         }
         self.show_open_executable_confirm = false;
     }
@@ -172,7 +201,7 @@ impl LumarkApp {
                             self.pending_unlock_archive = Some(archive);
                             self.show_unlock_for_extract = true;
                             self.unlock_for_browse = intent == ArchiveOpenIntent::Browse;
-                            self.status = "压缩包已加密，解锁密码库后将尝试记录密码".to_string();
+                            self.status = tr("压缩包已加密，解锁密码库后将尝试记录密码", "Archive is encrypted; saved passwords will be tried after unlocking the vault").to_string();
                             return;
                         }
                         VaultState::Uninitialized => {}
@@ -216,7 +245,7 @@ impl LumarkApp {
             .insert(id, PendingPasswordAction::OpenArchive { archive, intent });
         self.active_task = Some(id);
         self.task_progress = None;
-        self.status = "正在读取归档目录…".to_string();
+        self.status = tr("正在读取归档目录…", "Reading archive contents...").to_string();
     }
 
     /// 把已加载归档安装到浏览器，并完成待处理操作。
@@ -279,7 +308,7 @@ impl LumarkApp {
                         cx,
                     );
                 } else {
-                    self.status = format!("已打开 {}", archive.display());
+                    self.status = format!("{}{}", tr("已打开 ", "Opened "), archive.display());
                 }
             }
             Err(error) => {

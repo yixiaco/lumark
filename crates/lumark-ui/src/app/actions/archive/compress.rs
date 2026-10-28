@@ -1,6 +1,7 @@
 //! 压缩窗口打开、输出目录选择和任务提交。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 为所选源生成默认输出名，并重置压缩字段。
@@ -22,7 +23,7 @@ impl LumarkApp {
         let mut seen = std::collections::HashSet::new();
         sources.retain(|path| path.exists() && seen.insert(path.clone()));
         let Some(first) = sources.first() else {
-            self.status = "当前没有可压缩的项目".to_string();
+            self.status = tr("当前没有可压缩的项目", "No items to compress").to_string();
             return;
         };
         let settings = self.settings.get();
@@ -82,7 +83,11 @@ impl LumarkApp {
         self.compress_zipcrypto = false;
         self.compress_password_visible = false;
         self.show_compress = false;
-        self.status = format!("准备压缩 {} 个项目", sources.len());
+        self.status = format!(
+            "{}{}",
+            tr("准备压缩 ", "Preparing to compress "),
+            sources.len()
+        );
         self.open_compress_window_for_sources(sources, window, cx);
     }
 
@@ -123,7 +128,7 @@ impl LumarkApp {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("选择压缩包输出目录".into()),
+            prompt: Some(tr("选择压缩包输出目录", "Choose archive output folder").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await
@@ -162,7 +167,7 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         if sources.is_empty() {
-            self.status = "当前没有可压缩的项目".to_string();
+            self.status = tr("当前没有可压缩的项目", "No items to compress").to_string();
             return;
         }
         // 记住勾选状态，下次打开压缩窗口时沿用。
@@ -183,7 +188,7 @@ impl LumarkApp {
         let sfx_stub = if options.sfx { sfx_stub_path() } else { None };
         if options.sfx && sfx_stub.is_none() {
             self.status =
-                "找不到自解压运行时模块 lumark-sfx.exe，请先构建 lumark-sfx 或重新安装 Lumark"
+                tr("找不到自解压运行时模块 lumark-sfx.exe，请先构建 lumark-sfx 或重新安装 Lumark", "Self-extractor runtime lumark-sfx.exe was not found; build lumark-sfx or reinstall Lumark")
                     .to_string();
             return;
         }
@@ -208,7 +213,11 @@ impl LumarkApp {
         }
         let label = format!(
             "{} {}",
-            if disguised { "伪装压缩" } else { "压缩" },
+            if disguised {
+                tr("伪装压缩", "Disguised compression")
+            } else {
+                tr("压缩", "Compression")
+            },
             output.display()
         );
         self.record_task_queued(id, TaskKind::Compress, label.clone());
@@ -218,9 +227,23 @@ impl LumarkApp {
         self.task_progress = None;
         self.show_compress = false;
         self.status = match priority_error {
-            Some(error) => format!("开始压缩：{}（降低优先级失败：{error}）", output.display()),
-            None if disguised => format!("开始伪装压缩：{}", output.display()),
-            None => format!("开始压缩：{}", output.display()),
+            Some(error) => format!(
+                "{}{}{}{error}{}",
+                tr("开始压缩：", "Starting compression: "),
+                output.display(),
+                tr("（降低优先级失败：", " (failed to lower priority: "),
+                tr("）", ")")
+            ),
+            None if disguised => format!(
+                "{}{}",
+                tr("开始伪装压缩：", "Starting disguised compression: "),
+                output.display()
+            ),
+            None => format!(
+                "{}{}",
+                tr("开始压缩：", "Starting compression: "),
+                output.display()
+            ),
         };
         // 先创建进度窗口，避免短任务在首次轮询前就结束而只看到 100%。
         self.open_auto_progress_window_for(id, window, cx);
@@ -239,7 +262,14 @@ impl LumarkApp {
             return;
         }
         if let Err(error) = platform::process::set_low_priority(false) {
-            self.status = format!("{}；恢复进程优先级失败：{error}", self.status);
+            self.status = format!(
+                "{}{}{error}",
+                self.status,
+                tr(
+                    "；恢复进程优先级失败：",
+                    "; failed to restore process priority: "
+                )
+            );
         }
     }
 
@@ -248,12 +278,12 @@ impl LumarkApp {
     pub(crate) fn start_compress(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let output = PathBuf::from(input_value(&self.compress_output, cx));
         if output.as_os_str().is_empty() {
-            self.status = "请输入输出路径".to_string();
+            self.status = tr("请输入输出路径", "Enter an output path").to_string();
             return;
         }
         let sources = self.selected_sources();
         if sources.is_empty() {
-            self.status = "当前没有可压缩的项目".to_string();
+            self.status = tr("当前没有可压缩的项目", "No items to compress").to_string();
             return;
         }
         let password = input_value(&self.compress_password, cx);
@@ -308,7 +338,11 @@ impl LumarkApp {
         self.active_task = Some(id);
         self.task_progress = None;
         self.show_compress = false;
-        self.status = format!("开始压缩：{}", output.display());
+        self.status = format!(
+            "{}{}",
+            tr("开始压缩：", "Starting compression: "),
+            output.display()
+        );
         let _ = window;
         let _ = cx;
     }
