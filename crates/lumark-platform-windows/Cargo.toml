@@ -21,3 +21,6 @@ windows = { version = "0.61.3", features = [
 windows-sys.workspace = true
 windows-core = "0.61.2"
 winreg.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

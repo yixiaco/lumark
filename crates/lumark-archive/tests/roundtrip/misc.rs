@@ -2,6 +2,7 @@
 
 use super::common::*;
 use super::*;
+use std::io::Write;
 
 #[test]
 /// 验证路径逃逸、绝对路径和保留名被拒绝。
@@ -392,4 +393,43 @@ fn seven_zip_extraction_budget_stops_bomb() {
         !output_dir.join("zeros.bin").exists(),
         "超限不应留下部分文件"
     );
+}
+
+/// 验证图标替换发生在追加载荷之前，页脚偏移跟随替换后的模块大小。
+#[test]
+fn create_sfx_applies_icon_before_payload() {
+    let dir = tempdir().unwrap();
+    let source = make_source(dir.path());
+    let stub = dir.path().join("stub.exe");
+    let stub_bytes = b"MZ-icon-stub";
+    fs::write(&stub, stub_bytes).unwrap();
+    let icon = dir.path().join("icon.ico");
+    fs::write(&icon, b"fake-icon").unwrap();
+    let output = dir.path().join("icon-bundle.exe");
+    ArchiveService::create_sfx_with_icon(
+        &output,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            sfx: true,
+            sfx_icon: Some(icon),
+            ..Default::default()
+        },
+        &stub,
+        |_| {},
+        |path, _icon| {
+            let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+            file.write_all(b"ICON")?;
+            Ok(())
+        },
+    )
+    .unwrap();
+    let bytes = fs::read(&output).unwrap();
+    assert!(bytes.starts_with(b"MZ-icon-stubICON"));
+    let mut file = std::fs::File::open(&output).unwrap();
+    let footer = lumark_sfx::read_footer(&mut file).unwrap().expect("页脚");
+    assert_eq!(footer.offset, (stub_bytes.len() + 4) as u64);
+    let target = dir.path().join("extracted-icon");
+    let files = lumark_sfx::extract_payload(file, footer, &target).unwrap();
+    assert_eq!(files, 2);
 }

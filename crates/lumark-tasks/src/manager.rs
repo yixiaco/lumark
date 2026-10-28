@@ -465,9 +465,32 @@ fn run_job(
             // 只有 ZIP 却没有解压入口的半成品。
             let created = if options.sfx {
                 match sfx_stub {
-                    Some(stub) => ArchiveService::create_sfx(
-                        &output, &sources, &options, &stub, progress,
-                    ),
+                    Some(stub) => {
+                        #[cfg(windows)]
+                        {
+                            ArchiveService::create_sfx_with_icon(
+                                &output,
+                                &sources,
+                                &options,
+                                &stub,
+                                progress,
+                                |output, icon| {
+                                    lumark_platform_windows::icon::replace_icon(output, icon)
+                                        .map_err(|error| {
+                                            lumark_archive::ArchiveError::Corrupt(
+                                                error.to_string(),
+                                            )
+                                        })
+                                },
+                            )
+                        }
+                        #[cfg(not(windows))]
+                        {
+                            ArchiveService::create_sfx(
+                                &output, &sources, &options, &stub, progress,
+                            )
+                        }
+                    }
                     None => Err(lumark_archive::ArchiveError::Corrupt(
                         "找不到自解压运行时模块 lumark-sfx.exe，请先构建 lumark-sfx 或重新安装 Lumark"
                             .to_string(),

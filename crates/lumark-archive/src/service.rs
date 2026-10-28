@@ -1,7 +1,7 @@
 //! 归档服务入口：格式识别、公共操作分发和跨模块共享类型。
 
 use std::cell::{Cell, RefCell};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -743,6 +743,22 @@ impl ArchiveService {
     where
         F: FnMut(CreateProgress),
     {
+        Self::create_sfx_with_icon(output, sources, options, stub, progress, |_, _| Ok(()))
+    }
+
+    /// 创建自解压 EXE，并允许调用方在追加载荷前替换图标资源。
+    pub fn create_sfx_with_icon<F, I>(
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        stub: &Path,
+        progress: F,
+        apply_icon: I,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        F: FnMut(CreateProgress),
+        I: FnOnce(&Path, &Path) -> Result<(), ArchiveError>,
+    {
         if !matches!(options.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
             return Err(ArchiveError::UnsupportedFormat(format!(
                 "自解压仅支持 ZIP 或 7Z，当前为 {}",
@@ -787,7 +803,14 @@ impl ArchiveService {
         let composed = (|| -> Result<(), ArchiveError> {
             let mut target = File::create(output)?;
             let mut stub_file = File::open(stub)?;
-            let offset = io::copy(&mut stub_file, &mut target)?;
+            let _stub_offset = io::copy(&mut stub_file, &mut target)?;
+            target.sync_all()?;
+            drop(target);
+            if let Some(icon) = options.sfx_icon.as_deref() {
+                apply_icon(output, icon)?;
+            }
+            let offset = fs::metadata(output)?.len();
+            let mut target = OpenOptions::new().append(true).open(output)?;
             let mut payload = File::open(&temp)?;
             let length = io::copy(&mut payload, &mut target)?;
             target.write_all(&sfx_footer(

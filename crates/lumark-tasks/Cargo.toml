@@ -17,6 +17,9 @@ uuid.workspace = true
 zeroize.workspace = true
 lumark-archive = { path = "../lumark-archive" }
 
+[target.'cfg(windows)'.dependencies]
+lumark-platform-windows = { path = "../lumark-platform-windows" }
+
 [dev-dependencies]
 tempfile.workspace = true
 lumark-vault = { path = "../lumark-vault" }

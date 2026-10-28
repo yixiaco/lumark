@@ -120,6 +120,8 @@ pub(crate) struct CompressWindowView {
     pub(super) delete_source: bool,
     /// 是否生成自解压 EXE。
     pub(super) sfx: bool,
+    /// 自解压 EXE 的自定义图标。
+    pub(super) sfx_icon: Option<PathBuf>,
     /// 是否把输出包装成媒体外观。
     pub(super) disguise: bool,
     /// 当前面具类型和自定义面具路径。
@@ -596,6 +598,7 @@ impl CompressWindowView {
             test_after: init.test_after,
             delete_source: init.delete_source,
             sfx: init.sfx,
+            sfx_icon: None,
             shutdown_after: false,
             low_priority: false,
             path_mode: init.path_mode,

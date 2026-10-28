@@ -65,6 +65,16 @@ impl CompressWindowView {
                             )
                         },
                     )
+                    .when(self.sfx, |this| {
+                        this.child(
+                            button("classic-sfx-icon")
+                                .xsmall()
+                                .label(self.sfx_icon.as_ref().map_or("选择图标", |_| "更换图标"))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.choose_sfx_icon(window, cx);
+                                })),
+                        )
+                    })
                     .when(self.format == ArchiveFormat::SevenZip, |this| {
                         this.child(check_button(
                             cx,

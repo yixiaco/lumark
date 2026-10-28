@@ -126,6 +126,27 @@ impl CompressWindowView {
         .detach();
     }
 
+    /// 打开系统文件选择器，为自解压 EXE 选择图标。
+    pub(super) fn choose_sfx_icon(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("选择自解压图标（.ico）".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(icon) = paths.into_iter().next()
+            {
+                let _ = this.update(cx, |view, cx| {
+                    view.sfx_icon = Some(icon);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
     /// 关闭压缩窗口，不改动主应用已经提交的任务。
     pub(super) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.app.update(cx, |app, cx| {
@@ -214,6 +235,20 @@ impl CompressWindowView {
         } else if sfx {
             output.set_extension("exe");
         }
+        let sfx_icon = if sfx {
+            if let Some(icon) = &self.sfx_icon
+                && !icon
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("ico"))
+            {
+                self.error = Some("自解压图标必须是 .ico 文件".to_string());
+                cx.notify();
+                return;
+            }
+            self.sfx_icon.clone()
+        } else {
+            None
+        };
         let comment = self.comment.read(cx).value().to_string();
         let (modified_after, modified_before) = match self.file_time_filter {
             FileTimeFilter::Any => (None, None),
@@ -257,6 +292,7 @@ impl CompressWindowView {
             test_after: self.test_after,
             delete_source: self.delete_source,
             sfx,
+            sfx_icon,
             disguise: disguise.map(|mask| DisguiseOptions {
                 mask,
                 original_name: None,

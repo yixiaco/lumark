@@ -130,6 +130,16 @@ impl CompressWindowView {
                             )
                         },
                     )
+                    .when(self.sfx, |this| {
+                        this.child(
+                            button("compress-window-sfx-icon")
+                                .xsmall()
+                                .label(self.sfx_icon.as_ref().map_or("选择图标", |_| "更换图标"))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.choose_sfx_icon(window, cx);
+                                })),
+                        )
+                    })
                     .child(
                         Checkbox::new("compress-window-disguise")
                             .label("伪装为媒体文件")

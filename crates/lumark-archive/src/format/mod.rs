@@ -610,6 +610,8 @@ pub struct CompressionOptions {
     pub delete_source: bool,
     /// 生成自解压 EXE；只由 `ArchiveService::create_sfx` 处理，`create` 忽略。
     pub sfx: bool,
+    /// 自解压 EXE 的自定义图标文件。
+    pub sfx_icon: Option<std::path::PathBuf>,
     /// 排除的 glob 规则。
     pub exclude_patterns: Vec<String>,
     /// 强制 Store 的 glob 规则。
@@ -651,6 +653,7 @@ impl Default for CompressionOptions {
             test_after: false,
             delete_source: false,
             sfx: false,
+            sfx_icon: None,
             exclude_patterns: Vec::new(),
             store_only_patterns: Vec::new(),
             cancel: None,
