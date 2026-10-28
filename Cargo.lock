@@ -4897,6 +4897,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
+name = "libchm"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4c8e206aaeeee4150ca5615c2ce3e023f5c5ae10f8d21f22dd4e2cce2f58100"
+dependencies = [
+ "bitflags 2.13.2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "libfuzzer-sys"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5049,6 +5059,7 @@ dependencies = [
  "geezipx-core",
  "globset",
  "libc",
+ "libchm",
  "lumark-sfx",
  "lz4_flex",
  "lzma-rust2 0.22.0",

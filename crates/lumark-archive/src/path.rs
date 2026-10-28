@@ -154,6 +154,7 @@ pub fn is_archive_extension(path: &Path) -> bool {
             | "pkg"
             | "rpm"
             | "msi"
+            | "chm"
             | "cab"
             | "arj"
             | "ace"

@@ -123,6 +123,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".msi") {
         return ArchiveFormat::Msi;
     }
+    if name.ends_with(".chm") {
+        return ArchiveFormat::Chm;
+    }
     if name.ends_with(".deb") {
         return ArchiveFormat::Deb;
     }
@@ -186,6 +189,9 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     }
     if bytes.starts_with(b"xar!") {
         return ArchiveFormat::Xar;
+    }
+    if bytes.starts_with(b"ITSF") {
+        return ArchiveFormat::Chm;
     }
     if bytes.starts_with(b"\xed\xab\xee\xdb") {
         return ArchiveFormat::Rpm;
@@ -284,6 +290,12 @@ mod tests {
     #[test]
     fn alz_magic_is_detected() {
         assert_eq!(detect_magic(b"ALZ\x01rest"), ArchiveFormat::Alz);
+    }
+
+    /// 验证 CHM 的 ITSF 头可被识别。
+    #[test]
+    fn chm_magic_is_detected() {
+        assert_eq!(detect_magic(b"ITSF\x03\x00\x00\x00"), ArchiveFormat::Chm);
     }
 
     /// 验证所有已登记格式都有非空标签和扩展名，且 Unknown 不在列表中。

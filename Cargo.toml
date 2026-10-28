@@ -40,6 +40,7 @@ gpui-kit = "=0.7.3"
 geezipx-core = "0.7.4"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 libc = "0.2"
+libchm = "0.3"
 msi = "0.10"
 cab = "0.6"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "rustls-tls"] }

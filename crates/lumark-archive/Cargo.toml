@@ -20,6 +20,7 @@ lz4_flex.workspace = true
 lzma-rust2.workspace = true
 oxiarc-lzhuf.workspace = true
 quick-xml.workspace = true
+libchm.workspace = true
 msi.workspace = true
 cab.workspace = true
 serde.workspace = true
