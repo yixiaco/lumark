@@ -182,6 +182,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 | `lumark-archive` | 格式模型与检测、归档读写、路径安全、选择性解压 |
 | `lumark-vault` | 加密密码库、DPAPI、主密码、密码匹配 |
 | `lumark-tasks` | 后台任务、进度、暂停和取消 |
+| `lumark-mail` | SMTP 邮件通知发送器 |
 | `lumark-browser` | 文件系统与归档浏览、多选、搜索 |
 | `lumark-settings` | 非敏感设置持久化 |
 | `lumark-ui` | 基于 GPUI Kit 的桌面界面 |
