@@ -3,6 +3,7 @@ use super::super::*;
 use super::super::{apply_theme_accent, hsla_to_hex};
 use super::components::{AppIcon, banner_gradient, segmented_tab, segmented_tab_bar};
 use super::settings_window_selects::CompressionSelect;
+use crate::i18n::tr;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::color_picker::{ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::scroll::ScrollableElement;
@@ -240,7 +241,7 @@ impl SettingsWindowView {
                                     .whitespace_nowrap()
                                     .text_sm()
                                     .font_semibold()
-                                    .child("设置 - Lumark"),
+                                    .child(tr("设置 - Lumark", "Settings - Lumark")),
                             )
                             .child(
                                 div()
@@ -277,12 +278,12 @@ impl SettingsWindowView {
                     .child(
                         v_flex()
                             .gap(px(1.))
-                            .child(div().text_lg().font_semibold().child("设置"))
+                            .child(div().text_lg().font_semibold().child(tr("设置", "Settings")))
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("外观、压缩偏好、文件关联、通知和本机安全"),
+                                    .child(tr("外观、压缩偏好、文件关联、通知和本机安全", "Appearance, compression, file associations, notifications and local security")),
                             ),
                     ),
             )
@@ -293,13 +294,13 @@ impl SettingsWindowView {
         let selected = self.tab;
         let view = cx.entity().downgrade();
         let tabs = [
-            (AppIcon::Grid, "综合"),
-            (AppIcon::Tool, "外观"),
-            (AppIcon::Compression, "压缩"),
-            (AppIcon::FileZip, "文件关联"),
-            (AppIcon::Key, "密码库"),
-            (AppIcon::Shield, "通知"),
-            (AppIcon::Time, "关于"),
+            (AppIcon::Grid, tr("综合", "General")),
+            (AppIcon::Tool, tr("外观", "Appearance")),
+            (AppIcon::Compression, tr("压缩", "Compression")),
+            (AppIcon::FileZip, tr("文件关联", "Associations")),
+            (AppIcon::Key, tr("密码库", "Vault")),
+            (AppIcon::Shield, tr("通知", "Notifications")),
+            (AppIcon::Time, tr("关于", "About")),
         ];
         let items = tabs
             .iter()
@@ -480,7 +481,7 @@ impl LumarkApp {
                 size,
             })),
             titlebar: Some(gpui_kit::TitlebarOptions {
-                title: Some("设置 - Lumark".into()),
+                title: Some(tr("设置 - Lumark", "Settings - Lumark").into()),
                 appears_transparent: true,
                 traffic_light_position: None,
             }),
