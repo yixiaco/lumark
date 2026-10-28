@@ -6,7 +6,7 @@ use lumark_archive::{ArchiveFormat, ArchiveService, ExtractionOptions};
 use tempfile::tempdir;
 
 /// 构造只含一个 Store 条目的最小 EGG。
-fn make_egg(path: &std::path::Path, name: &str, data: &[u8]) {
+fn make_egg_with_method(path: &std::path::Path, name: &str, data: &[u8], method: u8) {
     const EGG_HEADER: u32 = 0x4147_4745;
     const END_MARKER: u32 = 0x08E2_8222;
     const FILE_HEADER: u32 = 0x0A85_90E3;
@@ -30,7 +30,7 @@ fn make_egg(path: &std::path::Path, name: &str, data: &[u8]) {
     push_u32(&mut bytes, END_MARKER);
 
     push_u32(&mut bytes, BLOCK_HEADER);
-    bytes.push(0); // Store
+    bytes.push(method);
     bytes.push(0);
     push_u32(&mut bytes, data.len() as u32);
     push_u32(&mut bytes, data.len() as u32);
@@ -39,6 +39,11 @@ fn make_egg(path: &std::path::Path, name: &str, data: &[u8]) {
     bytes.extend_from_slice(data);
     push_u32(&mut bytes, END_MARKER);
     fs::write(path, bytes).unwrap();
+}
+
+/// 构造 Store 条目的最小 EGG。
+fn make_egg(path: &std::path::Path, name: &str, data: &[u8]) {
+    make_egg_with_method(path, name, data, 0);
 }
 
 /// 追加小端 u16。
@@ -83,4 +88,25 @@ fn egg_lists_extracts_and_tests() {
     let tested = ArchiveService::test(&archive, None, |_| {}).unwrap();
     assert_eq!(tested.files, 1);
     assert_eq!(tested.bytes, 9);
+}
+
+/// AZO 条目在缺少解码器时应明确报不支持，而不是 panic 或误报 CRC。
+#[test]
+fn azo_entries_report_unsupported() {
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("azo.egg");
+    make_egg_with_method(&archive, "hello.bin", b"azo", 3);
+    let info = ArchiveService::list(&archive, None).unwrap();
+    assert_eq!(info.entries[0].method, "AZO");
+    let error = ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: directory.path().join("out"),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("AZO"), "{error}");
 }
