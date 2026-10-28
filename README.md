@@ -82,6 +82,14 @@ cargo build --release -p lumark-app -p lumark-sfx
 ./installer/sign.ps1 -VerifyOnly
 ```
 
+生成全信任 MSIX（未签名）：
+
+```powershell
+./installer/pack-msix.ps1
+```
+
+产物默认位于 `target\release\Lumark.msix`；安装前请用企业证书或 `signtool` 签名。Windows 11 稀疏 MSIX/新版资源管理器菜单仍未实现。
+
 ## 测试
 
 ```powershell
