@@ -112,6 +112,25 @@ impl LumarkApp {
     ///
     /// 真实完成字节仍来自块完成事件；这里只让界面在两次事件之间按最近
     /// 速度前进，最多领先一个编码块，完成前不会显示 100%。
+    /// 会话锁定时自动锁定需要主密码的密码库。
+    ///
+    /// 每两秒查询一次，避免在 120 ms 的任务轮询里频繁调用 WTS API；DPAPI
+    /// 密码库无法被主密码重新解锁，因此不在这里处理。
+    pub(crate) fn check_session_lock(&mut self) {
+        if self.last_session_check.elapsed() < std::time::Duration::from_secs(2) {
+            return;
+        }
+        self.last_session_check = std::time::Instant::now();
+        if platform::session::session_locked()
+            && self.vault.is_unlocked()
+            && self.vault.has_master_password()
+        {
+            self.vault.lock();
+            self.selected_password = None;
+            self.status = "Windows 会话已锁定，密码库已自动锁定".to_string();
+        }
+    }
+
     pub(crate) fn advance_running_task_progress(&mut self) {
         let now = std::time::Instant::now();
         for index in 0..self.task_records.len() {
@@ -288,6 +307,7 @@ impl LumarkApp {
                     events.push(event);
                 }
                 let _ = this.update_in(cx, |app, window, cx| {
+                    app.check_session_lock();
                     if !app.ipc_poll_owner && !IPC_POLL_OWNER.swap(true, Ordering::AcqRel) {
                         app.ipc_poll_owner = true;
                     }

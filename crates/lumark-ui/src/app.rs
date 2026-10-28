@@ -278,6 +278,8 @@ pub struct LumarkApp {
     password_editor_window: Option<gpui_kit::AnyWindowHandle>,
     master_password_window: Option<gpui_kit::AnyWindowHandle>,
     active_task: Option<u64>,
+    /// 上次检查 Windows 会话锁定状态的时间。
+    last_session_check: std::time::Instant,
     task_progress: Option<TaskProgress>,
     active_task_kind: Option<TaskKind>,
     active_task_label: Option<String>,
@@ -568,6 +570,7 @@ impl LumarkApp {
             password_editor_window: None,
             master_password_window: None,
             active_task: None,
+            last_session_check: std::time::Instant::now(),
             task_progress: None,
             active_task_kind: None,
             active_task_label: None,
