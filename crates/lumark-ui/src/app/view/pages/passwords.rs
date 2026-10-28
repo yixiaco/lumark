@@ -2,6 +2,7 @@
 use super::super::super::*;
 use super::super::components::AppIcon;
 use super::shared::stat_card;
+use crate::i18n::tr;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::scroll::ScrollableElement;
 
@@ -34,11 +35,20 @@ impl LumarkApp {
         let locked = self.vault.state() == VaultState::Locked;
         let has_master = self.vault.has_master_password();
         let auto_lock_label = if !has_master {
-            "无需锁定（未设置主密码）".to_string()
+            tr(
+                "无需锁定（未设置主密码）",
+                "No locking needed (no master password)",
+            )
+            .to_string()
         } else if settings.auto_lock_minutes == 0 {
-            "空闲锁定：关".to_string()
+            tr("空闲锁定：关", "Idle lock: off").to_string()
         } else {
-            format!("空闲锁定：{} 分钟", settings.auto_lock_minutes)
+            format!(
+                "{}{} {}",
+                tr("空闲锁定：", "Idle lock: "),
+                settings.auto_lock_minutes,
+                tr("分钟", "min")
+            )
         };
         let total_records = self.vault.entry_count();
         let selected = self

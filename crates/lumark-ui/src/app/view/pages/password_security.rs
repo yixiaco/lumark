@@ -1,6 +1,7 @@
 //! 密码库安全卡片：自动解压、空闲锁定和密码库维护操作。
 use super::super::super::*;
 use super::super::components::{AppIcon, card, section_heading};
+use crate::i18n::tr;
 use gpui_kit::base::Disableable as _;
 
 impl LumarkApp {
@@ -19,8 +20,8 @@ impl LumarkApp {
                     .child(section_heading(
                         cx,
                         AppIcon::Shield,
-                        "自动解压与安全",
-                        Some("只在本机验证记录密码".to_string()),
+                        tr("自动解压与安全", "Auto-extract and security"),
+                        Some(tr("只在本机验证记录密码", "Verify saved passwords locally").to_string()),
                     ))
                     .child(
                         h_flex()
@@ -30,9 +31,9 @@ impl LumarkApp {
                                 button("toggle-auto")
                                     .icon(AppIcon::Key.element(15.))
                                     .label(if settings.auto_extract {
-                                        "自动尝试密码：开"
+                                        tr("自动尝试密码：开", "Auto-try passwords: on")
                                     } else {
-                                        "自动尝试密码：关"
+                                        tr("自动尝试密码：关", "Auto-try passwords: off")
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.toggle_auto_extract(cx);
@@ -43,9 +44,9 @@ impl LumarkApp {
                                 button("toggle-save")
                                     .icon(AppIcon::Save.element(15.))
                                     .label(if settings.prompt_save {
-                                        "保存密码提示：开"
+                                        tr("保存密码提示：开", "Save password prompts: on")
                                     } else {
-                                        "保存密码提示：关"
+                                        tr("保存密码提示：关", "Save password prompts: off")
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.toggle_prompt_save(cx);
@@ -58,9 +59,9 @@ impl LumarkApp {
                                     .label(auto_lock_label)
                                     .disabled(!has_master)
                                     .tooltip(if has_master {
-                                        "空闲一段时间后锁定密码库"
+                                        tr("空闲一段时间后锁定密码库", "Lock the vault after idle time")
                                     } else {
-                                        "未设置主密码时不需要锁定密码库"
+                                        tr("未设置主密码时不需要锁定密码库", "Vault locking is unnecessary without a master password")
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.toggle_auto_lock(cx);
@@ -70,12 +71,12 @@ impl LumarkApp {
                             .child(
                                 button("lock-vault")
                                     .icon(AppIcon::Lock.element(15.))
-                                    .label("立即锁定")
+                                    .label(tr("立即锁定", "Lock now"))
                                     .disabled(!has_master)
                                     .tooltip(if has_master {
-                                        "立即锁定密码库"
+                                        tr("立即锁定密码库", "Lock the vault now")
                                     } else {
-                                        "未设置主密码时不需要锁定密码库"
+                                        tr("未设置主密码时不需要锁定密码库", "Vault locking is unnecessary without a master password")
                                     })
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         if !this.vault.has_master_password() {
@@ -83,7 +84,7 @@ impl LumarkApp {
                                                 window,
                                                 cx,
                                                 NotificationType::Warning,
-                                                "未设置主密码，密码库不需要锁定",
+                                                tr("未设置主密码，密码库不需要锁定", "No master password is set; the vault does not need locking"),
                                             );
                                             return;
                                         }
@@ -94,14 +95,14 @@ impl LumarkApp {
                                             window,
                                             cx,
                                             NotificationType::Success,
-                                            "密码库已锁定",
+                                            tr("密码库已锁定", "Vault locked"),
                                         );
                                     })),
                             )
                             .child(
                                 button("vault-transfer")
                                     .icon(AppIcon::Copy.element(15.))
-                                    .label("导入 / 导出")
+                                    .label(tr("导入 / 导出", "Import / Export"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         if input_value(&this.vault_export_dir, cx)
                                             .trim()
@@ -126,7 +127,7 @@ impl LumarkApp {
                                 button("vault-clear")
                                     .danger()
                                     .icon(AppIcon::Delete.element(15.))
-                                    .label("清除密码库")
+                                    .label(tr("清除密码库", "Clear vault"))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.show_confirm_clear_vault = true;
                                         cx.notify();
@@ -146,7 +147,7 @@ impl LumarkApp {
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(
-                                        "密码库使用 XChaCha20-Poly1305 加密；设置主密码后由 Argon2id 派生密钥保护。",
+                                        tr("密码库使用 XChaCha20-Poly1305 加密；设置主密码后由 Argon2id 派生密钥保护。", "The vault uses XChaCha20-Poly1305; a master password protects it with an Argon2id-derived key."),
                                     ),
                             ),
                     )
