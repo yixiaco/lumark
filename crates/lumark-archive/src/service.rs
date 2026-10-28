@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufReader, Read, Seek, Write};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -125,6 +125,18 @@ impl ArchiveService {
                     .is_some_and(|bytes| ::nsis::NsisInstaller::from_bytes(&bytes).is_ok())
             {
                 return ArchiveFormat::Nsis;
+            }
+        }
+        // DMG 的 `koly` 位于文件末尾 512 字节，不在头部；按扩展名未识别时
+        // 再看一次尾部，避免把无扩展名的磁盘映像当成普通文件。
+        if let Ok(mut file) = File::open(&base)
+            && let Ok(length) = file.metadata().map(|meta| meta.len())
+            && length >= 512
+            && file.seek(SeekFrom::End(-512)).is_ok()
+        {
+            let mut trailer = [0u8; 4];
+            if file.read_exact(&mut trailer).is_ok() && &trailer == b"koly" {
+                return ArchiveFormat::Dmg;
             }
         }
         // 头部没有魔数时再探测伪装尾部。只有归档载荷才返回 `Disguised`；
@@ -266,6 +278,7 @@ impl ArchiveService {
             ArchiveFormat::Chm => Self::list_chm(path),
             ArchiveFormat::SquashFs => Self::list_squashfs(path),
             ArchiveFormat::Nsis => Self::list_nsis(path),
+            ArchiveFormat::Dmg => Self::list_dmg(path),
             ArchiveFormat::Rar => Self::list_rar(path, password),
             ArchiveFormat::Zpaq => crate::zpaq::list(path, password),
             ArchiveFormat::Alz => crate::alz::list(path),
@@ -419,6 +432,7 @@ impl ArchiveService {
             ArchiveFormat::Chm => Self::test_chm(&input, &mut progress),
             ArchiveFormat::SquashFs => Self::test_squashfs(&input, &mut progress),
             ArchiveFormat::Nsis => Self::test_nsis(&input, &mut progress),
+            ArchiveFormat::Dmg => Self::test_dmg(&input, &mut progress),
             ArchiveFormat::Rar => Self::test_rar(&input, &mut progress),
             format if crate::unarc::is_supported(format) => {
                 crate::unarc::test(&input, format, &mut progress)
@@ -647,6 +661,7 @@ impl ArchiveService {
             ArchiveFormat::Chm => Self::extract_chm(path, options, &mut progress),
             ArchiveFormat::SquashFs => Self::extract_squashfs(path, options, &mut progress),
             ArchiveFormat::Nsis => Self::extract_nsis(path, options, &mut progress),
+            ArchiveFormat::Dmg => Self::extract_dmg(path, options, &mut progress),
             ArchiveFormat::Rar => Self::extract_rar(path, options, &mut progress),
             ArchiveFormat::Zpaq => crate::zpaq::extract(path, options, &mut progress),
             ArchiveFormat::Alz => crate::alz::extract(path, options, &mut progress),
@@ -906,6 +921,7 @@ mod legacy;
 use legacy::*;
 mod chm;
 mod disguise;
+mod dmg;
 mod list;
 mod msi;
 mod nsis;

@@ -78,6 +78,7 @@
 - [x] 自解压扩展：支持 ZIP/7Z、AES 密码、v2 页脚和旧 v1 兼容；运行时提供目录选择、密码输入、错误密码重试、覆盖确认，以及 `/S`、`/D=`、`/P=`、`/Y` 参数；使用真实运行时二进制完成 ZIP 和加密 7Z 端到端测试。
 - [x] 自解压自定义图标：压缩窗口可选择 `.ico`，生成时在追加载荷前用 Win32 资源 API 替换运行时模块的 RT_ICON/RT_GROUP_ICON，页脚偏移按替换后的实际大小计算。
 - [x] CHM 只读格式：使用 `libchm` 解析 ITSF/ITSP、PMGL 目录和 LZX 数据，支持普通命名空间文件/目录列表、选择性解压、预算/取消和完整性测试；已加入 `.chm` Shell 关联。
+- [x] DMG（UDIF）只读格式：使用 MIT `dpp` 自动识别 HFS+/APFS 卷，支持遍历、列表、选择性解压、覆盖策略、预算/取消和完整性测试；按 `.dmg` 扩展名或末尾 `koly` 识别，跳过符号链接。测试用 `hfsplus`/`udif` 合成原始 HFS+ DMG。
 - [x] NSIS 安装包只读格式：使用 Apache-2.0 `nsis` 解析 PE overlay、压缩头和 `EW_EXTRACTFILE` 条目，支持列表、选择性解压、覆盖策略、预算/取消和完整性测试；按内容识别，不注册 `.exe` 默认关联，避免劫持普通可执行文件。测试夹具来自 nsis-rs 并保留 NOTICE。
 - [x] XZ 编解码依赖收敛：RPM/XAR 解码和 TAR/单文件流创建改用纯 Rust `lzma-rust2`，移除直接 `xz2` 依赖；`geezipx-core` 仍间接引入 `xz2`，是其 SquashFS XZ 支持暂不可用的原因。
 - [x] SquashFS 只读格式：使用 `backhand` 解析 v4 镜像，支持目录/文件列表、选择性解压、覆盖策略、预算和取消；当前启用 gzip/zstd/lz4 压缩，XZ 因 `geezipx-core` 间接依赖的 `xz2` 与 `liblzma` 原生链接冲突暂未启用。已加入 `.squashfs`/`.sqfs` Shell 关联。
@@ -119,7 +120,7 @@
 - [ ] ZPAQ 解压仍由引擎一次性阻塞完成，只有任务级取消和移动阶段逐条进度，没有引擎内部逐文件进度；后续可评估按条目分块调用引擎。PAQ8/LPAQ 系列暂无许可兼容的成熟 Rust 后端，待生态出现可用实现后再评估。
 - [ ] 邮件通知只做纯文本；没有连接超时配置、发送历史、重试队列和 OAuth2/XOAUTH2。
 - [ ] Windows 11 稀疏 MSIX `IExplorerCommand` 和代码签名。
-- [ ] DMG、EGG 和 PAQ8/LPAQ 仍未支持；SquashFS XZ 仍受依赖链接冲突限制；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
+- [ ] EGG 和 PAQ8/LPAQ 仍未支持；SquashFS XZ 仍受依赖链接冲突限制；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
 - [ ] LZH 的 lh4/lh5/lh7 创建仍受单条目 512 MiB 内存上限限制；Store（lh0）已支持分块流式写入。上游 lh4-lh7 编码器尚无可安全跨块续写的接口，后续可评估自研流式编码器或分块归档策略。
 - [ ] 扩展 UI 自动化到自动解压提示、任务暂停/取消按钮和拖放；传统格式的实际写入上限仍取决于上游适配器，模糊测试、性能基准、完整键盘/高对比度验收和中英文资源文件仍待完成。
 - [ ] 将 `geezipx-core` 所需适配器复制进项目并移除整体直接依赖，减少重复 ZIP/7z 依赖。

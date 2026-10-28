@@ -129,6 +129,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".squashfs") || name.ends_with(".sqfs") {
         return ArchiveFormat::SquashFs;
     }
+    if name.ends_with(".dmg") {
+        return ArchiveFormat::Dmg;
+    }
     if name.ends_with(".deb") {
         return ArchiveFormat::Deb;
     }

@@ -157,6 +157,7 @@ pub fn is_archive_extension(path: &Path) -> bool {
             | "chm"
             | "squashfs"
             | "sqfs"
+            | "dmg"
             | "cab"
             | "arj"
             | "ace"

@@ -102,6 +102,8 @@ pub enum ArchiveFormat {
     SquashFs,
     /// NSIS 安装包。
     Nsis,
+    /// Apple 磁盘映像。
+    Dmg,
     /// Debian 包。
     Deb,
     /// Electron ASAR。
@@ -230,6 +232,7 @@ impl ArchiveFormat {
             Self::Chm => "CHM 帮助文件",
             Self::SquashFs => "SquashFS 镜像",
             Self::Nsis => "NSIS 安装包",
+            Self::Dmg => "Apple 磁盘映像",
             Self::Deb => "DEB 包",
             Self::Asar => "ASAR 归档",
             Self::Zpaq => "ZPAQ 压缩文件",
@@ -359,6 +362,7 @@ impl ArchiveFormat {
             Self::Chm => "chm",
             Self::SquashFs => "squashfs",
             Self::Nsis => "exe",
+            Self::Dmg => "dmg",
             Self::Deb => "deb",
             Self::Asar => "asar",
             Self::Zpaq => "zpaq",

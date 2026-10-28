@@ -23,6 +23,7 @@ quick-xml.workspace = true
 libchm.workspace = true
 backhand.workspace = true
 nsis.workspace = true
+dpp.workspace = true
 msi.workspace = true
 cab.workspace = true
 serde.workspace = true
@@ -45,6 +46,8 @@ zeroize.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
+hfsplus = { workspace = true, features = ["testutil"] }
+udif.workspace = true
 crc32fast.workspace = true
 flate2.workspace = true
 geezipx-core.workspace = true
