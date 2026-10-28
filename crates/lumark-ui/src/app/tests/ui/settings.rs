@@ -30,3 +30,31 @@ fn notification_tab_renders_smtp_fields(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 验证界面语言切换会持久化并更新全局文案状态。
+#[gpui_kit::test]
+fn language_toggle_updates_setting_and_i18n(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|_, cx| {
+        app.update(cx, |app, cx| {
+            app.toggle_language();
+            assert_eq!(app.settings.get().language, "en-US");
+            assert!(crate::i18n::is_english());
+            app.toggle_language();
+            assert_eq!(app.settings.get().language, "zh-CN");
+            assert!(!crate::i18n::is_english());
+            cx.notify();
+        });
+    });
+    let _ = app;
+}

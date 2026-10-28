@@ -41,7 +41,7 @@ impl LumarkApp {
                         cx,
                         "compress",
                         AppIcon::Compression,
-                        "压缩",
+                        crate::i18n::tr("压缩", "Compress"),
                         BannerTone::Primary,
                         |this, window, cx| this.open_compress_dialog(window, cx),
                     ))
@@ -49,7 +49,7 @@ impl LumarkApp {
                         cx,
                         "extract",
                         AppIcon::Zip,
-                        "解压到",
+                        crate::i18n::tr("解压到", "Extract to"),
                         BannerTone::Success,
                         |this, window, cx| this.open_extract_dialog(window, cx),
                     ))
@@ -57,7 +57,7 @@ impl LumarkApp {
                         cx,
                         "browser-delete",
                         AppIcon::Delete,
-                        "删除",
+                        crate::i18n::tr("删除", "Delete"),
                         BannerTone::Danger,
                         |this, _, _| this.request_delete(),
                     ))
@@ -65,7 +65,7 @@ impl LumarkApp {
                         cx,
                         "test-archive",
                         AppIcon::Shield,
-                        "测试",
+                        crate::i18n::tr("测试", "Test"),
                         BannerTone::Warning,
                         |this, window, cx| this.start_test(window, cx),
                     ))
@@ -73,7 +73,7 @@ impl LumarkApp {
                         cx,
                         "task-center",
                         AppIcon::List,
-                        "任务",
+                        crate::i18n::tr("任务", "Tasks"),
                         BannerTone::Neutral,
                         |this, _, cx| {
                             this.switch_screen(Screen::Tasks);

@@ -457,6 +457,7 @@ impl LumarkApp {
         let settings = stores.settings.clone();
         let settings_error = stores.settings_error.clone();
         let settings_snapshot = settings.get();
+        crate::i18n::set_language(&settings_snapshot.language);
         let headless_shell_host = request.as_ref().is_some_and(|request| {
             matches!(
                 request.mode,

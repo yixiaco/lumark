@@ -3,6 +3,29 @@
 use super::super::*;
 
 impl LumarkApp {
+    /// 在当前中英文之间切换界面语言。
+    pub(crate) fn toggle_language(&mut self) {
+        let next = if self.settings.get().language.starts_with("en") {
+            "zh-CN"
+        } else {
+            "en-US"
+        };
+        match self
+            .settings
+            .update(|settings| settings.language = next.to_string())
+        {
+            Ok(()) => {
+                crate::i18n::set_language(next);
+                self.status = if next == "en-US" {
+                    "Interface language: English".to_string()
+                } else {
+                    "界面语言：简体中文".to_string()
+                };
+            }
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
     /// 把主窗口带到前台，供设置窗口跳转到密码库等主界面操作。
     pub(crate) fn activate_main_window(&self, cx: &mut gpui_kit::App) {
         let _ = self

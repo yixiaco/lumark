@@ -25,6 +25,24 @@ impl SettingsWindowView {
                     ))
                     .child(settings_row(
                         cx,
+                        "界面语言",
+                        "动作带等核心文案随语言切换；其余页面将逐步迁移。",
+                        button("settings-toggle-language")
+                            .label(if settings.language.starts_with("en") {
+                                "English"
+                            } else {
+                                "简体中文"
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_app(cx, |app, cx| {
+                                    app.toggle_language();
+                                    cx.notify();
+                                });
+                            })),
+                    ))
+                    .child(settings_divider(cx))
+                    .child(settings_row(
+                        cx,
                         "显示详细信息区",
                         "在文件侧栏底部显示大小、时间、CRC 和压缩方法。",
                         button("settings-toggle-details")
