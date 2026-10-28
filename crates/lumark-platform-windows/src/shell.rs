@@ -23,7 +23,7 @@ const CAPABILITIES_SUBKEY: &str = "Software\\Lumark\\Capabilities";
 const REGISTERED_APPLICATIONS: &str = "Software\\RegisteredApplications";
 
 /// Lumark 注册为打开方式的压缩格式。
-pub const ARCHIVE_EXTENSIONS: [&str; 27] = [
+pub const ARCHIVE_EXTENSIONS: [&str; 28] = [
     ".zip",
     ".7z",
     ".rar",
@@ -51,6 +51,7 @@ pub const ARCHIVE_EXTENSIONS: [&str; 27] = [
     ".xar",
     ".pkg",
     ".rpm",
+    ".msi",
 ];
 
 /// 添加“打开方式”候选的媒体扩展名；不注册默认关联。

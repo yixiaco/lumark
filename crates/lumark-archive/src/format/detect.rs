@@ -120,6 +120,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".rpm") {
         return ArchiveFormat::Rpm;
     }
+    if name.ends_with(".msi") {
+        return ArchiveFormat::Msi;
+    }
     if name.ends_with(".deb") {
         return ArchiveFormat::Deb;
     }

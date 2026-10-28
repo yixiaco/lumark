@@ -153,6 +153,7 @@ pub fn is_archive_extension(path: &Path) -> bool {
             | "xar"
             | "pkg"
             | "rpm"
+            | "msi"
             | "cab"
             | "arj"
             | "ace"

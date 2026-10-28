@@ -94,6 +94,8 @@ pub enum ArchiveFormat {
     Xar,
     /// RPM 包。
     Rpm,
+    /// Windows Installer 安装包。
+    Msi,
     /// Debian 包。
     Deb,
     /// Electron ASAR。
@@ -218,6 +220,7 @@ impl ArchiveFormat {
             Self::Isz => "ISZ 镜像",
             Self::Xar => "XAR/PKG 归档",
             Self::Rpm => "RPM 包",
+            Self::Msi => "MSI 安装包",
             Self::Deb => "DEB 包",
             Self::Asar => "ASAR 归档",
             Self::Zpaq => "ZPAQ 压缩文件",
@@ -342,6 +345,7 @@ impl ArchiveFormat {
             Self::Isz => "isz",
             Self::Xar => "xar",
             Self::Rpm => "rpm",
+            Self::Msi => "msi",
             Self::Deb => "deb",
             Self::Asar => "asar",
             Self::Zpaq => "zpaq",

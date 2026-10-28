@@ -6,6 +6,7 @@ pub mod edit;
 pub mod error;
 pub mod format;
 mod lzh;
+mod msi;
 pub mod path;
 mod rpm;
 pub mod service;
