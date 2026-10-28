@@ -1,5 +1,6 @@
 //! 常用位置和目录树合并的文件夹侧栏。
 
+use super::super::components::location_label;
 use super::*;
 use crate::i18n::tr;
 
@@ -177,7 +178,7 @@ impl LumarkApp {
         h_flex()
             .id(("sidebar-location", index))
             .role(gpui_kit::Role::Button)
-            .aria_label(label.to_string())
+            .aria_label(location_label(label).to_string())
             .h(px(25.))
             .w_full()
             .gap_2()
@@ -200,7 +201,7 @@ impl LumarkApp {
                     .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .child(label.to_string()),
+                    .child(location_label(label).to_string()),
             )
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.navigate_to(path.clone(), window, cx);

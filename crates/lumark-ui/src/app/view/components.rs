@@ -1,6 +1,7 @@
 //! 跨页面复用的图标、按钮、进度和视图组件。
 
 use super::super::*;
+use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::base::{Tab as BaseTab, Tabs as BaseTabs};
 use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
@@ -321,7 +322,10 @@ pub(super) fn brand_lockup(cx: &gpui_kit::App, slogan: bool) -> impl IntoElement
                             .text_xs()
                             .whitespace_nowrap()
                             .text_color(cx.theme().muted_foreground)
-                            .child("高效专业 · 值得信赖"),
+                            .child(tr(
+                                "高效专业 · 值得信赖",
+                                "Efficient, professional, trustworthy",
+                            )),
                     )
                 }),
         )
@@ -344,7 +348,10 @@ pub(super) fn dialog_banner(cx: &gpui_kit::App, height: f32) -> impl IntoElement
                 .text_xs()
                 .whitespace_nowrap()
                 .text_color(cx.theme().muted_foreground)
-                .child("本地归档工作台 · 高效专业，值得信赖"),
+                .child(tr(
+                    "本地归档工作台 · 高效专业，值得信赖",
+                    "Local archive workspace · efficient and trustworthy",
+                )),
         )
 }
 
@@ -619,6 +626,19 @@ pub(super) fn entry_icon_color(cx: &Context<LumarkApp>, entry: &BrowserEntry) ->
 }
 
 /// 把快捷位置映射为 IconPark 图标。
+/// 返回侧栏快捷位置的当前语言名称。
+pub(super) fn location_label(label: &str) -> &str {
+    match label {
+        "桌面" => tr("桌面", "Desktop"),
+        "下载" => tr("下载", "Downloads"),
+        "文档" => tr("文档", "Documents"),
+        "图片" => tr("图片", "Pictures"),
+        "音乐" => tr("音乐", "Music"),
+        "视频" => tr("视频", "Videos"),
+        _ => label,
+    }
+}
+
 pub(super) fn location_icon(label: &str) -> AppIcon {
     match label {
         "桌面" | "主文件夹" => AppIcon::Home,
