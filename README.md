@@ -92,6 +92,8 @@ cargo build --release -p lumark-app -p lumark-sfx
 
 ```powershell
 ./installer/install-msix.ps1 -CertificatePath .\codesign.cer -TrustCertificate
+# 开发阶段安装未签名包
+./installer/install-msix.ps1 -AllowUnsigned
 # 卸载
 ./installer/install-msix.ps1 -Uninstall
 ```

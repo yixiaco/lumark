@@ -12,6 +12,7 @@ param(
     [string]$CertificatePath,
     [string]$CertificatePassword,
     [switch]$TrustCertificate,
+    [switch]$AllowUnsigned,
     [switch]$Uninstall
 )
 
@@ -52,5 +53,9 @@ if ($TrustCertificate) {
     Write-Host "Certificate imported: $($certificate.Thumbprint)"
 }
 
-Add-AppxPackage -Path $PackagePath
+if ($AllowUnsigned) {
+    Add-AppxPackage -Path $PackagePath -AllowUnsigned
+} else {
+    Add-AppxPackage -Path $PackagePath
+}
 Write-Host "Lumark MSIX installed: $PackagePath"
