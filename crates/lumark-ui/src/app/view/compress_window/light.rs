@@ -1,6 +1,7 @@
 //! 压缩窗口轻巧排版。
 
 use super::*;
+use crate::i18n::tr;
 
 impl CompressWindowView {
     /// 渲染轻巧模式的完整表单。
@@ -12,7 +13,7 @@ impl CompressWindowView {
             .py_4()
             .gap_3()
             .child(classic_field(
-                "压缩到:",
+                tr("压缩到:", "Compress to:"),
                 66.,
                 h_flex()
                     .w_full()
@@ -28,14 +29,14 @@ impl CompressWindowView {
                         button("compress-window-browse")
                             .ghost()
                             .cursor_pointer()
-                            .label("浏览…")
+                            .label(tr("浏览…", "Browse..."))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.choose_directory(window, cx);
                             })),
                     ),
             ))
             .child(classic_field(
-                "格式:",
+                tr("格式:", "Format:"),
                 66.,
                 h_flex()
                     .gap_2()
@@ -44,12 +45,12 @@ impl CompressWindowView {
                         "compress-format-select",
                         &self.format_select,
                         200.,
-                        "压缩格式",
+                        tr("压缩格式", "Archive format"),
                     ))
                     .child(hint_text(cx, self.format_hint())),
             ))
             .child(classic_field(
-                "压缩配置:",
+                tr("压缩配置:", "Compression profile:"),
                 66.,
                 h_flex()
                     .w_full()
@@ -57,21 +58,21 @@ impl CompressWindowView {
                     .child(radio_button(
                         cx,
                         "compress-window-preset-speed",
-                        "速度快",
+                        tr("速度快", "Fast"),
                         self.preset == SettingsPreset::Speed,
                         |this, _, window, cx| this.set_preset(SettingsPreset::Speed, window, cx),
                     ))
                     .child(radio_button(
                         cx,
                         "compress-window-preset-balanced",
-                        "平衡",
+                        tr("平衡", "Balanced"),
                         self.preset == SettingsPreset::Balanced,
                         |this, _, window, cx| this.set_preset(SettingsPreset::Balanced, window, cx),
                     ))
                     .child(radio_button(
                         cx,
                         "compress-window-preset-size",
-                        "体积小",
+                        tr("体积小", "Smaller"),
                         self.preset == SettingsPreset::Size,
                         |this, _, window, cx| this.set_preset(SettingsPreset::Size, window, cx),
                     )),
@@ -84,14 +85,14 @@ impl CompressWindowView {
                     .child(check_button(
                         cx,
                         "compress-window-test-after",
-                        "压缩后测试",
+                        tr("压缩后测试", "Test after compression"),
                         self.test_after,
                         |this, value, _| this.test_after = value,
                     ))
                     .child(check_button(
                         cx,
                         "compress-window-delete-source",
-                        "成功后删除源文件",
+                        tr("成功后删除源文件", "Delete source files on success"),
                         self.delete_source,
                         |this, value, _| this.delete_source = value,
                     ))
@@ -99,14 +100,14 @@ impl CompressWindowView {
                         this.child(check_button(
                             cx,
                             "compress-window-solid",
-                            "创建固实压缩文件",
+                            tr("创建固实压缩文件", "Create solid archive"),
                             self.solid,
                             |this, value, _| this.solid = value,
                         ))
                         .child(check_button(
                             cx,
                             "compress-window-encrypt-header",
-                            "加密文件名",
+                            tr("加密文件名", "Encrypt file names"),
                             self.encrypt_header,
                             |this, value, _| this.encrypt_header = value,
                         ))
@@ -122,7 +123,7 @@ impl CompressWindowView {
                         |this| {
                             this.child(
                                 Checkbox::new("compress-window-sfx")
-                                    .label("自解压 EXE")
+                                    .label(tr("自解压 EXE", "Self-extracting EXE"))
                                     .checked(self.sfx)
                                     .on_click(cx.listener(|this, value: &bool, window, cx| {
                                         this.set_sfx(*value, window, cx);
@@ -134,7 +135,13 @@ impl CompressWindowView {
                         this.child(
                             button("compress-window-sfx-icon")
                                 .xsmall()
-                                .label(self.sfx_icon.as_ref().map_or("选择图标", |_| "更换图标"))
+                                .label(
+                                    self.sfx_icon
+                                        .as_ref()
+                                        .map_or(tr("选择图标", "Choose icon"), |_| {
+                                            tr("更换图标", "Change icon")
+                                        }),
+                                )
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.choose_sfx_icon(window, cx);
                                 })),
@@ -142,7 +149,7 @@ impl CompressWindowView {
                     })
                     .child(
                         Checkbox::new("compress-window-disguise")
-                            .label("伪装为媒体文件")
+                            .label(tr("伪装为媒体文件", "Disguise as media file"))
                             .checked(self.disguise)
                             .on_click(cx.listener(|this, value: &bool, window, cx| {
                                 this.set_disguise(*value, window, cx);
@@ -151,14 +158,14 @@ impl CompressWindowView {
                     .child(check_button(
                         cx,
                         "compress-window-shutdown",
-                        "完成后关闭计算机",
+                        tr("完成后关闭计算机", "Shut down after completion"),
                         self.shutdown_after,
                         |this, value, _| this.shutdown_after = value,
                     ))
                     .child(check_button(
                         cx,
                         "compress-window-low-priority",
-                        "降低压缩优先级",
+                        tr("降低压缩优先级", "Lower compression priority"),
                         self.low_priority,
                         |this, value, _| this.low_priority = value,
                     )),
@@ -175,9 +182,9 @@ impl CompressWindowView {
                             .cursor_pointer()
                             .icon(AppIcon::Key.element(13.))
                             .label(if self.password_visible {
-                                "取消密码"
+                                tr("取消密码", "Remove password")
                             } else {
-                                "设置密码"
+                                tr("设置密码", "Set password")
                             })
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.password_visible = !this.password_visible;
