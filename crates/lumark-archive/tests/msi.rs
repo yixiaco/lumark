@@ -19,27 +19,73 @@ fn make_cab(content: &[u8]) -> Vec<u8> {
     writer.finish().unwrap().into_inner()
 }
 
-/// 生成包含 File/Media 表和内嵌 CAB 的 MSI。
-fn make_msi_with_cab(path: &std::path::Path, content: &[u8], cabinet: &str) {
+/// 生成包含 File/Media 表和内嵌 CAB 的 MSI；`subdir` 为真时增加目录层级。
+fn make_msi_with_cab(path: &std::path::Path, content: &[u8], cabinet: &str, subdir: bool) {
     let cab = make_cab(content);
     let mut package = Package::create(PackageType::Installer, Cursor::new(Vec::new())).unwrap();
+    let mut file_columns = vec![
+        Column::build("File").primary_key().string(64),
+        Column::build("FileName").string(255),
+        Column::build("FileSize").int32(),
+    ];
+    if subdir {
+        file_columns.push(Column::build("Component_").string(72));
+    }
     package
-        .create_table(
-            "File",
-            vec![
-                Column::build("File").primary_key().string(64),
-                Column::build("FileName").string(255),
-                Column::build("FileSize").int32(),
-            ],
-        )
+        .create_table("File", file_columns)
         .expect("create File table");
+    let mut file_row = vec![
+        Value::from("file1"),
+        Value::from("hello.txt"),
+        Value::Int(content.len() as i32),
+    ];
+    if subdir {
+        file_row.push(Value::from("comp1"));
+    }
     package
-        .insert_rows(Insert::into("File").row(vec![
-            Value::from("file1"),
-            Value::from("hello.txt"),
-            Value::Int(content.len() as i32),
-        ]))
+        .insert_rows(Insert::into("File").row(file_row))
         .unwrap();
+    if subdir {
+        package
+            .create_table(
+                "Directory",
+                vec![
+                    Column::build("Directory").primary_key().string(72),
+                    Column::build("Directory_Parent").nullable().string(72),
+                    Column::build("DefaultDir").string(255),
+                ],
+            )
+            .unwrap();
+        package
+            .insert_rows(
+                Insert::into("Directory")
+                    .row(vec![
+                        Value::from("TARGETDIR"),
+                        Value::Null,
+                        Value::from("SourceDir"),
+                    ])
+                    .row(vec![
+                        Value::from("SubDir"),
+                        Value::from("TARGETDIR"),
+                        Value::from("SUB|sub"),
+                    ]),
+            )
+            .unwrap();
+        package
+            .create_table(
+                "Component",
+                vec![
+                    Column::build("Component").primary_key().string(72),
+                    Column::build("Directory_").string(72),
+                ],
+            )
+            .unwrap();
+        package
+            .insert_rows(
+                Insert::into("Component").row(vec![Value::from("comp1"), Value::from("SubDir")]),
+            )
+            .unwrap();
+    }
     package
         .create_table(
             "Media",
@@ -69,7 +115,7 @@ fn make_msi_with_cab(path: &std::path::Path, content: &[u8], cabinet: &str) {
 
 /// 生成使用内嵌 CAB 的最小 MSI。
 fn make_msi(path: &std::path::Path, content: &[u8]) {
-    make_msi_with_cab(path, content, "#cab1");
+    make_msi_with_cab(path, content, "#cab1", false);
 }
 
 /// 验证 MSI 识别、列表、解压和完整性测试。
@@ -111,7 +157,7 @@ fn msi_lists_extracts_and_tests() {
 fn msi_reads_external_cab() {
     let directory = tempdir().unwrap();
     let archive = directory.path().join("external.msi");
-    make_msi_with_cab(&archive, b"external msi", "external.cab");
+    make_msi_with_cab(&archive, b"external msi", "external.cab", false);
     let info = ArchiveService::list(&archive, None).unwrap();
     assert_eq!(info.entries.len(), 1);
     assert_eq!(info.entries[0].path, "hello.txt");
@@ -129,5 +175,30 @@ fn msi_reads_external_cab() {
     assert_eq!(
         fs::read_to_string(output.join("hello.txt")).unwrap(),
         "external msi"
+    );
+}
+
+/// 验证 File -> Component -> Directory 的目录层级还原。
+#[test]
+fn msi_restores_directory_hierarchy() {
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("nested.msi");
+    make_msi_with_cab(&archive, b"nested msi", "#cab1", true);
+    let info = ArchiveService::list(&archive, None).unwrap();
+    assert_eq!(info.entries[0].path, "sub/hello.txt");
+    let output = directory.path().join("out");
+    ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: output.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(output.join("sub").join("hello.txt")).unwrap(),
+        "nested msi"
     );
 }

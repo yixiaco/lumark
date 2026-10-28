@@ -45,7 +45,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - **读写**：ZIP（AES/传统加密、Deflate/Bzip2/LZMA 写入）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4。
 - **只读解压**：RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像和 XPRESS/LZX）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
 - **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
-- **暂不支持**：CHM、SquashFS、DMG、EGG、NSIS 安装包、PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取，目录层级和写入未实现；WIM 创建、WIM 的 LZMS/SWM、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
+- **暂不支持**：CHM、SquashFS、DMG、EGG、NSIS 安装包、PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取并还原目录层级，写入未实现；WIM 创建、WIM 的 LZMS/SWM、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
 
 ## 运行
 

@@ -103,36 +103,167 @@ impl MsiArchive {
     }
 }
 
-/// 读取 File 表的 CAB 成员名到目标文件名映射。
+/// 读取 File 表的 CAB 成员名到目标路径映射。
+///
+/// 标准 MSI 通过 `File.Component_ -> Component.Directory_ -> Directory`
+/// 还原目录层级；缺少 Component/Directory 表的精简包回退到根目录。
 fn read_file_names(package: &mut Package<File>) -> Result<HashMap<String, String>, ArchiveError> {
-    let table = package
-        .get_table("File")
-        .ok_or_else(|| ArchiveError::Corrupt("MSI 缺少 File 表".to_string()))?;
-    let key_index = table
-        .columns()
-        .iter()
-        .position(|column| column.name() == "File")
-        .ok_or_else(|| ArchiveError::Corrupt("MSI File 表缺少 File 列".to_string()))?;
-    let name_index = table
-        .columns()
-        .iter()
-        .position(|column| column.name() == "FileName")
-        .ok_or_else(|| ArchiveError::Corrupt("MSI File 表缺少 FileName 列".to_string()))?;
+    let Some((key_index, name_index, component_index)) = file_columns(package) else {
+        return Err(ArchiveError::Corrupt("MSI 缺少 File 表".to_string()));
+    };
+    let components = component_directories(package);
+    let directories = directory_table(package);
     let mut names = HashMap::new();
     for row in package
         .select_rows(Select::table("File"))
         .map_err(|error| ArchiveError::Corrupt(format!("MSI File 表读取失败：{error}")))?
     {
         let key = row[key_index].as_str().unwrap_or_default().to_string();
-        let file_name = row[name_index].as_str().unwrap_or_default().to_string();
-        let target = file_name
-            .rsplit('|')
-            .next()
-            .unwrap_or(&file_name)
-            .to_string();
-        names.insert(key, target);
+        let file_name = long_name(row[name_index].as_str().unwrap_or_default());
+        let directory = component_index
+            .and_then(|index| row[index].as_str())
+            .and_then(|component| components.get(component))
+            .map(|directory| directory_path(directory, &directories))
+            .unwrap_or_default();
+        let path = if directory.is_empty() {
+            file_name
+        } else {
+            format!("{directory}/{file_name}")
+        };
+        names.insert(key, path);
     }
     Ok(names)
+}
+
+/// 返回 File 表的 File、FileName 和可选 Component_ 列索引。
+fn file_columns(package: &Package<File>) -> Option<(usize, usize, Option<usize>)> {
+    let table = package.get_table("File")?;
+    let key = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "File")?;
+    let name = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "FileName")?;
+    let component = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "Component_");
+    Some((key, name, component))
+}
+
+/// 读取 Component 表的组件到目录键映射。
+fn component_directories(package: &mut Package<File>) -> HashMap<String, String> {
+    let Some(table) = package.get_table("Component") else {
+        return HashMap::new();
+    };
+    let Some(component_index) = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "Component")
+    else {
+        return HashMap::new();
+    };
+    let Some(directory_index) = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "Directory_")
+    else {
+        return HashMap::new();
+    };
+    let mut components = HashMap::new();
+    if let Ok(rows) = package.select_rows(Select::table("Component")) {
+        for row in rows {
+            components.insert(
+                row[component_index]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                row[directory_index]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+        }
+    }
+    components
+}
+
+/// 读取 Directory 表的目录键到 `(父目录, 默认目录名)` 映射。
+fn directory_table(package: &mut Package<File>) -> HashMap<String, (String, String)> {
+    let Some(table) = package.get_table("Directory") else {
+        return HashMap::new();
+    };
+    let Some(key_index) = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "Directory")
+    else {
+        return HashMap::new();
+    };
+    let parent_index = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "Directory_Parent");
+    let Some(name_index) = table
+        .columns()
+        .iter()
+        .position(|column| column.name() == "DefaultDir")
+    else {
+        return HashMap::new();
+    };
+    let mut directories = HashMap::new();
+    if let Ok(rows) = package.select_rows(Select::table("Directory")) {
+        for row in rows {
+            directories.insert(
+                row[key_index].as_str().unwrap_or_default().to_string(),
+                (
+                    parent_index
+                        .and_then(|index| row[index].as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    long_name(row[name_index].as_str().unwrap_or_default()),
+                ),
+            );
+        }
+    }
+    directories
+}
+
+/// 从目录键递归拼接路径。
+fn directory_path(key: &str, directories: &HashMap<String, (String, String)>) -> String {
+    let mut segments = Vec::new();
+    let mut current = key.to_string();
+    for _ in 0..32 {
+        let Some((parent, name)) = directories.get(&current) else {
+            break;
+        };
+        if !name.is_empty() && name != "." {
+            segments.push(name.clone());
+        }
+        if parent.is_empty()
+            || parent == "TARGETDIR"
+            || parent.eq_ignore_ascii_case("TARGETDIR")
+            || *parent == current
+        {
+            break;
+        }
+        current = parent.clone();
+    }
+    segments.reverse();
+    segments.join("/")
+}
+
+/// 取 MSI 名称的 long 部分，并清理目录标记。
+fn long_name(value: &str) -> String {
+    value
+        .rsplit('|')
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .trim_end_matches(':')
+        .to_string()
 }
 
 /// 从 Media 表读取内嵌或外部 CAB 来源。
