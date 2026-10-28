@@ -261,24 +261,6 @@ impl LumarkApp {
         self.status = format!("{} 个项目", self.browser.entries.len());
     }
 
-    /// 切换详情检查器并持久化偏好。
-    pub(crate) fn toggle_details(&mut self) {
-        self.details_visible = !self.details_visible;
-        let visible = self.details_visible;
-        let _ = self
-            .settings
-            .update(|settings| settings.details_visible = visible);
-    }
-
-    /// 循环切换文件列表列宽并持久化所选布局。
-    pub(crate) fn cycle_column_layout(&mut self) {
-        self.column_layout = (self.column_layout + 1) % 3;
-        let layout = self.column_layout;
-        let _ = self
-            .settings
-            .update(|settings| settings.column_layout = layout);
-    }
-
     /// 根据数量与类型，把拖入文件路由到打开、压缩或复制操作。
     pub(crate) fn handle_external_drop(
         &mut self,
@@ -990,5 +972,6 @@ impl LumarkApp {
     }
 }
 
+mod layout;
 mod util;
 use util::*;

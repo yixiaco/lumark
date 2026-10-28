@@ -57,6 +57,19 @@ impl SettingsWindowView {
                                     cx.notify();
                                 });
                             })),
+                    ))
+                    .child(settings_row(
+                        cx,
+                        "自定义列宽",
+                        "拖动表头分隔线调整列宽；这里清除拖动结果并恢复当前预设。",
+                        button("settings-reset-columns")
+                            .label("重置列宽")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_app(cx, |app, cx| {
+                                    app.reset_column_widths();
+                                    cx.notify();
+                                });
+                            })),
                     )),
             )
             .child(

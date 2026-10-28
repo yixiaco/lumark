@@ -53,9 +53,7 @@ pub(super) fn empty_state(cx: &Context<LumarkApp>, search_active: bool) -> gpui_
 pub(super) fn render_parent_row(
     cx: &mut Context<LumarkApp>,
     row_height: gpui_kit::Pixels,
-    size_width: f32,
-    modified_width: f32,
-    kind_width: f32,
+    widths: ColumnWidths,
     columns: ArchiveColumns,
     inside_archive: bool,
 ) -> impl IntoElement {
@@ -89,22 +87,22 @@ pub(super) fn render_parent_row(
                 .text_sm()
                 .child(".."),
         )
-        .child(muted_cell(cx, size_width, "—"))
+        .child(muted_cell(cx, widths.size, "—"))
         .when(columns.compressed, |this| {
-            this.child(muted_cell(cx, COMPRESSED_WIDTH, "—"))
+            this.child(muted_cell(cx, widths.compressed, "—"))
         })
-        .child(muted_cell(cx, modified_width, "—"))
+        .child(muted_cell(cx, widths.modified, "—"))
         .when(columns.algorithm, |this| {
-            this.child(muted_cell(cx, ALGORITHM_WIDTH, "—"))
+            this.child(muted_cell(cx, widths.algorithm, "—"))
         })
         .when(columns.crc32, |this| {
-            this.child(muted_cell(cx, CRC_WIDTH, "—"))
+            this.child(muted_cell(cx, widths.crc32, "—"))
         })
         .when(columns.path, |this| {
-            this.child(muted_cell(cx, PATH_WIDTH, "—"))
+            this.child(muted_cell(cx, widths.path, "—"))
         })
         .when(!inside_archive, |this| {
-            this.child(muted_cell(cx, kind_width, "文件夹"))
+            this.child(muted_cell(cx, widths.kind, "文件夹"))
         })
         .on_click(
             cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {
@@ -123,25 +121,15 @@ pub(super) fn render_file_row(
     cx: &mut Context<LumarkApp>,
     virtual_index: usize,
     row_height: gpui_kit::Pixels,
-    size_width: f32,
-    modified_width: f32,
-    kind_width: f32,
+    widths: ColumnWidths,
     columns: ArchiveColumns,
     inside_archive: bool,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
     let parent_offset = usize::from(shows_parent_row(app));
     if parent_offset == 1 && virtual_index == 0 {
-        return render_parent_row(
-            cx,
-            row_height,
-            size_width,
-            modified_width,
-            kind_width,
-            columns,
-            inside_archive,
-        )
-        .into_any_element();
+        return render_parent_row(cx, row_height, widths, columns, inside_archive)
+            .into_any_element();
     }
     let Some(entry) = app.displayed_entry_at(virtual_index - parent_offset) else {
         return h_flex()
@@ -224,7 +212,7 @@ pub(super) fn render_file_row(
         )
         .child(
             div()
-                .w(px(size_width))
+                .w(px(widths.size))
                 .flex_shrink_0()
                 .text_xs()
                 .whitespace_nowrap()
@@ -256,11 +244,11 @@ pub(super) fn render_file_row(
                 }),
         )
         .when(columns.compressed, |this| {
-            this.child(muted_cell(cx, COMPRESSED_WIDTH, compressed))
+            this.child(muted_cell(cx, widths.compressed, compressed))
         })
         .child(
             div()
-                .w(px(modified_width))
+                .w(px(widths.modified))
                 .flex_shrink_0()
                 .text_xs()
                 .whitespace_nowrap()
@@ -268,18 +256,18 @@ pub(super) fn render_file_row(
                 .child(modified),
         )
         .when(columns.algorithm, |this| {
-            this.child(muted_cell(cx, ALGORITHM_WIDTH, algorithm))
+            this.child(muted_cell(cx, widths.algorithm, algorithm))
         })
         .when(columns.crc32, |this| {
-            this.child(muted_cell(cx, CRC_WIDTH, crc32))
+            this.child(muted_cell(cx, widths.crc32, crc32))
         })
         .when(columns.path, |this| {
-            this.child(muted_cell(cx, PATH_WIDTH, inner_path.clone()))
+            this.child(muted_cell(cx, widths.path, inner_path.clone()))
         })
         .when(!inside_archive, |this| {
             this.child(
                 div()
-                    .w(px(kind_width))
+                    .w(px(widths.kind))
                     .flex_shrink_0()
                     .text_xs()
                     .whitespace_nowrap()

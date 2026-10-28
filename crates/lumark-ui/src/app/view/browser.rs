@@ -43,7 +43,7 @@ impl LumarkApp {
             .as_f32();
         let sidebar_width = if self.sidebar_visible { 252. } else { 0. };
         let main_width = (window_width - sidebar_width - 24.).max(420.);
-        let (size_width, modified_width, kind_width) = column_layout_widths(self.column_layout);
+        let widths = self.column_widths;
         let inside_archive = matches!(&self.browser.location, BrowserLocation::Archive { .. });
         let archive_columns = if inside_archive {
             archive_columns(main_width)
@@ -119,6 +119,19 @@ impl LumarkApp {
                     cx.notify();
                 }),
             )
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui_kit::MouseMoveEvent, _, cx| {
+                    this.update_column_resize(event);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| {
+                    this.finish_column_resize();
+                    cx.notify();
+                }),
+            )
             .flex_1()
             .when(search_active, |this| {
                 this.child(
@@ -172,23 +185,58 @@ impl LumarkApp {
                             .flex_1()
                             .min_w_0()
                             .gap_2()
-                            .child(div().flex_1().min_w_0().child("名称"))
-                            .child(div().w(px(size_width)).child("大小"))
+                            .child(header_cell("名称", None, None, cx))
+                            .child(header_cell(
+                                "大小",
+                                Some(widths.size),
+                                Some(ColumnKind::Size),
+                                cx,
+                            ))
                             .when(archive_columns.compressed, |this| {
-                                this.child(div().w(px(COMPRESSED_WIDTH)).child("压缩后大小"))
+                                this.child(header_cell(
+                                    "压缩后大小",
+                                    Some(widths.compressed),
+                                    Some(ColumnKind::Compressed),
+                                    cx,
+                                ))
                             })
-                            .child(div().w(px(modified_width)).child("修改时间"))
+                            .child(header_cell(
+                                "修改时间",
+                                Some(widths.modified),
+                                Some(ColumnKind::Modified),
+                                cx,
+                            ))
                             .when(archive_columns.algorithm, |this| {
-                                this.child(div().w(px(ALGORITHM_WIDTH)).child("压缩算法"))
+                                this.child(header_cell(
+                                    "压缩算法",
+                                    Some(widths.algorithm),
+                                    Some(ColumnKind::Algorithm),
+                                    cx,
+                                ))
                             })
                             .when(archive_columns.crc32, |this| {
-                                this.child(div().w(px(CRC_WIDTH)).child("CRC32"))
+                                this.child(header_cell(
+                                    "CRC32",
+                                    Some(widths.crc32),
+                                    Some(ColumnKind::Crc32),
+                                    cx,
+                                ))
                             })
                             .when(archive_columns.path, |this| {
-                                this.child(div().w(px(PATH_WIDTH)).child("路径"))
+                                this.child(header_cell(
+                                    "路径",
+                                    Some(widths.path),
+                                    Some(ColumnKind::Path),
+                                    cx,
+                                ))
                             })
                             .when(!inside_archive, |this| {
-                                this.child(div().w(px(kind_width)).child("类型"))
+                                this.child(header_cell(
+                                    "类型",
+                                    Some(widths.kind),
+                                    Some(ColumnKind::Kind),
+                                    cx,
+                                ))
                             })
                             .into_any_element()
                     }),
@@ -202,16 +250,8 @@ impl LumarkApp {
                             .child(render_parent_tile(cx))
                             .into_any_element()
                     } else {
-                        render_parent_row(
-                            cx,
-                            row_height,
-                            size_width,
-                            modified_width,
-                            kind_width,
-                            archive_columns,
-                            inside_archive,
-                        )
-                        .into_any_element()
+                        render_parent_row(cx, row_height, widths, archive_columns, inside_archive)
+                            .into_any_element()
                     };
                     this.child(parent)
                 })
@@ -249,9 +289,7 @@ impl LumarkApp {
                                                     cx,
                                                     virtual_index,
                                                     row_height,
-                                                    size_width,
-                                                    modified_width,
-                                                    kind_width,
+                                                    widths,
                                                     archive_columns,
                                                     inside_archive,
                                                 )
@@ -267,6 +305,71 @@ impl LumarkApp {
                 )
             })
     }
+}
+
+impl LumarkApp {
+    /// 根据鼠标移动更新正在拖动的列宽。
+    pub(super) fn update_column_resize(&mut self, event: &gpui_kit::MouseMoveEvent) {
+        let Some(resize) = self.column_resize else {
+            return;
+        };
+        let delta = event.position.x.as_f32() - resize.start_x;
+        self.column_widths
+            .clamp_column(resize.column, resize.start_width + delta);
+    }
+
+    /// 结束列宽拖动并把结果写入设置。
+    pub(super) fn finish_column_resize(&mut self) {
+        if self.column_resize.take().is_none() {
+            return;
+        }
+        let widths = self.column_widths;
+        if let Err(error) = self
+            .settings
+            .update(|settings| settings.column_widths = Some(widths))
+        {
+            self.status = error.to_string();
+        }
+    }
+}
+
+/// 渲染一个可拖动列宽的表头单元格。
+fn header_cell(
+    label: &'static str,
+    width: Option<f32>,
+    column: Option<ColumnKind>,
+    cx: &mut Context<LumarkApp>,
+) -> gpui_kit::AnyElement {
+    let mut cell = h_flex().relative().h_full().items_center().min_w_0();
+    if let Some(width) = width {
+        cell = cell.w(px(width));
+    } else {
+        cell = cell.flex_1();
+    }
+    cell = cell.child(div().truncate().child(label));
+    if let (Some(width), Some(column)) = (width, column) {
+        cell = cell.child(
+            div()
+                .id(("column-resize", column as usize))
+                .absolute()
+                .right(px(-3.))
+                .top_0()
+                .bottom_0()
+                .w(px(6.))
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(move |this, event: &gpui_kit::MouseDownEvent, _, cx| {
+                        this.column_resize = Some(ColumnResize {
+                            column,
+                            start_x: event.position.x.as_f32(),
+                            start_width: width,
+                        });
+                        cx.notify();
+                    }),
+                ),
+        );
+    }
+    cell.into_any_element()
 }
 
 #[cfg(test)]

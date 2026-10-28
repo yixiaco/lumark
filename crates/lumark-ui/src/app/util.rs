@@ -219,15 +219,6 @@ pub(crate) fn is_executable_like(path: &Path) -> bool {
         })
 }
 
-/// 返回紧凑、标准或宽松文件列表布局的列宽。
-pub(crate) fn column_layout_widths(layout: u8) -> (f32, f32, f32) {
-    match layout {
-        0 => (72.0, 126.0, 56.0),
-        2 => (110.0, 160.0, 92.0),
-        _ => (88.0, 142.0, 72.0),
-    }
-}
-
 /// 把持久化的可写格式偏好映射为归档格式。
 pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
     match settings.default_format.to_ascii_lowercase().as_str() {

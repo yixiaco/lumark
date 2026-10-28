@@ -13,15 +13,6 @@ pub(super) struct ArchiveColumns {
     pub(super) path: bool,
 }
 
-/// 压缩后大小列宽。
-pub(super) const COMPRESSED_WIDTH: f32 = 80.;
-/// 压缩算法列宽。
-pub(super) const ALGORITHM_WIDTH: f32 = 76.;
-/// CRC32 列宽。
-pub(super) const CRC_WIDTH: f32 = 72.;
-/// 归档内路径列宽。
-pub(super) const PATH_WIDTH: f32 = 150.;
-
 /// 按文件表可用宽度选择归档列；窄窗口优先隐藏路径、压缩算法和 CRC32。
 ///
 /// 阈值按“名称至少保留 160 像素”估算，保证 960 像素最小窗口下仍能显示

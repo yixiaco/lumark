@@ -34,8 +34,8 @@ use lumark_archive::{
 use lumark_browser::{BrowserEntry, BrowserLocation, BrowserModel, SearchMode};
 use lumark_platform_windows as platform;
 use lumark_settings::{
-    CompressionPreset as SettingsPreset, DisguiseMaskPreference, Settings, SettingsStore,
-    ThemePreference,
+    ColumnKind, ColumnWidths, CompressionPreset as SettingsPreset, DisguiseMaskPreference,
+    Settings, SettingsStore, ThemePreference,
 };
 use lumark_tasks::{TaskEvent, TaskKind, TaskManager, TaskProgress, TaskRequest, TaskState};
 use lumark_vault::{PasswordEntry, VaultState, VaultStore};
@@ -205,9 +205,24 @@ pub(crate) struct TreeRow {
     expanded: bool,
 }
 
+/// 正在拖动调整的文件表列。
+#[derive(Clone, Copy)]
+pub(crate) struct ColumnResize {
+    /// 正在调整的列。
+    pub(crate) column: ColumnKind,
+    /// 按下鼠标时的窗口横坐标。
+    pub(crate) start_x: f32,
+    /// 按下鼠标时的列宽。
+    pub(crate) start_width: f32,
+}
+
 /// Lumark 主应用状态。
 pub struct LumarkApp {
     browser: BrowserModel,
+    /// 当前文件表列宽，拖动时实时更新并在松开后持久化。
+    column_widths: ColumnWidths,
+    /// 正在拖动的列；`None` 表示没有列宽拖动。
+    column_resize: Option<ColumnResize>,
     settings: Arc<SettingsStore>,
     vault: Arc<VaultStore>,
     tasks: Arc<TaskManager>,
@@ -502,6 +517,10 @@ impl LumarkApp {
         let initial_preset = settings_snapshot.default_preset;
         let mut app = Self {
             browser,
+            column_widths: settings_snapshot
+                .column_widths
+                .unwrap_or_else(|| ColumnWidths::from_layout(settings_snapshot.column_layout)),
+            column_resize: None,
             settings,
             vault,
             tasks: Arc::new(TaskManager::new()),
@@ -674,9 +693,31 @@ impl LumarkApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(target) = request.target().map(Path::to_path_buf) else {
+        let targets = request
+            .targets()
+            .into_iter()
+            .map(Path::to_path_buf)
+            .collect::<Vec<_>>();
+        let Some(target) = targets.first().cloned() else {
             return;
         };
+        // Shell 一次转发多个路径时，当前窗口处理第一个，其余各开独立窗口，
+        // 避免多选打开只显示第一个归档。
+        if matches!(
+            request.mode,
+            StartupMode::Open | StartupMode::Extract | StartupMode::Restore
+        ) && targets.len() > 1
+        {
+            for path in targets.iter().skip(1) {
+                self.open_request_window(
+                    StartupRequest {
+                        mode: request.mode,
+                        paths: vec![path.clone()],
+                    },
+                    cx,
+                );
+            }
+        }
         match request.mode {
             StartupMode::Compress => {
                 // 资源管理器会为每个选中项各启动一次进程；先短暂收集再统一打开

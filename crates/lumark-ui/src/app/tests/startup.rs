@@ -54,6 +54,29 @@ mod startup_tests {
         assert_eq!(request.mode, StartupMode::Restore);
     }
 
+    /// 验证一次请求包含多个归档时 targets 保留全部有效路径。
+    #[test]
+    fn multi_open_request_keeps_all_archives() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first.zip");
+        let second = directory.path().join("second.7z");
+        let ignored = directory.path().join("notes.txt");
+        std::fs::write(&first, b"zip").unwrap();
+        std::fs::write(&second, b"7z").unwrap();
+        std::fs::write(&ignored, b"text").unwrap();
+        let request = StartupRequest::parse(vec![
+            "--open".to_string(),
+            first.to_string_lossy().into_owned(),
+            ignored.to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ])
+        .expect("multi open request");
+        let targets = request.targets();
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0], first);
+        assert_eq!(targets[1], second);
+    }
+
     /// 验证还原请求接受任意存在的文件，目标缺失时返回空。
     #[test]
     fn restore_request_accepts_existing_file() {

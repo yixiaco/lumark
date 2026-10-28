@@ -69,15 +69,16 @@ impl StartupRequest {
         Some(Self { mode, paths })
     }
 
-    /// 返回请求真正要处理的第一个路径。
+    /// 返回请求真正要处理的全部路径。
     ///
-    /// 打开和解压只接受压缩包文件，压缩还接受文件夹；不匹配时返回 `None`，
-    /// 避免为无效请求打开一个空窗口。
-    pub(crate) fn target(&self) -> Option<&Path> {
+    /// 打开和解压只接受压缩包文件，压缩还接受文件夹；不匹配的路径会被
+    /// 过滤，避免为无效请求打开空窗口。Shell 一次传入多个路径时由界面
+    /// 决定开多个窗口还是合并处理。
+    pub(crate) fn targets(&self) -> Vec<&Path> {
         self.paths
             .iter()
             .map(PathBuf::as_path)
-            .find(|path| match self.mode {
+            .filter(|path| match self.mode {
                 StartupMode::Compress | StartupMode::Disguise => path.exists(),
                 StartupMode::Restore => path.is_file(),
                 StartupMode::MountIso | StartupMode::UnmountIso => {
@@ -85,5 +86,11 @@ impl StartupRequest {
                 }
                 StartupMode::Open | StartupMode::Extract => path.is_file() && is_archive_path(path),
             })
+            .collect()
+    }
+
+    /// 返回请求真正要处理的第一个路径。
+    pub(crate) fn target(&self) -> Option<&Path> {
+        self.targets().into_iter().next()
     }
 }
