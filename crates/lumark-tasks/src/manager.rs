@@ -846,3 +846,46 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     }
     "任务线程异常退出".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// 暂停应阻塞工作线程，恢复后继续执行。
+    #[test]
+    fn pause_blocks_and_resume_releases_worker() {
+        let control = Arc::new(TaskControl::new());
+        control.pause();
+        assert_eq!(control.state(), TaskState::Paused);
+        let worker = {
+            let control = control.clone();
+            std::thread::spawn(move || {
+                control.wait_if_paused();
+                control.is_cancelled()
+            })
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!worker.is_finished(), "暂停期间工作线程不应继续");
+        control.resume();
+        assert!(!worker.join().unwrap());
+    }
+
+    /// 暂停中取消应立即唤醒工作线程并设置取消标志。
+    #[test]
+    fn cancel_releases_paused_worker() {
+        let control = Arc::new(TaskControl::new());
+        control.pause();
+        let worker = {
+            let control = control.clone();
+            std::thread::spawn(move || {
+                control.wait_if_paused();
+                control.is_cancelled()
+            })
+        };
+        control.cancel();
+        assert_eq!(control.state(), TaskState::Cancelled);
+        assert!(worker.join().unwrap());
+    }
+}
