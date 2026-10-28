@@ -67,6 +67,14 @@ cargo build --release -p lumark-app -p lumark-sfx
 cargo test --workspace
 ```
 
+提交前额外运行：
+
+```powershell
+powershell -NoProfile -File tools/check_file_sizes.ps1
+```
+
+DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 Shell 通知图标的交互式桌面会话，受限会话可能返回“拒绝访问”。
+
 测试覆盖：
 
 - ZIP/7Z/TAR 系列/流式格式往返、AES 密码、固实压缩、原子编辑、分卷和路径穿越拒绝。
@@ -90,14 +98,14 @@ cargo test --workspace
 
 | 文件 | 职责 |
 |---|---|
-| `app/actions/files.rs` | 导航、选择、搜索、目录树和文件操作 |
-| `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程 |
+| `app/actions/files.rs` | 导航、选择、搜索、目录树和文件操作；进度辅助在 `app/actions/files/util.rs` |
+| `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程；按 `open/compress/extract/password/test/util` 拆分 |
 | `app/actions/disguise.rs` | 伪装窗口、批量伪装、一键还原和 Shell 错误提示 |
 | `app/actions/passwords.rs` | 密码即时写入、解锁、主密码和导入导出 |
 | `app/actions/settings.rs` | 主题、默认压缩参数、密码库位置、文件关联和 Shell 集成 |
 | `app/actions/tasks.rs` | 任务记录、事件桥、Shell 压缩批次、后台宿主托盘和任务中心数据维护 |
-| `app/view/chrome.rs` | 标题栏、渐变动作带、导航行、文件夹侧栏、状态栏和模态层 |
-| `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器 |
+| `app/view/chrome.rs` | 标题栏、动作带、导航行、文件夹侧栏、状态栏和模态层；按布局区域拆分为子模块 |
+| `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器；列、行、平铺、菜单、详情和拖放分文件 |
 | `app/view/pages.rs` | 页面模块入口，只保留子模块声明 |
 | `app/view/pages/passwords.rs` | 密码库页面组合 |
 | `app/view/pages/password_list.rs` | 记录列表、搜索、锁定面板和记录行 |
@@ -109,15 +117,17 @@ cargo test --workspace
 | `app/view/settings_window_pages.rs` | 综合、外观和关于选项卡 |
 | `app/view/settings_window_tabs.rs` | 压缩、文件关联和密码库选项卡 |
 | `app/view/password_windows.rs` | 独立密码编辑窗口和主密码设置窗口 |
-| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项、伪装选项卡 |
+| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项、伪装选项卡；按表单、布局、分卷和选项卡拆分 |
 | `app/view/disguise_window.rs` | 独立伪装窗口、输出目录、面具选择和删除源文件选项 |
 | `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
-| `app/view/dialogs.rs` | 确认对话框、密码提示和导入导出表单 |
+| `app/view/dialogs.rs` | 确认对话框、密码提示和导入导出表单；按归档密码、归档编辑、文件编辑、密码库和临时解压拆分 |
 | `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
 | `app/view/components.rs` | IconPark 图标、渐变横幅、经典分组框、单复选控件和通用按钮 |
 | `app/util.rs` | 路径、大小、日期、格式和界面格式化辅助函数 |
 | `app/theme.rs` | 主题模式、强调色派生和全局主题 token |
-| `app/tests.rs` | 启动参数与真实窗口 UI 测试 |
+| `app/startup.rs` | 启动模式和单实例路径解析 |
+| `app/stores.rs` | 多窗口共享的设置和密码库存储 |
+| `app/tests.rs` | 启动参数测试入口；真实窗口 UI 测试按浏览器、压缩、密码、任务和查看器拆分到 `app/tests/` |
 
 ![Lumark 主界面](artifacts/ui-main-final.png)
 
@@ -178,6 +188,8 @@ cargo test --workspace
 | `lumark-platform-windows` | 回收站、经典 Shell 菜单、单实例和 Windows 平台适配 |
 
 ## 设计取舍
+
+- 模块按职责拆分并保持单文件不超过 1000 行：`service.rs` 拆为探测、列表、解压、创建、伪装、传统格式、工具、进度和分卷模块；压缩窗口、文件表、标题栏、弹窗、归档动作、应用测试和 roundtrip 测试同样按功能拆分。`tools/check_file_sizes.ps1` 在验证阶段拦截超限文件，避免功能继续堆回单个文件。
 
 - 密码库默认由与当前计算机绑定的 Windows DPAPI 保护；设置主密码后改用 Argon2id + XChaCha20-Poly1305，并移除 DPAPI 包裹。主密码无法找回。
 - 密码列表默认掩码，单条显示 10 秒；复制后 30 秒只在剪贴板内容仍匹配时清空。

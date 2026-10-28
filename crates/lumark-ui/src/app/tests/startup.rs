@@ -1,0 +1,134 @@
+mod startup_tests {
+    use crate::app::{StartupMode, StartupRequest};
+    use std::path::PathBuf;
+
+    /// 验证各种启动开关都能解析，并且路径原样保留。
+    #[test]
+    fn startup_request_parses_mode_and_paths() {
+        let request = StartupRequest::parse(vec![
+            "--extract".to_string(),
+            r"C:\downloads\report.zip".to_string(),
+        ])
+        .expect("extract request");
+        assert_eq!(request.mode, StartupMode::Extract);
+        assert_eq!(
+            request.paths,
+            vec![PathBuf::from(r"C:\downloads\report.zip")]
+        );
+
+        let request = StartupRequest::parse(vec![
+            "--compress".to_string(),
+            r"C:\work\images".to_string(),
+        ])
+        .expect("compress request");
+        assert_eq!(request.mode, StartupMode::Compress);
+
+        let request = StartupRequest::parse(vec![
+            "--mount-iso".to_string(),
+            r"C:\images\setup.iso".to_string(),
+        ])
+        .expect("mount iso request");
+        assert_eq!(request.mode, StartupMode::MountIso);
+
+        let request = StartupRequest::parse(vec![
+            "--unmount-iso".to_string(),
+            r"C:\images\setup.iso".to_string(),
+        ])
+        .expect("unmount iso request");
+        assert_eq!(request.mode, StartupMode::UnmountIso);
+
+        let request = StartupRequest::parse(vec![
+            "--restore".to_string(),
+            r"C:\downloads\cover.mp4".to_string(),
+        ])
+        .expect("restore request");
+        assert_eq!(request.mode, StartupMode::Restore);
+    }
+
+    /// 验证还原请求接受任意存在的文件，目标缺失时返回空。
+    #[test]
+    fn restore_request_accepts_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("cover.mp4");
+        std::fs::write(&path, b"not a disguise").unwrap();
+        let request = StartupRequest::parse(vec![
+            "--restore".to_string(),
+            path.to_string_lossy().into_owned(),
+        ])
+        .expect("restore request");
+        assert_eq!(request.mode, StartupMode::Restore);
+        assert_eq!(request.target(), Some(path.as_path()));
+
+        let request = StartupRequest::parse(vec![
+            "--restore".to_string(),
+            directory
+                .path()
+                .join("missing.mp4")
+                .to_string_lossy()
+                .into_owned(),
+        ])
+        .expect("restore request");
+        assert!(request.target().is_none());
+    }
+
+    /// 伪装归档必须被识别为可打开归档，`--open` 能接受它。
+    #[test]
+    fn open_request_accepts_disguised_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("hello.txt");
+        std::fs::write(&source, b"hello disguise").unwrap();
+        let output = directory.path().join("cover.jpg");
+        let options = lumark_archive::CompressionOptions {
+            disguise: Some(lumark_archive::DisguiseOptions {
+                mask: lumark_archive::DisguiseMask::PresetImage,
+                original_name: None,
+            }),
+            ..Default::default()
+        };
+        lumark_archive::ArchiveService::create(&output, &[source], &options, |_| {}).unwrap();
+        assert_eq!(
+            lumark_archive::ArchiveService::detect(&output),
+            lumark_archive::ArchiveFormat::Disguised
+        );
+        let request = StartupRequest::parse(vec![
+            "--open".to_string(),
+            output.to_string_lossy().into_owned(),
+        ])
+        .expect("open request");
+        assert_eq!(request.target(), Some(output.as_path()));
+    }
+
+    /// 验证 ISO 挂载请求只接受真实存在的 .iso 文件。
+    #[test]
+    fn iso_request_requires_existing_iso_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let iso = directory.path().join("image.iso");
+        std::fs::write(&iso, b"iso").unwrap();
+        let request = StartupRequest::parse(vec![
+            "--mount-iso".to_string(),
+            iso.to_string_lossy().into_owned(),
+        ])
+        .expect("mount iso request");
+        assert_eq!(request.target(), Some(iso.as_path()));
+
+        let request = StartupRequest::parse(vec![
+            "--mount-iso".to_string(),
+            r"C:\images\missing.iso".to_string(),
+        ])
+        .expect("mount iso request");
+        assert!(request.target().is_none());
+    }
+
+    /// 验证没有路径时不会创建窗口，未知开关按默认浏览处理。
+    #[test]
+    fn startup_request_ignores_empty_and_unknown_arguments() {
+        assert!(StartupRequest::parse(vec!["--open".to_string()]).is_none());
+        assert!(StartupRequest::parse(vec!["--register-shell".to_string()]).is_none());
+        let request = StartupRequest::parse(vec![
+            "--unknown".to_string(),
+            r"C:\downloads\a.zip".to_string(),
+        ])
+        .expect("default open request");
+        assert_eq!(request.mode, StartupMode::Open);
+    }
+}

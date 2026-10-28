@@ -40,6 +40,11 @@ use lumark_settings::{
 use lumark_tasks::{TaskEvent, TaskKind, TaskManager, TaskProgress, TaskRequest, TaskState};
 use lumark_vault::{PasswordEntry, VaultState, VaultStore};
 
+mod startup;
+pub(crate) use startup::*;
+mod stores;
+pub(crate) use stores::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Screen {
     Browser,
@@ -172,157 +177,6 @@ pub(crate) struct TreeRow {
     label: String,
     depth: usize,
     expanded: bool,
-}
-
-/// Shell 请求的打开方式，对应 `--open`、`--extract`、`--compress`、
-/// `--restore` 以及 ISO 的 `--mount-iso` / `--unmount-iso`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StartupMode {
-    Open,
-    Extract,
-    Compress,
-    /// 把伪装文件还原成原归档或原文件。
-    Restore,
-    MountIso,
-    UnmountIso,
-}
-
-/// 一个由独立窗口处理的启动请求。
-///
-/// 首次启动来自命令行参数，之后由单实例转发的请求队列产生；两种来源
-/// 都只描述要处理哪些路径，窗口和界面状态由接收它的窗口自己创建。
-#[derive(Debug, Clone)]
-pub(crate) struct StartupRequest {
-    pub(crate) mode: StartupMode,
-    pub(crate) paths: Vec<PathBuf>,
-}
-
-impl StartupRequest {
-    /// 解析命令行参数并保留非 UTF-8 路径。
-    pub(crate) fn from_env() -> Option<Self> {
-        Self::parse_os(std::env::args_os().skip(1))
-    }
-
-    /// 解析单实例转发请求，参数已经由发送方转换成 UTF-8 文本。
-    pub(crate) fn parse(arguments: Vec<String>) -> Option<Self> {
-        Self::parse_os(arguments.into_iter().map(std::ffi::OsString::from))
-    }
-
-    /// 识别启动模式；未知开关忽略，其余参数按路径处理。
-    fn parse_os(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Self> {
-        let mut mode = StartupMode::Open;
-        let mut paths = Vec::new();
-        for argument in arguments {
-            let text = argument.to_string_lossy();
-            match text.as_ref() {
-                "--open" => mode = StartupMode::Open,
-                "--extract" => mode = StartupMode::Extract,
-                "--compress" => mode = StartupMode::Compress,
-                "--restore" => mode = StartupMode::Restore,
-                "--mount-iso" => mode = StartupMode::MountIso,
-                "--unmount-iso" => mode = StartupMode::UnmountIso,
-                value if value.starts_with('-') => {}
-                _ => paths.push(PathBuf::from(argument)),
-            }
-        }
-        if paths.is_empty() {
-            return None;
-        }
-        Some(Self { mode, paths })
-    }
-
-    /// 返回请求真正要处理的第一个路径。
-    ///
-    /// 打开和解压只接受压缩包文件，压缩还接受文件夹；不匹配时返回 `None`，
-    /// 避免为无效请求打开一个空窗口。
-    pub(crate) fn target(&self) -> Option<&Path> {
-        self.paths
-            .iter()
-            .map(PathBuf::as_path)
-            .find(|path| match self.mode {
-                StartupMode::Compress => path.exists(),
-                StartupMode::Restore => path.is_file(),
-                StartupMode::MountIso | StartupMode::UnmountIso => {
-                    path.is_file() && is_iso_path(path)
-                }
-                StartupMode::Open | StartupMode::Extract => path.is_file() && is_archive_path(path),
-            })
-    }
-}
-
-/// 多个窗口共享的持久化服务。
-///
-/// 设置和密码库必须进程内唯一：每个窗口各自打开会互相覆盖设置文件，
-/// 并让密码库出现多份互不可见的解锁状态。
-#[derive(Clone)]
-pub(crate) struct SharedStores {
-    settings: Arc<SettingsStore>,
-    vault: Arc<VaultStore>,
-    settings_error: Option<String>,
-    vault_error: Option<String>,
-}
-
-impl SharedStores {
-    /// 读取设置，并按设置中记录的密码库位置打开共享存储。
-    pub(crate) fn open(settings_path: PathBuf) -> Self {
-        let (settings, settings_error) = open_settings(settings_path);
-        let vault_path = settings
-            .get()
-            .vault_path
-            .unwrap_or_else(VaultStore::default_path);
-        Self::with_vault(settings, settings_error, vault_path)
-    }
-
-    /// 使用调用方指定的密码库位置打开，供自定义路径和集成测试使用。
-    pub(crate) fn open_with(vault_path: PathBuf, settings_path: PathBuf) -> Self {
-        let (settings, settings_error) = open_settings(settings_path);
-        Self::with_vault(settings, settings_error, vault_path)
-    }
-
-    /// 打开密码库；失败时退回临时目录，保证窗口仍能启动并提示错误。
-    fn with_vault(
-        settings: Arc<SettingsStore>,
-        settings_error: Option<String>,
-        vault_path: PathBuf,
-    ) -> Self {
-        let (vault, vault_error) = match VaultStore::open(vault_path) {
-            Ok(vault) => (Arc::new(vault), None),
-            Err(error) => {
-                eprintln!("vault open failed: {error}");
-                (
-                    Arc::new(
-                        VaultStore::open(
-                            std::env::temp_dir().join("lumark-vault").join("vault.dat"),
-                        )
-                        .expect("temporary vault"),
-                    ),
-                    Some(error.to_string()),
-                )
-            }
-        };
-        Self {
-            settings,
-            vault,
-            settings_error,
-            vault_error,
-        }
-    }
-}
-
-/// 读取设置文件；损坏或不可读时退回临时目录并保留错误文本。
-fn open_settings(settings_path: PathBuf) -> (Arc<SettingsStore>, Option<String>) {
-    match SettingsStore::open(settings_path) {
-        Ok(settings) => (Arc::new(settings), None),
-        Err(error) => {
-            let fallback = std::env::temp_dir()
-                .join("lumark-settings")
-                .join("settings.json");
-            (
-                Arc::new(SettingsStore::open(fallback).expect("temporary Lumark settings store")),
-                Some(error.to_string()),
-            )
-        }
-    }
 }
 
 pub struct LumarkApp {

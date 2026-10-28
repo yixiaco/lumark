@@ -1,0 +1,77 @@
+use super::*;
+
+/// Shell 请求的打开方式，对应 `--open`、`--extract`、`--compress`、
+/// `--restore` 以及 ISO 的 `--mount-iso` / `--unmount-iso`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StartupMode {
+    Open,
+    Extract,
+    Compress,
+    /// 把伪装文件还原成原归档或原文件。
+    Restore,
+    MountIso,
+    UnmountIso,
+}
+
+/// 一个由独立窗口处理的启动请求。
+///
+/// 首次启动来自命令行参数，之后由单实例转发的请求队列产生；两种来源
+/// 都只描述要处理哪些路径，窗口和界面状态由接收它的窗口自己创建。
+#[derive(Debug, Clone)]
+pub(crate) struct StartupRequest {
+    pub(crate) mode: StartupMode,
+    pub(crate) paths: Vec<PathBuf>,
+}
+
+impl StartupRequest {
+    /// 解析命令行参数并保留非 UTF-8 路径。
+    pub(crate) fn from_env() -> Option<Self> {
+        Self::parse_os(std::env::args_os().skip(1))
+    }
+
+    /// 解析单实例转发请求，参数已经由发送方转换成 UTF-8 文本。
+    pub(crate) fn parse(arguments: Vec<String>) -> Option<Self> {
+        Self::parse_os(arguments.into_iter().map(std::ffi::OsString::from))
+    }
+
+    /// 识别启动模式；未知开关忽略，其余参数按路径处理。
+    fn parse_os(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Self> {
+        let mut mode = StartupMode::Open;
+        let mut paths = Vec::new();
+        for argument in arguments {
+            let text = argument.to_string_lossy();
+            match text.as_ref() {
+                "--open" => mode = StartupMode::Open,
+                "--extract" => mode = StartupMode::Extract,
+                "--compress" => mode = StartupMode::Compress,
+                "--restore" => mode = StartupMode::Restore,
+                "--mount-iso" => mode = StartupMode::MountIso,
+                "--unmount-iso" => mode = StartupMode::UnmountIso,
+                value if value.starts_with('-') => {}
+                _ => paths.push(PathBuf::from(argument)),
+            }
+        }
+        if paths.is_empty() {
+            return None;
+        }
+        Some(Self { mode, paths })
+    }
+
+    /// 返回请求真正要处理的第一个路径。
+    ///
+    /// 打开和解压只接受压缩包文件，压缩还接受文件夹；不匹配时返回 `None`，
+    /// 避免为无效请求打开一个空窗口。
+    pub(crate) fn target(&self) -> Option<&Path> {
+        self.paths
+            .iter()
+            .map(PathBuf::as_path)
+            .find(|path| match self.mode {
+                StartupMode::Compress => path.exists(),
+                StartupMode::Restore => path.is_file(),
+                StartupMode::MountIso | StartupMode::UnmountIso => {
+                    path.is_file() && is_iso_path(path)
+                }
+                StartupMode::Open | StartupMode::Extract => path.is_file() && is_archive_path(path),
+            })
+    }
+}
