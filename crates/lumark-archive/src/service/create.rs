@@ -436,6 +436,21 @@ impl ArchiveService {
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
         }
+        Self::create_tar_to(File::create(output)?, output, sources, options, progress)
+    }
+
+    /// 把 TAR 及压缩变体写入任意写入器，供伪装单遍写入复用。
+    pub(crate) fn create_tar_to<W, F>(
+        destination: W,
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        W: Write,
+        F: FnMut(CreateProgress),
+    {
         let level = options.level.unwrap_or(6).clamp(1, 9) as u32;
         let mut report = CreateReport {
             output: output.to_path_buf(),
@@ -443,37 +458,32 @@ impl ArchiveService {
         };
         match options.format {
             ArchiveFormat::Tar => {
-                let mut builder = tar::Builder::new(File::create(output)?);
+                let mut builder = tar::Builder::new(destination);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.finish()?;
             }
             ArchiveFormat::TarGz => {
-                let encoder = flate2::write::GzEncoder::new(
-                    File::create(output)?,
-                    flate2::Compression::new(level),
-                );
+                let encoder =
+                    flate2::write::GzEncoder::new(destination, flate2::Compression::new(level));
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarBz2 => {
-                let encoder = bzip2::write::BzEncoder::new(
-                    File::create(output)?,
-                    bzip2::Compression::new(level),
-                );
+                let encoder =
+                    bzip2::write::BzEncoder::new(destination, bzip2::Compression::new(level));
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarXz => {
-                let encoder = xz2::write::XzEncoder::new(File::create(output)?, level);
+                let encoder = xz2::write::XzEncoder::new(destination, level);
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarZst => {
-                let encoder =
-                    zstd::stream::write::Encoder::new(File::create(output)?, level as i32)?;
+                let encoder = zstd::stream::write::Encoder::new(destination, level as i32)?;
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.into_inner()?.finish()?;
@@ -481,14 +491,13 @@ impl ArchiveService {
             ArchiveFormat::TarBr => {
                 // Brotli 质量范围是 0–11，与 TAR 其他变体的 1–9 不同。
                 let quality = options.level.unwrap_or(6).clamp(0, 11) as u32;
-                let encoder =
-                    brotli::CompressorWriter::new(File::create(output)?, 64 * 1024, quality, 22);
+                let encoder = brotli::CompressorWriter::new(destination, 64 * 1024, quality, 22);
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.into_inner()?.into_inner();
             }
             ArchiveFormat::TarLz4 => {
-                let encoder = lz4_flex::frame::FrameEncoder::new(File::create(output)?);
+                let encoder = lz4_flex::frame::FrameEncoder::new(destination);
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder
@@ -498,8 +507,7 @@ impl ArchiveService {
             }
             ArchiveFormat::TarLz => {
                 let preset = options.level.unwrap_or(6).clamp(0, 9) as u32;
-                let encoder =
-                    LzipWriter::new(File::create(output)?, LzipOptions::with_preset(preset));
+                let encoder = LzipWriter::new(destination, LzipOptions::with_preset(preset));
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder
@@ -510,7 +518,7 @@ impl ArchiveService {
             ArchiveFormat::TarLzma => {
                 let preset = options.level.unwrap_or(6).clamp(0, 9) as u32;
                 let encoder = LzmaWriter::new_use_header(
-                    File::create(output)?,
+                    destination,
                     &LzmaOptions::with_preset(preset),
                     None,
                 )
@@ -565,6 +573,24 @@ impl ArchiveService {
     where
         F: FnMut(CreateProgress),
     {
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        Self::create_single_stream_to(File::create(output)?, output, sources, options, progress)
+    }
+
+    /// 把单文件流写入任意写入器，供伪装单遍写入复用。
+    pub(crate) fn create_single_stream_to<W, F>(
+        destination: W,
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        W: Write,
+        F: FnMut(CreateProgress),
+    {
         let suggestion = options
             .format
             .single_stream_tar_variant()
@@ -588,12 +614,8 @@ impl ArchiveService {
                 options.format.label()
             )));
         }
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent)?;
-        }
         let total = fs::metadata(source)?.len();
         let mut input = File::open(source)?;
-        let destination = File::create(output)?;
         let level = options.level.unwrap_or(6).clamp(1, 9) as u32;
         let copied = match options.format {
             ArchiveFormat::Gzip => {

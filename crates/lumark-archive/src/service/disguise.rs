@@ -246,11 +246,11 @@ impl ArchiveService {
         }
     }
 
-    /// 生成伪装归档：先写内层归档，再流式包装成媒体外观。
+    /// 生成伪装归档。
     ///
-    /// 内层归档写入同目录临时文件，复用现有全部格式的创建与进度逻辑；
-    /// 包装阶段按 1 MiB 分块混淆写入，最后原子替换目标路径。失败或取消
-    /// 只清理临时文件，旧输出保持不变。
+    /// TAR 系列和单文件流直接写入 `DisguiseWriter`，不落完整内层文件；
+    /// ZIP/7Z/LZH/ZPAQ 等仍先写同目录临时归档再包装。所有路径最后都原子
+    /// 替换目标，失败或取消只清理临时文件，旧输出保持不变。
     pub(crate) fn create_disguised<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -295,6 +295,103 @@ impl ArchiveService {
             std::process::id(),
             stamp
         ));
+        let original_name = disguise.original_name.clone().unwrap_or_else(|| {
+            let stem = output
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("archive");
+            format!("{stem}.{}", options.format.extension())
+        });
+        // TAR 系列和单文件流可以边生成边写入伪装容器，避免先落一份完整内层文件。
+        let direct_tar = matches!(
+            options.format,
+            ArchiveFormat::Tar
+                | ArchiveFormat::TarGz
+                | ArchiveFormat::TarBz2
+                | ArchiveFormat::TarXz
+                | ArchiveFormat::TarZst
+                | ArchiveFormat::TarBr
+                | ArchiveFormat::TarLz4
+                | ArchiveFormat::TarLz
+                | ArchiveFormat::TarLzma
+        );
+        let direct_stream = matches!(
+            options.format,
+            ArchiveFormat::Gzip
+                | ArchiveFormat::Bzip2
+                | ArchiveFormat::Xz
+                | ArchiveFormat::Zstd
+                | ArchiveFormat::Brotli
+                | ArchiveFormat::Lz4
+        );
+        if direct_tar || direct_stream {
+            let mut inner_options = options.clone();
+            inner_options.disguise = None;
+            inner_options.test_after = false;
+            inner_options.delete_source = false;
+            inner_options.split_size = None;
+            let staged_file = File::create(&staged)?;
+            let writer = crate::disguise::DisguiseWriter::new(
+                staged_file,
+                disguise.mask.clone(),
+                &original_name,
+                DisguisePayloadKind::Archive,
+                options.cancel.clone(),
+            )?;
+            let result = (|| -> Result<CreateReport, ArchiveError> {
+                let mut writer = writer;
+                let mut report = if direct_tar {
+                    Self::create_tar_to(
+                        &mut writer,
+                        &staged,
+                        sources,
+                        &inner_options,
+                        &mut progress,
+                    )?
+                } else {
+                    Self::create_single_stream_to(
+                        &mut writer,
+                        &staged,
+                        sources,
+                        &inner_options,
+                        &mut progress,
+                    )?
+                };
+                let file = writer.finish()?;
+                file.sync_all()?;
+                if options.test_after {
+                    Self::test(
+                        &staged,
+                        options.password.as_deref().map(String::as_str),
+                        |_| {},
+                    )?;
+                }
+                crate::disguise::probe(&staged)?.ok_or_else(|| {
+                    ArchiveError::Corrupt("伪装文件写入后无法解析尾部信息".to_string())
+                })?;
+                let output_size = fs::metadata(&staged).map(|meta| meta.len()).unwrap_or(0);
+                progress(CreateProgress {
+                    current: "写入伪装容器".to_string(),
+                    bytes_done: report.bytes,
+                    bytes_total: report.bytes,
+                    current_bytes_done: report.bytes,
+                    current_bytes_total: report.bytes,
+                    output_bytes: output_size,
+                    entries_done: report.files,
+                    entries_total: report.files,
+                });
+                atomic_replace_file(&staged, output).map_err(ArchiveError::Io)?;
+                report.output = output.to_path_buf();
+                if options.delete_source {
+                    remove_source_paths(sources, &mut report.cleanup_errors);
+                }
+                Ok(report)
+            })();
+            if result.is_err() {
+                let _ = fs::remove_file(&staged);
+            }
+            return result;
+        }
         let mut inner_options = options.clone();
         inner_options.disguise = None;
         inner_options.test_after = false;
@@ -317,13 +414,6 @@ impl ArchiveService {
                     |_| {},
                 )?;
             }
-            let original_name = disguise.original_name.clone().unwrap_or_else(|| {
-                let stem = output
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("archive");
-                format!("{stem}.{}", options.format.extension())
-            });
             crate::disguise::wrap(
                 &inner,
                 &staged,

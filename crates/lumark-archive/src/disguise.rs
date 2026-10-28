@@ -198,9 +198,9 @@ impl DisguiseMask {
     }
 
     /// 把面具写入目标文件，返回写入长度。
-    fn write_to(
+    fn write_to<W: Write>(
         &self,
-        target: &mut File,
+        target: &mut W,
         cancel: Option<&Arc<AtomicBool>>,
     ) -> Result<u64, ArchiveError> {
         self.validate()?;
@@ -571,6 +571,109 @@ pub fn open_payload(path: &Path) -> Result<PayloadReader, ArchiveError> {
         ArchiveError::Corrupt(format!("不是 Lumark 伪装文件：{}", path.display()))
     })?;
     open_payload_with_info(path, &info)
+}
+
+/// 把归档写入流式伪装容器的写入器。
+///
+/// 首次写入时先复制面具，随后对载荷按 128 KiB 密钥流分块混淆；`finish`
+/// 写出尾部并返回底层写入器。这样 TAR/单文件流可以在生成归档的同时完成
+/// 包装，避免先落一份完整内层归档。
+pub struct DisguiseWriter<W: Write> {
+    /// 底层输出。
+    inner: W,
+    /// 尚未写入的面具；写入后置空。
+    mask: Option<DisguiseMask>,
+    /// 已写入的面具长度。
+    mask_len: u64,
+    /// 本次容器的一次性混淆盐。
+    salt: [u8; 32],
+    /// 载荷密钥流。
+    keystream: KeyStream,
+    /// 已写入的载荷字节数。
+    payload_len: u64,
+    /// 尾部记录的原文件名。
+    original_name: String,
+    /// 载荷类型。
+    kind: DisguisePayloadKind,
+    /// 取消标志。
+    cancel: Option<Arc<AtomicBool>>,
+}
+
+impl<W: Write> DisguiseWriter<W> {
+    /// 创建流式伪装写入器，并提前校验面具和原文件名。
+    pub fn new(
+        inner: W,
+        mask: DisguiseMask,
+        original_name: &str,
+        kind: DisguisePayloadKind,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<Self, ArchiveError> {
+        mask.validate()?;
+        let original_name = safe_file_name(original_name)?;
+        let salt = random_salt();
+        Ok(Self {
+            inner,
+            mask: Some(mask),
+            mask_len: 0,
+            salt,
+            keystream: KeyStream::new(salt),
+            payload_len: 0,
+            original_name,
+            kind,
+            cancel,
+        })
+    }
+
+    /// 首次写入前复制面具，保证载荷偏移正确。
+    fn ensure_mask(&mut self) -> io::Result<()> {
+        if let Some(mask) = self.mask.take() {
+            self.mask_len = mask
+                .write_to(&mut self.inner, self.cancel.as_ref())
+                .map_err(|error| io::Error::other(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// 写出尾部信息并返回底层写入器。
+    pub fn finish(mut self) -> Result<W, ArchiveError> {
+        if let Some(mask) = self.mask.take() {
+            self.mask_len = mask.write_to(&mut self.inner, self.cancel.as_ref())?;
+        }
+        let trailer = build_trailer(
+            self.mask_len,
+            self.payload_len,
+            &self.original_name,
+            self.kind,
+            &self.salt,
+        );
+        self.inner.write_all(&trailer)?;
+        self.inner.flush()?;
+        Ok(self.inner)
+    }
+}
+
+impl<W: Write> Write for DisguiseWriter<W> {
+    /// 混淆载荷后写入底层；首次调用会先写面具。
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if self
+            .cancel
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+        }
+        self.ensure_mask()?;
+        let mut obfuscated = buffer.to_vec();
+        self.keystream.apply(self.payload_len, &mut obfuscated);
+        self.inner.write_all(&obfuscated)?;
+        self.payload_len = self.payload_len.saturating_add(buffer.len() as u64);
+        Ok(buffer.len())
+    }
+
+    /// 刷新底层写入器。
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 /// 把 `source` 包装成 `output`：面具 + 混淆载荷 + 尾部信息。
