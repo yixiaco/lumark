@@ -213,3 +213,56 @@ fn password_editor_window_renders_controls(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 锁定密码库且启用自动解压时，打开加密包应显示解锁提示。
+#[gpui_kit::test]
+fn locked_vault_auto_extract_requests_unlock(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let source = directory.path().join("secret.txt");
+    std::fs::write(&source, b"secret").unwrap();
+    let archive = directory.path().join("secret.zip");
+    lumark_archive::ArchiveService::create(
+        &archive,
+        &[source],
+        &lumark_archive::CompressionOptions {
+            format: lumark_archive::ArchiveFormat::Zip,
+            password: Some(zeroize::Zeroizing::new("archive-pass".to_string())),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            vault_path,
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.vault.unlock("master-pass").unwrap();
+            let mut settings = app.vault.settings();
+            settings.auto_extract = true;
+            app.vault.update_settings(settings).unwrap();
+            app.vault.lock();
+            app.open_archive_with_auto_password(
+                archive.clone(),
+                ArchiveOpenIntent::Extract,
+                window,
+                cx,
+            );
+            assert!(app.show_unlock_for_extract);
+            assert!(app.pending_unlock_archive.as_ref() == Some(&archive));
+            assert!(!app.unlock_for_browse);
+        });
+    });
+    let _ = app;
+}
