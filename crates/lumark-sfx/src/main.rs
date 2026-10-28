@@ -19,6 +19,13 @@ mod lang;
 
 /// 运行自解压流程；失败时用消息框提示用户。
 fn main() {
+    let arguments = std::env::args().collect::<Vec<_>>();
+    if let Some(language) = lang::language_override(&arguments) {
+        // SAFETY: 进程启动早期、尚未创建工作线程时设置环境变量。
+        unsafe {
+            std::env::set_var("LUMARK_LANG", language);
+        }
+    }
     if let Err(error) = run() {
         show_message(&error, true);
     }
