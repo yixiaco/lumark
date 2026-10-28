@@ -117,6 +117,15 @@ impl ArchiveService {
             if magic != ArchiveFormat::Unknown {
                 return magic;
             }
+            // NSIS 是带 PE 外壳的安装包，没有固定头部魔数；只在 MZ 文件上
+            // 做一次完整解析，避免把所有 EXE 都当成归档。
+            if header[..read].starts_with(b"MZ")
+                && fs::read(&base)
+                    .ok()
+                    .is_some_and(|bytes| ::nsis::NsisInstaller::from_bytes(&bytes).is_ok())
+            {
+                return ArchiveFormat::Nsis;
+            }
         }
         // 头部没有魔数时再探测伪装尾部。只有归档载荷才返回 `Disguised`；
         // 原始文件伪装保持普通文件判定，界面通过 `probe_disguise` 提供还原。
@@ -256,6 +265,7 @@ impl ArchiveService {
             ArchiveFormat::Msi => Self::list_msi(path),
             ArchiveFormat::Chm => Self::list_chm(path),
             ArchiveFormat::SquashFs => Self::list_squashfs(path),
+            ArchiveFormat::Nsis => Self::list_nsis(path),
             ArchiveFormat::Rar => Self::list_rar(path, password),
             ArchiveFormat::Zpaq => crate::zpaq::list(path, password),
             ArchiveFormat::Alz => crate::alz::list(path),
@@ -408,6 +418,7 @@ impl ArchiveService {
             ArchiveFormat::Msi => Self::test_msi(&input, &mut progress),
             ArchiveFormat::Chm => Self::test_chm(&input, &mut progress),
             ArchiveFormat::SquashFs => Self::test_squashfs(&input, &mut progress),
+            ArchiveFormat::Nsis => Self::test_nsis(&input, &mut progress),
             ArchiveFormat::Rar => Self::test_rar(&input, &mut progress),
             format if crate::unarc::is_supported(format) => {
                 crate::unarc::test(&input, format, &mut progress)
@@ -635,6 +646,7 @@ impl ArchiveService {
             ArchiveFormat::Msi => Self::extract_msi(path, options, &mut progress),
             ArchiveFormat::Chm => Self::extract_chm(path, options, &mut progress),
             ArchiveFormat::SquashFs => Self::extract_squashfs(path, options, &mut progress),
+            ArchiveFormat::Nsis => Self::extract_nsis(path, options, &mut progress),
             ArchiveFormat::Rar => Self::extract_rar(path, options, &mut progress),
             ArchiveFormat::Zpaq => crate::zpaq::extract(path, options, &mut progress),
             ArchiveFormat::Alz => crate::alz::extract(path, options, &mut progress),
@@ -896,6 +908,7 @@ mod chm;
 mod disguise;
 mod list;
 mod msi;
+mod nsis;
 mod rpm;
 mod squashfs;
 #[cfg(test)]

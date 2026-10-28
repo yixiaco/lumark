@@ -22,6 +22,7 @@ oxiarc-lzhuf.workspace = true
 quick-xml.workspace = true
 libchm.workspace = true
 backhand.workspace = true
+nsis.workspace = true
 msi.workspace = true
 cab.workspace = true
 serde.workspace = true

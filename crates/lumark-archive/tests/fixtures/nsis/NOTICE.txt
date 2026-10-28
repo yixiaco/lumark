@@ -1,0 +1,3 @@
+This NSIS test fixture is copied from the nsis-rs project
+(https://github.com/ATRAPSLLC/nsis-rs), Copyright 2026 ATRAPS LLC,
+licensed under the Apache License, Version 2.0.
