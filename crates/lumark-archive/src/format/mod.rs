@@ -256,6 +256,7 @@ impl ArchiveFormat {
                 | Self::Brotli
                 | Self::Lz4
                 | Self::Lzh
+                | Self::Wim
                 | Self::Zpaq
         )
     }

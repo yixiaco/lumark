@@ -225,6 +225,7 @@ pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
         "7z" | "sevenzip" => ArchiveFormat::SevenZip,
         "zpaq" => ArchiveFormat::Zpaq,
         "lzh" | "lha" => ArchiveFormat::Lzh,
+        "wim" => ArchiveFormat::Wim,
         "tar" => ArchiveFormat::Tar,
         "tar.gz" | "tgz" => ArchiveFormat::TarGz,
         "tar.bz2" | "tbz2" => ArchiveFormat::TarBz2,

@@ -840,6 +840,7 @@ impl ArchiveService {
                 Self::create_single_stream(output, sources, options, &mut progress)
             }
             ArchiveFormat::Lzh => Self::create_lzh(output, sources, options, &mut progress),
+            ArchiveFormat::Wim => Self::create_wim(output, sources, options, &mut progress),
             ArchiveFormat::Zpaq => crate::zpaq::create(output, sources, options, &mut progress),
             other => Err(ArchiveError::UnsupportedFormat(other.label().to_string())),
         }

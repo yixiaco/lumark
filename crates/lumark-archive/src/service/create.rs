@@ -553,6 +553,58 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 创建未压缩 WIM 归档。
+    ///
+    /// 上游写入器只支持 Store，文件内容会整体读入内存；因此这里按文件
+    /// 读取、写入并上报进度，不支持密码和分卷。
+    pub(crate) fn create_wim<F>(
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        F: FnMut(CreateProgress),
+    {
+        use geezipx_core::archive::ArchiveWriter as LegacyArchiveWriter;
+        use geezipx_core::archive::wim::WimWriter;
+
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let plan = build_source_plan(sources, options)?;
+        let entries_total = plan.files.len();
+        let bytes_total = plan.total_bytes;
+        let mut report = CreateReport {
+            output: output.to_path_buf(),
+            ..Default::default()
+        };
+        let mut writer = WimWriter::new(File::create(output)?);
+        for (relative, source, file_bytes) in plan.files {
+            ensure_not_cancelled(&options.cancel)?;
+            let mut input = File::open(&source)?;
+            writer
+                .add_entry_from_reader(Path::new(&relative), &mut input)
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+            report.files += 1;
+            report.bytes = report.bytes.saturating_add(file_bytes);
+            progress(CreateProgress {
+                current: relative,
+                bytes_done: report.bytes,
+                bytes_total,
+                current_bytes_done: file_bytes,
+                current_bytes_total: file_bytes,
+                output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
+                entries_done: report.files,
+                entries_total,
+            });
+        }
+        let _written = Box::new(writer)
+            .finish()
+            .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+        Ok(report)
+    }
+
     /// 创建 LZH/LHA 归档。
     ///
     /// 当前后端按条目整块读入内存，因此对单条目设置 512 MiB 上限；压缩方法
