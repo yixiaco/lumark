@@ -82,7 +82,7 @@ impl SettingsWindowView {
         let disguise_select = new_select(
             window,
             cx,
-            DISGUISE_MASK_LABELS.to_vec(),
+            disguise_mask_labels().to_vec(),
             disguise_mask_index(settings.disguise_mask),
         );
         let mut subscriptions = Vec::new();

@@ -490,23 +490,29 @@ pub(crate) fn disguise_extension(
 /// 面具偏好在界面中的标签。
 pub(crate) fn disguise_mask_label(preference: DisguiseMaskPreference) -> &'static str {
     match preference {
-        DisguiseMaskPreference::Video => "视频（MP4）",
-        DisguiseMaskPreference::Image => "图片（JPG）",
-        DisguiseMaskPreference::Custom => "自定义文件",
+        DisguiseMaskPreference::Video => crate::i18n::tr("视频（MP4）", "Video (MP4)"),
+        DisguiseMaskPreference::Image => crate::i18n::tr("图片（JPG）", "Image (JPG)"),
+        DisguiseMaskPreference::Custom => crate::i18n::tr("自定义文件", "Custom file"),
     }
 }
 
 /// 把界面标签还原为面具偏好；未知标签回退到内置视频面具。
 pub(crate) fn disguise_mask_from_label(label: &str) -> DisguiseMaskPreference {
     match label {
-        "图片（JPG）" => DisguiseMaskPreference::Image,
-        "自定义文件" => DisguiseMaskPreference::Custom,
+        "图片（JPG）" | "Image (JPG)" => DisguiseMaskPreference::Image,
+        "自定义文件" | "Custom file" => DisguiseMaskPreference::Custom,
         _ => DisguiseMaskPreference::Video,
     }
 }
 
 /// 面具下拉框的固定选项顺序。
-pub(crate) const DISGUISE_MASK_LABELS: [&str; 3] = ["视频（MP4）", "图片（JPG）", "自定义文件"];
+pub(crate) fn disguise_mask_labels() -> [&'static str; 3] {
+    [
+        crate::i18n::tr("视频（MP4）", "Video (MP4)"),
+        crate::i18n::tr("图片（JPG）", "Image (JPG)"),
+        crate::i18n::tr("自定义文件", "Custom file"),
+    ]
+}
 
 /// 返回面具偏好在下拉框中的索引。
 pub(crate) fn disguise_mask_index(preference: DisguiseMaskPreference) -> usize {
@@ -909,11 +915,15 @@ mod tests {
             Some("jpg")
         );
         assert_eq!(
-            disguise_mask_label(DisguiseMaskPreference::Video),
-            "视频（MP4）"
+            disguise_mask_from_label(disguise_mask_label(DisguiseMaskPreference::Video)),
+            DisguiseMaskPreference::Video
         );
         assert_eq!(
             disguise_mask_from_label("自定义文件"),
+            DisguiseMaskPreference::Custom
+        );
+        assert_eq!(
+            disguise_mask_from_label("Custom file"),
             DisguiseMaskPreference::Custom
         );
         assert_eq!(disguise_mask_index(DisguiseMaskPreference::Image), 1);

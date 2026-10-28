@@ -5,6 +5,7 @@
 
 use super::super::*;
 use super::components::{AppIcon, classic_field, dialog_banner, hint_text};
+use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::Subscription;
 use gpui_kit::component::IndexPath;
@@ -39,7 +40,7 @@ impl DisguiseWindowView {
         let index = disguise_mask_index(mask);
         let mask_select = cx.new(|cx| {
             SelectState::new(
-                SearchableVec::new(DISGUISE_MASK_LABELS.to_vec()),
+                SearchableVec::new(disguise_mask_labels().to_vec()),
                 Some(IndexPath::new(index)),
                 window,
                 cx,
@@ -94,7 +95,7 @@ impl DisguiseWindowView {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("选择伪装输出目录".into()),
+            prompt: Some(tr("选择伪装输出目录", "Choose disguise output folder").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await
@@ -120,7 +121,7 @@ impl DisguiseWindowView {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("选择伪装面具文件".into()),
+            prompt: Some(tr("选择伪装面具文件", "Choose disguise mask file").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await
@@ -166,14 +167,14 @@ impl DisguiseWindowView {
                             .whitespace_nowrap()
                             .text_sm()
                             .font_semibold()
-                            .child("伪装文件 - Lumark"),
+                            .child(tr("伪装文件 - Lumark", "Disguise file - Lumark")),
                     )
                     .child(
                         div()
                             .flex_shrink_0()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} 个文件", self.sources.len())),
+                            .child(format!("{} {}", self.sources.len(), tr("个文件", "files"))),
                     ),
             )
     }
@@ -183,14 +184,16 @@ impl DisguiseWindowView {
         let summary = match self.sources.first() {
             Some(first) if self.sources.len() == 1 => first.display().to_string(),
             Some(first) => format!(
-                "{} 等 {} 个文件",
+                "{}{} {} {}",
                 first
                     .file_name()
                     .and_then(|value| value.to_str())
-                    .unwrap_or("文件"),
-                self.sources.len()
+                    .unwrap_or(tr("文件", "file")),
+                tr("等", "and"),
+                self.sources.len(),
+                tr("个文件", "files")
             ),
-            None => "没有可伪装的文件".to_string(),
+            None => tr("没有可伪装的文件", "No files to disguise").to_string(),
         };
         v_flex()
             .flex_1()
@@ -225,7 +228,7 @@ impl DisguiseWindowView {
                     ),
             )
             .child(classic_field(
-                "输出到:",
+                tr("输出到:", "Output to:"),
                 60.,
                 h_flex()
                     .w_full()
@@ -243,7 +246,7 @@ impl DisguiseWindowView {
                             .small()
                             .rounded(px(6.))
                             .cursor_pointer()
-                            .label("浏览…")
+                            .label(tr("浏览…", "Browse..."))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.choose_directory(cx);
                                 cx.notify();
@@ -251,7 +254,7 @@ impl DisguiseWindowView {
                     ),
             ))
             .child(classic_field(
-                "面具:",
+                tr("面具:", "Mask:"),
                 60.,
                 h_flex()
                     .w_full()
@@ -263,7 +266,7 @@ impl DisguiseWindowView {
                                 .id("disguise-window-mask-select")
                                 .w_full()
                                 .menu_width(px(180.))
-                                .accessibility_label("伪装面具"),
+                                .accessibility_label(tr("伪装面具", "Disguise mask")),
                         ),
                     )
                     .child(
@@ -272,7 +275,7 @@ impl DisguiseWindowView {
                             .small()
                             .rounded(px(6.))
                             .cursor_pointer()
-                            .label("选择面具文件…")
+                            .label(tr("选择面具文件…", "Choose mask file..."))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.choose_mask(cx);
                                 cx.notify();
@@ -281,7 +284,7 @@ impl DisguiseWindowView {
             ))
             .child(
                 Checkbox::new("disguise-window-delete-source")
-                    .label("伪装后删除源文件")
+                    .label(tr("伪装后删除源文件", "Delete source files after disguising"))
                     .checked(self.delete_source)
                     .on_click(cx.listener(|this, checked: &bool, _, cx| {
                         this.delete_source = *checked;
@@ -296,7 +299,7 @@ impl DisguiseWindowView {
                     .into_any_element(),
                 None => hint_text(
                     cx,
-                    "输出文件名为「原名.面具扩展名」；载荷经混淆，只能用 Lumark 打开或还原。",
+                    tr("输出文件名为「原名.面具扩展名」；载荷经混淆，只能用 Lumark 打开或还原。", "Output is named \"original name.mask extension\"; the payload is obfuscated and can only be opened or restored with Lumark."),
                 )
                 .into_any_element(),
             })
@@ -318,11 +321,11 @@ impl DisguiseWindowView {
                     .small()
                     .rounded(px(6.))
                     .cursor_pointer()
-                    .label("取消")
+                    .label(tr("取消", "Cancel"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         let app = this.app.clone();
                         app.update(cx, |app, cx| {
-                            app.status = "已取消伪装".to_string();
+                            app.status = tr("已取消伪装", "Disguise cancelled").to_string();
                             cx.notify();
                         });
                         window.remove_window();
@@ -335,11 +338,12 @@ impl DisguiseWindowView {
                     .rounded(px(6.))
                     .cursor_pointer()
                     .icon(AppIcon::Video.element(14.))
-                    .label("开始伪装")
+                    .label(tr("开始伪装", "Start disguising"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         let output = PathBuf::from(input_value(&this.output, cx));
                         if output.as_os_str().is_empty() {
-                            this.error = Some("请选择输出目录".to_string());
+                            this.error =
+                                Some(tr("请选择输出目录", "Choose an output folder").to_string());
                             cx.notify();
                             return;
                         }
@@ -431,7 +435,7 @@ impl LumarkApp {
                 size,
             })),
             titlebar: Some(gpui_kit::TitlebarOptions {
-                title: Some("伪装文件 - Lumark".into()),
+                title: Some(tr("伪装文件 - Lumark", "Disguise file - Lumark").into()),
                 appears_transparent: true,
                 traffic_light_position: None,
             }),
@@ -466,7 +470,12 @@ impl LumarkApp {
                 self.disguise_window = Some(handle);
                 self.disguise_view = Some(view);
             }
-            Err(error) => self.status = format!("无法打开伪装窗口：{error}"),
+            Err(error) => {
+                self.status = format!(
+                    "{}{error}",
+                    tr("无法打开伪装窗口：", "Cannot open disguise window: ")
+                )
+            }
         }
     }
 }

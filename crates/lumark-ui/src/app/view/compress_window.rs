@@ -414,7 +414,7 @@ impl CompressWindowView {
         let disguise_select = new_select(
             window,
             cx,
-            DISGUISE_MASK_LABELS.to_vec(),
+            disguise_mask_labels().to_vec(),
             disguise_mask_index(init.disguise_mask),
         );
         let mut select_subscriptions = Vec::new();
