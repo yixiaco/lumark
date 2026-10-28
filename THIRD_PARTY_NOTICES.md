@@ -20,6 +20,16 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **unarc-rs** — MIT OR Apache-2.0 — https://github.com/mkrueger/unarc-rs — 传统格式（ZOO/HA/HYP/SQ/SQZ/UC2/ICE/PACKICE/TAR.Z）只读适配
 - **unalz** — MIT — https://github.com/alkegi/unalz — ALZ 只读解压
 - **lzma-rust2** — Apache-2.0 — https://github.com/hasenbanck/lzma-rust2 — TAR.LZ/TAR.LZMA 读写
+- **libchm** — MIT — CHM 只读解析
+- **backhand** — MIT OR Apache-2.0 — SquashFS 只读解析
+- **nsis** — Apache-2.0 — NSIS 安装包只读解析；测试夹具来自 nsis-rs，保留 `tests/fixtures/nsis/NOTICE.txt`
+- **dpp / hfsplus / udif** — MIT — DMG/HFS+ 只读解析与测试镜像生成
+- **msi / cab** — MIT — MSI 内嵌 CAB 只读解析和测试夹具
+- **unegg** — MIT — EGG 只读解析
+- **libazo（本地占位）** — MIT — AZO 解码占位；AZO 条目明确返回不支持
+- **vendor/xz2（本地适配层）** — MIT OR Apache-2.0 — 将 `geezipx-core` 的 XZ/LZMA 调用转到 `lzma-rust2`
+- **liblzma / liblzma-sys** — public domain / MIT — `backhand` 的 SquashFS XZ 后端；仅构建期链接
+
 - **deflate64** — MIT — https://github.com/anatawa12/deflate64-rs — ZIP Deflate64 只读解码
 - **bitstream-io** — MIT OR Apache-2.0 — https://github.com/tuffy/bitstream-io — ZIP 旧方法（Shrink/Reduce/Implode）只读解码
 - **Lucide icons** (through gpui-kit assets) — ISC — https://lucide.dev
