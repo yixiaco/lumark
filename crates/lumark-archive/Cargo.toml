@@ -46,6 +46,9 @@ zeroize.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
+
+[target.'cfg(windows)'.dev-dependencies]
+lumark-platform-windows = { path = "../lumark-platform-windows" }
 hfsplus = { workspace = true, features = ["testutil"] }
 udif.workspace = true
 crc32fast.workspace = true
