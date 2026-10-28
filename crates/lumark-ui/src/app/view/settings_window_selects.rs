@@ -1,6 +1,7 @@
 //! 设置窗口压缩选项的下拉状态：选项表、选中同步和确认事件。
 use super::super::*;
 use super::settings_window::SettingsWindowView;
+use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::Subscription;
 use gpui_kit::component::IndexPath;
@@ -34,19 +35,23 @@ const FORMAT_OPTIONS: [(&str, &str); 19] = [
 ];
 
 /// 压缩预设下拉项，顺序与设置枚举保持一致。
-const PRESET_OPTIONS: [(SettingsPreset, &str); 3] = [
-    (SettingsPreset::Speed, "速度优先"),
-    (SettingsPreset::Balanced, "平衡"),
-    (SettingsPreset::Size, "体积优先"),
-];
+fn preset_options() -> [(SettingsPreset, &'static str); 3] {
+    [
+        (SettingsPreset::Speed, tr("速度优先", "Speed first")),
+        (SettingsPreset::Balanced, tr("平衡", "Balanced")),
+        (SettingsPreset::Size, tr("体积优先", "Smaller first")),
+    ]
+}
 
 /// 覆盖策略下拉项，包含询问、覆盖、跳过和重命名。
-const OVERWRITE_OPTIONS: [(OverwritePolicy, &str); 4] = [
-    (OverwritePolicy::Ask, "询问"),
-    (OverwritePolicy::Overwrite, "覆盖"),
-    (OverwritePolicy::Skip, "跳过"),
-    (OverwritePolicy::Rename, "重命名"),
-];
+fn overwrite_options() -> [(OverwritePolicy, &'static str); 4] {
+    [
+        (OverwritePolicy::Ask, tr("询问", "Ask")),
+        (OverwritePolicy::Overwrite, tr("覆盖", "Overwrite")),
+        (OverwritePolicy::Skip, tr("跳过", "Skip")),
+        (OverwritePolicy::Rename, tr("重命名", "Rename")),
+    ]
+}
 
 impl SettingsWindowView {
     /// 按当前设置创建四个下拉状态，并订阅用户的确认操作。
@@ -70,13 +75,16 @@ impl SettingsWindowView {
         let preset_select = new_select(
             window,
             cx,
-            PRESET_OPTIONS.iter().map(|(_, label)| *label).collect(),
+            preset_options().iter().map(|(_, label)| *label).collect(),
             preset_index(settings.default_preset),
         );
         let overwrite_select = new_select(
             window,
             cx,
-            OVERWRITE_OPTIONS.iter().map(|(_, label)| *label).collect(),
+            overwrite_options()
+                .iter()
+                .map(|(_, label)| *label)
+                .collect(),
             overwrite_index(settings.overwrite_policy),
         );
         let disguise_select = new_select(
@@ -101,8 +109,9 @@ impl SettingsWindowView {
             &preset_select,
             |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
                 if let SelectEvent::Confirm(Some(label)) = event
-                    && let Some((preset, _)) =
-                        PRESET_OPTIONS.iter().find(|(_, option)| *option == *label)
+                    && let Some((preset, _)) = preset_options()
+                        .iter()
+                        .find(|(_, option)| *option == *label)
                 {
                     this.update_app(cx, |app, _| app.set_default_preset(*preset));
                 }
@@ -112,7 +121,7 @@ impl SettingsWindowView {
             &overwrite_select,
             |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
                 if let SelectEvent::Confirm(Some(label)) = event
-                    && let Some((policy, _)) = OVERWRITE_OPTIONS
+                    && let Some((policy, _)) = overwrite_options()
                         .iter()
                         .find(|(_, option)| *option == *label)
                 {
@@ -187,7 +196,7 @@ fn format_index(format: &str) -> usize {
 
 /// 查找压缩预设的位置，未知值回落到第一项。
 fn preset_index(preset: SettingsPreset) -> usize {
-    PRESET_OPTIONS
+    preset_options()
         .iter()
         .position(|(value, _)| *value == preset)
         .unwrap_or(0)
@@ -195,7 +204,7 @@ fn preset_index(preset: SettingsPreset) -> usize {
 
 /// 查找覆盖策略的位置，未知值回落到第一项。
 fn overwrite_index(policy: OverwritePolicy) -> usize {
-    OVERWRITE_OPTIONS
+    overwrite_options()
         .iter()
         .position(|(value, _)| *value == policy)
         .unwrap_or(0)
