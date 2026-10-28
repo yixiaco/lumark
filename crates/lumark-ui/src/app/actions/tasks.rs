@@ -5,6 +5,7 @@
 //! 逻辑只服务于没有可见窗口的后台压缩。
 
 use super::super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 查找指定任务的历史记录。
@@ -83,7 +84,7 @@ impl LumarkApp {
     pub(crate) fn record_task_cancelled(&mut self, id: u64) {
         if let Some(record) = self.task_records.iter_mut().find(|record| record.id == id) {
             record.state = TaskState::Cancelled;
-            record.message = Some("任务已取消".to_string());
+            record.message = Some(tr("任务已取消", "Task cancelled").to_string());
             record.progress.display_bytes = record.progress.bytes_done;
         }
     }
@@ -127,7 +128,11 @@ impl LumarkApp {
         {
             self.vault.lock();
             self.selected_password = None;
-            self.status = "Windows 会话已锁定，密码库已自动锁定".to_string();
+            self.status = tr(
+                "Windows 会话已锁定，密码库已自动锁定",
+                "Windows session locked; vault locked automatically",
+            )
+            .to_string();
         }
     }
 
@@ -397,9 +402,9 @@ impl LumarkApp {
                                         // 手动输入的密码未通过校验：重新弹出密码框，
                                         // 保留“保存到密码库”的勾选状态。
                                         app.apply_password_failure(job.action, window, cx);
-                                        app.status = "密码不正确，请重新输入".to_string();
+                                        app.status = tr("密码不正确，请重新输入", "Incorrect password; try again").to_string();
                                     } else if job.extras.is_empty() {
-                                        app.status = "记录密码均不正确，请手动输入密码".to_string();
+                                        app.status = tr("记录密码均不正确，请手动输入密码", "Saved passwords did not match; enter one manually").to_string();
                                         app.apply_password_failure(job.action, window, cx);
                                     } else {
                                         let count = job.extras.len();
@@ -492,13 +497,13 @@ impl LumarkApp {
                                     if current_archive.as_ref() == Some(&edit.archive) {
                                         app.status = match edit.action {
                                             PendingEditAction::Add => {
-                                                "已将文件添加到归档".to_string()
+                                                tr("已将文件添加到归档", "Files added to archive").to_string()
                                             }
                                             PendingEditAction::Delete => {
-                                                "已从归档删除项目".to_string()
+                                                tr("已从归档删除项目", "Items deleted from archive").to_string()
                                             }
                                             PendingEditAction::Rename => {
-                                                "已重命名归档条目".to_string()
+                                                tr("已重命名归档条目", "Archive entry renamed").to_string()
                                             }
                                         };
                                     } else {
@@ -538,7 +543,7 @@ impl LumarkApp {
                                     let label = archive
                                         .file_name()
                                         .and_then(|value| value.to_str())
-                                        .unwrap_or("压缩包密码")
+                                        .unwrap_or(tr("压缩包密码", "Archive password"))
                                         .to_string();
                                     set_input(&app.password_label, &label, window, cx);
                                     set_input(&app.password_value, password.as_str(), window, cx);
@@ -564,7 +569,7 @@ impl LumarkApp {
                                             );
                                         }
                                         Err(error) => {
-                                            app.status = format!("{done}；安排关机失败：{error}");
+                                            app.status = format!("{done}{}{error}", tr("；安排关机失败：", "; failed to schedule shutdown: "));
                                         }
                                     }
                                 }
@@ -600,7 +605,7 @@ impl LumarkApp {
                                     app.vault.release_lease();
                                     app.clear_password_attempt(id);
                                     app.apply_password_failure(job.action, window, cx);
-                                    app.status = format!("验证密码失败，请手动输入：{message}");
+                                    app.status = format!("{}{message}", tr("验证密码失败，请手动输入：", "Password verification failed; enter it manually: "));
                                 }
                                 app.pending_edit_jobs.remove(&id);
                                 app.pending_archive_loads.remove(&id);
@@ -614,7 +619,7 @@ impl LumarkApp {
                                 if app.active_task == Some(id) {
                                     app.focus_next_running_task(id);
                                 }
-                                app.status = format!("失败：{message}");
+                                app.status = format!("{}{message}", tr("失败：", "Failed: "));
                                 app.finish_low_priority(id);
                             }
                             TaskEvent::Cancelled { id } => {
@@ -635,7 +640,7 @@ impl LumarkApp {
                                     // 用户主动停止自动尝试：直接回退到手动输入，
                                     // 而不是留下一条“任务已取消”就结束。
                                     app.apply_password_failure(job.action, window, cx);
-                                    app.status = "已停止自动尝试，请手动输入密码".to_string();
+                                    app.status = tr("已停止自动尝试，请手动输入密码", "Auto-try stopped; enter the password manually").to_string();
                                     continue;
                                 }
                                 app.pending_edit_jobs.remove(&id);
@@ -650,7 +655,7 @@ impl LumarkApp {
                                 if app.active_task == Some(id) {
                                     app.focus_next_running_task(id);
                                 }
-                                app.status = "任务已取消".to_string();
+                                app.status = tr("任务已取消", "Task cancelled").to_string();
                                 app.finish_low_priority(id);
                             }
                             TaskEvent::PasswordAttempt { id, index, total } => {
@@ -658,9 +663,9 @@ impl LumarkApp {
                                     continue;
                                 };
                                 if job.save_on_success {
-                                    app.status = "正在验证密码，成功后会保存到密码库…".to_string();
+                                    app.status = tr("正在验证密码，成功后会保存到密码库…", "Verifying password; it will be saved to the vault on success...").to_string();
                                 } else {
-                                    app.status = format!("正在尝试记录密码 {index}/{total}");
+                                    app.status = format!("{}{index}/{total}", tr("正在尝试记录密码 ", "Trying saved password "));
                                 }
                                 if let Some(attempt) = app.password_attempt.as_mut()
                                     && attempt.task_id == id
