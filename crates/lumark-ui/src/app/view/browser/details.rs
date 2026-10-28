@@ -1,6 +1,7 @@
 //! 侧栏详细信息检查器。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 渲染侧栏下半部分的信息检查器。
@@ -45,14 +46,23 @@ impl LumarkApp {
                     .bg(cx.theme().sidebar_primary)
                     .text_color(cx.theme().sidebar_foreground)
                     .child(AppIcon::Doc.element(13.))
-                    .child(div().text_xs().font_semibold().child("详细信息"))
                     .child(
-                        icon_button("details-hide", AppIcon::Close, "隐藏详细信息")
-                            .ml_auto()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_details();
-                                cx.notify();
-                            })),
+                        div()
+                            .text_xs()
+                            .font_semibold()
+                            .child(tr("详细信息", "Details")),
+                    )
+                    .child(
+                        icon_button(
+                            "details-hide",
+                            AppIcon::Close,
+                            tr("隐藏详细信息", "Hide details"),
+                        )
+                        .ml_auto()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_details();
+                            cx.notify();
+                        })),
                     ),
             )
             .child(
@@ -74,7 +84,7 @@ impl LumarkApp {
                             self.folder_sizes
                                 .get(&entry.path)
                                 .map(|size| format_size(*size))
-                                .unwrap_or_else(|| "可计算".to_string())
+                                .unwrap_or_else(|| tr("可计算", "Calculate").to_string())
                         } else {
                             format_size(entry.size)
                         };
@@ -99,16 +109,20 @@ impl LumarkApp {
                                         .child(entry.name.clone()),
                                 ),
                         )
-                        .child(detail_row(cx, "类型", &entry.kind))
-                        .child(detail_row(cx, "大小", &size_text))
+                        .child(detail_row(cx, tr("类型", "Type"), &entry.kind))
+                        .child(detail_row(cx, tr("大小", "Size"), &size_text))
                         .when_some(entry.modified, |this, modified| {
                             this.child(detail_row(
                                 cx,
-                                "修改时间",
+                                tr("修改时间", "Modified"),
                                 &modified.format("%Y-%m-%d %H:%M:%S").to_string(),
                             ))
                         })
-                        .child(detail_row(cx, "位置", &entry.path.display().to_string()))
+                        .child(detail_row(
+                            cx,
+                            tr("位置", "Location"),
+                            &entry.path.display().to_string(),
+                        ))
                         .when(entry.encrypted, |this| {
                             this.child(
                                 h_flex()
@@ -120,7 +134,9 @@ impl LumarkApp {
                                     .px_2()
                                     .py_1()
                                     .child(AppIcon::FileLock.element(12.))
-                                    .child(div().text_xs().child("加密条目")),
+                                    .child(
+                                        div().text_xs().child(tr("加密条目", "Encrypted entry")),
+                                    ),
                             )
                         })
                         .when_some(
@@ -129,13 +145,17 @@ impl LumarkApp {
                                 this.child(div().h(px(1.)).bg(cx.theme().border))
                                     .child(detail_row(
                                         cx,
-                                        "压缩后",
+                                        tr("压缩后", "Compressed"),
                                         &archive
                                             .compressed_size
                                             .map(format_size)
                                             .unwrap_or_else(|| "—".to_string()),
                                     ))
-                                    .child(detail_row(cx, "压缩方法", &archive.method))
+                                    .child(detail_row(
+                                        cx,
+                                        tr("压缩方法", "Method"),
+                                        &archive.method,
+                                    ))
                                     .child(detail_row(
                                         cx,
                                         "CRC32",
@@ -146,8 +166,12 @@ impl LumarkApp {
                                     ))
                                     .child(detail_row(
                                         cx,
-                                        "加密",
-                                        if archive.encrypted { "是" } else { "否" },
+                                        tr("加密", "Encrypted"),
+                                        if archive.encrypted {
+                                            tr("是", "Yes")
+                                        } else {
+                                            tr("否", "No")
+                                        },
                                     ))
                             },
                         )
@@ -174,11 +198,25 @@ impl LumarkApp {
                                         .child(folder_name),
                                 ),
                         )
-                        .child(detail_row(cx, "类型", "文件夹"))
-                        .child(detail_row(cx, "项目", &format!("{entry_count} 项")))
-                        .child(detail_row(cx, "总计", &format_size(total_size)))
-                        .child(detail_row(cx, "位置", &display))
-                        .child(hint_text(cx, "选择一个项目可查看 CRC 和压缩方法。"))
+                        .child(detail_row(cx, tr("类型", "Type"), tr("文件夹", "Folder")))
+                        .child(detail_row(
+                            cx,
+                            "项目",
+                            &format!("{entry_count} {}", tr("项", "items")),
+                        ))
+                        .child(detail_row(
+                            cx,
+                            tr("总计", "Total"),
+                            &format_size(total_size),
+                        ))
+                        .child(detail_row(cx, tr("位置", "Location"), &display))
+                        .child(hint_text(
+                            cx,
+                            tr(
+                                "选择一个项目可查看 CRC 和压缩方法。",
+                                "Select an item to view CRC and compression method.",
+                            ),
+                        ))
                     }),
             )
     }
@@ -192,7 +230,7 @@ pub(super) fn detail_row(cx: &Context<LumarkApp>, label: &str, value: &str) -> g
         .items_start()
         .child(
             div()
-                .w(px(44.))
+                .w(px(58.))
                 .flex_shrink_0()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
