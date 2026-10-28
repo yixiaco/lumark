@@ -272,7 +272,7 @@ pub(crate) fn tar_reader(
     let reader: Box<dyn Read> = match format {
         ArchiveFormat::TarGz => Box::new(flate2::read::GzDecoder::new(reader)),
         ArchiveFormat::TarBz2 => Box::new(bzip2::read::BzDecoder::new(reader)),
-        ArchiveFormat::TarXz => Box::new(xz2::read::XzDecoder::new(reader)),
+        ArchiveFormat::TarXz => Box::new(lzma_rust2::XzReader::new(reader, true)),
         ArchiveFormat::TarZst => Box::new(zstd::stream::read::Decoder::new(reader)?),
         ArchiveFormat::TarBr => Box::new(brotli::Decompressor::new(reader, 64 * 1024)),
         ArchiveFormat::TarLz4 => Box::new(lz4_flex::frame::FrameDecoder::new(reader)),
@@ -363,7 +363,7 @@ pub(crate) fn decompress_reader(
     Ok(match format {
         ArchiveFormat::Gzip => Box::new(flate2::read::GzDecoder::new(reader)),
         ArchiveFormat::Bzip2 => Box::new(bzip2::read::BzDecoder::new(reader)),
-        ArchiveFormat::Xz => Box::new(xz2::read::XzDecoder::new(reader)),
+        ArchiveFormat::Xz => Box::new(lzma_rust2::XzReader::new(reader, true)),
         ArchiveFormat::Zstd => Box::new(zstd::stream::read::Decoder::new(reader)?),
         ArchiveFormat::Brotli => Box::new(brotli::Decompressor::new(reader, 64 * 1024)),
         ArchiveFormat::Lz4 => Box::new(lz4_flex::frame::FrameDecoder::new(reader)),

@@ -10,9 +10,9 @@ use std::path::Path;
 
 use bzip2::read::BzDecoder;
 use flate2::read::ZlibDecoder;
+use lzma_rust2::XzReader;
 use quick_xml::Reader;
 use quick_xml::events::Event;
-use xz2::read::XzDecoder;
 
 use crate::error::ArchiveError;
 
@@ -134,7 +134,7 @@ impl XarArchive {
             XarEncoding::None => Box::new(limited),
             XarEncoding::Zlib => Box::new(ZlibDecoder::new(limited)),
             XarEncoding::Bzip2 => Box::new(BzDecoder::new(limited)),
-            XarEncoding::Xz => Box::new(XzDecoder::new(limited)),
+            XarEncoding::Xz => Box::new(XzReader::new(limited, true)),
         };
         Ok(reader)
     }

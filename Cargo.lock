@@ -5174,7 +5174,6 @@ dependencies = [
  "unrar",
  "walkdir",
  "windows-sys 0.59.0",
- "xz2",
  "zeroize",
  "zip 9.0.5",
  "zpaq_rs",

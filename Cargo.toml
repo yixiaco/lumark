@@ -87,7 +87,6 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 winreg = "0.56"
-xz2 = { version = "0.1", features = ["static"] }
 zeroize = { version = "1.9", features = ["derive"] }
 zip = { version = "=9.0.5", default-features = false, features = ["aes-crypto", "deflate-flate2", "deflate64", "legacy-zip", "bzip2", "ppmd", "time", "chrono", "xz", "zstd", "lzma"] }
 zpaq_rs = "=1.0.4"

@@ -35,7 +35,6 @@ unarc-rs.workspace = true
 unalz.workspace = true
 walkdir.workspace = true
 windows-sys.workspace = true
-xz2.workspace = true
 zip.workspace = true
 zpaq_rs.workspace = true
 zstd.workspace = true

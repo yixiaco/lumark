@@ -491,7 +491,10 @@ impl ArchiveService {
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarXz => {
-                let encoder = xz2::write::XzEncoder::new(destination, level);
+                let encoder = lzma_rust2::XzWriter::new(
+                    destination,
+                    lzma_rust2::XzOptions::with_preset(level),
+                )?;
                 let mut builder = tar::Builder::new(encoder);
                 append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
                 builder.into_inner()?.finish()?;
@@ -699,7 +702,10 @@ impl ArchiveService {
                 copied
             }
             ArchiveFormat::Xz => {
-                let mut encoder = xz2::write::XzEncoder::new(destination, level);
+                let mut encoder = lzma_rust2::XzWriter::new(
+                    destination,
+                    lzma_rust2::XzOptions::with_preset(level),
+                )?;
                 let copied = copy_with_progress(&mut input, &mut encoder, total, source, progress)?;
                 encoder.finish()?;
                 copied

@@ -5,8 +5,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 
 use bzip2::read::BzDecoder;
 use flate2::read::GzDecoder;
-use lzma_rust2::LzmaReader;
-use xz2::read::XzDecoder;
+use lzma_rust2::{LzmaReader, XzReader};
 
 use crate::error::ArchiveError;
 
@@ -52,7 +51,7 @@ impl RpmArchive {
         let reader: Box<dyn Read> = if magic[..read].starts_with(b"\x1f\x8b") {
             Box::new(GzDecoder::new(file))
         } else if magic[..read].starts_with(b"\xfd7zXZ\x00") {
-            Box::new(XzDecoder::new(file))
+            Box::new(XzReader::new(file, true))
         } else if magic[..read].starts_with(b"BZh") {
             Box::new(BzDecoder::new(file))
         } else if magic[..read].starts_with(b"\x28\xb5\x2f\xfd") {
