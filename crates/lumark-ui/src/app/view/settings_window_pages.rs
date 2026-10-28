@@ -205,7 +205,10 @@ impl SettingsWindowView {
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(tr(
-                        "本地优先的压缩管理器 · Rust + GPUI · v0.1.0",
+                        tr(
+                            "本地优先的压缩管理器 · Rust + GPUI · v0.1.0",
+                            "Local-first archive manager · Rust + GPUI · v0.1.0",
+                        ),
                         "Local-first archive manager · Rust + GPUI · v0.1.0",
                     )),
             )

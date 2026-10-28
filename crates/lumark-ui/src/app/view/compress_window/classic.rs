@@ -1,6 +1,7 @@
 //! 压缩窗口经典排版和选项卡入口。
 
 use super::*;
+use crate::i18n::tr;
 
 impl CompressWindowView {
     /// 渲染经典模式的六个分段选项卡。
@@ -8,13 +9,13 @@ impl CompressWindowView {
         let selected = usize::from(self.tab);
         let view = cx.entity().downgrade();
         let tabs = [
-            (AppIcon::Setting, "常规"),
-            (AppIcon::Key, "密码"),
-            (AppIcon::Doc, "文件"),
-            (AppIcon::Tool, "算法"),
-            (AppIcon::Time, "时间"),
-            (AppIcon::Edit, "注释"),
-            (AppIcon::Video, "伪装"),
+            (AppIcon::Setting, tr("常规", "General")),
+            (AppIcon::Key, tr("密码", "Password")),
+            (AppIcon::Doc, tr("文件", "Files")),
+            (AppIcon::Tool, tr("算法", "Algorithm")),
+            (AppIcon::Time, tr("时间", "Time")),
+            (AppIcon::Edit, tr("注释", "Comment")),
+            (AppIcon::Video, tr("伪装", "Disguise")),
         ];
         let items = tabs
             .iter()

@@ -1,6 +1,7 @@
 //! 压缩窗口标题栏和底部按钮区。
 
 use super::*;
+use crate::i18n::tr;
 
 impl CompressWindowView {
     /// 渲染窗口标题栏。
@@ -34,14 +35,14 @@ impl CompressWindowView {
                             .whitespace_nowrap()
                             .text_sm()
                             .font_semibold()
-                            .child("压缩文件 - Lumark"),
+                            .child(tr("压缩文件 - Lumark", "Compress - Lumark")),
                     )
                     .child(
                         div()
                             .flex_shrink_0()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} 个项目", self.sources.len())),
+                            .child(format!("{} {}", self.sources.len(), tr("个项目", "items"))),
                     ),
             )
     }
@@ -73,7 +74,7 @@ impl CompressWindowView {
             .child(div().flex_1())
             .child(
                 button("compress-window-cancel")
-                    .label("取消")
+                    .label(tr("取消", "Cancel"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.close(window, cx);
                     })),
