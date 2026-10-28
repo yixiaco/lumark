@@ -157,3 +157,76 @@ fn mutated_new_formats_never_panic() {
         }
     }
 }
+
+/// 构造只含一个 Store 条目的最小 EGG 样本。
+fn egg_bytes() -> Vec<u8> {
+    const EGG_HEADER: u32 = 0x4147_4745;
+    const END_MARKER: u32 = 0x08E2_8222;
+    const FILE_HEADER: u32 = 0x0A85_90E3;
+    const FILENAME: u32 = 0x0A85_91AC;
+    const BLOCK_HEADER: u32 = 0x02B5_0C13;
+
+    let data = b"fuzz egg";
+    let mut bytes = Vec::new();
+    push_egg_u32(&mut bytes, EGG_HEADER);
+    push_egg_u16(&mut bytes, 1);
+    push_egg_u32(&mut bytes, 1);
+    push_egg_u32(&mut bytes, 0);
+    push_egg_u32(&mut bytes, END_MARKER);
+    push_egg_u32(&mut bytes, FILE_HEADER);
+    push_egg_u32(&mut bytes, 1);
+    bytes.extend_from_slice(&(data.len() as u64).to_le_bytes());
+    push_egg_u32(&mut bytes, FILENAME);
+    bytes.push(0);
+    push_egg_u16(&mut bytes, 9);
+    bytes.extend_from_slice(b"hello.txt");
+    push_egg_u32(&mut bytes, END_MARKER);
+    push_egg_u32(&mut bytes, BLOCK_HEADER);
+    bytes.push(0);
+    bytes.push(0);
+    push_egg_u32(&mut bytes, data.len() as u32);
+    push_egg_u32(&mut bytes, data.len() as u32);
+    push_egg_u32(&mut bytes, crc32fast::hash(data));
+    push_egg_u32(&mut bytes, END_MARKER);
+    bytes.extend_from_slice(data);
+    push_egg_u32(&mut bytes, END_MARKER);
+    bytes
+}
+
+/// 追加 EGG 测试用的小端 u16。
+fn push_egg_u16(bytes: &mut Vec<u8>, value: u16) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+/// 追加 EGG 测试用的小端 u32。
+fn push_egg_u32(bytes: &mut Vec<u8>, value: u32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+/// 对 EGG 做确定性变异，列表和解压不得 panic。
+#[test]
+fn mutated_egg_never_panics() {
+    let directory = tempdir().unwrap();
+    let original = egg_bytes();
+    for step in 0..32usize {
+        let mut bytes = original.clone();
+        let index = (step * 43 + 5) % bytes.len();
+        bytes[index] ^= (step as u8).wrapping_mul(19).max(1);
+        let path = directory.path().join(format!("mutated-{step}.egg"));
+        fs::write(&path, &bytes).unwrap();
+        let listed = catch_unwind(AssertUnwindSafe(|| ArchiveService::list(&path, None)));
+        assert!(listed.is_ok(), "EGG 第 {step} 次变异导致列表 panic");
+        let extracted = catch_unwind(AssertUnwindSafe(|| {
+            ArchiveService::extract(
+                &path,
+                &ExtractionOptions {
+                    output_dir: directory.path().join(format!("out-{step}")),
+                    overwrite: true,
+                    ..Default::default()
+                },
+                |_| {},
+            )
+        }));
+        assert!(extracted.is_ok(), "EGG 第 {step} 次变异导致解压 panic");
+    }
+}

@@ -103,7 +103,7 @@
 - [x] RPM 只读格式：解析 lead、签名/主 header 和 gzip/xz/BZip2/zstd/LZMA 压缩的 newc cpio 载荷，支持列表、选择性解压、符号链接跳过、预算/取消和完整性测试；`.rpm` 已加入 Shell 关联。
 - [x] MSI 只读格式：读取 OLE 复合文档中的 File/Media 表，打开内嵌或同目录外部 CAB 并列表、选择性解压和完整性测试；按 File/Component/Directory 表还原目录层级，MSI 写入仍不支持。
 - [x] 命名管道单实例请求：首个进程启动管道服务，后续进程优先通过命名管道转发参数，失败时回退现有请求目录；参数带长度前缀，不落盘。
-- [x] 归档头部确定性变异测试：对 ZIP/7Z/TAR/GZIP 各做 64 次单字节篡改，对 NSIS/SquashFS/DMG 各做 32 次单字节篡改，并对 ZIP 做多组截断；列表、测试和解压只返回错误，不 panic。
+- [x] 归档头部确定性变异测试：对 ZIP/7Z/TAR/GZIP 各做 64 次单字节篡改，对 NSIS/SquashFS/DMG/EGG 各做 32 次单字节篡改，并对 ZIP 做多组截断；列表、测试和解压只返回错误，不 panic。
 - [x] WIM 创建（未压缩 Store）：复用 `WimWriter` 生成可被 Lumark 只读 WIM 后端打开的归档，支持多文件和目录；LZMS 压缩、SWM 分卷和压缩 WIM 写入仍不支持。
 - [x] cargo-fuzz 持续目标：新增 `fuzz/fuzz_targets/archive_list.rs`，把输入写成临时 ZIP 后调用列表和完整测试，可直接用 `cargo +nightly fuzz run archive_list` 运行；工作区外独立 lockfile。
 - [x] 设置窗口通知页 UI 测试：打开真实设置窗口、切到“通知”页并验证 SMTP 主机、端口和密码控件可见。
