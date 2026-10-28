@@ -135,11 +135,14 @@ impl SettingsWindowView {
                 this.status = format!("主题色：{hex}");
                 cx.notify();
             });
-        let vault_location_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("密码库保存文件夹".to_string()));
+        let vault_location_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(tr("密码库保存文件夹", "Vault folder").to_string())
+        });
         let smtp_host = cx.new(|cx| InputState::new(window, cx).placeholder("smtp.example.com"));
         let smtp_port = cx.new(|cx| InputState::new(window, cx).placeholder("465"));
-        let smtp_username = cx.new(|cx| InputState::new(window, cx).placeholder("登录用户名"));
+        let smtp_username =
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr("登录用户名", "Username")));
         let smtp_password = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("留空保留已保存密码")
@@ -147,8 +150,10 @@ impl SettingsWindowView {
         });
         let smtp_from =
             cx.new(|cx| InputState::new(window, cx).placeholder("Lumark <name@example.com>"));
-        let smtp_to =
-            cx.new(|cx| InputState::new(window, cx).placeholder("收件人，多个用逗号分隔"));
+        let smtp_to = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(tr("收件人，多个用逗号分隔", "Recipients, comma-separated"))
+        });
         set_input(&smtp_host, &snapshot.settings.smtp_host, window, cx);
         set_input(
             &smtp_port,
@@ -379,7 +384,7 @@ impl SettingsWindowView {
                     .ghost()
                     .rounded(px(6.))
                     .icon(AppIcon::Refresh.element(15.))
-                    .label("恢复默认设置")
+                    .label(tr("恢复默认设置", "Restore defaults"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.reset_preferences(window, cx);
                     })),
@@ -427,7 +432,10 @@ impl SettingsWindowView {
                 cx.notify();
             }
             Err(error) => {
-                let status = format!("无法恢复默认设置：{error}");
+                let status = format!(
+                    "{}{error}",
+                    tr("无法恢复默认设置：", "Cannot restore defaults: ")
+                );
                 self.status = status.clone();
                 self.app.update(cx, |app, cx| {
                     app.status = status;
@@ -519,7 +527,12 @@ impl LumarkApp {
             cx.new(|cx| SettingsWindowView::new(app.clone(), snapshot.clone(), window, cx))
         }) {
             Ok((handle, _)) => self.settings_window = Some(handle),
-            Err(error) => self.status = format!("无法打开设置窗口：{error}"),
+            Err(error) => {
+                self.status = format!(
+                    "{}{error}",
+                    tr("无法打开设置窗口：", "Cannot open settings window: ")
+                )
+            }
         }
     }
 }
