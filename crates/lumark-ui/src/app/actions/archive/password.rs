@@ -1,6 +1,7 @@
 //! 密码请求、记录候选验证和保存流程。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 显示独立的压缩包密码输入弹窗，并暂存密码通过后的目标动作。
@@ -157,10 +158,14 @@ impl LumarkApp {
             },
         );
         if save_on_success {
-            self.status = "正在验证密码，成功后会保存到密码库…".to_string();
+            self.status = tr(
+                "正在验证密码，成功后会保存到密码库…",
+                "Verifying password; it will be saved to the vault on success...",
+            )
+            .to_string();
             return true;
         }
-        self.status = "正在验证记录密码…".to_string();
+        self.status = tr("正在验证记录密码…", "Verifying saved passwords...").to_string();
         self.track_password_attempt(cx, id, archive, total);
         true
     }
@@ -190,7 +195,11 @@ impl LumarkApp {
                 save_on_success: true,
             },
         );
-        self.status = "正在验证密码，成功后会保存到密码库…".to_string();
+        self.status = tr(
+            "正在验证密码，成功后会保存到密码库…",
+            "Verifying password; it will be saved to the vault on success...",
+        )
+        .to_string();
     }
 
     /// 记录多候选校验的进度，并安排一次延迟重绘。
@@ -305,7 +314,7 @@ impl LumarkApp {
         let label = archive
             .file_name()
             .and_then(|value| value.to_str())
-            .unwrap_or("压缩包密码")
+            .unwrap_or(tr("压缩包密码", "Archive password"))
             .to_string();
         let pattern = archive.to_string_lossy();
         self.save_password_entry(None, &label, password.to_string(), &pattern, "")
@@ -342,7 +351,7 @@ impl LumarkApp {
             false,
             cx,
         ) {
-            self.status = "没有剩余记录密码".to_string();
+            self.status = tr("没有剩余记录密码", "No remaining saved passwords").to_string();
         }
     }
 
@@ -355,7 +364,11 @@ impl LumarkApp {
         self.show_extra_password_prompt = false;
         if let Some(extra) = self.pending_extra_password.take() {
             self.apply_password_failure(extra.action, window, cx);
-            self.status = "已停止自动尝试，请手动输入密码".to_string();
+            self.status = tr(
+                "已停止自动尝试，请手动输入密码",
+                "Auto-try stopped; enter the password manually",
+            )
+            .to_string();
         }
     }
 
@@ -409,7 +422,11 @@ impl LumarkApp {
                     intent: ArchiveOpenIntent::Extract,
                 };
                 self.request_archive_password(archive, prompt_action, window, cx);
-                self.status = "记录密码均不正确，请手动输入密码".to_string();
+                self.status = tr(
+                    "记录密码均不正确，请手动输入密码",
+                    "Saved passwords did not match; enter one manually",
+                )
+                .to_string();
             }
             PendingPasswordAction::OpenArchive { archive, intent } => {
                 let prompt_action = PendingPasswordAction::OpenArchive {
@@ -417,7 +434,11 @@ impl LumarkApp {
                     intent,
                 };
                 self.request_archive_password(archive, prompt_action, window, cx);
-                self.status = "记录密码均不正确，请手动输入密码".to_string();
+                self.status = tr(
+                    "记录密码均不正确，请手动输入密码",
+                    "Saved passwords did not match; enter one manually",
+                )
+                .to_string();
             }
             PendingPasswordAction::OpenEntry {
                 archive,
@@ -430,14 +451,22 @@ impl LumarkApp {
                     mode,
                 };
                 self.request_archive_password(archive, prompt_action, window, cx);
-                self.status = "记录密码均不正确，请手动输入密码".to_string();
+                self.status = tr(
+                    "记录密码均不正确，请手动输入密码",
+                    "Saved passwords did not match; enter one manually",
+                )
+                .to_string();
             }
             PendingPasswordAction::Test { archive } => {
                 let prompt_action = PendingPasswordAction::Test {
                     archive: archive.clone(),
                 };
                 self.request_archive_password(archive, prompt_action, window, cx);
-                self.status = "记录密码均不正确，请手动输入密码".to_string();
+                self.status = tr(
+                    "记录密码均不正确，请手动输入密码",
+                    "Saved passwords did not match; enter one manually",
+                )
+                .to_string();
             }
         }
         // 自动尝试失败后引导用户把本次密码存进密码库：默认勾选，输入后先
@@ -456,7 +485,7 @@ impl LumarkApp {
         let pattern = input_value(&self.password_pattern, cx);
         let note = input_value(&self.password_note, cx);
         if password.is_empty() {
-            self.status = "密码不能为空".to_string();
+            self.status = tr("密码不能为空", "Password cannot be empty").to_string();
             return;
         }
         let duplicate = self
