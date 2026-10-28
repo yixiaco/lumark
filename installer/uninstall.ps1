@@ -1,6 +1,11 @@
 param(
-    [switch]$KeepUserData = $true
+    [switch]$KeepUserData = $true,
+    [switch]$RemoveUserData
 )
+
+if ($RemoveUserData) {
+    $KeepUserData = $false
+}
 
 $ErrorActionPreference = "Stop"
 $programs = Join-Path $env:LOCALAPPDATA "Programs\Lumark"
@@ -34,4 +39,9 @@ if (-not $KeepUserData) {
         Remove-Item -LiteralPath $localData -Recurse -Force
     }
 }
-Write-Host "Lumark 已卸载。"
+if ($KeepUserData) {
+    Write-Host "Lumark 已卸载，设置和密码库已保留。"
+} else {
+    Write-Host "Lumark 已卸载，设置和密码库已删除。"
+}
+
