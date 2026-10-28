@@ -5153,6 +5153,7 @@ dependencies = [
  "gpui-kit",
  "lumark-archive",
  "lumark-browser",
+ "lumark-mail",
  "lumark-platform-windows",
  "lumark-settings",
  "lumark-tasks",

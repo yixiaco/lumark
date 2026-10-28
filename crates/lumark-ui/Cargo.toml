@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+lumark-mail = { path = "../lumark-mail" }
 anyhow.workspace = true
 chrono.workspace = true
 dirs.workspace = true

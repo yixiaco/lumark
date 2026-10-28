@@ -364,7 +364,14 @@ impl LumarkApp {
                                 }
                             }
                             TaskEvent::Completed { id, message } => {
+                                let compress_label = app
+                                    .task_record(id)
+                                    .filter(|record| record.kind == TaskKind::Compress)
+                                    .map(|record| record.label.clone());
                                 app.record_task_completed(id, message.clone());
+                                if let Some(label) = compress_label {
+                                    app.notify_compression_completed(&label, &message, cx);
+                                }
                                 // 任务已经结束，先收回自动打开的进度窗口；后续分支
                                 // 可能继续打开查看器或结果窗口，但都不应留下一个停在
                                 // 100% 的进度窗口。

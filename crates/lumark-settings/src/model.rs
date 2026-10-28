@@ -305,6 +305,17 @@ mod tests {
         assert_eq!(settings.accent_color, "#2563eb");
     }
 
+    /// 验证邮件通知默认关闭、默认 465 隐式 TLS，旧设置文件可回退。
+    #[test]
+    fn mail_notification_defaults_are_safe() {
+        let settings: Settings = serde_json::from_str("{}").expect("empty settings");
+        assert!(!settings.email_notify);
+        assert_eq!(settings.smtp_port, 465);
+        assert!(settings.smtp_implicit_tls);
+        assert!(!settings.smtp_starttls);
+        assert!(settings.smtp_password.is_none());
+    }
+
     /// 验证逐列宽度按预设初始化，并被限制在可读范围内。
     #[test]
     fn column_widths_follow_layout_and_clamp() {

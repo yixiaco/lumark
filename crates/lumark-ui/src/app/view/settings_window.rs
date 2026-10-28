@@ -27,6 +27,20 @@ pub(crate) struct SettingsWindowView {
     pub(super) vault_location_input: Entity<InputState>,
     /// 密码库位置错误。
     pub(super) vault_location_error: Option<String>,
+    /// SMTP 主机输入框。
+    pub(super) smtp_host: Entity<InputState>,
+    /// SMTP 端口输入框。
+    pub(super) smtp_port: Entity<InputState>,
+    /// SMTP 用户名输入框。
+    pub(super) smtp_username: Entity<InputState>,
+    /// SMTP 密码输入框；留空保留已保存密码。
+    pub(super) smtp_password: Entity<InputState>,
+    /// 发件人输入框。
+    pub(super) smtp_from: Entity<InputState>,
+    /// 收件人输入框。
+    pub(super) smtp_to: Entity<InputState>,
+    /// 是否清除已保存的 SMTP 密码。
+    pub(super) smtp_clear_password: bool,
     /// 当前设置快照。
     pub(super) settings: Settings,
     /// 设置文件路径。
@@ -122,6 +136,28 @@ impl SettingsWindowView {
             });
         let vault_location_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("密码库保存文件夹".to_string()));
+        let smtp_host = cx.new(|cx| InputState::new(window, cx).placeholder("smtp.example.com"));
+        let smtp_port = cx.new(|cx| InputState::new(window, cx).placeholder("465"));
+        let smtp_username = cx.new(|cx| InputState::new(window, cx).placeholder("登录用户名"));
+        let smtp_password = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("留空保留已保存密码")
+                .masked(true)
+        });
+        let smtp_from =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Lumark <name@example.com>"));
+        let smtp_to =
+            cx.new(|cx| InputState::new(window, cx).placeholder("收件人，多个用逗号分隔"));
+        set_input(&smtp_host, &snapshot.settings.smtp_host, window, cx);
+        set_input(
+            &smtp_port,
+            &snapshot.settings.smtp_port.to_string(),
+            window,
+            cx,
+        );
+        set_input(&smtp_username, &snapshot.settings.smtp_username, window, cx);
+        set_input(&smtp_from, &snapshot.settings.smtp_from, window, cx);
+        set_input(&smtp_to, &snapshot.settings.smtp_to, window, cx);
         let (format_select, preset_select, overwrite_select, disguise_select, select_subscriptions) =
             Self::new_compression_selects(&snapshot.settings, window, cx);
         Self {
@@ -131,6 +167,13 @@ impl SettingsWindowView {
             _accent_subscription: accent_subscription,
             vault_location_open: false,
             vault_location_input,
+            smtp_host,
+            smtp_port,
+            smtp_username,
+            smtp_password,
+            smtp_from,
+            smtp_to,
+            smtp_clear_password: false,
             vault_location_error: None,
             settings: snapshot.settings,
             settings_path: snapshot.settings_path,
@@ -239,13 +282,13 @@ impl SettingsWindowView {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("外观、压缩偏好、文件关联和本机安全"),
+                                    .child("外观、压缩偏好、文件关联、通知和本机安全"),
                             ),
                     ),
             )
     }
 
-    /// 渲染顶部的六个分段选项卡。
+    /// 渲染顶部的七个分段选项卡。
     fn render_tabs(&self, cx: &Context<Self>) -> impl IntoElement {
         let selected = self.tab;
         let view = cx.entity().downgrade();
@@ -255,7 +298,8 @@ impl SettingsWindowView {
             (AppIcon::Compression, "压缩"),
             (AppIcon::FileZip, "文件关联"),
             (AppIcon::Key, "密码库"),
-            (AppIcon::Shield, "关于"),
+            (AppIcon::Shield, "通知"),
+            (AppIcon::Time, "关于"),
         ];
         let items = tabs
             .iter()
@@ -293,6 +337,7 @@ impl SettingsWindowView {
             2 => self.render_compression_tab(cx).into_any_element(),
             3 => self.render_association_tab(cx).into_any_element(),
             4 => self.render_vault_tab(cx).into_any_element(),
+            5 => self.render_notification_tab(cx).into_any_element(),
             _ => self.render_about_tab(cx).into_any_element(),
         };
         v_flex()

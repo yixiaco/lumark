@@ -10,6 +10,7 @@ pub(crate) mod extract_window;
 mod pages;
 pub(crate) mod password_windows;
 mod settings_window;
+mod settings_window_notify;
 mod settings_window_pages;
 mod settings_window_selects;
 mod settings_window_tabs;
