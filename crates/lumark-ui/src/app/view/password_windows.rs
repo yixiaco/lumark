@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::components::{AppIcon, banner_gradient, form_label, hint_text};
+use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::component::TitleBar;
 
@@ -29,17 +30,23 @@ impl PasswordEditorWindowView {
         cx: &mut Context<Self>,
     ) -> Self {
         let label = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("名称，例如：工作压缩包".to_string())
+            InputState::new(window, cx)
+                .placeholder(tr("名称，例如：工作压缩包", "Name, e.g. Work archive").to_string())
         });
         let password = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("密码".to_string())
+                .placeholder(tr("密码", "Password").to_string())
                 .masked(true)
         });
         let pattern = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("适用路径或通配符（可选）".to_string())
+            InputState::new(window, cx).placeholder(
+                tr("适用路径或通配符（可选）", "Path or wildcard (optional)").to_string(),
+            )
         });
-        let note = cx.new(|cx| InputState::new(window, cx).placeholder("备注（可选）".to_string()));
+        let note = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(tr("备注（可选）", "Note (optional)").to_string())
+        });
         let editing = entry.as_ref().map(|entry| entry.id);
         let view = Self {
             app,
@@ -74,9 +81,9 @@ impl PasswordEditorWindowView {
     /// 渲染独立窗口的系统标题栏内容。
     fn render_title_bar(&self, cx: &Context<Self>) -> impl IntoElement {
         let title = if self.editing.is_some() {
-            "编辑密码记录"
+            tr("编辑密码记录", "Edit password record")
         } else {
-            "新建密码记录"
+            tr("新建密码记录", "New password record")
         };
         TitleBar::new()
             .h(px(38.))
@@ -115,9 +122,9 @@ impl PasswordEditorWindowView {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(if self.editing.is_some() {
-                                "编辑记录"
+                                tr("编辑记录", "Edit record")
                             } else {
-                                "新建记录"
+                                tr("新建记录", "New record")
                             }),
                     ),
             )
@@ -126,14 +133,20 @@ impl PasswordEditorWindowView {
     /// 渲染标题栏下方的渐变说明带。
     fn render_banner(&self, cx: &Context<Self>) -> impl IntoElement {
         let title = if self.editing.is_some() {
-            "编辑密码记录"
+            tr("编辑密码记录", "Edit password record")
         } else {
-            "新建密码记录"
+            tr("新建密码记录", "New password record")
         };
         let caption = if self.editing.is_some() {
-            "修改后立即写回本地加密密码库"
+            tr(
+                "修改后立即写回本地加密密码库",
+                "Changes are written to the local encrypted vault immediately",
+            )
         } else {
-            "保存后立即写入本地加密密码库"
+            tr(
+                "保存后立即写入本地加密密码库",
+                "Saved directly to the local encrypted vault",
+            )
         };
         banner_gradient(cx)
             .w_full()
@@ -186,13 +199,13 @@ impl PasswordEditorWindowView {
             .child(
                 v_flex()
                     .gap_1()
-                    .child(form_label(cx, "名称"))
+                    .child(form_label(cx, tr("名称", "Name")))
                     .child(Input::new(&self.label).id("password-editor-label").w_full()),
             )
             .child(
                 v_flex()
                     .gap_1()
-                    .child(form_label(cx, "密码"))
+                    .child(form_label(cx, tr("密码", "Password")))
                     .child(
                         h_flex()
                             .w_full()
@@ -218,9 +231,9 @@ impl PasswordEditorWindowView {
                                         .element(14.),
                                     )
                                     .tooltip(if self.password_visible {
-                                        "隐藏密码"
+                                        tr("隐藏密码", "Hide password")
                                     } else {
-                                        "显示密码"
+                                        tr("显示密码", "Show password")
                                     })
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.password_visible = !this.password_visible;
@@ -234,13 +247,13 @@ impl PasswordEditorWindowView {
                     )
                     .child(hint_text(
                         cx,
-                        "只保存一次密码，不再要求重复确认；保存后可在列表中显示或复制。",
+                        tr("只保存一次密码，不再要求重复确认；保存后可在列表中显示或复制。", "Enter the password once; no confirmation is required. It can be shown or copied from the list."),
                     )),
             )
             .child(
                 v_flex()
                     .gap_1()
-                    .child(form_label(cx, "适用压缩包"))
+                    .child(form_label(cx, tr("适用压缩包", "Archive pattern")))
                     .child(
                         Input::new(&self.pattern)
                             .id("password-editor-pattern")
@@ -248,13 +261,13 @@ impl PasswordEditorWindowView {
                     )
                     .child(hint_text(
                         cx,
-                        "支持完整路径或 * ? 通配符；留空表示通用密码。",
+                        tr("支持完整路径或 * ? 通配符；留空表示通用密码。", "Supports a full path or * ? wildcards; leave empty for a general password."),
                     )),
             )
             .child(
                 v_flex()
                     .gap_1()
-                    .child(form_label(cx, "备注"))
+                    .child(form_label(cx, tr("备注", "Note")))
                     .child(Input::new(&self.note).id("password-editor-note").w_full()),
             )
     }
@@ -274,7 +287,7 @@ impl PasswordEditorWindowView {
                 button("password-editor-cancel")
                     .ghost()
                     .rounded(px(6.))
-                    .label("取消")
+                    .label(tr("取消", "Cancel"))
                     .on_click(cx.listener(|_, _, window, _| {
                         window.remove_window();
                     })),
@@ -285,9 +298,9 @@ impl PasswordEditorWindowView {
                     .rounded(px(6.))
                     .icon(AppIcon::Save.element(14.))
                     .label(if self.editing.is_some() {
-                        "保存修改"
+                        tr("保存修改", "Save changes")
                     } else {
-                        "保存到密码库"
+                        tr("保存到密码库", "Save to vault")
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         let label = input_value(&this.label, cx);
@@ -352,17 +365,23 @@ impl MasterPasswordWindowView {
     ) -> Self {
         let current = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("当前主密码".to_string())
+                .placeholder(tr("当前主密码", "Current master password").to_string())
                 .masked(true)
         });
         let new_password = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("新主密码（至少 8 位）".to_string())
+                .placeholder(
+                    tr(
+                        "新主密码（至少 8 位）",
+                        "New master password (at least 8 characters)",
+                    )
+                    .to_string(),
+                )
                 .masked(true)
         });
         let confirm = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("再次输入新主密码".to_string())
+                .placeholder(tr("再次输入新主密码", "Repeat new master password").to_string())
                 .masked(true)
         });
         Self {
@@ -387,9 +406,9 @@ impl MasterPasswordWindowView {
     /// 渲染独立窗口的系统标题栏内容。
     fn render_title_bar(&self, cx: &Context<Self>) -> impl IntoElement {
         let title = if self.has_master {
-            "修改主密码"
+            tr("修改主密码", "Change master password")
         } else {
-            "设置主密码"
+            tr("设置主密码", "Set master password")
         };
         TitleBar::new()
             .h(px(38.))
@@ -427,7 +446,7 @@ impl MasterPasswordWindowView {
                             .flex_shrink_0()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Lumark 密码库"),
+                            .child(tr("Lumark 密码库", "Lumark vault")),
                     ),
             )
     }
@@ -435,9 +454,9 @@ impl MasterPasswordWindowView {
     /// 渲染标题栏下方的主密码说明带。
     fn render_banner(&self, cx: &Context<Self>) -> impl IntoElement {
         let title = if self.has_master {
-            "修改主密码"
+            tr("修改主密码", "Change master password")
         } else {
-            "设置主密码"
+            tr("设置主密码", "Set master password")
         };
         banner_gradient(cx)
             .w_full()
@@ -471,7 +490,7 @@ impl MasterPasswordWindowView {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("设置后移除 DPAPI 包裹；忘记主密码将无法恢复。"),
+                            .child(tr("设置后移除 DPAPI 包裹；忘记主密码将无法恢复。", "Setting one removes DPAPI wrapping; a forgotten master password cannot be recovered.")),
                     ),
             )
     }
@@ -489,28 +508,40 @@ impl MasterPasswordWindowView {
             })
             .when(self.has_master, |this| {
                 this.child(
-                    v_flex().gap_1().child(form_label(cx, "当前主密码")).child(
-                        Input::new(&self.current)
-                            .id("master-window-current")
-                            .w_full(),
-                    ),
+                    v_flex()
+                        .gap_1()
+                        .child(form_label(cx, tr("当前主密码", "Current master password")))
+                        .child(
+                            Input::new(&self.current)
+                                .id("master-window-current")
+                                .w_full(),
+                        ),
                 )
             })
             .child(
                 v_flex()
                     .gap_1()
-                    .child(form_label(cx, "新主密码"))
+                    .child(form_label(cx, tr("新主密码", "New master password")))
                     .child(
                         Input::new(&self.new_password)
                             .id("master-window-new")
                             .w_full(),
                     )
-                    .child(hint_text(cx, "至少 8 个字符；请使用与其他账户不同的密码。")),
+                    .child(hint_text(
+                        cx,
+                        tr(
+                            "至少 8 个字符；请使用与其他账户不同的密码。",
+                            "At least 8 characters; use a password different from other accounts.",
+                        ),
+                    )),
             )
             .child(
                 v_flex()
                     .gap_1()
-                    .child(form_label(cx, "确认新主密码"))
+                    .child(form_label(
+                        cx,
+                        tr("确认新主密码", "Confirm new master password"),
+                    ))
                     .child(
                         Input::new(&self.confirm)
                             .id("master-window-confirm")
@@ -534,7 +565,7 @@ impl MasterPasswordWindowView {
                 button("master-window-cancel")
                     .ghost()
                     .rounded(px(6.))
-                    .label("取消")
+                    .label(tr("取消", "Cancel"))
                     .on_click(cx.listener(|_, _, window, _| {
                         window.remove_window();
                     })),
@@ -545,9 +576,9 @@ impl MasterPasswordWindowView {
                     .rounded(px(6.))
                     .icon(AppIcon::Shield.element(14.))
                     .label(if self.has_master {
-                        "保存新主密码"
+                        tr("保存新主密码", "Save new master password")
                     } else {
-                        "设置主密码"
+                        tr("设置主密码", "Set master password")
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         let current = if this.has_master {
@@ -558,12 +589,24 @@ impl MasterPasswordWindowView {
                         let new = input_value(&this.new_password, cx);
                         let confirm = input_value(&this.confirm, cx);
                         if new.chars().count() < 8 {
-                            this.error = Some("主密码至少需要 8 个字符".to_string());
+                            this.error = Some(
+                                tr(
+                                    "主密码至少需要 8 个字符",
+                                    "Master password must be at least 8 characters",
+                                )
+                                .to_string(),
+                            );
                             cx.notify();
                             return;
                         }
                         if new != confirm {
-                            this.error = Some("两次输入的新主密码不一致".to_string());
+                            this.error = Some(
+                                tr(
+                                    "两次输入的新主密码不一致",
+                                    "The new master passwords do not match",
+                                )
+                                .to_string(),
+                            );
                             cx.notify();
                             return;
                         }
@@ -629,7 +672,7 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         if self.vault.state() != VaultState::Unlocked {
-            self.status = "请先解锁密码库".to_string();
+            self.status = tr("请先解锁密码库", "Unlock the vault first").to_string();
             return;
         }
         self.close_password_editor_window(cx);
@@ -650,9 +693,9 @@ impl LumarkApp {
             titlebar: Some(gpui_kit::TitlebarOptions {
                 title: Some(
                     if editing {
-                        "编辑密码 - Lumark"
+                        tr("编辑密码 - Lumark", "Edit password - Lumark")
                     } else {
-                        "新建密码 - Lumark"
+                        tr("新建密码 - Lumark", "New password - Lumark")
                     }
                     .into(),
                 ),
@@ -676,14 +719,19 @@ impl LumarkApp {
             })
         }) {
             Ok((handle, _)) => self.password_editor_window = Some(handle),
-            Err(error) => self.status = format!("无法打开密码编辑窗口：{error}"),
+            Err(error) => {
+                self.status = format!(
+                    "{}{error}",
+                    tr("无法打开密码编辑窗口：", "Cannot open password editor: ")
+                )
+            }
         }
     }
 
     /// 打开独立主密码设置窗口；已有窗口会被替换。
     pub(crate) fn open_master_password_window(&mut self, parent: &Window, cx: &mut Context<Self>) {
         if self.vault.state() != VaultState::Unlocked {
-            self.status = "请先解锁密码库".to_string();
+            self.status = tr("请先解锁密码库", "Unlock the vault first").to_string();
             return;
         }
         self.close_master_password_window(cx);
@@ -702,7 +750,7 @@ impl LumarkApp {
                 size,
             })),
             titlebar: Some(gpui_kit::TitlebarOptions {
-                title: Some("主密码 - Lumark".into()),
+                title: Some(tr("主密码 - Lumark", "Master password - Lumark").into()),
                 appears_transparent: true,
                 traffic_light_position: None,
             }),
@@ -720,7 +768,15 @@ impl LumarkApp {
             cx.new(|cx| MasterPasswordWindowView::new(app.clone(), has_master, window, cx))
         }) {
             Ok((handle, _)) => self.master_password_window = Some(handle),
-            Err(error) => self.status = format!("无法打开主密码窗口：{error}"),
+            Err(error) => {
+                self.status = format!(
+                    "{}{error}",
+                    tr(
+                        "无法打开主密码窗口：",
+                        "Cannot open master password window: "
+                    )
+                )
+            }
         }
     }
 
