@@ -88,7 +88,7 @@ cargo build --release -p lumark-app -p lumark-sfx
 ./installer/pack-msix.ps1
 ```
 
-产物默认位于 `target\release\Lumark.msix`；安装前请用企业证书或 `signtool` 签名。Windows 11 稀疏 MSIX/新版资源管理器菜单仍未实现。
+产物默认位于 `target\release\Lumark.msix`；可追加 `-SignThumbprint`/`-SignPfxPath` 在打包后签名，也可用企业证书或 `signtool` 单独签名。Windows 11 稀疏 MSIX/新版资源管理器菜单仍未实现。
 
 ## 测试
 

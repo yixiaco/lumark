@@ -13,6 +13,9 @@ param(
     [string]$OutputPath = (Join-Path $PSScriptRoot "..\target\release\Lumark.msix"),
     [string]$Publisher = "CN=Lumark",
     [string]$Version = "1.0.0.0",
+    [string]$SignThumbprint,
+    [string]$SignPfxPath,
+    [string]$SignPfxPassword,
     [switch]$KeepStaging
 )
 
@@ -102,6 +105,19 @@ try {
     & $makeappx pack /d $staging /p $output /o
     if ($LASTEXITCODE -ne 0) {
         throw "makeappx failed with exit code $LASTEXITCODE"
+    }
+    if ($SignThumbprint -or $SignPfxPath) {
+        $signArgs = @{ Path = @($output) }
+        if ($SignThumbprint) {
+            $signArgs["Thumbprint"] = $SignThumbprint
+        }
+        if ($SignPfxPath) {
+            $signArgs["PfxPath"] = $SignPfxPath
+        }
+        if ($SignPfxPassword) {
+            $signArgs["PfxPassword"] = $SignPfxPassword
+        }
+        & (Join-Path $PSScriptRoot "sign.ps1") @signArgs
     }
     Write-Host "MSIX created: $output"
 } finally {
