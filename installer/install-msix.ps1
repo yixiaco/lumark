@@ -13,6 +13,8 @@ param(
     [string]$CertificatePassword,
     [switch]$TrustCertificate,
     [switch]$AllowUnsigned,
+    [string]$ExternalLocation,
+    [string]$PackageName = "Lumark",
     [switch]$Uninstall
 )
 
@@ -23,13 +25,13 @@ if (-not $PackagePath) {
 }
 
 if ($Uninstall) {
-    $package = Get-AppxPackage -Name "Lumark" -ErrorAction SilentlyContinue
+    $package = Get-AppxPackage -Name $PackageName -ErrorAction SilentlyContinue
     if (-not $package) {
-        Write-Host "Lumark MSIX is not installed."
+        Write-Host "$PackageName MSIX is not installed."
         return
     }
     Remove-AppxPackage -Package $package.PackageFullName
-    Write-Host "Lumark MSIX removed."
+    Write-Host "$PackageName MSIX removed."
     return
 }
 
@@ -53,9 +55,8 @@ if ($TrustCertificate) {
     Write-Host "Certificate imported: $($certificate.Thumbprint)"
 }
 
-if ($AllowUnsigned) {
-    Add-AppxPackage -Path $PackagePath -AllowUnsigned
-} else {
-    Add-AppxPackage -Path $PackagePath
-}
+$arguments = @{ Path = $PackagePath }
+if ($AllowUnsigned) { $arguments["AllowUnsigned"] = $true }
+if ($ExternalLocation) { $arguments["ExternalLocation"] = $ExternalLocation }
+Add-AppxPackage @arguments
 Write-Host "Lumark MSIX installed: $PackagePath"

@@ -16,6 +16,8 @@ param(
     [string]$SignThumbprint,
     [string]$SignPfxPath,
     [string]$SignPfxPassword,
+    [string]$DllPath,
+    [switch]$Sparse,
     [switch]$KeepStaging
 )
 
@@ -44,11 +46,22 @@ function Find-MakeAppx {
 $input = (Resolve-Path -LiteralPath $InputDir).ProviderPath
 $appBinary = Join-Path $input "lumark-app.exe"
 $sfxBinary = Join-Path $input "lumark-sfx.exe"
-if (-not (Test-Path -LiteralPath $appBinary)) {
-    throw "Missing $appBinary. Run cargo build --release -p lumark-app first."
-}
-if (-not (Test-Path -LiteralPath $sfxBinary)) {
-    throw "Missing $sfxBinary. Run cargo build --release -p lumark-sfx first."
+if ($Sparse) {
+    if (-not $DllPath) {
+        $DllPath = Join-Path $input "lumark_shell_command.dll"
+    }
+    if (-not (Test-Path -LiteralPath $DllPath)) {
+        throw "Missing $DllPath. Run cargo build --release -p lumark-shell-command first."
+    }
+    $manifestName = "AppxSparseManifest.xml"
+} else {
+    if (-not (Test-Path -LiteralPath $appBinary)) {
+        throw "Missing $appBinary. Run cargo build --release -p lumark-app first."
+    }
+    if (-not (Test-Path -LiteralPath $sfxBinary)) {
+        throw "Missing $sfxBinary. Run cargo build --release -p lumark-sfx first."
+    }
+    $manifestName = "AppxManifest.xml"
 }
 $ico = Join-Path $PSScriptRoot "..\crates\lumark-app\assets\lumark.ico"
 if (-not (Test-Path -LiteralPath $ico)) {
@@ -62,10 +75,14 @@ $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("lumark-msix-" + [guid]:
 New-Item -ItemType Directory -Force -Path (Join-Path $staging "Assets") | Out-Null
 
 try {
-    Copy-Item -LiteralPath $appBinary -Destination (Join-Path $staging "Lumark.exe")
-    Copy-Item -LiteralPath $sfxBinary -Destination (Join-Path $staging "lumark-sfx.exe")
+    if ($Sparse) {
+        Copy-Item -LiteralPath $DllPath -Destination (Join-Path $staging "LumarkShell.dll")
+    } else {
+        Copy-Item -LiteralPath $appBinary -Destination (Join-Path $staging "Lumark.exe")
+        Copy-Item -LiteralPath $sfxBinary -Destination (Join-Path $staging "lumark-sfx.exe")
+    }
 
-    $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot "msix\AppxManifest.xml") -Raw
+    $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot ("msix\" + $manifestName)) -Raw
     $manifest = $manifest.Replace("__PUBLISHER__", $Publisher).Replace("__VERSION__", $Version)
     Set-Content -LiteralPath (Join-Path $staging "AppxManifest.xml") -Value $manifest -Encoding UTF8
 
@@ -102,7 +119,12 @@ try {
     }
 
     $makeappx = Find-MakeAppx
-    & $makeappx pack /d $staging /p $output /o
+    $packArguments = @("pack", "/d", $staging, "/p", $output, "/o")
+    if ($Sparse) {
+        # 外部位置包不包含应用二进制，跳过 MakeAppx 的路径存在性校验。
+        $packArguments += "/nv"
+    }
+    & $makeappx @packArguments
     if ($LASTEXITCODE -ne 0) {
         throw "makeappx failed with exit code $LASTEXITCODE"
     }

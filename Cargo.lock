@@ -5321,6 +5321,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumark-shell-command"
+version = "0.1.0"
+dependencies = [
+ "windows 0.61.3",
+ "windows-core 0.61.2",
+]
+
+[[package]]
 name = "lumark-tasks"
 version = "0.1.0"
 dependencies = [

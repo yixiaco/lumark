@@ -127,7 +127,7 @@
 - [ ] 仅 ZPAQ 的伪装创建仍先写内层归档再包装，峰值磁盘约两倍；ZIP/7Z/LZH/TAR 系列和单文件流已单遍写入；媒体扩展名的 `OpenWithProgids` 已注册。与 Apate 的二进制互通仍未实现（Apate 为 GPL-3.0 且格式未公开，不复制其代码）。
 - [ ] ZPAQ 解压仍由引擎一次性阻塞完成，只有任务级取消和移动阶段逐条进度，没有引擎内部逐文件进度；后续可评估按条目分块调用引擎。PAQ8/LPAQ 系列暂无许可兼容的成熟 Rust 后端，待生态出现可用实现后再评估。
 - [ ] 邮件通知只做纯文本；没有连接超时配置、发送历史、重试队列和 OAuth2/XOAUTH2。
-- [ ] Windows 11 稀疏 MSIX `IExplorerCommand`（全信任 MSIX 打包已完成） 和代码签名。
+- [x] Windows 11 稀疏 MSIX 上下文菜单骨架：新增 `lumark-shell-command` COM DLL（`IExplorerCommand` + 类工厂测试）、`AppxSparseManifest.xml`、`pack-msix.ps1 -Sparse` 和 `install-msix.ps1 -ExternalLocation`；已验证 MakeAppx 打包和 COM 类工厂创建。实际安装/Explorer 验收仍需受信任证书。
 - [ ] PAQ8/LPAQ 仍未支持；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
 - [ ] LZH 的 lh4/lh5/lh7 创建仍受单条目 512 MiB 内存上限限制；Store（lh0）已支持分块流式写入。上游 lh4-lh7 编码器尚无可安全跨块续写的接口，后续可评估自研流式编码器或分块归档策略。
 - [ ] 传统格式的实际写入上限仍取决于上游适配器；完整键盘/高对比度验收和原生 OS 拖出目标窗口行为仍待完成；主界面文案迁移已覆盖主要页面，剩余少量状态/格式名称。

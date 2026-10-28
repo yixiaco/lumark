@@ -11,6 +11,7 @@ members = [
     "crates/lumark-vault",
     "crates/lumark-app",
     "crates/lumark-platform-windows",
+    "crates/lumark-shell-command",
 ]
 
 [workspace.package]
