@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::components::{AppIcon, classic_field, dialog_banner, hint_text};
+use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::component::checkbox::Checkbox;
 use std::path::PathBuf;
@@ -56,7 +57,7 @@ impl ExtractWindowView {
             .archive
             .file_name()
             .and_then(|value| value.to_str())
-            .unwrap_or("解压文件")
+            .unwrap_or(tr("解压文件", "Extract"))
             .to_string();
         TitleBar::new()
             .h(px(38.))
@@ -87,7 +88,7 @@ impl ExtractWindowView {
                             .whitespace_nowrap()
                             .text_sm()
                             .font_semibold()
-                            .child("解压文件 - Lumark"),
+                            .child(tr("解压文件 - Lumark", "Extract - Lumark")),
                     )
                     .child(
                         div()
@@ -108,7 +109,7 @@ impl ExtractWindowView {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("选择解压目标目录".into()),
+            prompt: Some(tr("选择解压目标目录", "Choose extraction folder").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await
@@ -164,7 +165,7 @@ impl ExtractWindowView {
                     ),
             )
             .child(classic_field(
-                "解压到:",
+                tr("解压到:", "Extract to:"),
                 60.,
                 h_flex()
                     .w_full()
@@ -182,7 +183,7 @@ impl ExtractWindowView {
                             .small()
                             .rounded(px(6.))
                             .cursor_pointer()
-                            .label("浏览…")
+                            .label(tr("浏览…", "Browse..."))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.choose_directory(cx);
                                 cx.notify();
@@ -190,7 +191,7 @@ impl ExtractWindowView {
                     ),
             ))
             .child(classic_field(
-                "密码:",
+                tr("密码:", "Password:"),
                 60.,
                 h_flex()
                     .w_full()
@@ -209,14 +210,14 @@ impl ExtractWindowView {
                             .rounded(px(6.))
                             .cursor_pointer()
                             .label(if self.password_visible {
-                                "隐藏密码"
+                                tr("隐藏密码", "Hide password")
                             } else {
-                                "显示密码"
+                                tr("显示密码", "Show password")
                             })
                             .tooltip(if self.password_visible {
-                                "以掩码显示解压密码"
+                                tr("以掩码显示解压密码", "Show extraction password masked")
                             } else {
-                                "以明文显示解压密码"
+                                tr("以明文显示解压密码", "Show extraction password in plain text")
                             })
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.password_visible = !this.password_visible;
@@ -230,7 +231,7 @@ impl ExtractWindowView {
             ))
             .child(
                 Checkbox::new("extract-window-selection-only")
-                    .label("仅解压选中的归档条目")
+                    .label(tr("仅解压选中的归档条目", "Extract selected archive entries only"))
                     .checked(self.selection_only)
                     .on_click(cx.listener(|this, checked: &bool, _, cx| {
                         this.selection_only = *checked;
@@ -245,7 +246,7 @@ impl ExtractWindowView {
                     .into_any_element(),
                 None => hint_text(
                     cx,
-                    "记录密码会自动尝试，失败后可手动输入；密码不会显示在界面中。",
+                    tr("记录密码会自动尝试，失败后可手动输入；密码不会显示在界面中。", "Saved passwords are tried automatically; enter one manually if needed. Passwords are never shown in the UI."),
                 )
                 .into_any_element(),
             })
@@ -267,11 +268,11 @@ impl ExtractWindowView {
                     .small()
                     .rounded(px(6.))
                     .cursor_pointer()
-                    .label("取消")
+                    .label(tr("取消", "Cancel"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         let app = this.app.clone();
                         app.update(cx, |app, cx| {
-                            app.status = "已取消解压".to_string();
+                            app.status = tr("已取消解压", "Extraction cancelled").to_string();
                             cx.notify();
                         });
                         window.remove_window();
@@ -284,7 +285,7 @@ impl ExtractWindowView {
                     .rounded(px(6.))
                     .cursor_pointer()
                     .icon(AppIcon::Zip.element(14.))
-                    .label("开始解压")
+                    .label(tr("开始解压", "Start extraction"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         let app = this.app.clone();
                         let archive = this.archive.clone();
@@ -366,7 +367,7 @@ impl LumarkApp {
                 size,
             })),
             titlebar: Some(gpui_kit::TitlebarOptions {
-                title: Some("解压文件 - Lumark".into()),
+                title: Some(tr("解压文件 - Lumark", "Extract - Lumark").into()),
                 appears_transparent: true,
                 traffic_light_position: None,
             }),
@@ -400,7 +401,12 @@ impl LumarkApp {
                 self.extract_window = Some(handle);
                 self.extract_view = Some(view);
             }
-            Err(error) => self.status = format!("无法打开解压窗口：{error}"),
+            Err(error) => {
+                self.status = format!(
+                    "{}{error}",
+                    tr("无法打开解压窗口：", "Cannot open extraction window: ")
+                )
+            }
         }
     }
 }
