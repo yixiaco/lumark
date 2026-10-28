@@ -1,6 +1,7 @@
 //! 密码库右侧栏：记录详情和主密码卡片。
 use super::super::super::*;
 use super::super::components::{AppIcon, card, form_label, icon_button};
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 渲染右侧栏，组合记录详情和主密码入口。
@@ -35,10 +36,10 @@ impl LumarkApp {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(AppIcon::Doc.element(16.))
-                    .child(div().text_sm().font_semibold().child("记录详情"))
+                    .child(div().text_sm().font_semibold().child(tr("记录详情", "Record details")))
                     .when(selected.is_some(), |this| {
                         this.child(
-                            icon_button("clear-password-selection", AppIcon::Close, "取消选择")
+                            icon_button("clear-password-selection", AppIcon::Close, tr("取消选择", "Clear selection"))
                                 .ml_auto()
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.selected_password = None;
@@ -60,9 +61,9 @@ impl LumarkApp {
                     let pattern_label = entry
                         .archive_pattern
                         .clone()
-                        .unwrap_or_else(|| "通用密码".to_string());
+                        .unwrap_or_else(|| tr("通用密码", "General password").to_string());
                     let note = if entry.note.trim().is_empty() {
-                        "未填写备注".to_string()
+                        tr("未填写备注", "No note").to_string()
                     } else {
                         entry.note.clone()
                     };
@@ -107,7 +108,7 @@ impl LumarkApp {
                         )
                         .child(div().h(px(1.)).bg(cx.theme().border))
                         .child(
-                            v_flex().gap_1().child(form_label(cx, "密码")).child(
+                            v_flex().gap_1().child(form_label(cx, tr("密码", "Password"))).child(
                                 h_flex()
                                     .gap_2()
                                     .items_center()
@@ -128,9 +129,9 @@ impl LumarkApp {
                                                 AppIcon::Unlock
                                             },
                                             if revealed {
-                                                "隐藏密码"
+                                                tr("隐藏密码", "Hide password")
                                             } else {
-                                                "显示 10 秒"
+                                                tr("显示 10 秒", "Show 10s")
                                             },
                                         )
                                         .on_click(
@@ -144,7 +145,7 @@ impl LumarkApp {
                                         icon_button(
                                             "detail-password-copy",
                                             AppIcon::Copy,
-                                            "复制密码",
+                                            tr("复制密码", "Copy password"),
                                         )
                                         .on_click(
                                             cx.listener(|this, _, _, cx| {
@@ -156,17 +157,17 @@ impl LumarkApp {
                             ),
                         )
                         .child(
-                            v_flex().gap_1().child(form_label(cx, "适用压缩包")).child(
+                            v_flex().gap_1().child(form_label(cx, tr("适用压缩包", "Archive pattern"))).child(
                                 div().text_sm().whitespace_normal().child(
                                     entry
                                         .archive_pattern
                                         .clone()
-                                        .unwrap_or_else(|| "通用密码".to_string()),
+                                        .unwrap_or_else(|| tr("通用密码", "General password").to_string()),
                                 ),
                             ),
                         )
                         .child(
-                            v_flex().gap_1().child(form_label(cx, "备注")).child(
+                            v_flex().gap_1().child(form_label(cx, tr("备注", "Note"))).child(
                                 div()
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground)
@@ -182,7 +183,7 @@ impl LumarkApp {
                                     button("edit-password")
                                         .primary()
                                         .icon(AppIcon::Edit.element(16.))
-                                        .label("编辑")
+                                        .label(tr("编辑", "Edit"))
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             this.open_password_editor_window(
                                                 Some(entry_for_edit.clone()),
@@ -196,7 +197,7 @@ impl LumarkApp {
                                     button("delete-password")
                                         .danger()
                                         .icon(AppIcon::Delete.element(16.))
-                                        .label("删除")
+                                        .label(tr("删除", "Delete"))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.show_confirm_delete_password = true;
                                             cx.notify();
@@ -220,19 +221,19 @@ impl LumarkApp {
                             .justify_center()
                             .child(AppIcon::Key.element(22.)),
                     )
-                    .child(div().text_sm().font_semibold().child("选择一条记录"))
+                    .child(div().text_sm().font_semibold().child(tr("选择一条记录", "Select a record")))
                     .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .text_center()
-                            .child("从左侧选择记录查看详情，或新建一条密码记录。"),
+                            .child(tr("从左侧选择记录查看详情，或新建一条密码记录。", "Select a record on the left to view details, or create a new password record.")),
                     )
                     .child(
                         button("detail-new-password")
                             .primary()
                             .icon(AppIcon::Add.element(16.))
-                            .label("新建记录")
+                            .label(tr("新建记录", "New record"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_password_editor_window(None, window, cx);
                                 cx.notify();
@@ -259,7 +260,7 @@ impl LumarkApp {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(AppIcon::Shield.element(16.))
-                    .child(div().text_sm().font_semibold().child("主密码")),
+                    .child(div().text_sm().font_semibold().child(tr("主密码", "Master password"))),
             )
             .child(
                 v_flex()
@@ -285,16 +286,16 @@ impl LumarkApp {
                                         cx.theme().warning_foreground
                                     })
                                     .text_xs()
-                                    .child(if has_master { "已设置" } else { "DPAPI" }),
+                                    .child(if has_master { tr("已设置", "Set") } else { "DPAPI" }),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(if has_master {
-                                        "由 Argon2id 派生密钥保护"
+                                        tr("由 Argon2id 派生密钥保护", "Protected by an Argon2id-derived key")
                                     } else {
-                                        "与当前计算机绑定"
+                                        tr("与当前计算机绑定", "Bound to this computer")
                                     }),
                             ),
                     )
@@ -303,7 +304,7 @@ impl LumarkApp {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .whitespace_normal()
-                            .child("设置主密码后会移除 DPAPI 包裹；忘记主密码将无法恢复。"),
+                            .child(tr("设置主密码后会移除 DPAPI 包裹；忘记主密码将无法恢复。", "Setting a master password removes DPAPI wrapping; a forgotten master password cannot be recovered.")),
                     )
                     .child(
                         h_flex()
@@ -313,9 +314,9 @@ impl LumarkApp {
                                     .primary()
                                     .icon(AppIcon::Shield.element(16.))
                                     .label(if has_master {
-                                        "修改主密码"
+                                        tr("修改主密码", "Change master password")
                                     } else {
-                                        "设置主密码"
+                                        tr("设置主密码", "Set master password")
                                     })
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.open_master_password_window(window, cx);
@@ -326,7 +327,7 @@ impl LumarkApp {
                                 this.child(
                                     button("remove-master")
                                         .icon(AppIcon::Delete.element(16.))
-                                        .label("删除主密码")
+                                        .label(tr("删除主密码", "Remove master password"))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.show_confirm_remove_master = true;
                                             cx.notify();
