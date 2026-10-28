@@ -1,0 +1,21 @@
+[package]
+name = "lumark-fuzz"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+lumark-archive = { path = "../crates/lumark-archive" }
+
+[[bin]]
+name = "archive_list"
+path = "fuzz_targets/archive_list.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

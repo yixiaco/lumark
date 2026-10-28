@@ -78,6 +78,8 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 
 归档解析另有确定性头部变异测试：对有效 ZIP 做 256 次单字节篡改和截断，确保列表、测试、解压只返回错误而不 panic。
 
+持续模糊测试：`cargo +nightly fuzz run archive_list`（需要 nightly 和 cargo-fuzz；目标位于 `fuzz/`）。
+
 10 万项目录基准：`cargo run -p lumark-browser --release --example bench_100k`，当前实测加载约 167 ms、搜索约 75 ms。
 
 测试覆盖：

@@ -1,5 +1,7 @@
 /target
 /.cargo-target/
+/fuzz/target/
+/fuzz/corpus/
 .idea/
 *.iml
 /.vscode/
