@@ -6,8 +6,8 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Cursor, Read};
-use std::path::Path;
+use std::io::{Cursor, Read, Seek};
+use std::path::{Path, PathBuf};
 
 use cab::Cabinet;
 use msi::{Package, Select};
@@ -25,12 +25,20 @@ pub(crate) struct MsiEntry {
     pub(crate) size: u64,
 }
 
-/// 已打开的 MSI 包和 CAB 流名。
+/// MSI 的 CAB 来源。
+enum CabSource {
+    /// 内嵌在 MSI 中的流。
+    Embedded(String),
+    /// MSI 同目录的外部 CAB。
+    External(PathBuf),
+}
+
+/// 已打开的 MSI 包和 CAB 来源。
 pub(crate) struct MsiArchive {
     /// MSI 包。
     package: Package<File>,
-    /// 内嵌 CAB 流名。
-    cab_stream: String,
+    /// CAB 来源。
+    cab: CabSource,
     /// 条目列表。
     entries: Vec<MsiEntry>,
 }
@@ -41,30 +49,28 @@ impl MsiArchive {
         let mut package = Package::open(File::open(path)?)
             .map_err(|error| ArchiveError::Corrupt(format!("MSI 打开失败：{error}")))?;
         let file_names = read_file_names(&mut package)?;
-        let cab_stream = read_cabinet_stream(&mut package)?;
-        let stream = package
-            .read_stream(&cab_stream)
-            .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 流读取失败：{error}")))?;
-        let cab = Cabinet::new(stream)
-            .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 解析失败：{error}")))?;
+        let cab = read_cabinet_source(&mut package, path)?;
         let mut entries = Vec::new();
-        for folder in cab.folder_entries() {
-            for file in folder.file_entries() {
-                let cab_name = file.name().to_string();
-                let path = file_names
-                    .get(&cab_name)
-                    .cloned()
-                    .unwrap_or_else(|| cab_name.clone());
-                entries.push(MsiEntry {
-                    cab_name,
-                    path,
-                    size: u64::from(file.uncompressed_size()),
-                });
+        match &cab {
+            CabSource::Embedded(name) => {
+                let stream = package.read_stream(name).map_err(|error| {
+                    ArchiveError::Corrupt(format!("MSI CAB 流读取失败：{error}"))
+                })?;
+                let cabinet = Cabinet::new(stream)
+                    .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 解析失败：{error}")))?;
+                collect_entries(&cabinet, &file_names, &mut entries);
+            }
+            CabSource::External(path) => {
+                let file = File::open(path)?;
+                let cabinet = Cabinet::new(file).map_err(|error| {
+                    ArchiveError::Corrupt(format!("外部 CAB 解析失败：{error}"))
+                })?;
+                collect_entries(&cabinet, &file_names, &mut entries);
             }
         }
         Ok(Self {
             package,
-            cab_stream,
+            cab,
             entries,
         })
     }
@@ -76,19 +82,23 @@ impl MsiArchive {
 
     /// 打开指定条目的解压读取器。
     pub(crate) fn open_entry(&mut self, entry: &MsiEntry) -> Result<Box<dyn Read>, ArchiveError> {
-        let stream = self
-            .package
-            .read_stream(&self.cab_stream)
-            .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 流读取失败：{error}")))?;
-        let mut cab = Cabinet::new(stream)
-            .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 解析失败：{error}")))?;
-        let mut reader = cab
-            .read_file(&entry.cab_name)
-            .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 条目读取失败：{error}")))?;
-        let mut bytes = Vec::with_capacity(entry.size as usize);
-        reader
-            .read_to_end(&mut bytes)
-            .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 条目读取失败：{error}")))?;
+        let bytes = match &self.cab {
+            CabSource::Embedded(name) => {
+                let stream = self.package.read_stream(name).map_err(|error| {
+                    ArchiveError::Corrupt(format!("MSI CAB 流读取失败：{error}"))
+                })?;
+                let mut cabinet = Cabinet::new(stream)
+                    .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 解析失败：{error}")))?;
+                read_entry(&mut cabinet, entry)?
+            }
+            CabSource::External(path) => {
+                let file = File::open(path)?;
+                let mut cabinet = Cabinet::new(file).map_err(|error| {
+                    ArchiveError::Corrupt(format!("外部 CAB 解析失败：{error}"))
+                })?;
+                read_entry(&mut cabinet, entry)?
+            }
+        };
         Ok(Box::new(Cursor::new(bytes)))
     }
 }
@@ -125,8 +135,11 @@ fn read_file_names(package: &mut Package<File>) -> Result<HashMap<String, String
     Ok(names)
 }
 
-/// 读取 Media 表中内嵌 CAB 的流名。
-fn read_cabinet_stream(package: &mut Package<File>) -> Result<String, ArchiveError> {
+/// 从 Media 表读取内嵌或外部 CAB 来源。
+fn read_cabinet_source(
+    package: &mut Package<File>,
+    msi_path: &Path,
+) -> Result<CabSource, ArchiveError> {
     let table = package
         .get_table("Media")
         .ok_or_else(|| ArchiveError::Corrupt("MSI 缺少 Media 表".to_string()))?;
@@ -141,15 +154,51 @@ fn read_cabinet_stream(package: &mut Package<File>) -> Result<String, ArchiveErr
     {
         let cabinet = row[cabinet_index].as_str().unwrap_or_default().to_string();
         if let Some(name) = cabinet.strip_prefix('#') {
-            return Ok(name.to_string());
+            return Ok(CabSource::Embedded(name.to_string()));
         }
         if !cabinet.is_empty() {
-            return Err(ArchiveError::InvalidRequest(
-                "MSI 使用外部 CAB，暂不支持直接解压".to_string(),
-            ));
+            let base = msi_path.parent().unwrap_or_else(|| Path::new("."));
+            return Ok(CabSource::External(base.join(cabinet)));
         }
     }
     Err(ArchiveError::InvalidRequest(
-        "MSI 没有内嵌 CAB，暂不支持直接解压".to_string(),
+        "MSI 没有可用的 CAB".to_string(),
     ))
+}
+
+/// 把一个 CAB 的条目收集到列表。
+fn collect_entries<R: Read + Seek>(
+    cab: &Cabinet<R>,
+    file_names: &HashMap<String, String>,
+    entries: &mut Vec<MsiEntry>,
+) {
+    for folder in cab.folder_entries() {
+        for file in folder.file_entries() {
+            let cab_name = file.name().to_string();
+            let path = file_names
+                .get(&cab_name)
+                .cloned()
+                .unwrap_or_else(|| cab_name.clone());
+            entries.push(MsiEntry {
+                cab_name,
+                path,
+                size: u64::from(file.uncompressed_size()),
+            });
+        }
+    }
+}
+
+/// 从已打开的 CAB 读取单个条目。
+fn read_entry<R: Read + Seek>(
+    cab: &mut Cabinet<R>,
+    entry: &MsiEntry,
+) -> Result<Vec<u8>, ArchiveError> {
+    let mut reader = cab
+        .read_file(&entry.cab_name)
+        .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 条目读取失败：{error}")))?;
+    let mut bytes = Vec::with_capacity(entry.size as usize);
+    reader
+        .read_to_end(&mut bytes)
+        .map_err(|error| ArchiveError::Corrupt(format!("MSI CAB 条目读取失败：{error}")))?;
+    Ok(bytes)
 }

@@ -20,7 +20,7 @@ fn make_cab(content: &[u8]) -> Vec<u8> {
 }
 
 /// 生成包含 File/Media 表和内嵌 CAB 的 MSI。
-fn make_msi(path: &std::path::Path, content: &[u8]) {
+fn make_msi_with_cab(path: &std::path::Path, content: &[u8], cabinet: &str) {
     let cab = make_cab(content);
     let mut package = Package::create(PackageType::Installer, Cursor::new(Vec::new())).unwrap();
     package
@@ -54,15 +54,22 @@ fn make_msi(path: &std::path::Path, content: &[u8]) {
         .insert_rows(Insert::into("Media").row(vec![
             Value::Int(1),
             Value::Int(1),
-            Value::from("#cab1"),
+            Value::from(cabinet),
         ]))
         .unwrap();
-    {
-        let mut stream = package.write_stream("cab1").unwrap();
+    if let Some(name) = cabinet.strip_prefix('#') {
+        let mut stream = package.write_stream(name).unwrap();
         stream.write_all(&cab).unwrap();
+    } else {
+        fs::write(path.parent().unwrap().join(cabinet), &cab).unwrap();
     }
     let cursor = package.into_inner().unwrap();
     fs::write(path, cursor.into_inner()).unwrap();
+}
+
+/// 生成使用内嵌 CAB 的最小 MSI。
+fn make_msi(path: &std::path::Path, content: &[u8]) {
+    make_msi_with_cab(path, content, "#cab1");
 }
 
 /// 验证 MSI 识别、列表、解压和完整性测试。
@@ -97,4 +104,30 @@ fn msi_lists_extracts_and_tests() {
     let tested = ArchiveService::test(&archive, None, |_| {}).unwrap();
     assert_eq!(tested.files, 1);
     assert_eq!(tested.bytes, 9);
+}
+
+/// 验证 Media 表引用同目录外部 CAB 时也能列表和解压。
+#[test]
+fn msi_reads_external_cab() {
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("external.msi");
+    make_msi_with_cab(&archive, b"external msi", "external.cab");
+    let info = ArchiveService::list(&archive, None).unwrap();
+    assert_eq!(info.entries.len(), 1);
+    assert_eq!(info.entries[0].path, "hello.txt");
+    let output = directory.path().join("out");
+    ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: output.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(output.join("hello.txt")).unwrap(),
+        "external msi"
+    );
 }
