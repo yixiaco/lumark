@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+base64.workspace = true
 image.workspace = true
 thiserror.workspace = true
 windows = { version = "0.61.3", features = [

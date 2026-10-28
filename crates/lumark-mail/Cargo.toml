@@ -1,0 +1,9 @@
+[package]
+name = "lumark-mail"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lettre.workspace = true
+thiserror.workspace = true

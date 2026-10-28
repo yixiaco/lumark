@@ -171,6 +171,24 @@ pub struct Settings {
     pub auto_lock_minutes: u32,
     /// 归档编辑是否默认保留备份。
     pub archive_edit_backup: bool,
+    /// 压缩成功后是否发送邮件通知。
+    pub email_notify: bool,
+    /// SMTP 主机。
+    pub smtp_host: String,
+    /// SMTP 端口。
+    pub smtp_port: u16,
+    /// SMTP 登录用户名。
+    pub smtp_username: String,
+    /// DPAPI 保护的 SMTP 密码；`None` 表示未设置。
+    pub smtp_password: Option<String>,
+    /// 发件人地址。
+    pub smtp_from: String,
+    /// 收件人地址，多个地址用逗号或分号分隔。
+    pub smtp_to: String,
+    /// 使用隐式 TLS（常见端口 465）。
+    pub smtp_implicit_tls: bool,
+    /// 使用 STARTTLS（常见端口 587）。
+    pub smtp_starttls: bool,
     /// 新建压缩窗口默认是否勾选伪装输出。
     pub disguise_enabled: bool,
     /// 默认面具类型。
@@ -207,6 +225,15 @@ impl Default for Settings {
             prompt_save_password: true,
             auto_lock_minutes: 10,
             archive_edit_backup: false,
+            email_notify: false,
+            smtp_host: String::new(),
+            smtp_port: 465,
+            smtp_username: String::new(),
+            smtp_password: None,
+            smtp_from: String::new(),
+            smtp_to: String::new(),
+            smtp_implicit_tls: true,
+            smtp_starttls: false,
             disguise_enabled: false,
             disguise_mask: DisguiseMaskPreference::Video,
             disguise_custom_mask: None,
