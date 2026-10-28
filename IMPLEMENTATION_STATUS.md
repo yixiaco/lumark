@@ -80,7 +80,7 @@
 - [x] 自解压图标真实模块测试：以当前测试 EXE 作为运行时模块，替换图标后读取页脚并解压载荷，覆盖 PE 资源改写和偏移重算。
 - [x] 自解压自定义图标：压缩窗口可选择 `.ico`，生成时在追加载荷前用 Win32 资源 API 替换运行时模块的 RT_ICON/RT_GROUP_ICON，页脚偏移按替换后的实际大小计算。
 - [x] CHM 只读格式：使用 `libchm` 解析 ITSF/ITSP、PMGL 目录和 LZX 数据，支持普通命名空间文件/目录列表、选择性解压、预算/取消和完整性测试；已加入 `.chm` Shell 关联。
-- [x] 全信任 MSIX 打包：`installer/pack-msix.ps1` 从 release 二进制生成 AppxManifest 和 Store/开始菜单 PNG，调用 Windows SDK `makeappx.exe` 生成 `.msix`；已用占位二进制实际打包验证；支持打包后通过同证书参数签名。Windows 11 稀疏包和 `IExplorerCommand` 新菜单仍未实现。
+- [x] 全信任 MSIX 打包：`installer/pack-msix.ps1` 从 release 二进制生成 AppxManifest 和 Store/开始菜单 PNG，调用 Windows SDK `makeappx.exe` 生成 `.msix`；已用占位二进制实际打包验证；支持打包后通过同证书参数签名；`install-msix.ps1` 提供证书信任导入、安装和卸载。Windows 11 稀疏包和 `IExplorerCommand` 新菜单仍未实现。
 - [x] Authenticode 代码签名脚本：`installer/sign.ps1` 支持证书存储指纹或 PFX、SHA-256 时间戳、签名后自动 `signtool verify /pa`，以及 `-VerifyOnly` 校验；`install.ps1` 可通过 `-SignThumbprint`/`-SignPfxPath` 在复制到安装目录后签名，没有证书时脚本明确失败。
 - [x] EGG 只读格式：使用 MIT `unegg` 读取 Store/Deflate/Bzip2/LZMA 条目，支持列表、选择性解压、覆盖策略、预算/取消和完整性测试；AZO 条目因缺少可用解码器明确报不支持，使用本地 `libazo` 占位依赖并有回归测试。已加入 `.egg` Shell 关联。
 - [x] DMG（UDIF）只读格式：使用 MIT `dpp` 自动识别 HFS+/APFS 卷，支持遍历、列表、选择性解压、覆盖策略、预算/取消和完整性测试；按 `.dmg` 扩展名或末尾 `koly` 识别，跳过符号链接。测试用 `hfsplus`/`udif` 合成原始 HFS+ DMG。
