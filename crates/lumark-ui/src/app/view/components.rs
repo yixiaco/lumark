@@ -217,7 +217,7 @@ pub(super) fn banner_action(
     cx: &Context<LumarkApp>,
     id: &'static str,
     icon: AppIcon,
-    label: &'static str,
+    label: String,
     tone: BannerTone,
     handler: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
 ) -> gpui_kit::AnyElement {
@@ -228,8 +228,8 @@ pub(super) fn banner_action(
         .w(px(68.))
         .h(px(56.))
         .px_0()
-        .tooltip(label)
-        .accessibility_label(label)
+        .tooltip(label.clone())
+        .accessibility_label(label.clone())
         .child(
             v_flex()
                 .items_center()

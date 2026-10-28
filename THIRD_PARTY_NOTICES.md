@@ -19,6 +19,7 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **libzpaq / zpaq.cpp** — public domain（其中 libdivsufsort-lite 部分为 MIT）— https://github.com/zpaq/zpaq
 - **unarc-rs** — MIT OR Apache-2.0 — https://github.com/mkrueger/unarc-rs — 传统格式（ZOO/HA/HYP/SQ/SQZ/UC2/ICE/PACKICE/TAR.Z）只读适配
 - **unalz** — MIT — https://github.com/alkegi/unalz — ALZ 只读解压
+- **rust-i18n** — MIT — https://github.com/longbridge/rust-i18n — 应用与 gpui-kit 组件本地化
 - **lzma-rust2** — Apache-2.0 — https://github.com/hasenbanck/lzma-rust2 — TAR.LZ/TAR.LZMA 读写
 - **libchm** — MIT — CHM 只读解析
 - **backhand** — MIT OR Apache-2.0 — SquashFS 只读解析

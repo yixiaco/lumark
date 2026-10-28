@@ -41,7 +41,7 @@ impl LumarkApp {
                         cx,
                         "compress",
                         AppIcon::Compression,
-                        crate::i18n::tr("压缩", "Compress"),
+                        crate::i18n::tr_key("app.compress"),
                         BannerTone::Primary,
                         |this, window, cx| this.open_compress_dialog(window, cx),
                     ))
@@ -49,7 +49,7 @@ impl LumarkApp {
                         cx,
                         "extract",
                         AppIcon::Zip,
-                        crate::i18n::tr("解压到", "Extract to"),
+                        crate::i18n::tr_key("app.extract"),
                         BannerTone::Success,
                         |this, window, cx| this.open_extract_dialog(window, cx),
                     ))
@@ -57,7 +57,7 @@ impl LumarkApp {
                         cx,
                         "browser-delete",
                         AppIcon::Delete,
-                        crate::i18n::tr("删除", "Delete"),
+                        crate::i18n::tr_key("app.delete"),
                         BannerTone::Danger,
                         |this, _, _| this.request_delete(),
                     ))
@@ -65,7 +65,7 @@ impl LumarkApp {
                         cx,
                         "test-archive",
                         AppIcon::Shield,
-                        crate::i18n::tr("测试", "Test"),
+                        crate::i18n::tr_key("app.test"),
                         BannerTone::Warning,
                         |this, window, cx| this.start_test(window, cx),
                     ))
@@ -73,7 +73,7 @@ impl LumarkApp {
                         cx,
                         "task-center",
                         AppIcon::List,
-                        crate::i18n::tr("任务", "Tasks"),
+                        crate::i18n::tr_key("app.tasks"),
                         BannerTone::Neutral,
                         |this, _, cx| {
                             this.switch_screen(Screen::Tasks);

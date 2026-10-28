@@ -130,8 +130,8 @@ impl LumarkApp {
                                 .size_full()
                                 .overflow_y_scroll()
                                 .track_scroll(&self.password_list_scroll)
-                                .on_scroll_wheel(cx.listener(
-                                    |this, event: &gpui_kit::ScrollWheelEvent, _, cx| {
+                                .on_scroll(cx.listener(
+                                    |this, event: &gpui_kit::ScrollEvent, _, cx| {
                                         let delta = event.delta.pixel_delta(px(20.));
                                         let offset = this.password_list_scroll.offset();
                                         let max = this.password_list_scroll.max_offset().y;

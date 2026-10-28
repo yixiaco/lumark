@@ -5,7 +5,7 @@
 ## 已完成
 
 - [x] Rust workspace：`lumark-archive`、`lumark-vault`、`lumark-tasks`、`lumark-browser`、`lumark-settings`、`lumark-ui`、`lumark-app`、`lumark-platform-windows`。
-- [x] 固定依赖：`gpui-kit 0.7.3`、`zip 9.0.5`、`sevenz-rust2 0.24.1`、`zpaq_rs 1.0.4`、`unalz 0.2.1`、`lzma-rust2 0.22`。
+- [x] 固定依赖：`gpui-kit 0.8.1`、`zip 9.0.5`、`sevenz-rust2 0.24.1`、`zpaq_rs 1.0.4`、`unalz 0.2.1`、`lzma-rust2 0.22`。
 - [x] ZIP/7Z 创建、读取、解压、AES 密码、7Z 固实压缩、条目级加密探测。
 - [x] ZIP 默认使用 AES-256；可在密码页启用带警告的 ZipCrypto 兼容写入，并有往返测试。
 - [x] TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA；GZ、BZ2、XZ、ZST、Brotli、LZ4 单文件流。ZIPX/旧 ZIP 通过 `zip` 的 `deflate64`、`legacy-zip` 特性只读支持 Deflate64、Shrink、Reduce、Implode。
@@ -76,7 +76,7 @@
 - [x] 伪装测试：13 个伪装集成测试覆盖全部 19 种可写格式、密码、任意文件、已有归档、只读格式物化、损坏尾部、取消、批量删除源文件和同名还原；UI 测试覆盖压缩窗口、伪装窗口、启动参数和菜单判定。
 - [x] 7Z 原始块复制编辑：重命名和“整块删除或替换”直接复用原压缩块；固实块内部分删除、加密密码变化和缺 CRC 时自动回退全量重压缩；`EditReport` 记录复用块数并在任务消息中展示。
 - [x] 自解压扩展：支持 ZIP/7Z、AES 密码、v2 页脚和旧 v1 兼容；运行时提供目录选择、密码输入、错误密码重试、覆盖确认，以及 `/S`、`/D=`、`/P=`、`/Y` 参数；使用真实运行时二进制完成 ZIP 和加密 7Z 端到端测试。
-- [x] 主界面本地化起步：设置“综合”页可切换中英文，动作带、设置标题/页签、综合/外观/通知/关于页文案随语言变化；压缩/文件关联/密码库页仍待迁移。
+- [x] 主界面本地化起步：接入官方 `rust-i18n 4.2` 和 gpui-kit 组件 locale，设置“综合”页可切换中英文；动作带使用 `locales/ui.yml` 的 key，设置窗口七个页签及综合/外观/压缩/文件关联/密码库/通知/关于页文案随语言变化；主窗口其余页面仍待迁移。
 - [x] 自解压运行时中英文界面：优先读取 `LUMARK_LANG`，否则按 Windows 用户界面语言选择；目录、密码、覆盖确认、成功/错误提示和按钮提供英文文本。支持 `/LANG=`/`--lang=` 覆盖；主界面完整本地化仍未完成。
 - [x] 自解压图标真实模块测试：以当前测试 EXE 作为运行时模块，替换图标后读取页脚并解压载荷，覆盖 PE 资源改写和偏移重算。
 - [x] 自解压自定义图标：压缩窗口可选择 `.ico`，生成时在追加载荷前用 Win32 资源 API 替换运行时模块的 RT_ICON/RT_GROUP_ICON，页脚偏移按替换后的实际大小计算。

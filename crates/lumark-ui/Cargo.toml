@@ -10,6 +10,7 @@ anyhow.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 gpui-kit.workspace = true
+rust-i18n.workspace = true
 lumark-archive = { path = "../lumark-archive" }
 lumark-browser = { path = "../lumark-browser" }
  lumark-platform-windows = { path = "../lumark-platform-windows" }

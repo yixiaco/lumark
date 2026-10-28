@@ -262,3 +262,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 ## 许可与来源
 
 本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)；伪装压缩和“一键还原”的功能形态参考 GPL-3.0 的 [rippod/apate](https://github.com/rippod/apate)，未复用其代码或文件格式。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；ZPAQ 后端使用 CC0-1.0 的 [zpaq_rs](https://github.com/turtle261/zpaq-rs)，其内置的 libzpaq/zpaq.cpp 为公有领域软件；ALZ 后端使用 MIT 的 [unalz](https://github.com/alkegi/unalz)；LZIP/LZMA 编码使用 Apache-2.0 的 [lzma-rust2](https://github.com/hasenbanck/lzma-rust2)；传统格式适配使用 MIT OR Apache-2.0 的 [unarc-rs](https://github.com/mkrueger/unarc-rs)；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。
+
+## 本地化
+
+主界面使用 gpui-kit 0.8.1 的组件 locale 与 `rust-i18n 4.2`。应用文案放在 `crates/lumark-ui/locales/ui.yml`，当前覆盖动作带和设置窗口；通过设置“综合 → 界面语言”切换 `zh-CN`/`en`，同时同步 gpui-kit 组件语言。

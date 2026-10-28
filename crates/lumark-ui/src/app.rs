@@ -957,6 +957,8 @@ pub fn run() -> anyhow::Result<()> {
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
+            use gpui_kit::component as gpui_component;
+            rust_i18n::extend!(gpui_component);
             gpui_kit::init(cx);
             gpui_kit::open_window(window_options, cx, move |window, cx| {
                 cx.new(|cx| LumarkApp::new_shared(window, cx, stores, None, request))
