@@ -392,19 +392,27 @@ impl CompressWindowView {
             format_index,
         );
         let zip_method_select =
-            new_select(window, cx, ZIP_METHOD_LABELS.to_vec(), zip_method_index);
-        let seven_method_select =
-            new_select(window, cx, SEVEN_METHOD_LABELS.to_vec(), seven_method_index);
+            new_select(window, cx, zip_method_labels().to_vec(), zip_method_index);
+        let seven_method_select = new_select(
+            window,
+            cx,
+            seven_method_labels().to_vec(),
+            seven_method_index,
+        );
         let zpaq_method_select =
-            new_select(window, cx, ZPAQ_METHOD_LABELS.to_vec(), zpaq_method_index);
+            new_select(window, cx, zpaq_method_labels().to_vec(), zpaq_method_index);
         let dictionary_select =
             new_select(window, cx, DICTIONARY_LABELS.to_vec(), dictionary_index);
         let word_select = new_select(window, cx, WORD_LABELS.to_vec(), word_index);
         let solid_select = new_select(window, cx, SOLID_LABELS.to_vec(), solid_index);
         let thread_select = new_select(window, cx, THREAD_LABELS.to_vec(), thread_index);
-        let filter_select = new_select(window, cx, FILTER_LABELS.to_vec(), filter_index);
-        let archive_time_select =
-            new_select(window, cx, ARCHIVE_TIME_LABELS.to_vec(), archive_time_index);
+        let filter_select = new_select(window, cx, filter_labels().to_vec(), filter_index);
+        let archive_time_select = new_select(
+            window,
+            cx,
+            archive_time_labels().to_vec(),
+            archive_time_index,
+        );
         let split_unit_select = new_select(
             window,
             cx,
@@ -463,8 +471,9 @@ impl CompressWindowView {
             &zpaq_method_select,
             |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event
-                    && let Some(index) =
-                        ZPAQ_METHOD_LABELS.iter().position(|label| *label == *value)
+                    && let Some(index) = zpaq_method_labels()
+                        .iter()
+                        .position(|label| *label == *value)
                 {
                     this.zpaq_compression = zpaq_compression_for_index(index);
                     cx.notify();
@@ -839,7 +848,7 @@ mod tests {
             ZpaqCompression::Maximum,
             ZpaqCompression::Ultra,
         ];
-        assert_eq!(ZPAQ_METHOD_LABELS.len(), levels.len());
+        assert_eq!(zpaq_method_labels().len(), levels.len());
         for (index, level) in levels.into_iter().enumerate() {
             assert_eq!(zpaq_method_index(level), index);
             assert_eq!(zpaq_compression_for_index(index), level);
