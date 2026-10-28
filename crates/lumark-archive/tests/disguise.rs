@@ -533,3 +533,52 @@ fn disguised_archive_can_be_edited_in_place() {
         );
     }
 }
+
+/// LZH 多条目伪装：每个条目头都在载荷中回填，验证跨条目 seek/patch 正确。
+#[test]
+fn lzh_disguise_round_trip_handles_multiple_entries() {
+    let directory = tempdir().unwrap();
+    let source = directory.path().join("lzh-source");
+    fs::create_dir_all(&source).unwrap();
+    let large = vec![0x5Au8; 2 * 1024 * 1024];
+    fs::write(source.join("large.bin"), &large).unwrap();
+    fs::write(source.join("note.txt"), b"lzh disguise note").unwrap();
+
+    let output = directory.path().join("lzh-cover.jpg");
+    let options = disguise_options(ArchiveFormat::Lzh);
+    ArchiveService::create(&output, std::slice::from_ref(&source), &options, |_| {}).unwrap();
+    assert_eq!(ArchiveService::detect(&output), ArchiveFormat::Disguised);
+
+    let info = ArchiveService::list(&output, None).unwrap();
+    assert!(
+        info.entries
+            .iter()
+            .any(|entry| entry.path.ends_with("large.bin"))
+    );
+    assert!(
+        info.entries
+            .iter()
+            .any(|entry| entry.path.ends_with("note.txt"))
+    );
+
+    let extracted = directory.path().join("lzh-extract");
+    ArchiveService::extract(
+        &output,
+        &ExtractionOptions {
+            output_dir: extracted.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(extracted.join("lzh-source/large.bin")).unwrap(),
+        large
+    );
+    assert_eq!(
+        fs::read(extracted.join("lzh-source/note.txt")).unwrap(),
+        b"lzh disguise note"
+    );
+    ArchiveService::test(&output, None, |_| {}).unwrap();
+}
