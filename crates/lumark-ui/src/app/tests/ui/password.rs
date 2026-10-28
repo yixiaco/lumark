@@ -178,3 +178,38 @@ fn password_attempt_dialog_offers_stop_button(cx: &mut gpui_kit::TestAppContext)
     });
     let _ = app;
 }
+
+/// 验证独立密码编辑窗口能渲染并保持输入控件可交互。
+#[gpui_kit::test]
+fn password_editor_window_renders_controls(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            vault_path,
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    let handle = cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.vault.unlock("master-pass").unwrap();
+            app.open_password_editor_window(None, window, cx);
+        });
+        app.read(cx).password_editor_window.expect("密码编辑窗口")
+    });
+    let _ = cx.update_window(handle, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("password-editor-label").visible());
+        assert!(window.find("password-editor-value").visible());
+        assert!(window.find("password-editor-pattern").visible());
+        assert!(window.find("password-editor-save").visible());
+    });
+    let _ = app;
+}
