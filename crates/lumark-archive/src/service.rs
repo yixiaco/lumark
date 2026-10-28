@@ -9,8 +9,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use geezipx_core::archive::ArchiveReader as LegacyReader;
-use geezipx_core::archive::ArchiveWriter as LegacyWriter;
-use geezipx_core::archive::lzh::{LzhCompressionMethod, LzhWriter};
 use lzma_rust2::{LzipOptions, LzipWriter, LzmaOptions, LzmaWriter};
 use sevenz_rust2::encoder_options::{
     Bzip2Options, Lzma2Options, LzmaOptions as SevenZLzmaOptions, PpmdOptions,
@@ -33,14 +31,14 @@ use crate::format::{
 };
 use crate::path::{ensure_no_symlink_components, safe_join};
 
-/// 自解压包尾部页脚的魔数，用于识别被拼接的运行时模块。
+/// 自解压包 v1 尾部页脚的魔数，保留用于识别旧包。
 pub const SFX_MAGIC: [u8; 8] = *b"LMSFX001";
 
-/// 自解压包尾部页脚长度：魔数 8 字节 + 数据段偏移 8 字节 + 数据段长度 8 字节。
-pub const SFX_FOOTER_LEN: usize = 24;
+/// 自解压包 v2 尾部页脚的魔数。
+pub const SFX_MAGIC_V2: [u8; 8] = *b"LMSFX002";
 
-/// LZH 写入器会把单个条目读入内存；超过该上限时提前拒绝，避免 OOM。
-const LZH_MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
+/// 自解压包尾部页脚长度：魔数 8 + 格式 1 + 标志 1 + 保留 6 + 偏移 8 + 长度 8。
+pub const SFX_FOOTER_LEN: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct ExtractProgress {
@@ -329,9 +327,24 @@ impl ArchiveService {
         }
     }
 
+    /// 完整测试归档；ZPAQ 等阻塞后端不接受取消，调用方可使用
+    /// [`Self::test_cancellable`] 传入取消标志。
     pub fn test<F>(
         path: &Path,
         password: Option<&str>,
+        progress: F,
+    ) -> Result<ExtractReport, ArchiveError>
+    where
+        F: FnMut(ExtractProgress),
+    {
+        Self::test_cancellable(path, password, None, progress)
+    }
+
+    /// 完整测试归档，并把取消标志传给支持工作进程的后端。
+    pub fn test_cancellable<F>(
+        path: &Path,
+        password: Option<&str>,
+        cancel: Option<Arc<AtomicBool>>,
         mut progress: F,
     ) -> Result<ExtractReport, ArchiveError>
     where
@@ -341,7 +354,9 @@ impl ArchiveService {
         let format = Self::detect(&input);
         match format {
             ArchiveFormat::Disguised => Self::test_disguised(&input, password, progress),
-            ArchiveFormat::Zpaq => crate::zpaq::test(&input, password, progress),
+            ArchiveFormat::Zpaq => {
+                crate::zpaq::test_cancellable(&input, password, cancel, progress)
+            }
             ArchiveFormat::Zip => Self::test_zip(File::open(&input)?, password, &mut progress),
             ArchiveFormat::SevenZip => {
                 Self::test_seven_zip(File::open(&input)?, password, &mut progress)
@@ -676,11 +691,11 @@ impl ArchiveService {
         }
     }
 
-    /// 生成自解压 ZIP：拼接运行时模块、ZIP 数据和尾部页脚。
+    /// 生成自解压 EXE：拼接运行时模块、归档数据和尾部页脚。
     ///
-    /// 先在目标目录生成临时 ZIP，成功后再写成单个 EXE；失败只清理临时文件，
-    /// 不留下半成品。运行时模块只实现无密码 ZIP 解压，因此这里提前拒绝密码
-    /// 和分卷，避免生成打不开的包。
+    /// 支持无密码或带密码的 ZIP/7Z；先在目标目录生成临时归档，成功后再写成
+    /// 单个 EXE；失败只清理临时文件，不留下半成品。运行时模块负责交互式
+    /// 选择解压目录和密码，分卷与伪装仍由这里提前拒绝。
     pub fn create_sfx<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -691,20 +706,15 @@ impl ArchiveService {
     where
         F: FnMut(CreateProgress),
     {
-        if options.format != ArchiveFormat::Zip {
+        if !matches!(options.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
             return Err(ArchiveError::UnsupportedFormat(format!(
-                "自解压仅支持 ZIP，当前为 {}",
+                "自解压仅支持 ZIP 或 7Z，当前为 {}",
                 options.format.label()
             )));
         }
         if options.disguise.is_some() {
             return Err(ArchiveError::InvalidRequest(
                 "伪装与自解压不能同时启用".into(),
-            ));
-        }
-        if options.password.is_some() {
-            return Err(ArchiveError::Corrupt(
-                "自解压暂不支持密码，请先关闭密码".into(),
             ));
         }
         if options.split_size.is_some_and(|size| size >= 64 * 1024) {
@@ -719,16 +729,18 @@ impl ArchiveService {
         let parent = output.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(parent)?;
         let temp = parent.join(format!(
-            ".lumark-sfx-{}-{}.zip",
+            ".lumark-sfx-{}-{}.{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|value| value.as_nanos())
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            options.format.extension()
         ));
-        let mut zip_options = options.clone();
-        zip_options.sfx = false;
-        let report = match Self::create(&temp, sources, &zip_options, progress) {
+        let mut archive_options = options.clone();
+        archive_options.sfx = false;
+        archive_options.disguise = None;
+        let report = match Self::create(&temp, sources, &archive_options, progress) {
             Ok(report) => report,
             Err(error) => {
                 let _ = fs::remove_file(&temp);
@@ -741,7 +753,12 @@ impl ArchiveService {
             let offset = io::copy(&mut stub_file, &mut target)?;
             let mut payload = File::open(&temp)?;
             let length = io::copy(&mut payload, &mut target)?;
-            target.write_all(&sfx_footer(offset, length))?;
+            target.write_all(&sfx_footer(
+                offset,
+                length,
+                options.format,
+                options.password.is_some(),
+            ))?;
             target.sync_all()?;
             Ok(())
         })();

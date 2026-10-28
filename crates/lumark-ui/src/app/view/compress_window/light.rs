@@ -115,16 +115,19 @@ impl CompressWindowView {
                     .w_full()
                     .gap_4()
                     .items_center()
-                    .when(self.format == ArchiveFormat::Zip, |this| {
-                        this.child(
-                            Checkbox::new("compress-window-sfx")
-                                .label("自解压 EXE")
-                                .checked(self.sfx)
-                                .on_click(cx.listener(|this, value: &bool, window, cx| {
-                                    this.set_sfx(*value, window, cx);
-                                })),
-                        )
-                    })
+                    .when(
+                        matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip),
+                        |this| {
+                            this.child(
+                                Checkbox::new("compress-window-sfx")
+                                    .label("自解压 EXE")
+                                    .checked(self.sfx)
+                                    .on_click(cx.listener(|this, value: &bool, window, cx| {
+                                        this.set_sfx(*value, window, cx);
+                                    })),
+                            )
+                        },
+                    )
                     .child(
                         Checkbox::new("compress-window-disguise")
                             .label("伪装为媒体文件")

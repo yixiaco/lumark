@@ -50,16 +50,19 @@ impl CompressWindowView {
                 h_flex()
                     .w_full()
                     .gap_4()
-                    .when(self.format == ArchiveFormat::Zip, |this| {
-                        this.child(
-                            Checkbox::new("classic-sfx")
-                                .label("自解压 EXE")
-                                .checked(self.sfx)
-                                .on_click(cx.listener(|this, value: &bool, window, cx| {
-                                    this.set_sfx(*value, window, cx);
-                                })),
-                        )
-                    })
+                    .when(
+                        matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip),
+                        |this| {
+                            this.child(
+                                Checkbox::new("classic-sfx")
+                                    .label("自解压 EXE")
+                                    .checked(self.sfx)
+                                    .on_click(cx.listener(|this, value: &bool, window, cx| {
+                                        this.set_sfx(*value, window, cx);
+                                    })),
+                            )
+                        },
+                    )
                     .when(self.format == ArchiveFormat::SevenZip, |this| {
                         this.child(check_button(
                             cx,
@@ -112,7 +115,7 @@ impl CompressWindowView {
                 cx,
                 "ZIP 使用 AES-256；7Z 设置密码后同时加密文件内容；ZPAQ 固定使用 AES-256（唯一加密算法）。",
             ))
-            .when(self.format == ArchiveFormat::Zip, |this| {
+            .when(matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip), |this| {
                 this.child(check_button(
                     cx,
                     "classic-zipcrypto",

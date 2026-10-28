@@ -248,7 +248,7 @@ fn seven_zip_edit_supports_delete_rename_add() {
     .unwrap();
     let added = dir.path().join("added.txt");
     fs::write(&added, b"added-seven").unwrap();
-    ArchiveService::edit(
+    let report = ArchiveService::edit(
         &output,
         &EditOptions {
             delete_paths: vec!["source/nested".to_string()],
@@ -259,6 +259,8 @@ fn seven_zip_edit_supports_delete_rename_add() {
         |_| {},
     )
     .unwrap();
+    assert!(report.reused_blocks > 0, "非固实 7Z 编辑应复用原始块");
+    assert!(!report.recompressed);
     let info = ArchiveService::list(&output, None).unwrap();
     assert!(info.entries.iter().any(|entry| entry.path == "renamed.txt"));
     assert!(info.entries.iter().any(|entry| entry.path == "added.txt"));
@@ -289,7 +291,7 @@ fn seven_zip_solid_edit_keeps_remaining_entry_contents() {
         |_| {},
     )
     .unwrap();
-    ArchiveService::edit(
+    let report = ArchiveService::edit(
         &archive,
         &EditOptions {
             delete_paths: vec!["solid-edit-source/first.txt".to_string()],
@@ -302,6 +304,8 @@ fn seven_zip_solid_edit_keeps_remaining_entry_contents() {
         |_| {},
     )
     .unwrap();
+    assert_eq!(report.reused_blocks, 0, "固实块删除必须回退重压缩");
+    assert!(report.recompressed);
     let info = ArchiveService::list(&archive, None).unwrap();
     assert!(
         !info

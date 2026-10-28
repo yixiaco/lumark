@@ -141,7 +141,7 @@ fn self_extracting_archive_runs_through_the_task_manager() {
     assert!(completed, "自解压任务未在限期内完成");
     let bytes = fs::read(&output).unwrap();
     assert!(bytes.starts_with(stub_bytes));
-    assert_eq!(&bytes[bytes.len() - 24..][..8], b"LMSFX001");
+    assert_eq!(&bytes[bytes.len() - 32..][..8], b"LMSFX002");
     let offset =
         u64::from_le_bytes(bytes[bytes.len() - 16..bytes.len() - 8].try_into().unwrap()) as usize;
     let length = u64::from_le_bytes(bytes[bytes.len() - 8..].try_into().unwrap()) as usize;

@@ -60,6 +60,10 @@ pub struct EditReport {
     pub skipped: usize,
     /// 同步模式从归档删除的条目数。
     pub deleted: usize,
+    /// 7Z 编辑时直接复用的原始压缩块数量；0 表示重新压缩。
+    pub reused_blocks: usize,
+    /// 7Z 编辑是否因为块共享或加密变化而回退到全量重压缩。
+    pub recompressed: bool,
 }
 
 impl ArchiveService {
@@ -121,14 +125,14 @@ impl ArchiveService {
         ));
 
         let result = match format {
-            ArchiveFormat::Zip => write_zip(path, &temp, &options, &mut progress),
-            ArchiveFormat::SevenZip => write_seven_zip(path, &temp, &options, &mut progress),
+            ArchiveFormat::Zip => {
+                write_zip(path, &temp, &options, &mut progress)?;
+                0
+            }
+            ArchiveFormat::SevenZip => write_seven_zip(path, &temp, &options, &mut progress)?,
             _ => unreachable!(),
         };
-        if let Err(error) = result {
-            let _ = fs::remove_file(&temp);
-            return Err(error);
-        }
+        let reused_blocks = result;
 
         let verify = Self::list(
             &temp,
@@ -156,6 +160,8 @@ impl ArchiveService {
             backup,
             skipped,
             deleted,
+            reused_blocks,
+            recompressed: reused_blocks == 0,
         })
     }
 }
@@ -410,7 +416,186 @@ where
     Ok(())
 }
 
+/// 优先复用 7Z 原始压缩块，无法安全复用时回退全量重压缩。
 fn write_seven_zip<F>(
+    source: &Path,
+    output: &Path,
+    options: &EditOptions,
+    progress: &mut F,
+) -> Result<usize, ArchiveError>
+where
+    F: FnMut(EditProgress),
+{
+    match write_seven_zip_raw(source, output, options, progress) {
+        Ok(Some(reused_blocks)) => return Ok(reused_blocks),
+        Ok(None) | Err(ArchiveError::SevenZ(_)) => {
+            // 原始块复制失败时输出文件可能已经创建；先删除再回退，避免
+            // 追加写把两次尝试的字节拼在一起。
+            let _ = fs::remove_file(output);
+        }
+        Err(error) => return Err(error),
+    }
+    write_seven_zip_recompress(source, output, options, progress)?;
+    Ok(0)
+}
+
+/// 尝试按原始压缩块复制 7Z 归档；返回 `None` 表示当前变更不适合复用。
+fn write_seven_zip_raw<F>(
+    source: &Path,
+    output: &Path,
+    options: &EditOptions,
+    progress: &mut F,
+) -> Result<Option<usize>, ArchiveError>
+where
+    F: FnMut(EditProgress),
+{
+    let source_password = options
+        .source_password
+        .as_deref()
+        .map(String::as_str)
+        .unwrap_or_default();
+    let reader = ArchiveReader::open(source, Password::from(source_password))
+        .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+    let archive = reader.archive().clone();
+    drop(reader);
+
+    let source_encrypted = archive_has_aes(&archive);
+    let output_encrypted = options.output_password.is_some();
+    if source_encrypted != output_encrypted
+        || (source_encrypted
+            && options.source_password.as_deref() != options.output_password.as_deref())
+    {
+        return Ok(None);
+    }
+
+    let addition_names: HashSet<&str> = options
+        .additions
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let removed =
+        |name: &str| is_deleted(name, &options.delete_paths) || addition_names.contains(name);
+
+    // 先检查每个块能否整体保留：固实块里只要删掉一个子流，就必须重新编码
+    // 整个块，因此这种编辑回退到全量重压缩。
+    let mut block_plan = Vec::new();
+    for block_index in 0..archive.blocks.len() {
+        let entries = archive
+            .files
+            .iter()
+            .zip(&archive.stream_map.file_block_index)
+            .filter(|(entry, block)| entry.has_stream && **block == Some(block_index))
+            .map(|(entry, _)| entry)
+            .collect::<Vec<_>>();
+        if entries.is_empty() {
+            continue;
+        }
+        let deleted = entries.iter().filter(|entry| removed(&entry.name)).count();
+        if deleted > 0 && deleted < entries.len() {
+            return Ok(None);
+        }
+        if deleted == entries.len() {
+            continue;
+        }
+        let bytes = entries.iter().map(|entry| entry.size).sum::<u64>();
+        block_plan.push((block_index, entries.len(), bytes));
+    }
+
+    ensure_not_cancelled(&options.cancel)?;
+    let entries_total = archive.files.len() + options.additions.len();
+    let mut writer =
+        ArchiveWriter::create(output).map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+    let mut methods = vec![EncoderConfiguration::new(
+        sevenz_rust2::EncoderMethod::LZMA2,
+    )];
+    if let Some(password) = options.output_password.as_deref() {
+        methods.push(
+            sevenz_rust2::encoder_options::AesEncoderOptions::new(Password::from(
+                password.as_str(),
+            ))
+            .into(),
+        );
+    }
+    writer.set_content_methods(methods);
+    writer.set_encrypt_header(options.output_password.is_some());
+
+    let mut source_file = File::open(source)?;
+    let mut done = 0usize;
+    let mut bytes_done = 0u64;
+    let reused_blocks = block_plan.len();
+    for (block_index, entries, bytes) in block_plan {
+        ensure_not_cancelled(&options.cancel)?;
+        writer
+            .push_raw_block(&archive, block_index, &mut source_file, |entry| {
+                rename_for(&entry.name, &options.rename)
+            })
+            .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+        done += entries;
+        bytes_done = bytes_done.saturating_add(bytes);
+        progress(EditProgress {
+            current: format!("复用 7Z 压缩块 {reused_blocks}"),
+            entries_done: done,
+            entries_total,
+            bytes_done,
+        });
+    }
+
+    // 目录和空文件不属于任何压缩块，单独写入并保留重命名结果。
+    for entry in archive
+        .files
+        .iter()
+        .filter(|entry| !entry.has_stream || entry.is_directory)
+    {
+        ensure_not_cancelled(&options.cancel)?;
+        if removed(&entry.name) {
+            continue;
+        }
+        let mut updated = entry.clone();
+        updated.name = rename_for(&entry.name, &options.rename);
+        writer
+            .push_archive_entry(updated, None::<&mut dyn Read>)
+            .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+        done += 1;
+        progress(EditProgress {
+            current: rename_for(&entry.name, &options.rename),
+            entries_done: done,
+            entries_total,
+            bytes_done,
+        });
+    }
+
+    for (name, source) in &options.additions {
+        ensure_not_cancelled(&options.cancel)?;
+        let entry = sevenz_rust2::ArchiveEntry::from_path(source, name.clone());
+        let mut input = File::open(source)?;
+        writer
+            .push_archive_entry(entry, Some(&mut input))
+            .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+        done += 1;
+        bytes_done = bytes_done.saturating_add(fs::metadata(source)?.len());
+        progress(EditProgress {
+            current: name.clone(),
+            entries_done: done,
+            entries_total,
+            bytes_done,
+        });
+    }
+    writer
+        .finish()
+        .map_err(|error| ArchiveError::SevenZ(error.to_string()))?;
+    Ok(Some(reused_blocks))
+}
+
+/// 判断 7Z 归档的任一压缩块是否使用 AES 数据编码。
+fn archive_has_aes(archive: &sevenz_rust2::Archive) -> bool {
+    archive
+        .blocks
+        .iter()
+        .flat_map(|block| block.coders.iter())
+        .any(|coder| coder.encoder_method_id() == sevenz_rust2::EncoderMethod::ID_AES256_SHA256)
+}
+
+fn write_seven_zip_recompress<F>(
     source: &Path,
     output: &Path,
     options: &EditOptions,

@@ -178,6 +178,49 @@ fn lzh_roundtrip() {
     assert!(tested.files > 0);
 }
 
+/// 验证 LZH 流式写入跨多个 1 MiB 分块，Store 和 lh5 都能往返。
+#[test]
+fn lzh_streaming_handles_multiple_chunks() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("large.bin");
+    let bytes = (0..3 * 1024 * 1024 + 123)
+        .map(|index| ((index * 37 + 11) % 251) as u8)
+        .collect::<Vec<_>>();
+    fs::write(&source, &bytes).unwrap();
+
+    for (name, level) in [("store.lzh", Some(0)), ("lh5.lzh", None)] {
+        let output = dir.path().join(name);
+        ArchiveService::create(
+            &output,
+            std::slice::from_ref(&source),
+            &CompressionOptions {
+                format: ArchiveFormat::Lzh,
+                level,
+                test_after: true,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        let extraction = dir.path().join(format!("{name}-out"));
+        ArchiveService::extract(
+            &output,
+            &ExtractionOptions {
+                output_dir: extraction.clone(),
+                overwrite: true,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(extraction.join("large.bin")).unwrap(),
+            bytes,
+            "{name} 解压内容不一致"
+        );
+    }
+}
+
 /// 单流格式遇到多个源或文件夹时返回可操作错误，而不是“归档损坏”。
 #[test]
 fn single_stream_rejects_multiple_sources_with_actionable_error() {

@@ -20,6 +20,8 @@ windows-sys = { workspace = true }
 
 [dependencies]
 flate2 = { workspace = true }
+sevenz-rust2 = { workspace = true }
+zeroize = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]

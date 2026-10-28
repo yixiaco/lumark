@@ -223,8 +223,9 @@ fn create_sfx_embeds_zip_payload_after_stub() {
     assert!(bytes.starts_with(stub_bytes));
     assert_eq!(
         &bytes[bytes.len() - lumark_sfx::FOOTER_LEN..][..8],
-        b"LMSFX001"
+        b"LMSFX002"
     );
+    assert_eq!(bytes[bytes.len() - lumark_sfx::FOOTER_LEN + 8], 0);
     let mut file = std::fs::File::open(&output).unwrap();
     let footer = lumark_sfx::read_footer(&mut file).unwrap().expect("页脚");
     assert_eq!(footer.offset, stub_bytes.len() as u64);
@@ -241,48 +242,79 @@ fn create_sfx_embeds_zip_payload_after_stub() {
     );
 }
 
-/// 验证自解压生成会拒绝密码、非 ZIP 和缺失的运行时模块。
+/// 验证自解压支持带密码 ZIP 和 7Z，并拒绝 TAR、分卷和缺失的运行时模块。
 #[test]
-fn create_sfx_rejects_unsupported_options() {
+fn create_sfx_supports_password_and_seven_zip() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
     let stub = dir.path().join("stub.exe");
     fs::write(&stub, b"MZ-fake-sfx-stub").unwrap();
-    let output = dir.path().join("bundle.exe");
-    let encrypted = CompressionOptions {
-        format: ArchiveFormat::Zip,
-        password: Some(zeroize::Zeroizing::new("secret".to_string())),
+
+    let zip_output = dir.path().join("encrypted.exe");
+    ArchiveService::create_sfx(
+        &zip_output,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            password: Some(zeroize::Zeroizing::new("secret".to_string())),
+            ..Default::default()
+        },
+        &stub,
+        |_| {},
+    )
+    .unwrap();
+    let mut file = std::fs::File::open(&zip_output).unwrap();
+    let footer = lumark_sfx::read_footer(&mut file).unwrap().expect("页脚");
+    assert_eq!(footer.format, lumark_sfx::SfxFormat::Zip);
+    assert!(footer.encrypted);
+    let target = dir.path().join("encrypted-out");
+    let files =
+        lumark_sfx::extract_payload_with_password(file, footer, &target, Some("secret"), true)
+            .unwrap();
+    assert_eq!(files, 2);
+    assert_eq!(
+        fs::read_to_string(target.join("source").join("hello.txt")).unwrap(),
+        "hello from lumark"
+    );
+
+    let seven_output = dir.path().join("seven.exe");
+    ArchiveService::create_sfx(
+        &seven_output,
+        std::slice::from_ref(&source),
+        &CompressionOptions {
+            format: ArchiveFormat::SevenZip,
+            ..Default::default()
+        },
+        &stub,
+        |_| {},
+    )
+    .unwrap();
+    let mut file = std::fs::File::open(&seven_output).unwrap();
+    let footer = lumark_sfx::read_footer(&mut file).unwrap().expect("页脚");
+    assert_eq!(footer.format, lumark_sfx::SfxFormat::SevenZip);
+    assert!(!footer.encrypted);
+    let target = dir.path().join("seven-out");
+    let files = lumark_sfx::extract_payload(file, footer, &target).unwrap();
+    assert_eq!(files, 2);
+
+    let tar = CompressionOptions {
+        format: ArchiveFormat::Tar,
         ..Default::default()
     };
     assert!(
         ArchiveService::create_sfx(
-            &output,
+            &dir.path().join("tar.exe"),
             std::slice::from_ref(&source),
-            &encrypted,
+            &tar,
             &stub,
             |_| {}
         )
         .is_err(),
-        "自解压不应接受密码"
-    );
-    let seven_zip = CompressionOptions {
-        format: ArchiveFormat::SevenZip,
-        ..Default::default()
-    };
-    assert!(
-        ArchiveService::create_sfx(
-            &output,
-            std::slice::from_ref(&source),
-            &seven_zip,
-            &stub,
-            |_| {}
-        )
-        .is_err(),
-        "自解压不应接受非 ZIP 格式"
+        "自解压不应接受 TAR 格式"
     );
     assert!(
         ArchiveService::create_sfx(
-            &output,
+            &dir.path().join("missing.exe"),
             std::slice::from_ref(&source),
             &CompressionOptions::default(),
             &dir.path().join("missing-stub.exe"),
@@ -291,7 +323,10 @@ fn create_sfx_rejects_unsupported_options() {
         .is_err(),
         "缺少运行时模块时应失败"
     );
-    assert!(!output.exists(), "失败时不应留下半成品");
+    assert!(
+        !dir.path().join("missing.exe").exists(),
+        "失败时不应留下半成品"
+    );
 }
 /// 验证解压预算能拦截 ZIP 炸弹，并在写出前失败。
 #[test]

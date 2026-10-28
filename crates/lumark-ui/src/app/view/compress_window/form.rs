@@ -9,8 +9,8 @@ impl CompressWindowView {
         cx: &mut Context<Self>,
     ) {
         self.format = format;
-        if format != ArchiveFormat::Zip {
-            // 自解压运行时只实现 ZIP 解压，切换格式时自动取消勾选。
+        if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
+            // 自解压运行时只实现 ZIP/7Z 解压，切换格式时自动取消勾选。
             self.sfx = false;
         }
         let current = PathBuf::from(input_value(&self.output, cx));
@@ -176,15 +176,10 @@ impl CompressWindowView {
         } else {
             None
         };
-        // 自解压只在 ZIP 下有效；运行时模块不处理密码和分卷。
-        let sfx = self.sfx && self.format == ArchiveFormat::Zip;
+        // 自解压支持 ZIP/7Z 和密码；分卷与伪装仍不支持。
+        let sfx = self.sfx && matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip);
         if sfx && disguise.is_some() {
             self.error = Some("自解压与伪装不能同时启用".to_string());
-            cx.notify();
-            return;
-        }
-        if sfx && !password.is_empty() {
-            self.error = Some("自解压暂不支持密码，请先关闭密码".to_string());
             cx.notify();
             return;
         }

@@ -35,7 +35,7 @@ pub(crate) struct CompressInit {
     pub zipcrypto: bool,
     pub test_after: bool,
     pub delete_source: bool,
-    /// 生成自解压 EXE；只在 ZIP 格式下生效。
+    /// 生成自解压 EXE；在 ZIP 或 7Z 格式下生效。
     pub sfx: bool,
     /// 是否默认启用伪装输出。
     pub disguise: bool,
@@ -628,7 +628,11 @@ impl LumarkApp {
             zipcrypto: self.compress_zipcrypto,
             test_after: self.compress_test_after,
             delete_source: self.compress_delete_source,
-            sfx: self.compress_sfx && self.compress_format == ArchiveFormat::Zip,
+            sfx: self.compress_sfx
+                && matches!(
+                    self.compress_format,
+                    ArchiveFormat::Zip | ArchiveFormat::SevenZip
+                ),
             disguise: self.compress_disguise,
             disguise_mask: self.compress_disguise_mask,
             disguise_custom: self.compress_disguise_custom.clone(),

@@ -540,51 +540,14 @@ impl ArchiveService {
     where
         F: FnMut(CreateProgress),
     {
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent)?;
-        }
         let plan = build_source_plan(sources, options)?;
-        let entries_total = plan.files.len();
-        let mut writer = LzhWriter::new(File::create(output)?, lzh_method(options));
-        let mut report = CreateReport {
-            output: output.to_path_buf(),
-            ..Default::default()
-        };
-        let mut done = 0u64;
-        for (relative, source, _) in plan.files {
-            ensure_not_cancelled(&options.cancel)?;
-            let file_bytes = fs::metadata(&source)?.len();
-            if file_bytes > LZH_MAX_ENTRY_BYTES {
-                return Err(ArchiveError::InvalidRequest(format!(
-                    "LZH 创建当前需要把单个文件读入内存，暂不支持超过 {} MiB 的条目：{}",
-                    LZH_MAX_ENTRY_BYTES / (1024 * 1024),
-                    source.display()
-                )));
-            }
-            let mut input = File::open(&source)?;
-            writer
-                .add_entry_from_reader(Path::new(&relative), &mut input)
-                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
-            done += file_bytes;
-            report.files += 1;
-            report.bytes = done;
-            progress(CreateProgress {
-                current: relative,
-                bytes_done: done,
-                bytes_total: plan.total_bytes,
-                current_bytes_done: file_bytes,
-                current_bytes_total: file_bytes,
-                output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
-                entries_done: report.files,
-                entries_total,
-            });
-        }
-        let (bytes_written, file) = writer
-            .finalize()
-            .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
-        file.sync_all()?;
-        let _ = bytes_written;
-        Ok(report)
+        crate::lzh::create(
+            output,
+            &plan,
+            lzh_method(options),
+            &options.cancel,
+            progress,
+        )
     }
 
     pub(crate) fn create_single_stream<F>(

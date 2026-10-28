@@ -42,7 +42,7 @@ impl LumarkApp {
             .unwrap_or_else(|| PathBuf::from("."));
         // 同名旧压缩包不再自动追加 (1)：创建流程先写临时文件，成功后再
         // 原子替换目标路径，失败时旧归档保持不变。
-        self.compress_sfx &= format == ArchiveFormat::Zip;
+        self.compress_sfx &= matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip);
         let mut output = output_dir.join(format!("{default_name}.{}", format.extension()));
         if self.compress_sfx {
             output.set_extension("exe");

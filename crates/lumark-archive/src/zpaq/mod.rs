@@ -13,6 +13,8 @@ mod worker;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use zpaq_rs::ZpaqCommandOutput;
 
@@ -119,10 +121,11 @@ pub(crate) fn verify_password(path: &Path, password: &str) -> Result<bool, Archi
     }
 }
 
-/// 完整解压校验归档数据，不写入任何文件。
-pub(crate) fn test<F>(
+/// 可取消的完整测试；测试通过工作进程执行，取消时直接终止引擎。
+pub(crate) fn test_cancellable<F>(
     path: &Path,
     password: Option<&str>,
+    cancel: Option<Arc<AtomicBool>>,
     mut progress: F,
 ) -> Result<ExtractReport, ArchiveError>
 where
@@ -130,16 +133,23 @@ where
 {
     let (info, _) = list_with_entries(path, password)?;
     let encrypted = is_encrypted(path)?;
-    let archive = path_string(path)?;
-    let mut args = vec!["extract", archive, "-test"];
+    let archive = path_string(path)?.to_string();
+    let mut args = vec!["extract".to_string(), archive, "-test".to_string()];
     if encrypted {
         let Some(password) = password else {
             return Err(ArchiveError::PasswordRequired);
         };
-        args.push("-key");
-        args.push(password);
+        args.push("-key".to_string());
+        args.push(password.to_string());
     }
-    command::run(&args, encrypted)?;
+    progress(ExtractProgress {
+        current: "正在测试 ZPAQ 归档".to_string(),
+        bytes_done: 0,
+        bytes_total: info.total_size,
+        entries_done: 0,
+        entries_total: info.entries.iter().filter(|entry| !entry.is_dir).count(),
+    });
+    worker::run_command(&args, encrypted, &cancel)?;
     let files = info.entries.iter().filter(|entry| !entry.is_dir).count();
     let report = ExtractReport {
         files,
@@ -180,6 +190,24 @@ pub(super) fn run_with_auth(
             other => other,
         })
     }
+}
+
+/// 按加密状态附加 `-key`，并通过可杀死的 ZPAQ 工作进程执行命令。
+pub(super) fn run_with_auth_worker(
+    args: &[String],
+    encrypted: bool,
+    password: Option<&str>,
+    cancel: &Option<Arc<AtomicBool>>,
+) -> Result<(), ArchiveError> {
+    let mut args = args.to_vec();
+    if encrypted {
+        let Some(password) = password else {
+            return Err(ArchiveError::PasswordRequired);
+        };
+        args.push("-key".to_string());
+        args.push(password.to_string());
+    }
+    worker::run_command(&args, encrypted, cancel)
 }
 
 /// 把路径转换为引擎可接收的 UTF-8 字符串。

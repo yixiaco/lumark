@@ -15,7 +15,7 @@ use crate::service::{
 };
 
 use super::listing::ListedEntry;
-use super::{ZPAQ_MAX_FILTERS, path_string, run_with_auth};
+use super::{ZPAQ_MAX_FILTERS, path_string, run_with_auth_worker};
 
 /// 把选中条目解压到目标目录。
 pub(crate) fn extract<F>(
@@ -70,8 +70,14 @@ where
         args.push("-to".to_string());
         args.push(path_string(staging.path())?.to_string());
     }
-    let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-    run_with_auth(&refs, info.encrypted, password)?;
+    progress(ExtractProgress {
+        current: "正在解压 ZPAQ 归档（引擎处理中）".to_string(),
+        bytes_done: 0,
+        bytes_total: total_bytes,
+        entries_done: 0,
+        entries_total: total_files,
+    });
+    run_with_auth_worker(&args, info.encrypted, password, &options.cancel)?;
 
     // 引擎返回成功后再用实际暂存大小复核预算：流式归档的声明大小未知，
     // 不能只依赖列表元数据。

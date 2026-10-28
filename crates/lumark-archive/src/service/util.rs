@@ -242,14 +242,14 @@ pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {
 /// 把压缩预设映射为 LZH 写入方法。
 ///
 /// 显式 `level == 0` 表示仅存储；其余按速度/平衡/体积映射到 lh4/lh5/lh7。
-pub(crate) fn lzh_method(options: &CompressionOptions) -> LzhCompressionMethod {
+pub(crate) fn lzh_method(options: &CompressionOptions) -> oxiarc_lzhuf::LzhMethod {
     if options.level == Some(0) {
-        return LzhCompressionMethod::Store;
+        return oxiarc_lzhuf::LzhMethod::Lh0;
     }
     match options.preset {
-        crate::format::CompressionPreset::Speed => LzhCompressionMethod::Lh4,
-        crate::format::CompressionPreset::Balanced => LzhCompressionMethod::Lh5,
-        crate::format::CompressionPreset::Size => LzhCompressionMethod::Lh7,
+        crate::format::CompressionPreset::Speed => oxiarc_lzhuf::LzhMethod::Lh4,
+        crate::format::CompressionPreset::Balanced => oxiarc_lzhuf::LzhMethod::Lh5,
+        crate::format::CompressionPreset::Size => oxiarc_lzhuf::LzhMethod::Lh7,
     }
 }
 pub(crate) fn tar_reader(

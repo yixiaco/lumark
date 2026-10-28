@@ -4995,6 +4995,7 @@ dependencies = [
  "lumark-sfx",
  "lz4_flex",
  "lzma-rust2 0.22.0",
+ "oxiarc-lzhuf",
  "rand 0.8.8",
  "serde",
  "serde_json",
@@ -5061,8 +5062,10 @@ version = "0.1.0"
 dependencies = [
  "embed-resource",
  "flate2",
+ "sevenz-rust2 0.24.1",
  "tempfile",
  "windows-sys 0.59.0",
+ "zeroize",
  "zip 9.0.5",
 ]
 

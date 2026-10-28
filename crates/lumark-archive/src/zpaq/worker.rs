@@ -74,11 +74,11 @@ pub(super) fn run_stdio() -> i32 {
     }
 }
 
-/// 通过工作进程执行一个批次；未配置工作进程或启动失败时回退到进程内。
+/// 通过工作进程执行一条完整命令；未配置工作进程或启动失败时回退到进程内。
 ///
-/// 取消时直接终止子进程，随后由上层删除半成品归档；这解决了单个超大
-/// 文件在进程内阻塞调用中无法中断的问题。
-pub(super) fn run_batch(
+/// 取消时直接终止子进程，供解压、测试和压缩批次共用；调用方负责清理
+/// 半成品输出。
+pub(super) fn run_command(
     args: &[String],
     password_supplied: bool,
     cancel: &Option<Arc<AtomicBool>>,
@@ -149,6 +149,15 @@ pub(super) fn run_batch(
     } else {
         Err(ArchiveError::Corrupt(message))
     }
+}
+
+/// 通过工作进程执行一个压缩批次；保留旧名称给创建流程使用。
+pub(super) fn run_batch(
+    args: &[String],
+    password_supplied: bool,
+    cancel: &Option<Arc<AtomicBool>>,
+) -> Result<(), ArchiveError> {
+    run_command(args, password_supplied, cancel)
 }
 
 /// 返回取消标志当前是否已置位。

@@ -491,8 +491,11 @@ fn run_job(
             })
             .map(|report| format!("已解压 {} 个文件", report.files))
         }
-        TaskRequest::Test { archive, password } => {
-            ArchiveService::test(&archive, password.as_deref(), |progress| {
+        TaskRequest::Test { archive, password } => ArchiveService::test_cancellable(
+            &archive,
+            password.as_deref(),
+            Some(control.cancelled_flag()),
+            |progress| {
                 control.wait_if_paused();
                 if control.is_cancelled() {
                     return;
@@ -516,9 +519,9 @@ fn run_job(
                         chunk_bytes: 0,
                     },
                 });
-            })
-            .map(|report| format!("测试通过，共 {} 个文件", report.files))
-        }
+            },
+        )
+        .map(|report| format!("测试通过，共 {} 个文件", report.files)),
         TaskRequest::ResolvePassword {
             archive,
             candidates,
@@ -612,6 +615,9 @@ fn run_job(
                 }
                 if report.skipped > 0 {
                     message.push_str(&format!("，跳过 {} 个未变化文件", report.skipped));
+                }
+                if report.reused_blocks > 0 {
+                    message.push_str(&format!("，复用 {} 个原始压缩块", report.reused_blocks));
                 }
                 message
             })

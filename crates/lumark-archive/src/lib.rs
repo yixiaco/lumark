@@ -5,6 +5,7 @@ pub mod disguise;
 pub mod edit;
 pub mod error;
 pub mod format;
+mod lzh;
 pub mod path;
 pub mod service;
 mod unarc;
@@ -24,5 +25,7 @@ pub use format::{
     ZipCompression, ZipEncryption, ZpaqCompression,
 };
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
-pub use service::{ArchiveService, CreateProgress, ExtractProgress, SFX_FOOTER_LEN, SFX_MAGIC};
+pub use service::{
+    ArchiveService, CreateProgress, ExtractProgress, SFX_FOOTER_LEN, SFX_MAGIC, SFX_MAGIC_V2,
+};
 pub use zpaq::{configure_zpaq_worker, run_zpaq_worker};
