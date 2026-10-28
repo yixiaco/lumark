@@ -609,11 +609,27 @@ impl<W: Write + Seek> DisguiseWriter<W> {
     /// 前缀仍按载荷位置 0 混淆，写到面具之后的真实文件偏移；写入后恢复到底层
     /// 当前末尾，随后 `finish` 可以正常追加尾部。
     pub fn patch_payload_prefix(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.patch_payload_at(0, bytes)
+    }
+
+    /// 已写入的载荷字节数，供可 Seek 适配器计算逻辑长度。
+    pub fn payload_len(&self) -> u64 {
+        self.payload_len
+    }
+
+    /// 覆盖已写入载荷中的一段字节，用于 LZH/7Z 的头部回填。
+    pub fn patch_payload_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        if offset.saturating_add(bytes.len() as u64) > self.payload_len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "伪装载荷回填越界",
+            ));
+        }
         self.ensure_mask()?;
         let saved = self.inner.stream_position()?;
         let mut obfuscated = bytes.to_vec();
-        self.keystream.apply(0, &mut obfuscated);
-        self.inner.seek(SeekFrom::Start(self.mask_len))?;
+        self.keystream.apply(offset, &mut obfuscated);
+        self.inner.seek(SeekFrom::Start(self.mask_len + offset))?;
         self.inner.write_all(&obfuscated)?;
         self.inner.seek(SeekFrom::Start(saved))?;
         Ok(())

@@ -369,7 +369,8 @@ impl ArchiveService {
         );
         let direct_zip = options.format == ArchiveFormat::Zip;
         let direct_seven = options.format == ArchiveFormat::SevenZip;
-        if direct_tar || direct_stream || direct_zip || direct_seven {
+        let direct_lzh = options.format == ArchiveFormat::Lzh;
+        if direct_tar || direct_stream || direct_zip || direct_seven || direct_lzh {
             ensure_not_cancelled(&options.cancel)?;
             let mut inner_options = options.clone();
             inner_options.disguise = None;
@@ -377,7 +378,7 @@ impl ArchiveService {
             inner_options.delete_source = false;
             inner_options.split_size = None;
             let staged_file = File::create(&staged)?;
-            let mut writer = if direct_seven {
+            let mut writer = if direct_seven || direct_lzh {
                 DirectWriter::Seekable(crate::disguise::SeekableDisguiseWriter::new(
                     staged_file,
                     disguise.mask.clone(),
@@ -413,6 +414,14 @@ impl ArchiveService {
                     )?
                 } else if direct_zip {
                     Self::create_zip_to(
+                        &mut writer,
+                        &staged,
+                        sources,
+                        &inner_options,
+                        &mut progress,
+                    )?
+                } else if direct_lzh {
+                    Self::create_lzh_to(
                         &mut writer,
                         &staged,
                         sources,

@@ -36,7 +36,7 @@ pub(crate) fn create<F>(
     plan: &SourcePlan,
     method: LzhMethod,
     cancel: &Option<Arc<AtomicBool>>,
-    mut progress: F,
+    progress: F,
 ) -> Result<CreateReport, ArchiveError>
 where
     F: FnMut(CreateProgress),
@@ -44,7 +44,29 @@ where
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
-    let mut writer = File::create(output)?;
+    create_to(
+        File::create(output)?,
+        output,
+        plan,
+        method,
+        cancel,
+        progress,
+    )
+}
+
+/// 把 LZH 写入任意可 Seek 输出，供伪装单遍写入复用。
+pub(crate) fn create_to<W, F>(
+    mut writer: W,
+    output: &Path,
+    plan: &SourcePlan,
+    method: LzhMethod,
+    cancel: &Option<Arc<AtomicBool>>,
+    mut progress: F,
+) -> Result<CreateReport, ArchiveError>
+where
+    W: Write + Seek,
+    F: FnMut(CreateProgress),
+{
     let mut report = CreateReport {
         output: output.to_path_buf(),
         ..Default::default()
@@ -178,7 +200,7 @@ where
         });
     }
     writer.write_all(&[0])?;
-    writer.sync_all()?;
+    writer.flush()?;
     Ok(report)
 }
 
@@ -205,7 +227,7 @@ fn build_header(
 }
 
 /// 写入头部长度、头部校验和和头部正文。
-fn write_header(writer: &mut File, header: &[u8]) -> io::Result<()> {
+fn write_header<W: Write>(writer: &mut W, header: &[u8]) -> io::Result<()> {
     let checksum = header.iter().fold(0u8, |acc, byte| acc.wrapping_add(*byte));
     writer.write_all(&[header.len() as u8, checksum])?;
     writer.write_all(header)

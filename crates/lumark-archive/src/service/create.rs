@@ -647,6 +647,29 @@ impl ArchiveService {
         )
     }
 
+    /// 把 LZH 写入任意可 Seek 输出，供伪装单遍写入复用。
+    pub(crate) fn create_lzh_to<W, F>(
+        destination: W,
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        W: Write + Seek,
+        F: FnMut(CreateProgress),
+    {
+        let plan = build_source_plan(sources, options)?;
+        crate::lzh::create_to(
+            destination,
+            output,
+            &plan,
+            lzh_method(options),
+            &options.cancel,
+            progress,
+        )
+    }
+
     /// 创建 GZ/BZ2/XZ/ZST/Brotli/LZ4 单文件流。
     pub(crate) fn create_single_stream<F>(
         output: &Path,
