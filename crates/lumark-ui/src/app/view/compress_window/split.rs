@@ -1,6 +1,7 @@
 //! 压缩窗口分卷大小输入和预设。
 
 use super::*;
+use crate::i18n::tr;
 
 impl CompressWindowView {
     /// 渲染分卷大小组合控件：数值输入、常用大小下拉和单位下拉。
@@ -23,7 +24,7 @@ impl CompressWindowView {
                     .input(
                         InputGroupInput::new(&self.split)
                             .id("classic-split")
-                            .aria_label("分卷大小数值"),
+                            .aria_label(tr("分卷大小数值", "Volume size value")),
                     )
                     .addon(
                         InputGroupAddon::new("classic-split-preset-addon")
@@ -31,8 +32,11 @@ impl CompressWindowView {
                             .child(
                                 InputGroupButton::new("classic-split-presets")
                                     .cursor_pointer()
-                                    .accessibility_label("常用分卷大小")
-                                    .tooltip("从常用大小中选择，也可以直接输入")
+                                    .accessibility_label(tr("常用分卷大小", "Common volume sizes"))
+                                    .tooltip(tr(
+                                        "从常用大小中选择，也可以直接输入",
+                                        "Choose a common size or type one directly",
+                                    ))
                                     .dropdown_caret(true)
                                     .dropdown_menu_with_anchor(
                                         gpui_kit::Anchor::TopRight,
@@ -42,7 +46,7 @@ impl CompressWindowView {
                                                 let amount = preset.amount;
                                                 let unit = preset.unit;
                                                 menu.item(
-                                                    PopupMenuItem::new(preset.label)
+                                                    PopupMenuItem::new(split_preset_label(preset))
                                                         .checked(current == Some(preset.bytes()))
                                                         .on_click(move |_, window, cx| {
                                                             view.update(cx, |this, cx| {
@@ -63,7 +67,7 @@ impl CompressWindowView {
                 "compress-split-unit",
                 &self.split_unit_select,
                 92.,
-                "分卷大小单位",
+                tr("分卷大小单位", "Volume size unit"),
             ))
     }
 
@@ -90,14 +94,30 @@ impl CompressWindowView {
         match parse_size_in_unit(&value, self.split_unit) {
             Some(bytes) => {
                 format!(
-                    "当前分卷大小：{}；留空表示不分卷。",
-                    format_size_precise(bytes)
+                    "{}{}{}",
+                    tr("当前分卷大小：", "Current volume size: "),
+                    format_size_precise(bytes),
+                    tr("；留空表示不分卷。", "; leave empty for no volumes.")
                 )
             }
             None if value.trim().is_empty() => {
-                "留空表示不分卷；最小 64KB，可从下拉选择或输入 100M、2G。".to_string()
+                tr("留空表示不分卷；最小 64KB，可从下拉选择或输入 100M、2G。", "Leave empty for no volumes; minimum 64 KB. Choose a preset or type e.g. 100M or 2G.").to_string()
             }
-            None => "无法识别分卷大小；请输入数字或 100M、2G 等写法。".to_string(),
+            None => tr("无法识别分卷大小；请输入数字或 100M、2G 等写法。", "Unrecognized volume size; enter a number or e.g. 100M or 2G.").to_string(),
         }
+    }
+}
+
+/// 返回分卷预设的当前语言标签。
+fn split_preset_label(preset: &SplitPreset) -> &'static str {
+    match (preset.amount, preset.unit) {
+        ("512", SizeUnit::Kilobyte) => tr("512KB - 论坛附件 小", "512KB - Forum attachment small"),
+        ("1", SizeUnit::Megabyte) => tr("1MB - 论坛附件 中", "1MB - Forum attachment medium"),
+        ("2", SizeUnit::Megabyte) => tr("2MB - 论坛附件 大", "2MB - Forum attachment large"),
+        ("100", SizeUnit::Megabyte) => tr("100MB - 网盘", "100MB - Cloud storage"),
+        ("700", SizeUnit::Megabyte) => tr("700MB - CD刻录", "700MB - CD"),
+        ("4.38", SizeUnit::Gigabyte) => tr("4.38GB - DVD刻录", "4.38GB - DVD"),
+        ("7.96", SizeUnit::Gigabyte) => tr("7.96GB - 双层DVD刻录", "7.96GB - Dual-layer DVD"),
+        _ => preset.label,
     }
 }

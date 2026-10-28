@@ -1,6 +1,7 @@
 //! 压缩窗口共享的控件、格式和 ZPAQ 辅助。
 
 use super::*;
+use crate::i18n::tr;
 
 /// 创建带标签的官方复选框。
 pub(super) fn check_button(
@@ -74,10 +75,15 @@ pub(super) fn split_size_or_error(
     if value.trim().is_empty() {
         return Ok(None);
     }
-    let size =
-        parse_size_in_unit(value, unit).ok_or("分卷大小无法识别，请输入数字或 100M、2G 等写法")?;
+    let size = parse_size_in_unit(value, unit).ok_or(tr(
+        "分卷大小无法识别，请输入数字或 100M、2G 等写法",
+        "Unrecognized volume size; enter a number or e.g. 100M or 2G",
+    ))?;
     if size < 64 * 1024 {
-        return Err("分卷大小至少为 64KB");
+        return Err(tr(
+            "分卷大小至少为 64KB",
+            "Volume size must be at least 64 KB",
+        ));
     }
     Ok(Some(size))
 }

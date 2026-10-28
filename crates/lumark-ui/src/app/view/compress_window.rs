@@ -1,10 +1,9 @@
-//! 独立压缩窗口状态、构造、Render 和打开入口。
-
 use super::super::*;
 use super::components::{
     AppIcon, choice_select, classic_field, classic_group, dialog_banner, hint_text, segmented_tab,
     segmented_tab_bar,
 };
+use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::Subscription;
 use gpui_kit::component::IndexPath;
@@ -315,9 +314,10 @@ impl CompressWindowView {
         cx: &mut Context<Self>,
     ) -> Self {
         let comment = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .rows(5)
-                .placeholder("压缩包注释（可选，支持多行）")
+            TextareaState::new(window, cx).rows(5).placeholder(tr(
+                "压缩包注释（可选，支持多行）",
+                "Archive comment (optional, multi-line)",
+            ))
         });
         let allow_single_stream = single_stream_allowed(&sources);
         let format_options = writable_format_options(allow_single_stream);
@@ -535,9 +535,9 @@ impl CompressWindowView {
             |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event {
                     this.file_time_filter = match *value {
-                        "早于" => FileTimeFilter::Before,
-                        "晚于" => FileTimeFilter::After,
-                        "日期范围" => FileTimeFilter::Range,
+                        "早于" | "Before" => FileTimeFilter::Before,
+                        "晚于" | "After" => FileTimeFilter::After,
+                        "日期范围" | "Date range" => FileTimeFilter::Range,
                         _ => FileTimeFilter::Any,
                     };
                     cx.notify();
@@ -549,8 +549,10 @@ impl CompressWindowView {
             |this, _, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event {
                     this.archive_time = match *value {
-                        "原始压缩时间" => ArchiveTimeSource::Original,
-                        "最近文件时间" => ArchiveTimeSource::Latest,
+                        "原始压缩时间" | "Original archive time" => {
+                            ArchiveTimeSource::Original
+                        }
+                        "最近文件时间" | "Latest file time" => ArchiveTimeSource::Latest,
                         _ => ArchiveTimeSource::Current,
                     };
                     cx.notify();
@@ -675,7 +677,7 @@ impl LumarkApp {
         }
         self.compress_window = None;
         if sources.is_empty() {
-            self.status = "当前没有可压缩的项目".to_string();
+            self.status = tr("当前没有可压缩的项目", "No items to compress").to_string();
             return;
         }
         let init = CompressInit {
@@ -734,7 +736,7 @@ impl LumarkApp {
                 size,
             })),
             titlebar: Some(gpui_kit::TitlebarOptions {
-                title: Some("压缩文件 - Lumark".into()),
+                title: Some(tr("压缩文件 - Lumark", "Compress - Lumark").into()),
                 appears_transparent: true,
                 traffic_light_position: None,
             }),
@@ -767,7 +769,12 @@ impl LumarkApp {
         });
         match result {
             Ok((handle, _)) => self.compress_window = Some(handle),
-            Err(error) => self.status = format!("无法打开压缩窗口：{error}"),
+            Err(error) => {
+                self.status = format!(
+                    "{}{error}",
+                    tr("无法打开压缩窗口：", "Cannot open compression window: ")
+                )
+            }
         }
     }
 }
@@ -969,7 +976,6 @@ mod tests {
         assert_eq!(SizeUnit::Gigabyte.multiplier(), 1024 * 1024 * 1024);
     }
 
-    /// 分卷大小留空表示不分卷，过小或无法识别时返回提示。
     #[test]
     fn split_size_validation_matches_archive_floor() {
         assert_eq!(split_size_or_error("", SizeUnit::Megabyte), Ok(None));
