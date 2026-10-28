@@ -1,6 +1,7 @@
 //! 密码库动作入口。
 
 use super::super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 从已解锁的密码库读取指定记录。
@@ -21,13 +22,13 @@ impl LumarkApp {
         note: &str,
     ) -> Result<Uuid, String> {
         if self.vault.state() != VaultState::Unlocked {
-            return Err("请先解锁密码库".to_string());
+            return Err(tr("请先解锁密码库", "Unlock the vault first").to_string());
         }
         if password.is_empty() {
-            return Err("密码不能为空".to_string());
+            return Err(tr("密码不能为空", "Password cannot be empty").to_string());
         }
         let label = if label.trim().is_empty() {
-            "未命名密码".to_string()
+            tr("未命名密码", "Unnamed password").to_string()
         } else {
             label.trim().to_string()
         };
@@ -35,7 +36,7 @@ impl LumarkApp {
         let note = note.trim().to_string();
         let result = if let Some(id) = editing {
             let Some(mut entry) = self.vault.find_entry(id) else {
-                return Err("密码条目不存在".to_string());
+                return Err(tr("密码条目不存在", "Password entry does not exist").to_string());
             };
             entry.label = label;
             entry.password = lumark_vault::SecretString::new(password);
@@ -52,12 +53,18 @@ impl LumarkApp {
             Ok(id) => {
                 self.selected_password = Some(id);
                 self.revealed_password = None;
-                self.status = "密码已保存到加密密码库".to_string();
+                self.status = tr(
+                    "密码已保存到加密密码库",
+                    "Password saved to the encrypted vault",
+                )
+                .to_string();
                 Ok(id)
             }
-            Err(lumark_vault::VaultError::DuplicatePassword) => {
-                Err("该密码已存在，请编辑已有条目或使用不同密码".to_string())
-            }
+            Err(lumark_vault::VaultError::DuplicatePassword) => Err(tr(
+                "该密码已存在，请编辑已有条目或使用不同密码",
+                "This password already exists; edit the existing entry or use another",
+            )
+            .to_string()),
             Err(error) => Err(error.to_string()),
         }
     }
@@ -65,7 +72,7 @@ impl LumarkApp {
     /// 从密码库直接删除一条记录。
     pub(crate) fn delete_password(&mut self, id: Uuid) -> Result<(), String> {
         if self.vault.state() != VaultState::Unlocked {
-            return Err("请先解锁密码库".to_string());
+            return Err(tr("请先解锁密码库", "Unlock the vault first").to_string());
         }
         self.vault
             .remove_entry(id)
@@ -86,7 +93,10 @@ impl LumarkApp {
             return;
         };
         match self.delete_password(id) {
-            Ok(()) => self.status = "密码已从密码库删除".to_string(),
+            Ok(()) => {
+                self.status =
+                    tr("密码已从密码库删除", "Password deleted from the vault").to_string()
+            }
             Err(error) => self.status = error,
         }
     }
@@ -144,7 +154,12 @@ impl LumarkApp {
         match self.vault.unlock(&password) {
             Ok(()) => {
                 set_input(&self.master_unlock, "", window, cx);
-                self.notify(window, cx, NotificationType::Success, "密码库已解锁");
+                self.notify(
+                    window,
+                    cx,
+                    NotificationType::Success,
+                    tr("密码库已解锁", "Vault unlocked"),
+                );
             }
             Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
@@ -199,9 +214,9 @@ impl LumarkApp {
         match self.vault.set_master_password(current, new) {
             Ok(()) => {
                 self.status = if current.is_some() {
-                    "主密码已修改".to_string()
+                    tr("主密码已修改", "Master password changed").to_string()
                 } else {
-                    "主密码已设置".to_string()
+                    tr("主密码已设置", "Master password set").to_string()
                 };
                 Ok(())
             }
@@ -219,7 +234,7 @@ impl LumarkApp {
                 let _ = self
                     .settings
                     .update(|stored| stored.auto_extract_enabled = enabled);
-                self.status = "自动解压设置已更新".to_string();
+                self.status = tr("自动解压设置已更新", "Auto-extract settings updated").to_string();
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -235,7 +250,7 @@ impl LumarkApp {
                 let _ = self
                     .settings
                     .update(|stored| stored.prompt_save_password = enabled);
-                self.status = "保存提示设置已更新".to_string();
+                self.status = tr("保存提示设置已更新", "Save prompt settings updated").to_string();
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -244,7 +259,11 @@ impl LumarkApp {
     /// 循环切换密码库空闲锁定时间。
     pub(crate) fn toggle_auto_lock(&mut self, _cx: &mut Context<Self>) {
         if !self.vault.has_master_password() {
-            self.status = "未设置主密码，密码库不需要空闲锁定".to_string();
+            self.status = tr(
+                "未设置主密码，密码库不需要空闲锁定",
+                "No master password; idle locking is unnecessary",
+            )
+            .to_string();
             return;
         }
         let mut settings = self.vault.settings();
@@ -261,9 +280,18 @@ impl LumarkApp {
                     .settings
                     .update(|stored| stored.auto_lock_minutes = minutes);
                 self.status = if settings.auto_lock_minutes == 0 {
-                    "密码库不会因空闲自动锁定".to_string()
+                    tr(
+                        "密码库不会因空闲自动锁定",
+                        "The vault will not lock when idle",
+                    )
+                    .to_string()
                 } else {
-                    format!("密码库将在空闲 {} 分钟后锁定", settings.auto_lock_minutes)
+                    format!(
+                        "{}{}{}",
+                        tr("密码库将在空闲 ", "The vault will lock after "),
+                        settings.auto_lock_minutes,
+                        tr(" 分钟后锁定", " idle minutes")
+                    )
                 };
             }
             Err(error) => self.status = error.to_string(),
@@ -287,7 +315,13 @@ impl LumarkApp {
             window,
             cx,
             NotificationType::Warning,
-            format!("密码库已锁定，请先输入主密码解锁后再{action}"),
+            format!(
+                "{}{action}",
+                tr(
+                    "密码库已锁定，请先输入主密码解锁后再",
+                    "The vault is locked; unlock it before "
+                )
+            ),
         );
         false
     }
@@ -300,7 +334,12 @@ impl LumarkApp {
     ) -> Option<PathBuf> {
         let directory = PathBuf::from(input_value(&self.vault_export_dir, cx).trim());
         if directory.as_os_str().is_empty() {
-            self.notify(window, cx, NotificationType::Warning, "请先选择导出文件夹");
+            self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                tr("请先选择导出文件夹", "Choose an export folder first"),
+            );
             return None;
         }
         if !directory.is_dir() {
@@ -308,7 +347,11 @@ impl LumarkApp {
                 window,
                 cx,
                 NotificationType::Warning,
-                format!("导出文件夹不存在：{}", directory.display()),
+                format!(
+                    "{}{}",
+                    tr("导出文件夹不存在：", "Export folder does not exist: "),
+                    directory.display()
+                ),
             );
             return None;
         }
@@ -317,7 +360,7 @@ impl LumarkApp {
 
     /// 使用独立口令把加密密码库快照导出到所选文件夹。
     pub(crate) fn export_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.require_transfer_unlocked(window, cx, "导出") {
+        if !self.require_transfer_unlocked(window, cx, tr("导出", "export")) {
             return;
         }
         let Some(directory) = self.transfer_export_directory(window, cx) else {
@@ -329,7 +372,10 @@ impl LumarkApp {
                 window,
                 cx,
                 NotificationType::Warning,
-                "请输入至少 8 位独立导出口令",
+                tr(
+                    "请输入至少 8 位独立导出口令",
+                    "Enter an export passphrase of at least 8 characters",
+                ),
             );
             return;
         }
@@ -339,7 +385,11 @@ impl LumarkApp {
                 window,
                 cx,
                 NotificationType::Success,
-                format!("密码库已加密导出到 {}", path.display()),
+                format!(
+                    "{}{}",
+                    tr("密码库已加密导出到 ", "Vault encrypted and exported to "),
+                    path.display()
+                ),
             ),
             Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
@@ -347,7 +397,7 @@ impl LumarkApp {
 
     /// 把密码库记录导出为明文 CSV；锁定时必须先在弹窗内解锁。
     pub(crate) fn export_vault_csv(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.require_transfer_unlocked(window, cx, "导出 CSV") {
+        if !self.require_transfer_unlocked(window, cx, tr("导出 CSV", "export CSV")) {
             return;
         }
         let Some(directory) = self.transfer_export_directory(window, cx) else {
@@ -359,7 +409,13 @@ impl LumarkApp {
                 window,
                 cx,
                 NotificationType::Warning,
-                format!("已导出 {count} 条明文记录到 {}，请妥善保管", path.display()),
+                format!(
+                    "{}{count}{}{}{}",
+                    tr("已导出 ", "Exported "),
+                    tr(" 条明文记录到 ", " plain records to "),
+                    path.display(),
+                    tr("，请妥善保管", "; keep it safe")
+                ),
             ),
             Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
@@ -367,7 +423,7 @@ impl LumarkApp {
 
     /// 按合并或替换语义导入加密密码库快照。
     pub(crate) fn import_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.require_transfer_unlocked(window, cx, "导入") {
+        if !self.require_transfer_unlocked(window, cx, tr("导入", "import")) {
             return;
         }
         let path = PathBuf::from(input_value(&self.vault_import_path, cx).trim());
@@ -376,7 +432,10 @@ impl LumarkApp {
                 window,
                 cx,
                 NotificationType::Warning,
-                "请选择要导入的加密密码库文件",
+                tr(
+                    "请选择要导入的加密密码库文件",
+                    "Choose an encrypted vault file to import",
+                ),
             );
             return;
         }
@@ -385,7 +444,11 @@ impl LumarkApp {
                 window,
                 cx,
                 NotificationType::Warning,
-                format!("导入文件不存在：{}", path.display()),
+                format!(
+                    "{}{}",
+                    tr("导入文件不存在：", "Import file does not exist: "),
+                    path.display()
+                ),
             );
             return;
         }
@@ -395,7 +458,10 @@ impl LumarkApp {
                 window,
                 cx,
                 NotificationType::Warning,
-                "请输入导入文件使用的独立口令",
+                tr(
+                    "请输入导入文件使用的独立口令",
+                    "Enter the passphrase used by the import file",
+                ),
             );
             return;
         }
@@ -408,7 +474,11 @@ impl LumarkApp {
                     window,
                     cx,
                     NotificationType::Success,
-                    format!("密码库已导入，共 {count} 条记录"),
+                    format!(
+                        "{}{count}{}",
+                        tr("密码库已导入，共 ", "Vault imported with "),
+                        tr(" 条记录", " records")
+                    ),
                 );
                 self.show_vault_transfer = false;
                 self.selected_password = None;
@@ -421,13 +491,23 @@ impl LumarkApp {
     pub(crate) fn unlock_vault_transfer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let password = input_value(&self.vault_transfer_unlock, cx);
         if password.is_empty() {
-            self.notify(window, cx, NotificationType::Warning, "请输入主密码");
+            self.notify(
+                window,
+                cx,
+                NotificationType::Warning,
+                tr("请输入主密码", "Enter the master password"),
+            );
             return;
         }
         match self.vault.unlock(&password) {
             Ok(()) => {
                 set_input(&self.vault_transfer_unlock, "", window, cx);
-                self.notify(window, cx, NotificationType::Success, "密码库已解锁");
+                self.notify(
+                    window,
+                    cx,
+                    NotificationType::Success,
+                    tr("密码库已解锁", "Vault unlocked"),
+                );
             }
             Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
@@ -439,7 +519,7 @@ impl LumarkApp {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("选择密码库导出文件夹".into()),
+            prompt: Some(tr("选择密码库导出文件夹", "Choose vault export folder").into()),
         });
         cx.spawn(async move |this, cx| match receiver.await {
             Ok(Ok(Some(paths))) => {
@@ -462,7 +542,10 @@ impl LumarkApp {
                         window,
                         cx,
                         NotificationType::Error,
-                        format!("无法打开文件夹选择器：{error}"),
+                        format!(
+                            "{}{error}",
+                            tr("无法打开文件夹选择器：", "Cannot open folder picker: ")
+                        ),
                     );
                 });
             }
@@ -472,7 +555,10 @@ impl LumarkApp {
                         window,
                         cx,
                         NotificationType::Error,
-                        format!("文件夹选择器已关闭：{error}"),
+                        format!(
+                            "{}{error}",
+                            tr("文件夹选择器已关闭：", "Folder picker closed: ")
+                        ),
                     );
                 });
             }
@@ -486,7 +572,13 @@ impl LumarkApp {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("选择要导入的加密密码库文件".into()),
+            prompt: Some(
+                tr(
+                    "选择要导入的加密密码库文件",
+                    "Choose encrypted vault file to import",
+                )
+                .into(),
+            ),
         });
         cx.spawn(async move |this, cx| match receiver.await {
             Ok(Ok(Some(paths))) => {
@@ -509,7 +601,10 @@ impl LumarkApp {
                         window,
                         cx,
                         NotificationType::Error,
-                        format!("无法打开文件选择器：{error}"),
+                        format!(
+                            "{}{error}",
+                            tr("无法打开文件选择器：", "Cannot open file picker: ")
+                        ),
                     );
                 });
             }
@@ -519,7 +614,10 @@ impl LumarkApp {
                         window,
                         cx,
                         NotificationType::Error,
-                        format!("文件选择器已关闭：{error}"),
+                        format!(
+                            "{}{error}",
+                            tr("文件选择器已关闭：", "File picker closed: ")
+                        ),
                     );
                 });
             }
@@ -551,7 +649,12 @@ impl LumarkApp {
             Ok(()) => {
                 self.show_confirm_clear_vault = false;
                 self.selected_password = None;
-                self.notify(window, cx, NotificationType::Success, "密码库记录已清空");
+                self.notify(
+                    window,
+                    cx,
+                    NotificationType::Success,
+                    tr("密码库记录已清空", "Vault records cleared"),
+                );
             }
             Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
