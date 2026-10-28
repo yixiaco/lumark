@@ -414,7 +414,10 @@ impl LumarkApp {
         let settings_error = stores.settings_error.clone();
         let settings_snapshot = settings.get();
         let headless_shell_host = request.as_ref().is_some_and(|request| {
-            matches!(request.mode, StartupMode::Compress | StartupMode::Restore)
+            matches!(
+                request.mode,
+                StartupMode::Compress | StartupMode::Disguise | StartupMode::Restore
+            )
         });
         apply_theme(
             settings_snapshot.theme,
@@ -653,6 +656,10 @@ impl LumarkApp {
                 // 一个轻巧压缩窗口，避免多选时弹出多个窗口。
                 self.queue_shell_compress(request.paths);
             }
+            StartupMode::Disguise => {
+                self.compress_disguise = true;
+                self.open_compress_dialog_with_sources(request.paths, window, cx);
+            }
             StartupMode::Extract => {
                 self.open_archive_with_auto_password(
                     target,
@@ -862,10 +869,12 @@ pub fn run() -> anyhow::Result<()> {
     let mut window_options = window_options(&stores);
     // 资源管理器压缩和还原只需要进度窗口；主窗口仅作为隐藏的宿主，
     // 任务结束后再自动退出。
-    if request
-        .as_ref()
-        .is_some_and(|request| matches!(request.mode, StartupMode::Compress | StartupMode::Restore))
-    {
+    if request.as_ref().is_some_and(|request| {
+        matches!(
+            request.mode,
+            StartupMode::Compress | StartupMode::Disguise | StartupMode::Restore
+        )
+    }) {
         window_options.show = false;
         window_options.focus = false;
     }

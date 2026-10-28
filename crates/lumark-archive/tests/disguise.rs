@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 
 use lumark_archive::{
     ArchiveFormat, ArchiveService, CompressionOptions, DisguiseFileOptions, DisguiseMask,
-    DisguiseOptions, DisguisePayloadKind, ExtractionOptions,
+    DisguiseOptions, DisguisePayloadKind, EditOptions, ExtractionOptions,
 };
 use tempfile::tempdir;
 
@@ -461,4 +461,75 @@ fn batch_file_disguise_removes_sources() {
     let restored =
         ArchiveService::restore_disguise(&report.outputs[0], &output_dir, None, |_| {}).unwrap();
     assert_eq!(fs::read(&restored.output).unwrap(), b"one");
+}
+
+/// 伪装 ZIP/7Z 支持原地重命名、删除和添加，并保留原面具和原文件名。
+#[test]
+fn disguised_archive_can_be_edited_in_place() {
+    for format in [ArchiveFormat::Zip, ArchiveFormat::SevenZip] {
+        let directory = tempdir().unwrap();
+        let source = make_source(directory.path());
+        fs::create_dir_all(source.join("nested")).unwrap();
+        fs::write(source.join("nested").join("remove.bin"), b"remove").unwrap();
+        let output = directory.path().join("editable.jpg");
+        let options = CompressionOptions {
+            disguise: Some(DisguiseOptions {
+                mask: DisguiseMask::PresetImage,
+                original_name: Some(format!("editable.{}", format.extension())),
+            }),
+            ..disguise_options(format)
+        };
+        ArchiveService::create(&output, &[source], &options, |_| {}).unwrap();
+        let before = ArchiveService::probe_disguise(&output)
+            .unwrap()
+            .expect("伪装尾部");
+        let added = directory.path().join("added.txt");
+        fs::write(&added, b"added").unwrap();
+        let report = ArchiveService::edit(
+            &output,
+            &EditOptions {
+                delete_paths: vec!["source/nested".to_string()],
+                rename: vec![("source/hello.txt".to_string(), "renamed.txt".to_string())],
+                additions: vec![("added.txt".to_string(), added)],
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(report.output, output);
+        assert_eq!(ArchiveService::detect(&output), ArchiveFormat::Disguised);
+        let after = ArchiveService::probe_disguise(&output)
+            .unwrap()
+            .expect("编辑后的伪装尾部");
+        assert_eq!(after.original_name, before.original_name);
+        assert_eq!(after.mask_len, before.mask_len);
+        let info = ArchiveService::list(&output, None).unwrap();
+        assert!(info.entries.iter().any(|entry| entry.path == "renamed.txt"));
+        assert!(info.entries.iter().any(|entry| entry.path == "added.txt"));
+        assert!(
+            !info
+                .entries
+                .iter()
+                .any(|entry| entry.path.contains("nested"))
+        );
+        let extraction = directory.path().join("out");
+        ArchiveService::extract(
+            &output,
+            &ExtractionOptions {
+                output_dir: extraction.clone(),
+                overwrite: true,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(extraction.join("renamed.txt")).unwrap(),
+            "hello disguise"
+        );
+        assert_eq!(
+            fs::read_to_string(extraction.join("added.txt")).unwrap(),
+            "added"
+        );
+    }
 }

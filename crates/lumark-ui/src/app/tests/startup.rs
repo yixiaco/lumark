@@ -24,6 +24,13 @@ mod startup_tests {
         assert_eq!(request.mode, StartupMode::Compress);
 
         let request = StartupRequest::parse(vec![
+            "--disguise".to_string(),
+            r"C:\work\images".to_string(),
+        ])
+        .expect("disguise request");
+        assert_eq!(request.mode, StartupMode::Disguise);
+
+        let request = StartupRequest::parse(vec![
             "--mount-iso".to_string(),
             r"C:\images\setup.iso".to_string(),
         ])

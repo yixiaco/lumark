@@ -88,6 +88,11 @@ pub fn register_shell_menu() -> Result<(), PlatformError> {
             format!("{quoted} --compress \"%1\""),
         ),
         (
+            "Lumark.Disguise",
+            "伪装为媒体文件…",
+            format!("{quoted} --disguise \"%1\""),
+        ),
+        (
             "Lumark.Restore",
             "Lumark 一键还原",
             format!("{quoted} --restore \"%1\""),

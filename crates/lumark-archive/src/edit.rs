@@ -13,6 +13,7 @@ use zeroize::Zeroizing;
 use zip::write::SimpleFileOptions;
 use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};
 
+use crate::disguise::{DisguiseMask, DisguisePayloadKind};
 use crate::error::ArchiveError;
 use crate::format::{ArchiveEntry, ArchiveFormat, UpdateMode};
 use crate::service::ArchiveService;
@@ -76,6 +77,15 @@ impl ArchiveService {
     where
         F: FnMut(EditProgress),
     {
+        Self::edit_with_progress(path, options, &mut progress)
+    }
+
+    /// 编辑实现使用 trait object，避免伪装编辑递归时不断产生新的闭包类型。
+    fn edit_with_progress(
+        path: &Path,
+        options: &EditOptions,
+        progress: &mut dyn FnMut(EditProgress),
+    ) -> Result<EditReport, ArchiveError> {
         ensure_not_cancelled(&options.cancel)?;
         let format = Self::detect(path);
         if crate::service::is_volume_path(path) {
@@ -84,9 +94,7 @@ impl ArchiveService {
             ));
         }
         if format == ArchiveFormat::Disguised {
-            return Err(ArchiveError::InvalidRequest(
-                "伪装压缩包请在还原后编辑".into(),
-            ));
+            return Self::edit_disguised(path, options, progress);
         }
         if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
             return Err(ArchiveError::UnsupportedFormat(format.label().to_string()));
@@ -126,10 +134,10 @@ impl ArchiveService {
 
         let result = match format {
             ArchiveFormat::Zip => {
-                write_zip(path, &temp, &options, &mut progress)?;
+                write_zip(path, &temp, &options, progress)?;
                 0
             }
-            ArchiveFormat::SevenZip => write_seven_zip(path, &temp, &options, &mut progress)?,
+            ArchiveFormat::SevenZip => write_seven_zip(path, &temp, &options, progress)?,
             _ => unreachable!(),
         };
         let reused_blocks = result;
@@ -164,9 +172,125 @@ impl ArchiveService {
             recompressed: reused_blocks == 0,
         })
     }
-}
 
-/// 一次归档编辑的准备结果：要写入的文件、跳过的数量和需要删除的条目。
+    /// 透明编辑伪装 ZIP/7Z：物化内层、复用原面具重新包装后原子替换。
+    fn edit_disguised(
+        path: &Path,
+        options: &EditOptions,
+        progress: &mut dyn FnMut(EditProgress),
+    ) -> Result<EditReport, ArchiveError> {
+        let info = crate::disguise::probe(path)?.ok_or_else(|| {
+            ArchiveError::Corrupt("无法读取伪装尾部信息，文件可能已被修改".to_string())
+        })?;
+        if info.payload_kind != DisguisePayloadKind::Archive {
+            return Err(ArchiveError::InvalidRequest(
+                "普通文件伪装只能还原，不能直接编辑".into(),
+            ));
+        }
+        let by_name = crate::format::detect_format(Path::new(&info.original_name));
+        let format = if by_name == ArchiveFormat::Unknown {
+            let mut reader = crate::disguise::open_payload(path)?;
+            let mut header = [0u8; 512];
+            let read = reader.read(&mut header)?;
+            crate::format::detect_magic(&header[..read])
+        } else {
+            by_name
+        };
+        if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
+            return Err(ArchiveError::UnsupportedFormat(format!(
+                "伪装内层 {} 暂不支持原地编辑，请先还原",
+                format.label()
+            )));
+        }
+
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(parent)?;
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or_default();
+        let temp_dir = tempfile::Builder::new()
+            .prefix(".lumark-disguise-edit-")
+            .tempdir_in(parent)?;
+        let inner = temp_dir
+            .path()
+            .join(format!("inner.{}", format.extension()));
+        {
+            let mut reader = crate::disguise::open_payload(path)?;
+            let mut output = File::create(&inner)?;
+            io::copy(&mut reader, &mut output)?;
+            output.sync_all()?;
+        }
+
+        let mut inner_options = options.clone();
+        inner_options.keep_backup = false;
+        let inner_report = Self::edit_with_progress(&inner, &inner_options, progress)?;
+
+        let mask_extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("mp4")
+            .to_string();
+        let mask_path = temp_dir.path().join(format!("mask.{mask_extension}"));
+        {
+            let source = File::open(path)?;
+            let mut mask = File::create(&mask_path)?;
+            io::copy(&mut source.take(info.mask_len), &mut mask)?;
+            mask.sync_all()?;
+        }
+        let mask = DisguiseMask::File(mask_path);
+        let staged = parent.join(format!(
+            ".lumark-disguise-edit-{}-{stamp}.part",
+            std::process::id()
+        ));
+        let wrap_result = crate::disguise::wrap(
+            &inner_report.output,
+            &staged,
+            &mask,
+            &info.original_name,
+            DisguisePayloadKind::Archive,
+            options.cancel.as_ref(),
+            |copied, total| {
+                progress(EditProgress {
+                    current: "重新包装伪装容器".to_string(),
+                    entries_done: inner_report.files,
+                    entries_total: inner_report.files,
+                    bytes_done: if total > 0 { copied } else { 0 },
+                });
+            },
+        );
+        if let Err(error) = wrap_result {
+            let _ = fs::remove_file(&staged);
+            return Err(error);
+        }
+        if crate::disguise::probe(&staged)?.is_none() {
+            let _ = fs::remove_file(&staged);
+            return Err(ArchiveError::Corrupt(
+                "重新包装后的伪装文件无法解析尾部信息".to_string(),
+            ));
+        }
+        let backup = options.keep_backup.then(|| {
+            let file_name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("archive");
+            parent.join(format!("{file_name}.lumark.bak"))
+        });
+        if let Err(error) = atomic_replace(path, &staged, backup.as_deref()) {
+            let _ = fs::remove_file(&staged);
+            return Err(ArchiveError::Io(error));
+        }
+        Ok(EditReport {
+            files: inner_report.files,
+            output: path.to_path_buf(),
+            backup,
+            skipped: inner_report.skipped,
+            deleted: inner_report.deleted,
+            reused_blocks: inner_report.reused_blocks,
+            recompressed: inner_report.recompressed,
+        })
+    }
+}
 struct EditPlan {
     additions: Vec<(String, PathBuf)>,
     skipped: usize,
@@ -319,15 +443,12 @@ fn source_is_newer(archived: Option<DateTime<Utc>>, source: &Path) -> bool {
     DateTime::<Utc>::from(disk) > archived + chrono::Duration::seconds(2)
 }
 
-fn write_zip<F>(
+fn write_zip(
     source: &Path,
     output: &Path,
     options: &EditOptions,
-    progress: &mut F,
-) -> Result<(), ArchiveError>
-where
-    F: FnMut(EditProgress),
-{
+    progress: &mut dyn FnMut(EditProgress),
+) -> Result<(), ArchiveError> {
     let file = File::open(source)?;
     let mut archive = ZipArchive::new(file)?;
     let entries_total = archive.len() + options.additions.len();
@@ -417,15 +538,12 @@ where
 }
 
 /// 优先复用 7Z 原始压缩块，无法安全复用时回退全量重压缩。
-fn write_seven_zip<F>(
+fn write_seven_zip(
     source: &Path,
     output: &Path,
     options: &EditOptions,
-    progress: &mut F,
-) -> Result<usize, ArchiveError>
-where
-    F: FnMut(EditProgress),
-{
+    progress: &mut dyn FnMut(EditProgress),
+) -> Result<usize, ArchiveError> {
     match write_seven_zip_raw(source, output, options, progress) {
         Ok(Some(reused_blocks)) => return Ok(reused_blocks),
         Ok(None) | Err(ArchiveError::SevenZ(_)) => {
@@ -440,15 +558,12 @@ where
 }
 
 /// 尝试按原始压缩块复制 7Z 归档；返回 `None` 表示当前变更不适合复用。
-fn write_seven_zip_raw<F>(
+fn write_seven_zip_raw(
     source: &Path,
     output: &Path,
     options: &EditOptions,
-    progress: &mut F,
-) -> Result<Option<usize>, ArchiveError>
-where
-    F: FnMut(EditProgress),
-{
+    progress: &mut dyn FnMut(EditProgress),
+) -> Result<Option<usize>, ArchiveError> {
     let source_password = options
         .source_password
         .as_deref()
@@ -595,15 +710,12 @@ fn archive_has_aes(archive: &sevenz_rust2::Archive) -> bool {
         .any(|coder| coder.encoder_method_id() == sevenz_rust2::EncoderMethod::ID_AES256_SHA256)
 }
 
-fn write_seven_zip_recompress<F>(
+fn write_seven_zip_recompress(
     source: &Path,
     output: &Path,
     options: &EditOptions,
-    progress: &mut F,
-) -> Result<(), ArchiveError>
-where
-    F: FnMut(EditProgress),
-{
+    progress: &mut dyn FnMut(EditProgress),
+) -> Result<(), ArchiveError> {
     let source_password = options
         .source_password
         .as_deref()

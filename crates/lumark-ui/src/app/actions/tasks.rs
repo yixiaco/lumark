@@ -650,6 +650,10 @@ impl LumarkApp {
                         if let Some(request) = StartupRequest::parse(arguments) {
                             match request.mode {
                                 StartupMode::Compress => app.queue_shell_compress(request.paths),
+                                StartupMode::Disguise => {
+                                    app.compress_disguise = true;
+                                    app.queue_shell_compress(request.paths);
+                                }
                                 StartupMode::MountIso | StartupMode::UnmountIso => {
                                     if let Some(path) =
                                         request.target().map(Path::to_path_buf)

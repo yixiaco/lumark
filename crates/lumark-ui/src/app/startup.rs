@@ -1,12 +1,14 @@
 use super::*;
 
 /// Shell 请求的打开方式，对应 `--open`、`--extract`、`--compress`、
-/// `--restore` 以及 ISO 的 `--mount-iso` / `--unmount-iso`。
+/// `--disguise`、`--restore` 以及 ISO 的 `--mount-iso` / `--unmount-iso`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartupMode {
     Open,
     Extract,
     Compress,
+    /// 打开伪装压缩窗口，把选中的文件或文件夹包装成媒体外观。
+    Disguise,
     /// 把伪装文件还原成原归档或原文件。
     Restore,
     MountIso,
@@ -44,6 +46,7 @@ impl StartupRequest {
                 "--open" => mode = StartupMode::Open,
                 "--extract" => mode = StartupMode::Extract,
                 "--compress" => mode = StartupMode::Compress,
+                "--disguise" => mode = StartupMode::Disguise,
                 "--restore" => mode = StartupMode::Restore,
                 "--mount-iso" => mode = StartupMode::MountIso,
                 "--unmount-iso" => mode = StartupMode::UnmountIso,
@@ -66,7 +69,7 @@ impl StartupRequest {
             .iter()
             .map(PathBuf::as_path)
             .find(|path| match self.mode {
-                StartupMode::Compress => path.exists(),
+                StartupMode::Compress | StartupMode::Disguise => path.exists(),
                 StartupMode::Restore => path.is_file(),
                 StartupMode::MountIso | StartupMode::UnmountIso => {
                     path.is_file() && is_iso_path(path)
