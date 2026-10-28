@@ -132,6 +132,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".dmg") {
         return ArchiveFormat::Dmg;
     }
+    if name.ends_with(".egg") {
+        return ArchiveFormat::Egg;
+    }
     if name.ends_with(".deb") {
         return ArchiveFormat::Deb;
     }
@@ -201,6 +204,9 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     }
     if bytes.starts_with(b"hsqs") {
         return ArchiveFormat::SquashFs;
+    }
+    if bytes.starts_with(&0x4147_4745u32.to_le_bytes()) {
+        return ArchiveFormat::Egg;
     }
     if bytes.starts_with(b"\xed\xab\xee\xdb") {
         return ArchiveFormat::Rpm;
@@ -362,5 +368,11 @@ mod tests {
         }
         assert!(!ArchiveFormat::TarZ.is_writable());
         assert!(ArchiveFormat::Alz.supports_password());
+    }
+
+    /// 验证 EGG 的 `EGGA` 小端头可被识别。
+    #[test]
+    fn egg_magic_is_detected() {
+        assert_eq!(detect_magic(b"EGGA\x01\x00"), ArchiveFormat::Egg);
     }
 }

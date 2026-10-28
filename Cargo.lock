@@ -5040,6 +5040,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "libazo"
+version = "0.1.1"
+
+[[package]]
 name = "libbz2-rs-sys"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5236,6 +5240,7 @@ dependencies = [
  "udif",
  "unalz",
  "unarc-rs",
+ "unegg",
  "unrar",
  "walkdir",
  "windows-sys 0.59.0",
@@ -5447,6 +5452,16 @@ name = "lzfse_rust"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5edeac3ec657925dececc672bdd58fa2212291886ddcb3e08aa46924c78340c6"
+
+[[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
+]
 
 [[package]]
 name = "lzma-rust2"
@@ -9249,6 +9264,26 @@ name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
+
+[[package]]
+name = "unegg"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b95ae8743531c14d5108515d14669b96f7d83b659b3d778aea692ce67fb23e67"
+dependencies = [
+ "aes 0.9.3",
+ "bzip2",
+ "crc32fast",
+ "encoding_rs",
+ "filetime",
+ "flate2",
+ "hmac 0.13.0",
+ "libazo",
+ "lzma-rs",
+ "pbkdf2 0.13.0",
+ "rpassword",
+ "sha1 0.11.0",
+]
 
 [[package]]
 name = "unicase"

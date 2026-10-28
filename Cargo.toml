@@ -42,6 +42,7 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 libc = "0.2"
 libchm = "0.3"
 nsis = "0.6"
+unegg = "0.2"
 dpp = "0.6"
 hfsplus = "0.4"
 udif = "0.4.2"
@@ -96,3 +97,6 @@ zeroize = { version = "1.9", features = ["derive"] }
 zip = { version = "=9.0.5", default-features = false, features = ["aes-crypto", "deflate-flate2", "deflate64", "legacy-zip", "bzip2", "ppmd", "time", "chrono", "xz", "zstd", "lzma"] }
 zpaq_rs = "=1.0.4"
 zstd = "0.14"
+
+[patch.crates-io]
+libazo = { path = "vendor/libazo" }

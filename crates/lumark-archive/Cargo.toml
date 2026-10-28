@@ -23,6 +23,7 @@ quick-xml.workspace = true
 libchm.workspace = true
 backhand.workspace = true
 nsis.workspace = true
+unegg.workspace = true
 dpp.workspace = true
 msi.workspace = true
 cab.workspace = true
