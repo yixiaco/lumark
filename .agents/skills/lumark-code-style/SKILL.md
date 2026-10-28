@@ -28,7 +28,7 @@ description: 维护 Lumark 项目的注释、模块边界和界面资源约定�
 
 ## 界面资源
 
-- UI 固定使用 `gpui-kit 0.7.3`，压缩核心固定使用 `zip 9.0.5` 和 `sevenz-rust2 0.24.1`。
+- UI 固定使用 `gpui-kit 0.8.1`，压缩核心固定使用 `zip 9.0.5` 和 `sevenz-rust2 0.24.1`。
 - 图标使用 IconPark 官方 SVG，存放在 `crates/lumark-ui/assets/icons/iconpark/`，运行时不访问网络。
 - SVG 使用 `currentColor` 跟随主题；新增图标时保留上游许可和来源说明。
 - 界面必须同时检查宽窗口单行命令栏和窄窗口双行命令栏，避免路径、搜索和主操作被裁切。
