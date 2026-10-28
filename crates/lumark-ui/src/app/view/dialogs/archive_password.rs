@@ -1,6 +1,7 @@
 //! 归档密码、保存密码、解锁和密码尝试弹窗。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 渲染归档密码输入卡片，供打开、解压、测试和条目打开流程共用。
@@ -12,13 +13,19 @@ impl LumarkApp {
             .archive_password_action
             .as_ref()
             .map(password_target_label)
-            .unwrap_or_else(|| "加密压缩包".to_string());
+            .unwrap_or_else(|| tr("加密压缩包", "Encrypted archive").to_string());
         let auto_hint = if self.vault.state() == VaultState::Unlocked {
-            "自动输入【密码管理】中密码匹配解密"
+            tr(
+                "自动输入【密码管理】中密码匹配解密",
+                "Auto-fill a matching password from Password manager",
+            )
         } else {
-            "解锁密码库后自动匹配记录密码"
+            tr(
+                "解锁密码库后自动匹配记录密码",
+                "Unlock the vault to auto-match saved passwords",
+            )
         };
-        centered_modal(cx, "输入密码")
+        centered_modal(cx, tr("输入密码", "Enter password"))
             .child(
                 h_flex()
                     .w_full()
@@ -40,7 +47,7 @@ impl LumarkApp {
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child("为加密的文件输入密码："),
+                            .child(tr("为加密的文件输入密码：", "Enter the password for the encrypted file:")),
                     ),
             )
             .child(
@@ -62,14 +69,14 @@ impl LumarkApp {
             )
             .child(labeled_input(
                 cx,
-                "密码",
+                tr("密码", "Password"),
                 Input::new(&self.archive_password_input)
                     .id("archive-password")
                     .w_full(),
             ))
             .child(
                 Checkbox::new("archive-password-show")
-                    .label("显示密码")
+                    .label(tr("显示密码", "Show password"))
                     .checked(self.archive_password_visible)
                     .on_click(cx.listener(|this, checked: &bool, window, cx| {
                         this.archive_password_visible = *checked;
@@ -94,13 +101,13 @@ impl LumarkApp {
                         .w_full()
                         .text_xs()
                         .text_color(cx.theme().warning)
-                        .child("记录密码均不正确。输入正确密码后可直接保存，下次自动匹配。"),
+                        .child(tr("记录密码均不正确。输入正确密码后可直接保存，下次自动匹配。", "Saved passwords did not match. Enter the correct one and save it for next time.")),
                 )
             })
             .when(self.vault.state() == VaultState::Unlocked, |this| {
                 this.child(
                     Checkbox::new("archive-password-save")
-                        .label("保存到密码库（验证成功后写入）")
+                        .label(tr("保存到密码库（验证成功后写入）", "Save to vault (after successful verification)"))
                         .checked(self.archive_password_save_to_vault)
                         .on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.archive_password_save_to_vault = *checked;
@@ -115,12 +122,12 @@ impl LumarkApp {
                     .child(
                         button("archive-password-manage")
                             .icon(AppIcon::Key.element(16.))
-                            .label("密码管理")
+                            .label(tr("密码管理", "Password manager"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_archive_password_prompt = false;
                                 this.archive_password_action = None;
                                 this.switch_screen(Screen::Passwords);
-                                this.status = "请在密码管理中新增匹配密码".to_string();
+                                this.status = tr("请在密码管理中新增匹配密码", "Add a matching password in Password manager").to_string();
                                 cx.notify();
                             })),
                     )
@@ -128,18 +135,18 @@ impl LumarkApp {
                     .child(
                         button("archive-password-cancel")
                             .secondary()
-                            .label("取消")
+                            .label(tr("取消", "Cancel"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_archive_password_prompt = false;
                                 this.archive_password_action = None;
-                                this.status = "已取消输入压缩包密码".to_string();
+                                this.status = tr("已取消输入压缩包密码", "Archive password input cancelled").to_string();
                                 cx.notify();
                             })),
                     )
                     .child(
                         button("archive-password-confirm")
                             .primary()
-                            .label("确定")
+                            .label(tr("确定", "OK"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.confirm_archive_password(window, cx);
                                 cx.notify();
@@ -150,26 +157,32 @@ impl LumarkApp {
 
     /// 提示保存成功打开归档的密码。
     pub(crate) fn render_save_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        centered_modal(cx, "保存解压密码")
+        centered_modal(cx, tr("保存解压密码", "Save extraction password"))
             .child(
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("密码将写入本地加密密码库，下次可直接用于同类压缩包。"),
+                    .child(tr(
+                        "密码将写入本地加密密码库，下次可直接用于同类压缩包。",
+                        "The password is saved to the local encrypted vault for similar archives.",
+                    )),
             )
             .child(labeled_input(
                 cx,
-                "名称",
+                tr("名称", "Name"),
                 Input::new(&self.password_label).id("save-label").w_full(),
             ))
             .child(labeled_input(
                 cx,
-                "密码",
+                tr("密码", "Password"),
                 Input::new(&self.password_value).id("save-value").w_full(),
             ))
             .child(labeled_input(
                 cx,
-                "适用压缩包（路径或通配符）",
+                tr(
+                    "适用压缩包（路径或通配符）",
+                    "Archive pattern (path or wildcard)",
+                ),
                 Input::new(&self.password_pattern)
                     .id("save-pattern")
                     .w_full(),
@@ -177,17 +190,20 @@ impl LumarkApp {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(button("save-dismiss").secondary().label("不保存").on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.show_save_prompt = false;
-                            cx.notify();
-                        }),
-                    ))
+                    .child(
+                        button("save-dismiss")
+                            .secondary()
+                            .label(tr("不保存", "Do not save"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_save_prompt = false;
+                                cx.notify();
+                            })),
+                    )
                     .child(
                         button("save-confirm")
                             .primary()
                             .icon(AppIcon::Save.element(16.))
-                            .label("保存密码")
+                            .label(tr("保存密码", "Save password"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.save_password(window, cx);
                                 cx.notify();
@@ -198,12 +214,12 @@ impl LumarkApp {
 
     /// 在自动密码尝试开始前请求密码库主密码。
     pub(crate) fn render_unlock_prompt(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        centered_modal(cx, "解锁密码库")
+        centered_modal(cx, tr("解锁密码库", "Unlock vault"))
             .child(
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("解锁后只会尝试密码库中的记录密码，不会显示密码内容。"),
+                    .child(tr("解锁后只会尝试密码库中的记录密码，不会显示密码内容。", "After unlocking, only saved passwords are tried; their contents are never shown.")),
             )
             .child(
                 Input::new(&self.master_extract_unlock)
@@ -213,7 +229,7 @@ impl LumarkApp {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(button("unlock-cancel").label("取消").on_click(cx.listener(
+                    .child(button("unlock-cancel").label(tr("取消", "Cancel")).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.show_unlock_for_extract = false;
                             this.pending_unlock_archive = None;
@@ -224,7 +240,7 @@ impl LumarkApp {
                     .child(
                         button("unlock-confirm")
                             .primary()
-                            .label("解锁并自动尝试")
+                            .label(tr("解锁并自动尝试", "Unlock and auto-try"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.unlock_for_extract(window, cx);
                                 cx.notify();
@@ -239,17 +255,18 @@ impl LumarkApp {
             .pending_extra_password
             .as_ref()
             .map_or(0, |job| job.candidates.len());
-        centered_modal(cx, "尝试其余记录密码？")
+        centered_modal(cx, tr("尝试其余记录密码？", "Try remaining saved passwords?"))
             .child(format!(
-                "前 32 条记录密码均不正确，密码库中还有 {count} 条候选。\
-                 继续尝试可能需要较长时间；也可以停止自动尝试并手动输入。"
+                "{}{count}{}",
+                tr("前 32 条记录密码均不正确，密码库中还有 ", "The first 32 saved passwords did not match; "),
+                tr(" 条候选。继续尝试可能需要较长时间；也可以停止自动尝试并手动输入。", " candidates remain. Trying all may take a while; you can stop and enter one manually.")
             ))
             .child(
                 h_flex()
                     .gap_2()
                     .child(
                         button("extra-passwords-decline")
-                            .label("手动输入")
+                            .label(tr("手动输入", "Enter manually"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.decline_extra_password_candidates(window, cx);
                                 cx.notify();
@@ -258,7 +275,7 @@ impl LumarkApp {
                     .child(
                         button("extra-passwords-try")
                             .primary()
-                            .label(format!("尝试其余 {count} 条"))
+                            .label(format!("{}{count}{}", tr("尝试其余 ", "Try remaining "), tr(" 条", " entries")))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.try_extra_password_candidates(window, cx);
                                 cx.notify();
@@ -287,13 +304,13 @@ impl LumarkApp {
         } else {
             (attempt.index as f32 / attempt.total as f32).clamp(0.0, 1.0)
         };
-        centered_modal(cx, "正在尝试记录密码")
+        centered_modal(cx, tr("正在尝试记录密码", "Trying saved passwords"))
             .child(
                 div()
                     .w_full()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("验证期间不会显示密码内容；可以停止后手动输入。"),
+                    .child(tr("验证期间不会显示密码内容；可以停止后手动输入。", "Password contents are hidden while verifying; stop and enter one manually if needed.")),
             )
             .child(
                 div()
@@ -328,14 +345,17 @@ impl LumarkApp {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(format!(
-                                "第 {} / {} 条候选密码",
-                                attempt.index, attempt.total
+                                "{}{} / {}{}",
+                                tr("第 ", "Candidate "),
+                                attempt.index,
+                                attempt.total,
+                                tr(" 条候选密码", " of candidates")
                             )),
                     )
                     .child(
                         button("password-attempt-hide")
                             .ghost()
-                            .label("后台继续")
+                            .label(tr("后台继续", "Continue in background"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(attempt) = this.password_attempt.as_mut() {
                                     attempt.hidden = true;
@@ -346,7 +366,7 @@ impl LumarkApp {
                     .child(
                         button("password-attempt-stop")
                             .secondary()
-                            .label("停止自动尝试")
+                            .label(tr("停止自动尝试", "Stop auto-try"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.cancel_password_attempt(cx);
                             })),
