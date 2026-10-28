@@ -1,6 +1,7 @@
 //! ISO 虚拟光驱挂载与卸载动作。
 
 use super::super::*;
+use crate::i18n::tr;
 use lumark_platform_windows::iso as iso_platform;
 
 impl LumarkApp {
@@ -11,7 +12,7 @@ impl LumarkApp {
             .filter(|entry| !entry.is_dir && is_iso_path(&entry.path))
             .map(|entry| entry.path)
         else {
-            self.status = "请选择一个 ISO 文件".to_string();
+            self.status = tr("请选择一个 ISO 文件", "Select an ISO file").to_string();
             cx.notify();
             return;
         };
@@ -29,11 +30,11 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         if !is_iso_path(&path) {
-            self.status = "请选择一个 ISO 文件".to_string();
+            self.status = tr("请选择一个 ISO 文件", "Select an ISO file").to_string();
             cx.notify();
             return;
         }
-        self.status = format!("正在挂载 {}…", path.display());
+        self.status = format!("{}{}", tr("正在挂载 ", "Mounting "), path.display());
         cx.notify();
         let mount_path = path;
         cx.spawn(async move |this, cx| {
@@ -49,10 +50,16 @@ impl LumarkApp {
                             let drive = PathBuf::from(format!("{letter}:\\"));
                             let _ = lumark_platform_windows::open_default(&drive);
                         } else {
-                            app.status = "ISO 已挂载，但系统尚未分配盘符".to_string();
+                            app.status = tr(
+                                "ISO 已挂载，但系统尚未分配盘符",
+                                "ISO mounted, but Windows has not assigned a drive letter yet",
+                            )
+                            .to_string();
                         }
                     }
-                    Err(error) => app.status = format!("挂载失败：{error}"),
+                    Err(error) => {
+                        app.status = format!("{}{error}", tr("挂载失败：", "Mount failed: "))
+                    }
                 }
                 cx.notify();
             });
@@ -67,7 +74,7 @@ impl LumarkApp {
             .filter(|entry| !entry.is_dir && is_iso_path(&entry.path))
             .map(|entry| entry.path)
         else {
-            self.status = "请选择一个 ISO 文件".to_string();
+            self.status = tr("请选择一个 ISO 文件", "Select an ISO file").to_string();
             cx.notify();
             return;
         };
@@ -82,11 +89,11 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         if !is_iso_path(&path) {
-            self.status = "请选择一个 ISO 文件".to_string();
+            self.status = tr("请选择一个 ISO 文件", "Select an ISO file").to_string();
             cx.notify();
             return;
         }
-        self.status = format!("正在卸载 {}…", path.display());
+        self.status = format!("{}{}", tr("正在卸载 ", "Unmounting "), path.display());
         let label = path.display().to_string();
         cx.notify();
         let unmount_path = path;
@@ -97,8 +104,15 @@ impl LumarkApp {
                 .await;
             let _ = this.update_in(cx, |app, _, cx| {
                 match result {
-                    Ok(()) => app.status = format!("已卸载虚拟光驱：{label}"),
-                    Err(error) => app.status = format!("卸载失败：{error}"),
+                    Ok(()) => {
+                        app.status = format!(
+                            "{}{label}",
+                            tr("已卸载虚拟光驱：", "Virtual drive unmounted: ")
+                        )
+                    }
+                    Err(error) => {
+                        app.status = format!("{}{error}", tr("卸载失败：", "Unmount failed: "))
+                    }
                 }
                 cx.notify();
             });

@@ -1,6 +1,7 @@
 //! 邮件通知动作：保存 SMTP 配置、测试发送和压缩完成提醒。
 
 use super::super::*;
+use crate::i18n::tr;
 
 /// 设置页提交的 SMTP 配置草稿。
 pub(crate) struct MailSettingsDraft {
@@ -35,7 +36,7 @@ impl LumarkApp {
             .parse::<u16>()
             .map_err(|_| "SMTP 端口必须是 1–65535 的数字".to_string())?;
         if port == 0 {
-            return Err("SMTP 端口不能为 0".to_string());
+            return Err(tr("SMTP 端口不能为 0", "SMTP port cannot be 0").to_string());
         }
         if draft.implicit_tls && draft.starttls {
             return Err("隐式 TLS 和 STARTTLS 不能同时启用".to_string());
@@ -63,7 +64,7 @@ impl LumarkApp {
                 settings.smtp_starttls = draft.starttls;
             })
             .map_err(|error| error.to_string())?;
-        self.status = "邮件通知设置已保存".to_string();
+        self.status = tr("邮件通知设置已保存", "Email notification settings saved").to_string();
         Ok(())
     }
 
@@ -104,23 +105,29 @@ impl LumarkApp {
                 return;
             }
         };
-        self.status = "正在发送测试邮件…".to_string();
+        self.status = tr("正在发送测试邮件…", "Sending test email...").to_string();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     lumark_mail::send(
                         &config,
-                        "Lumark 测试邮件",
-                        "这是一封来自 Lumark 的测试邮件。",
+                        tr("Lumark 测试邮件", "Lumark test email"),
+                        tr(
+                            "这是一封来自 Lumark 的测试邮件。",
+                            "This is a test email from Lumark.",
+                        ),
                     )
                     .map_err(|error| error.to_string())
                 })
                 .await;
             let _ = this.update(cx, |app, cx| {
                 app.status = match result {
-                    Ok(()) => "测试邮件已发送".to_string(),
-                    Err(error) => format!("测试邮件发送失败：{error}"),
+                    Ok(()) => tr("测试邮件已发送", "Test email sent").to_string(),
+                    Err(error) => format!(
+                        "{}{error}",
+                        tr("测试邮件发送失败：", "Failed to send test email: ")
+                    ),
                 };
                 cx.notify();
             });
@@ -142,8 +149,14 @@ impl LumarkApp {
             Ok(Some(config)) => config,
             _ => return,
         };
-        let subject = format!("Lumark 压缩完成：{label}");
-        let body = format!("压缩任务已完成。\n\n{message}\n\nLumark");
+        let subject = format!(
+            "{}{label}",
+            tr("Lumark 压缩完成：", "Lumark compression complete: ")
+        );
+        let body = format!(
+            "{}\n\n{message}\n\nLumark",
+            tr("压缩任务已完成。", "The compression task has completed.")
+        );
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -151,7 +164,10 @@ impl LumarkApp {
                 .await;
             if let Err(error) = result {
                 let _ = this.update(cx, |app, cx| {
-                    app.status = format!("邮件通知发送失败：{error}");
+                    app.status = format!(
+                        "{}{error}",
+                        tr("邮件通知发送失败：", "Failed to send email notification: ")
+                    );
                     cx.notify();
                 });
             }
