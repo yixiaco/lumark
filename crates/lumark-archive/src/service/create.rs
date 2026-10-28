@@ -140,6 +140,21 @@ impl ArchiveService {
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
         }
+        Self::create_seven_zip_to(File::create(output)?, output, sources, options, progress)
+    }
+
+    /// 把 7Z 写入任意可 Seek 的输出，供伪装单遍写入复用。
+    pub(crate) fn create_seven_zip_to<W, F>(
+        destination: W,
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        W: Write + Seek,
+        F: FnMut(CreateProgress),
+    {
         let level = options.level.unwrap_or(6).clamp(0, 9) as u32;
         let plan = build_source_plan(sources, options)?;
         let bytes_total = plan.total_bytes;
@@ -190,7 +205,7 @@ impl ArchiveService {
             spans: Vec::new(),
         }));
         let mut writer = ArchiveWriter::new(ChunkTrackingWriter {
-            inner: File::create(output)?,
+            inner: destination,
             state: chunk_state.clone(),
             progress: progress_cell.clone(),
         })

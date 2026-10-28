@@ -37,6 +37,10 @@ use crate::error::ArchiveError;
 use crate::path::{ensure_no_symlink_components, safe_join};
 use crate::service::{atomic_replace_file, unique_destination};
 
+mod seekable;
+
+pub use seekable::SeekableDisguiseWriter;
+
 /// 尾部信息魔数，用于区分普通媒体文件和 Lumark 伪装文件。
 pub const DISGUISE_MAGIC: [u8; 8] = *b"LMDIS001";
 
@@ -597,6 +601,23 @@ pub struct DisguiseWriter<W: Write> {
     kind: DisguisePayloadKind,
     /// 取消标志。
     cancel: Option<Arc<AtomicBool>>,
+}
+
+impl<W: Write + Seek> DisguiseWriter<W> {
+    /// 覆盖载荷开头的前缀字节，用于 7Z 等先写占位头、完成后再回填的格式。
+    ///
+    /// 前缀仍按载荷位置 0 混淆，写到面具之后的真实文件偏移；写入后恢复到底层
+    /// 当前末尾，随后 `finish` 可以正常追加尾部。
+    pub fn patch_payload_prefix(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.ensure_mask()?;
+        let saved = self.inner.stream_position()?;
+        let mut obfuscated = bytes.to_vec();
+        self.keystream.apply(0, &mut obfuscated);
+        self.inner.seek(SeekFrom::Start(self.mask_len))?;
+        self.inner.write_all(&obfuscated)?;
+        self.inner.seek(SeekFrom::Start(saved))?;
+        Ok(())
+    }
 }
 
 impl<W: Write> DisguiseWriter<W> {

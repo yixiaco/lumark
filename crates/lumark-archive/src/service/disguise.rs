@@ -2,6 +2,49 @@
 
 use super::*;
 
+/// 直接写入伪装容器的内部写入器。
+enum DirectWriter {
+    /// TAR/单文件流/ZIP 使用的普通流式写入器。
+    Stream(crate::disguise::DisguiseWriter<File>),
+    /// 7Z 使用的可 Seek 写入器。
+    Seekable(crate::disguise::SeekableDisguiseWriter<File>),
+}
+
+impl std::io::Write for DirectWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Stream(writer) => writer.write(buffer),
+            Self::Seekable(writer) => writer.write(buffer),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Stream(writer) => writer.flush(),
+            Self::Seekable(writer) => writer.flush(),
+        }
+    }
+}
+
+impl std::io::Seek for DirectWriter {
+    fn seek(&mut self, position: std::io::SeekFrom) -> std::io::Result<u64> {
+        match self {
+            Self::Seekable(writer) => writer.seek(position),
+            Self::Stream(_) => Err(std::io::Error::other("伪装流不支持 Seek")),
+        }
+    }
+}
+
+impl DirectWriter {
+    /// 完成内层写入并返回底层文件。
+    fn finish(self) -> Result<File, ArchiveError> {
+        match self {
+            Self::Stream(writer) => writer.finish(),
+            Self::Seekable(writer) => writer.finish(),
+        }
+    }
+}
+
 impl ArchiveService {
     /// 解析伪装包内层格式：优先用尾部保存的原文件名，必要时读头部魔数。
     pub(crate) fn disguised_inner_format(
@@ -325,7 +368,8 @@ impl ArchiveService {
                 | ArchiveFormat::Lz4
         );
         let direct_zip = options.format == ArchiveFormat::Zip;
-        if direct_tar || direct_stream || direct_zip {
+        let direct_seven = options.format == ArchiveFormat::SevenZip;
+        if direct_tar || direct_stream || direct_zip || direct_seven {
             ensure_not_cancelled(&options.cancel)?;
             let mut inner_options = options.clone();
             inner_options.disguise = None;
@@ -333,15 +377,24 @@ impl ArchiveService {
             inner_options.delete_source = false;
             inner_options.split_size = None;
             let staged_file = File::create(&staged)?;
-            let writer = crate::disguise::DisguiseWriter::new(
-                staged_file,
-                disguise.mask.clone(),
-                &original_name,
-                DisguisePayloadKind::Archive,
-                options.cancel.clone(),
-            )?;
+            let mut writer = if direct_seven {
+                DirectWriter::Seekable(crate::disguise::SeekableDisguiseWriter::new(
+                    staged_file,
+                    disguise.mask.clone(),
+                    &original_name,
+                    DisguisePayloadKind::Archive,
+                    options.cancel.clone(),
+                )?)
+            } else {
+                DirectWriter::Stream(crate::disguise::DisguiseWriter::new(
+                    staged_file,
+                    disguise.mask.clone(),
+                    &original_name,
+                    DisguisePayloadKind::Archive,
+                    options.cancel.clone(),
+                )?)
+            };
             let result = (|| -> Result<CreateReport, ArchiveError> {
-                let mut writer = writer;
                 let mut report = if direct_tar {
                     Self::create_tar_to(
                         &mut writer,
@@ -358,8 +411,16 @@ impl ArchiveService {
                         &inner_options,
                         &mut progress,
                     )?
-                } else {
+                } else if direct_zip {
                     Self::create_zip_to(
+                        &mut writer,
+                        &staged,
+                        sources,
+                        &inner_options,
+                        &mut progress,
+                    )?
+                } else {
+                    Self::create_seven_zip_to(
                         &mut writer,
                         &staged,
                         sources,

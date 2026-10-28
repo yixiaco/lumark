@@ -87,21 +87,23 @@ impl ChunkProgressState {
 ///
 /// 多线程 LZMA2 的块结果按顺序各写一次，因此 `write` 的调用次数就是已完成
 /// 块数。只在 `active` 阶段计数，`finish()` 写文件头时不会误报。
-pub(crate) struct ChunkTrackingWriter<'a, F>
+pub(crate) struct ChunkTrackingWriter<'a, F, W>
 where
     F: FnMut(CreateProgress),
+    W: Write + Seek,
 {
-    /// 底层输出文件。
-    pub(crate) inner: File,
+    /// 底层输出。
+    pub(crate) inner: W,
     /// 共享的编码块进度。
     pub(crate) state: Rc<RefCell<ChunkProgressState>>,
     /// 进度回调。
     pub(crate) progress: Rc<RefCell<&'a mut F>>,
 }
 
-impl<F> Write for ChunkTrackingWriter<'_, F>
+impl<F, W> Write for ChunkTrackingWriter<'_, F, W>
 where
     F: FnMut(CreateProgress),
+    W: Write + Seek,
 {
     /// 写入一个编码块并推进压缩进度。
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
@@ -138,9 +140,10 @@ where
     }
 }
 
-impl<F> Seek for ChunkTrackingWriter<'_, F>
+impl<F, W> Seek for ChunkTrackingWriter<'_, F, W>
 where
     F: FnMut(CreateProgress),
+    W: Write + Seek,
 {
     /// 定位底层文件；进度状态由写路径维护。
     fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
