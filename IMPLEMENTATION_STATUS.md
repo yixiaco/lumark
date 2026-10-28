@@ -5,6 +5,7 @@
 ## 已完成
 
 - [x] Rust workspace：`lumark-archive`、`lumark-vault`、`lumark-tasks`、`lumark-browser`、`lumark-settings`、`lumark-ui`、`lumark-app`、`lumark-platform-windows`。
+- [x] 完整工作区测试：`cargo test --workspace` 全部通过；无交互桌面的托盘测试在 `Shell_NotifyIcon` 返回权限拒绝时跳过，避免 CI 误报。
 - [x] 固定依赖：`gpui-kit 0.8.1`、`zip 9.0.5`、`sevenz-rust2 0.24.1`、`zpaq_rs 1.0.4`、`unalz 0.2.1`、`lzma-rust2 0.22`。
 - [x] ZIP/7Z 创建、读取、解压、AES 密码、7Z 固实压缩、条目级加密探测。
 - [x] ZIP 默认使用 AES-256；可在密码页启用带警告的 ZipCrypto 兼容写入，并有往返测试。
