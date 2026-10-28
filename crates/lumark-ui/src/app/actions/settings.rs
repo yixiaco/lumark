@@ -1,6 +1,7 @@
 //! 设置动作入口。
 
 use super::super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 在当前中英文之间切换界面语言。
@@ -70,7 +71,7 @@ impl LumarkApp {
         self.compress_disguise_mask = defaults.disguise_mask;
         self.compress_disguise_custom = defaults.disguise_custom_mask.clone();
         apply_theme(defaults.theme, &defaults.accent_color, window, cx);
-        self.status = "已恢复默认设置".to_string();
+        self.status = tr("已恢复默认设置", "Defaults restored").to_string();
         Ok(())
     }
 
@@ -88,9 +89,9 @@ impl LumarkApp {
         let accent_color = self.settings.get().accent_color;
         apply_theme(next, &accent_color, window, cx);
         self.status = match next {
-            ThemePreference::System => "主题：跟随系统",
-            ThemePreference::Light => "主题：浅色",
-            ThemePreference::Dark => "主题：深色",
+            ThemePreference::System => tr("主题：跟随系统", "Theme: system"),
+            ThemePreference::Light => tr("主题：浅色", "Theme: light"),
+            ThemePreference::Dark => tr("主题：深色", "Theme: dark"),
         }
         .to_string();
     }
@@ -100,7 +101,13 @@ impl LumarkApp {
         match self.settings.update(|settings| {
             settings.default_format = format.to_string();
         }) {
-            Ok(()) => self.status = format!("默认格式：{}", format.to_ascii_uppercase()),
+            Ok(()) => {
+                self.status = format!(
+                    "{}{}",
+                    tr("默认格式：", "Default format: "),
+                    format.to_ascii_uppercase()
+                )
+            }
             Err(error) => self.status = error.to_string(),
         }
     }
@@ -113,11 +120,12 @@ impl LumarkApp {
         {
             Ok(()) => {
                 self.status = format!(
-                    "压缩预设：{}",
+                    "{}{}",
+                    tr("压缩预设：", "Compression preset: "),
                     match preset {
-                        SettingsPreset::Speed => "速度优先",
-                        SettingsPreset::Balanced => "平衡",
-                        SettingsPreset::Size => "体积优先",
+                        SettingsPreset::Speed => tr("速度优先", "Speed first"),
+                        SettingsPreset::Balanced => tr("平衡", "Balanced"),
+                        SettingsPreset::Size => tr("体积优先", "Smaller first"),
                     }
                 );
             }
@@ -134,9 +142,17 @@ impl LumarkApp {
         {
             Ok(()) => {
                 self.status = if next {
-                    "解压完成后将打开目标目录".to_string()
+                    tr(
+                        "解压完成后将打开目标目录",
+                        "Open the output folder after extraction",
+                    )
+                    .to_string()
                 } else {
-                    "解压完成后不自动打开目录".to_string()
+                    tr(
+                        "解压完成后不自动打开目录",
+                        "Do not open the output folder after extraction",
+                    )
+                    .to_string()
                 };
             }
             Err(error) => self.status = error.to_string(),
@@ -152,9 +168,17 @@ impl LumarkApp {
         {
             Ok(()) => {
                 self.status = if next {
-                    "归档编辑前将保留 .lumark.bak".to_string()
+                    tr(
+                        "归档编辑前将保留 .lumark.bak",
+                        "Keep .lumark.bak before archive edits",
+                    )
+                    .to_string()
                 } else {
-                    "归档编辑不保留额外备份".to_string()
+                    tr(
+                        "归档编辑不保留额外备份",
+                        "Do not keep extra backups for archive edits",
+                    )
+                    .to_string()
                 };
             }
             Err(error) => self.status = error.to_string(),
@@ -169,12 +193,14 @@ impl LumarkApp {
         {
             Ok(()) => {
                 self.status = format!(
-                    "解压覆盖策略：{}",
+                    "{}{}",
+                    tr("解压覆盖策略：", "Overwrite policy: "),
                     match policy {
-                        lumark_settings::OverwritePolicy::Ask => "询问/默认覆盖",
-                        lumark_settings::OverwritePolicy::Overwrite => "覆盖",
-                        lumark_settings::OverwritePolicy::Skip => "跳过",
-                        lumark_settings::OverwritePolicy::Rename => "重命名",
+                        lumark_settings::OverwritePolicy::Ask =>
+                            tr("询问/默认覆盖", "Ask / default overwrite"),
+                        lumark_settings::OverwritePolicy::Overwrite => tr("覆盖", "Overwrite"),
+                        lumark_settings::OverwritePolicy::Skip => tr("跳过", "Skip"),
+                        lumark_settings::OverwritePolicy::Rename => tr("重命名", "Rename"),
                     }
                 )
             }
@@ -191,9 +217,17 @@ impl LumarkApp {
             Ok(()) => {
                 self.compress_disguise = enabled;
                 self.status = if enabled {
-                    "新压缩默认启用伪装".to_string()
+                    tr(
+                        "新压缩默认启用伪装",
+                        "Disguise enabled by default for new archives",
+                    )
+                    .to_string()
                 } else {
-                    "新压缩默认不启用伪装".to_string()
+                    tr(
+                        "新压缩默认不启用伪装",
+                        "Disguise disabled by default for new archives",
+                    )
+                    .to_string()
                 };
             }
             Err(error) => self.status = error.to_string(),
@@ -208,7 +242,11 @@ impl LumarkApp {
         {
             Ok(()) => {
                 self.compress_disguise_mask = preference;
-                self.status = format!("默认伪装面具：{}", disguise_mask_label(preference));
+                self.status = format!(
+                    "{}{}",
+                    tr("默认伪装面具：", "Default disguise mask: "),
+                    disguise_mask_label(preference)
+                );
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -223,7 +261,11 @@ impl LumarkApp {
             Ok(()) => {
                 self.compress_disguise_custom = Some(path.clone());
                 self.compress_disguise_mask = DisguiseMaskPreference::Custom;
-                self.status = format!("自定义伪装面具：{}", path.display());
+                self.status = format!(
+                    "{}{}",
+                    tr("自定义伪装面具：", "Custom disguise mask: "),
+                    path.display()
+                );
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -240,22 +282,40 @@ impl LumarkApp {
             .iter()
             .any(|record| !is_terminal_task_state(record.state))
         {
-            return Err("请等待当前任务完成后再更改密码库位置".to_string());
+            return Err(tr(
+                "请等待当前任务完成后再更改密码库位置",
+                "Wait for current tasks to finish before moving the vault",
+            )
+            .to_string());
         }
         let current = self.vault.path().to_path_buf();
         let target = directory.join("vault.dat");
         if target == current {
-            return Err("密码库已经保存在该位置".to_string());
+            return Err(tr(
+                "密码库已经保存在该位置",
+                "The vault is already stored there",
+            )
+            .to_string());
         }
         if target.exists() || target.with_extension("bak").exists() {
-            return Err("目标文件夹中已存在密码库文件，请选择其他文件夹".to_string());
+            return Err(tr(
+                "目标文件夹中已存在密码库文件，请选择其他文件夹",
+                "A vault already exists in the target folder; choose another",
+            )
+            .to_string());
         }
         copy_vault_files(&current, &target)?;
         let new_vault = match VaultStore::open(&target) {
             Ok(vault) => vault,
             Err(error) => {
                 remove_vault_files(&target);
-                return Err(format!("无法打开新位置的密码库：{error}"));
+                return Err(format!(
+                    "{}{error}",
+                    tr(
+                        "无法打开新位置的密码库：",
+                        "Cannot open the vault at the new location: "
+                    )
+                ));
             }
         };
         if let Err(error) = self
@@ -263,7 +323,10 @@ impl LumarkApp {
             .update(|settings| settings.vault_path = Some(target.clone()))
         {
             remove_vault_files(&target);
-            return Err(format!("无法保存密码库位置：{error}"));
+            return Err(format!(
+                "{}{error}",
+                tr("无法保存密码库位置：", "Cannot save vault location: ")
+            ));
         }
         self.vault = Arc::new(new_vault);
         self.vault_error = None;
@@ -272,9 +335,18 @@ impl LumarkApp {
         self.dismiss_password_windows(cx);
         remove_vault_files(&current);
         self.status = if self.vault.state() == VaultState::Locked {
-            format!("密码库已移动到 {}，请重新解锁", self.vault.path().display())
+            format!(
+                "{}{}{}",
+                tr("密码库已移动到 ", "Vault moved to "),
+                self.vault.path().display(),
+                tr("，请重新解锁", "; unlock it again")
+            )
         } else {
-            format!("密码库已保存到 {}", self.vault.path().display())
+            format!(
+                "{}{}",
+                tr("密码库已保存到 ", "Vault saved to "),
+                self.vault.path().display()
+            )
         };
         Ok(())
     }
@@ -283,7 +355,11 @@ impl LumarkApp {
     pub(crate) fn register_shell_menu(&mut self) {
         match platform::shell::register_shell_menu() {
             Ok(()) => {
-                self.status = "已注册当前用户的资源管理器右键菜单".to_string();
+                self.status = tr(
+                    "已注册当前用户的资源管理器右键菜单",
+                    "Registered Explorer context menu for the current user",
+                )
+                .to_string();
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -293,7 +369,11 @@ impl LumarkApp {
     pub(crate) fn unregister_shell_menu(&mut self) {
         match platform::shell::unregister_shell_menu() {
             Ok(()) => {
-                self.status = "已移除当前用户的资源管理器右键菜单".to_string();
+                self.status = tr(
+                    "已移除当前用户的资源管理器右键菜单",
+                    "Removed Explorer context menu for the current user",
+                )
+                .to_string();
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -310,15 +390,31 @@ impl LumarkApp {
                 self.file_association_count = platform::shell::registered_extension_count();
                 let count = self.file_association_count;
                 if count == 0 {
-                    self.status = "文件关联写入完成，但未检测到完整的 Lumark 注册项".to_string();
+                    self.status = tr(
+                        "文件关联写入完成，但未检测到完整的 Lumark 注册项",
+                        "Associations written, but no complete Lumark registration was detected",
+                    )
+                    .to_string();
                     return;
                 }
                 self.status = match platform::open_default_apps_for_lumark() {
                     Ok(()) => format!(
-                        "已注册 {count} 种压缩格式，请在 Windows 设置中为每种格式选择 Lumark"
+                        "{}{count}{}",
+                        tr("已注册 ", "Registered "),
+                        tr(
+                            " 种压缩格式，请在 Windows 设置中为每种格式选择 Lumark",
+                            " archive formats; choose Lumark for each in Windows Settings"
+                        )
                     ),
                     Err(error) => {
-                        format!("已注册 {count} 种压缩格式，但无法打开 Windows 设置：{error}")
+                        format!(
+                            "{}{count}{}{error}",
+                            tr("已注册 ", "Registered "),
+                            tr(
+                                " 种压缩格式，但无法打开 Windows 设置：",
+                                " archive formats, but Windows Settings could not open: "
+                            )
+                        )
                     }
                 };
             }
@@ -332,7 +428,7 @@ impl LumarkApp {
             Ok(()) => {
                 self.file_association_count = 0;
                 self.status =
-                    "已移除当前用户的文件关联；如仍由 Lumark 打开，请在默认应用中改选".to_string();
+                    tr("已移除当前用户的文件关联；如仍由 Lumark 打开，请在默认应用中改选", "Removed file associations for the current user; change the default app if Lumark still opens them").to_string();
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -346,7 +442,13 @@ impl LumarkApp {
             platform::open_default_apps()
         };
         match result {
-            Ok(()) => self.status = "已打开 Windows 默认应用设置".to_string(),
+            Ok(()) => {
+                self.status = tr(
+                    "已打开 Windows 默认应用设置",
+                    "Opened Windows default apps settings",
+                )
+                .to_string()
+            }
             Err(error) => self.status = error.to_string(),
         }
     }

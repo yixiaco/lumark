@@ -1,10 +1,17 @@
 //! 设置窗口新增通知页的 UI 渲染测试。
 
 use super::*;
+use std::sync::Mutex;
+
+/// 语言测试会修改全局 locale，与设置窗口渲染测试串行执行。
+static SETTINGS_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// 验证设置窗口可以切到“通知”页并渲染 SMTP 配置控件。
 #[gpui_kit::test]
 fn notification_tab_renders_smtp_fields(cx: &mut gpui_kit::TestAppContext) {
+    let _guard = SETTINGS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
     let (app, cx) = cx.add_window_view(|window, cx| {
@@ -34,6 +41,9 @@ fn notification_tab_renders_smtp_fields(cx: &mut gpui_kit::TestAppContext) {
 /// 验证界面语言切换会持久化并更新全局文案状态。
 #[gpui_kit::test]
 fn language_toggle_updates_setting_and_i18n(cx: &mut gpui_kit::TestAppContext) {
+    let _guard = SETTINGS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
     let (app, cx) = cx.add_window_view(|window, cx| {
