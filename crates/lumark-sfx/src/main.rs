@@ -64,14 +64,14 @@ fn run() -> Result<(), String> {
     let plan = lumark_sfx::parse_args(std::env::args().skip(1).collect::<Vec<_>>());
     let default_target = lumark_sfx::default_target(&exe);
     let mut target = plan.target.clone().unwrap_or(default_target);
-    let mut password = plan.password.clone();
+    let mut password = plan.password.clone().or_else(password_from_environment);
     let mut overwrite = plan.overwrite;
 
     if plan.silent {
         if footer.encrypted && password.is_none() {
             return Err(lang::t(
-                "静默模式下的自解压包需要 /P=密码",
-                "Silent self-extraction requires /P=password",
+                "静默模式下的自解压包需要 /P=密码或 LUMARK_SFX_PASSWORD 环境变量",
+                "Silent self-extraction requires /P=password or the LUMARK_SFX_PASSWORD environment variable",
             )
             .to_string());
         }
@@ -142,6 +142,18 @@ fn run() -> Result<(), String> {
             }
         }
     }
+}
+
+/// 从环境变量读取密码，避免把密码暴露在命令行中。
+fn password_from_environment() -> Option<Zeroizing<String>> {
+    password_from_value(std::env::var("LUMARK_SFX_PASSWORD").ok())
+}
+
+/// 把可选环境变量值转换为非空密码。
+fn password_from_value(value: Option<String>) -> Option<Zeroizing<String>> {
+    value
+        .filter(|password| !password.is_empty())
+        .map(Zeroizing::new)
 }
 
 /// 把 SFX 错误转换为当前界面语言。
@@ -657,6 +669,19 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GWLP_USERDATA;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 验证环境变量密码只接受非空值。
+    #[test]
+    fn environment_password_ignores_empty_values() {
+        assert!(password_from_value(None).is_none());
+        assert!(password_from_value(Some(String::new())).is_none());
+        assert_eq!(
+            password_from_value(Some("secret".to_string()))
+                .as_deref()
+                .map(String::as_str),
+            Some("secret")
+        );
+    }
 
     /// 验证错误文本按语言切换。
     #[test]
