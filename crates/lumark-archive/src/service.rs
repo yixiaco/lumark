@@ -255,6 +255,7 @@ impl ArchiveService {
             ArchiveFormat::Rpm => Self::list_rpm(path),
             ArchiveFormat::Msi => Self::list_msi(path),
             ArchiveFormat::Chm => Self::list_chm(path),
+            ArchiveFormat::SquashFs => Self::list_squashfs(path),
             ArchiveFormat::Rar => Self::list_rar(path, password),
             ArchiveFormat::Zpaq => crate::zpaq::list(path, password),
             ArchiveFormat::Alz => crate::alz::list(path),
@@ -406,6 +407,7 @@ impl ArchiveService {
             ArchiveFormat::Rpm => Self::test_rpm(&input, &mut progress),
             ArchiveFormat::Msi => Self::test_msi(&input, &mut progress),
             ArchiveFormat::Chm => Self::test_chm(&input, &mut progress),
+            ArchiveFormat::SquashFs => Self::test_squashfs(&input, &mut progress),
             ArchiveFormat::Rar => Self::test_rar(&input, &mut progress),
             format if crate::unarc::is_supported(format) => {
                 crate::unarc::test(&input, format, &mut progress)
@@ -632,6 +634,7 @@ impl ArchiveService {
             ArchiveFormat::Rpm => Self::extract_rpm(path, options, &mut progress),
             ArchiveFormat::Msi => Self::extract_msi(path, options, &mut progress),
             ArchiveFormat::Chm => Self::extract_chm(path, options, &mut progress),
+            ArchiveFormat::SquashFs => Self::extract_squashfs(path, options, &mut progress),
             ArchiveFormat::Rar => Self::extract_rar(path, options, &mut progress),
             ArchiveFormat::Zpaq => crate::zpaq::extract(path, options, &mut progress),
             ArchiveFormat::Alz => crate::alz::extract(path, options, &mut progress),
@@ -894,6 +897,7 @@ mod disguise;
 mod list;
 mod msi;
 mod rpm;
+mod squashfs;
 #[cfg(test)]
 mod tests;
 mod xar;

@@ -155,6 +155,8 @@ pub fn is_archive_extension(path: &Path) -> bool {
             | "rpm"
             | "msi"
             | "chm"
+            | "squashfs"
+            | "sqfs"
             | "cab"
             | "arj"
             | "ace"

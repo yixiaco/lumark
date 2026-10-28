@@ -126,6 +126,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".chm") {
         return ArchiveFormat::Chm;
     }
+    if name.ends_with(".squashfs") || name.ends_with(".sqfs") {
+        return ArchiveFormat::SquashFs;
+    }
     if name.ends_with(".deb") {
         return ArchiveFormat::Deb;
     }
@@ -192,6 +195,9 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     }
     if bytes.starts_with(b"ITSF") {
         return ArchiveFormat::Chm;
+    }
+    if bytes.starts_with(b"hsqs") {
+        return ArchiveFormat::SquashFs;
     }
     if bytes.starts_with(b"\xed\xab\xee\xdb") {
         return ArchiveFormat::Rpm;
@@ -296,6 +302,15 @@ mod tests {
     #[test]
     fn chm_magic_is_detected() {
         assert_eq!(detect_magic(b"ITSF\x03\x00\x00\x00"), ArchiveFormat::Chm);
+    }
+
+    /// 验证 SquashFS 的 hsqs 头可被识别。
+    #[test]
+    fn squashfs_magic_is_detected() {
+        assert_eq!(
+            detect_magic(b"hsqs\x00\x00\x00\x00"),
+            ArchiveFormat::SquashFs
+        );
     }
 
     /// 验证所有已登记格式都有非空标签和扩展名，且 Unknown 不在列表中。
