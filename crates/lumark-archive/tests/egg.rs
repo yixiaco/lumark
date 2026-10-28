@@ -159,3 +159,62 @@ fn egg_discovers_split_volumes() {
         "split egg data"
     );
 }
+
+/// 构造带空块的目录条目，验证 EGG 目录解析。
+#[test]
+fn egg_directory_entry_with_empty_block() {
+    const EGG_HEADER: u32 = 0x4147_4745;
+    const END_MARKER: u32 = 0x08E2_8222;
+    const FILE_HEADER: u32 = 0x0A85_90E3;
+    const FILENAME: u32 = 0x0A85_91AC;
+    const POSIX_INFO: u32 = 0x1EE9_22E5;
+    const BLOCK_HEADER: u32 = 0x02B5_0C13;
+
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("dir.egg");
+    let mut bytes = Vec::new();
+    push_u32(&mut bytes, EGG_HEADER);
+    push_u16(&mut bytes, 1);
+    push_u32(&mut bytes, 1);
+    push_u32(&mut bytes, 0);
+    push_u32(&mut bytes, END_MARKER);
+    push_u32(&mut bytes, FILE_HEADER);
+    push_u32(&mut bytes, 1);
+    bytes.extend_from_slice(&0u64.to_le_bytes());
+    push_u32(&mut bytes, FILENAME);
+    bytes.push(0);
+    push_u16(&mut bytes, 5);
+    bytes.extend_from_slice(b"empty");
+    push_u32(&mut bytes, POSIX_INFO);
+    bytes.push(0);
+    push_u16(&mut bytes, 20);
+    push_u32(&mut bytes, 0o040755);
+    push_u32(&mut bytes, 0);
+    push_u32(&mut bytes, 0);
+    bytes.extend_from_slice(&0u64.to_le_bytes());
+    push_u32(&mut bytes, END_MARKER);
+    push_u32(&mut bytes, BLOCK_HEADER);
+    bytes.push(0);
+    bytes.push(0);
+    push_u32(&mut bytes, 0);
+    push_u32(&mut bytes, 0);
+    push_u32(&mut bytes, 0);
+    push_u32(&mut bytes, END_MARKER);
+    push_u32(&mut bytes, END_MARKER);
+    fs::write(&archive, bytes).unwrap();
+
+    let info = ArchiveService::list(&archive, None).unwrap();
+    assert!(info.entries.iter().any(|entry| entry.is_dir));
+    let output = directory.path().join("out");
+    ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: output.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert!(output.join("empty").is_dir());
+}
