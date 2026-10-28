@@ -1,7 +1,9 @@
+//! 密码库导入导出、迁移和重置测试。
+
 use super::*;
 
-#[gpui_kit::test]
 /// 验证密码页的主操作按钮使用标准按钮高度。
+#[gpui_kit::test]
 fn password_actions_use_standard_button_height(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -38,8 +40,8 @@ fn password_actions_use_standard_button_height(cx: &mut gpui_kit::TestAppContext
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证密码库导入/导出弹窗提供带标签的路径行，并使用标准按钮高度。
+#[gpui_kit::test]
 fn vault_transfer_dialog_uses_standard_buttons(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -91,8 +93,8 @@ fn vault_transfer_dialog_uses_standard_buttons(cx: &mut gpui_kit::TestAppContext
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证密码库锁定时，导入/导出弹窗先要求解锁，解锁后切换为完整表单。
+#[gpui_kit::test]
 fn vault_transfer_dialog_requires_unlock_when_locked(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -151,8 +153,8 @@ fn vault_transfer_dialog_requires_unlock_when_locked(cx: &mut gpui_kit::TestAppC
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证密码库锁定时只能导出明文 CSV，解锁后同一弹窗写入所选文件夹。
+#[gpui_kit::test]
 fn vault_csv_export_requires_unlock(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -216,8 +218,8 @@ fn vault_csv_export_requires_unlock(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证加密备份写入所选导出文件夹，而不是把输入当作完整文件路径。
+#[gpui_kit::test]
 fn vault_encrypted_export_writes_into_selected_folder(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -264,8 +266,8 @@ fn vault_encrypted_export_writes_into_selected_folder(cx: &mut gpui_kit::TestApp
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证密码记录新增、修改和删除都直接写入持久化密码库。
+#[gpui_kit::test]
 fn password_records_are_written_without_draft(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -319,8 +321,8 @@ fn password_records_are_written_without_draft(cx: &mut gpui_kit::TestAppContext)
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证密码库可以迁移到自定义目录并持久化新位置。
+#[gpui_kit::test]
 fn vault_can_move_to_custom_location(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -359,8 +361,8 @@ fn vault_can_move_to_custom_location(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证恢复默认设置会复位界面偏好，但保留自定义密码库位置。
+#[gpui_kit::test]
 fn reset_preferences_keeps_vault_location(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();

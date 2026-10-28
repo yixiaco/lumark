@@ -1,3 +1,5 @@
+//! 跨页面复用的图标、按钮、进度和视图组件。
+
 use super::super::*;
 use gpui_kit::Entity;
 use gpui_kit::base::{Tab as BaseTab, Tabs as BaseTabs};
@@ -12,43 +14,81 @@ use gpui_kit::component::select::{SearchableVec, Select, SelectState};
 /// 无需维护多套图标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AppIcon {
+    /// Add 图标。
     Add,
+    /// ArrowLeft 图标。
     ArrowLeft,
+    /// ArrowRight 图标。
     ArrowRight,
+    /// ArrowUp 图标。
     ArrowUp,
+    /// Check 图标。
     Check,
+    /// Close 图标。
     Close,
+    /// Compression 图标。
     Compression,
+    /// Copy 图标。
     Copy,
+    /// Delete 图标。
     Delete,
+    /// Doc 图标。
     Doc,
+    /// Down 图标。
     Down,
+    /// Download 图标。
     Download,
+    /// Edit 图标。
     Edit,
+    /// FileLock 图标。
     FileLock,
+    /// FileZip 图标。
     FileZip,
+    /// Folder 图标。
     Folder,
+    /// FolderOpen 图标。
     FolderOpen,
+    /// FolderPlus 图标。
     FolderPlus,
+    /// Grid 图标。
     Grid,
+    /// Home 图标。
     Home,
+    /// Key 图标。
     Key,
+    /// List 图标。
     List,
+    /// Lock 图标。
     Lock,
+    /// MenuFold 图标。
     MenuFold,
+    /// MenuUnfold 图标。
     MenuUnfold,
+    /// Music 图标。
     Music,
+    /// Picture 图标。
     Picture,
+    /// Refresh 图标。
     Refresh,
+    /// Right 图标。
     Right,
+    /// Save 图标。
     Save,
+    /// Search 图标。
     Search,
+    /// Setting 图标。
     Setting,
+    /// Shield 图标。
     Shield,
+    /// Time 图标。
     Time,
+    /// Tool 图标。
     Tool,
+    /// Unlock 图标。
     Unlock,
+    /// Video 图标。
     Video,
+    /// Zip 图标。
     Zip,
 }
 
@@ -144,10 +184,15 @@ pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
 /// 避免五种彩色填充在横幅上互相争夺注意力。
 #[derive(Clone, Copy, Debug)]
 pub(super) enum BannerTone {
+    /// 主色提示。
     Primary,
+    /// 成功提示。
     Success,
+    /// 警告提示。
     Warning,
+    /// 错误提示。
     Danger,
+    /// 中性提示。
     Neutral,
 }
 
@@ -242,6 +287,7 @@ pub(super) fn brand_mark(size: f32) -> impl IntoElement {
 
 /// 品牌标志的 SVG 图片源，只解码一次并在所有窗口间共享。
 fn brand_mark_image() -> std::sync::Arc<gpui_kit::Image> {
+    /// 图片查看器的共享缓存状态。
     static IMAGE: std::sync::OnceLock<std::sync::Arc<gpui_kit::Image>> = std::sync::OnceLock::new();
     IMAGE
         .get_or_init(|| {

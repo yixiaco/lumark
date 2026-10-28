@@ -1,7 +1,9 @@
+//! 文件表、父行和密码列表滚动测试。
+
 use super::*;
 
-#[gpui_kit::test]
 /// 验证虚拟文件行和平铺卡片都暴露预期的测试目标。
+#[gpui_kit::test]
 fn browser_renders_virtual_rows_and_tile_view(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -44,8 +46,8 @@ fn browser_renders_virtual_rows_and_tile_view(cx: &mut gpui_kit::TestAppContext)
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证文件表最上方的“..”行能返回上一级，并在盘符根目录隐藏。
+#[gpui_kit::test]
 fn parent_row_navigates_up_and_hides_at_root(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -96,8 +98,8 @@ fn parent_row_navigates_up_and_hides_at_root(cx: &mut gpui_kit::TestAppContext) 
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证密码列表先消费滚轮，外层页面不会抢先滚动。
+#[gpui_kit::test]
 fn password_list_scrolls_before_page(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();

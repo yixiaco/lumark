@@ -243,8 +243,8 @@ mod tests {
         }
     }
 
-    #[gpui_kit::test]
     /// 验证设置窗口的压缩选项卡能创建并渲染三个下拉选择。
+    #[gpui_kit::test]
     fn settings_window_renders_compression_selects(cx: &mut gpui_kit::TestAppContext) {
         cx.update(gpui_kit::init);
         let directory = tempdir().unwrap();

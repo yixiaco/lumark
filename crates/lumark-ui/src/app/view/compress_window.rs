@@ -1,3 +1,5 @@
+//! 独立压缩窗口状态、构造、Render 和打开入口。
+
 use super::super::*;
 use super::components::{
     AppIcon, choice_select, classic_field, classic_group, dialog_banner, hint_text, segmented_tab,
@@ -28,12 +30,19 @@ const CLASSIC_WINDOW_SIZE: (f32, f32) = (600., 390.);
 /// 直到用户点击“立即压缩/确定”才提交给主应用。
 #[derive(Clone)]
 pub(crate) struct CompressInit {
+    /// 初始压缩格式。
     pub format: ArchiveFormat,
+    /// 初始压缩预设。
     pub preset: SettingsPreset,
+    /// 是否默认固实。
     pub solid: bool,
+    /// 是否默认加密 7Z 头。
     pub encrypt_header: bool,
+    /// 是否默认使用 ZipCrypto。
     pub zipcrypto: bool,
+    /// 是否默认创建后测试。
     pub test_after: bool,
+    /// 是否默认删除源文件。
     pub delete_source: bool,
     /// 生成自解压 EXE；在 ZIP 或 7Z 格式下生效。
     pub sfx: bool,
@@ -43,111 +52,142 @@ pub(crate) struct CompressInit {
     pub disguise_mask: DisguiseMaskPreference,
     /// 自定义面具文件路径。
     pub disguise_custom: Option<PathBuf>,
+    /// 初始路径根模式。
     pub path_mode: PathMode,
+    /// 初始压缩线程数。
     pub threads: u32,
+    /// 初始 ZIP 压缩方法。
     pub zip_compression: ZipCompression,
+    /// 初始 7Z 压缩方法。
     pub sevenz_compression: SevenZCompression,
+    /// 初始 ZPAQ 级别。
     pub zpaq_compression: ZpaqCompression,
+    /// 初始 LZMA 字典大小。
     pub dictionary_mb: u32,
+    /// 初始 LZMA 字长。
     pub word_size: u32,
+    /// 初始固实块大小。
     pub solid_block_mb: u32,
     /// 分卷大小输入框的初始单位。
     pub split_unit: SizeUnit,
+    /// 初始文件时间过滤。
     pub file_time_filter: FileTimeFilter,
+    /// 初始归档时间来源。
     pub archive_time: ArchiveTimeSource,
+    /// 是否以经典排版打开。
     pub classic: bool,
 }
 
 /// 独立压缩窗口的视图状态。
 pub(crate) struct CompressWindowView {
+    /// 主应用句柄。
     pub(super) app: Entity<LumarkApp>,
+    /// 本次要压缩的源路径。
     pub(super) sources: Vec<PathBuf>,
+    /// 输出路径输入框。
     pub(super) output: Entity<InputState>,
+    /// 密码输入框。
     pub(super) password: Entity<InputState>,
+    /// 注释输入框。
     pub(super) comment: Entity<TextareaState>,
+    /// 排除规则输入框。
     pub(super) exclude: Entity<InputState>,
+    /// 强制 Store 规则输入框。
     pub(super) store: Entity<InputState>,
+    /// 分卷大小输入框。
     pub(super) split: Entity<InputState>,
     /// 分卷大小输入框右侧下拉框选中的单位。
     pub(super) split_unit: SizeUnit,
+    /// 压缩后命令输入框。
     pub(super) after: Entity<InputState>,
+    /// 压缩前命令输入框。
     pub(super) before: Entity<InputState>,
+    /// 当前压缩格式。
     pub(super) format: ArchiveFormat,
     /// 当前源可选的格式；多文件或文件夹源会隐藏单文件流格式。
     pub(super) format_options: Vec<(ArchiveFormat, &'static str)>,
+    /// 当前压缩预设。
     pub(super) preset: SettingsPreset,
+    /// 是否创建固实归档。
     pub(super) solid: bool,
+    /// 是否加密 7Z 头。
     pub(super) encrypt_header: bool,
+    /// 是否使用 ZipCrypto。
     pub(super) zipcrypto: bool,
+    /// 创建后是否测试。
     pub(super) test_after: bool,
+    /// 成功后是否删除源文件。
     pub(super) delete_source: bool,
+    /// 是否生成自解压 EXE。
     pub(super) sfx: bool,
     /// 是否把输出包装成媒体外观。
     pub(super) disguise: bool,
     /// 当前面具类型和自定义面具路径。
     pub(super) disguise_mask: DisguiseMaskPreference,
+    /// 自定义面具路径输入框。
     pub(super) disguise_custom: Option<PathBuf>,
     /// 压缩成功后安排系统关机；每次打开窗口都从关闭状态开始。
     pub(super) shutdown_after: bool,
     /// 压缩期间降低进程优先级，减少界面卡顿。
     pub(super) low_priority: bool,
+    /// 归档内路径根模式。
     pub(super) path_mode: PathMode,
+    /// 是否使用经典排版。
     pub(super) classic: bool,
+    /// 当前选项卡。
     pub(super) tab: u8,
+    /// 密码是否明文显示。
     pub(super) password_visible: bool,
+    /// 当前表单错误。
     pub(super) error: Option<String>,
+    /// ZIP 压缩方法。
     pub(super) zip_compression: ZipCompression,
+    /// 7Z 压缩方法。
     pub(super) sevenz_compression: SevenZCompression,
+    /// ZPAQ 压缩级别。
     pub(super) zpaq_compression: ZpaqCompression,
+    /// LZMA 字典大小。
     pub(super) dictionary_mb: u32,
+    /// LZMA 字长。
     pub(super) word_size: u32,
+    /// 固实块大小。
     pub(super) solid_block_mb: u32,
+    /// 压缩线程数。
     pub(super) threads: u32,
+    /// 文件时间过滤。
     pub(super) file_time_filter: FileTimeFilter,
+    /// 归档时间来源。
     pub(super) archive_time: ArchiveTimeSource,
+    /// 格式下拉框。
     pub(super) format_select: ChoiceState,
+    /// ZIP 方法下拉框。
     pub(super) zip_method_select: ChoiceState,
+    /// 7Z 方法下拉框。
     pub(super) seven_method_select: ChoiceState,
+    /// ZPAQ 级别下拉框。
     pub(super) zpaq_method_select: ChoiceState,
+    /// 字典大小下拉框。
     pub(super) dictionary_select: ChoiceState,
+    /// 字长下拉框。
     pub(super) word_select: ChoiceState,
+    /// 固实块下拉框。
     pub(super) solid_select: ChoiceState,
+    /// 线程数下拉框。
     pub(super) thread_select: ChoiceState,
+    /// 时间过滤下拉框。
     pub(super) filter_select: ChoiceState,
+    /// 归档时间下拉框。
     pub(super) archive_time_select: ChoiceState,
+    /// 分卷单位下拉框。
     pub(super) split_unit_select: ChoiceState,
+    /// 面具下拉框。
     pub(super) disguise_select: ChoiceState,
+    /// 保留下拉框订阅，窗口存活期间不被释放。
     pub(super) _select_subscriptions: Vec<Subscription>,
 }
 
+/// 压缩窗口下拉选择框的实体类型。
 type ChoiceState = Entity<SelectState<SearchableVec<&'static str>>>;
-
-const ZIP_METHOD_LABELS: [&str; 3] = ["Deflate（推荐）", "BZip2", "LZMA"];
-const SEVEN_METHOD_LABELS: [&str; 4] = ["LZMA2（推荐）", "LZMA", "PPMd", "BZip2"];
-const ZPAQ_METHOD_LABELS: [&str; 5] = [
-    "1 - 快速",
-    "2 - 平衡（推荐）",
-    "3 - 较高",
-    "4 - 更高（较慢）",
-    "5 - 极限（最慢）",
-];
-const DICTIONARY_LABELS: [&str; 17] = [
-    "1 MB", "2 MB", "4 MB", "8 MB", "16 MB", "24 MB", "32 MB", "48 MB", "64 MB", "96 MB", "128 MB",
-    "192 MB", "256 MB", "384 MB", "512 MB", "768 MB", "1024 MB",
-];
-const WORD_LABELS: [&str; 12] = [
-    "8", "12", "16", "24", "32", "48", "64", "96", "128", "192", "256", "273",
-];
-const SOLID_LABELS: [&str; 17] = [
-    "1 MB", "2 MB", "4 MB", "8 MB", "16 MB", "32 MB", "64 MB", "128 MB", "256 MB", "512 MB",
-    "1 GB", "2 GB", "4 GB", "8 GB", "16 GB", "32 GB", "64 GB",
-];
-const THREAD_LABELS: [&str; 32] = [
-    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
-    "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
-];
-const FILTER_LABELS: [&str; 4] = ["任意时间", "早于", "晚于", "日期范围"];
-const ARCHIVE_TIME_LABELS: [&str; 3] = ["当前系统时间", "原始压缩时间", "最近文件时间"];
 
 /// 常用分卷大小预设。
 ///
@@ -167,6 +207,7 @@ impl SplitPreset {
     }
 }
 
+/// 分卷大小预设。
 static SPLIT_PRESETS: [SplitPreset; 7] = [
     SplitPreset {
         amount: "512",
@@ -205,6 +246,7 @@ static SPLIT_PRESETS: [SplitPreset; 7] = [
     },
 ];
 
+/// 压缩窗口可选的格式顺序。
 const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::Zip, "ZIP"),
     (ArchiveFormat::SevenZip, "7Z"),
@@ -238,6 +280,9 @@ fn writable_format_options(allow_single_stream: bool) -> Vec<(ArchiveFormat, &'s
         .filter(|(format, _)| allow_single_stream || !format.is_single_stream())
         .collect()
 }
+
+mod labels;
+pub(crate) use labels::*;
 
 mod chrome;
 mod classic;

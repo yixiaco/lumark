@@ -1,6 +1,9 @@
+//! 单实例请求目录和转发表。
+
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// 返回单实例请求目录。
 fn request_dir() -> PathBuf {
     std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -26,6 +29,7 @@ pub fn send_request(arguments: &[String]) -> std::io::Result<()> {
     std::fs::rename(temporary, final_path)
 }
 
+/// 取出并删除待处理请求文件。
 pub fn take_requests() -> std::io::Result<Vec<Vec<String>>> {
     let directory = request_dir();
     let Ok(entries) = std::fs::read_dir(&directory) else {

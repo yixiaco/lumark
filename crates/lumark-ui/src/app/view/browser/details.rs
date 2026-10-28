@@ -1,3 +1,5 @@
+//! 侧栏详细信息检查器。
+
 use super::*;
 
 impl LumarkApp {

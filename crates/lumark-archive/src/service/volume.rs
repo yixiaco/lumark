@@ -1,3 +1,5 @@
+//! 分卷路径、拆分、提交和原子替换辅助。
+
 use super::*;
 
 /// 把文件名拆成主名和完整扩展名，识别 `.tar.gz` 这类复合扩展名。
@@ -6,6 +8,7 @@ use super::*;
 /// 必须保留完整扩展名，否则 `cover.tar.gz` 会变成 `cover.tar (1).gz`，
 /// 后续格式识别会把 TAR 变体误判成单文件流。
 pub(super) fn split_compound_extension(name: &str) -> (&str, Option<&str>) {
+    /// 需要整体保留的复合扩展名。
     const COMPOUND: [&str; 8] = [
         ".tar.lzma",
         ".tar.bz2",
@@ -33,6 +36,7 @@ pub(super) fn split_compound_extension(name: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// 为目标路径生成不冲突的同名文件路径。
 pub(crate) fn unique_destination(path: &Path) -> PathBuf {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
@@ -52,6 +56,7 @@ pub(crate) fn unique_destination(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// 去掉 .001 等分卷后缀，得到逻辑归档名。
 pub(super) fn strip_volume_suffix(path: &Path) -> PathBuf {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
         return path.to_path_buf();
@@ -66,6 +71,7 @@ pub(super) fn strip_volume_suffix(path: &Path) -> PathBuf {
     }
 }
 
+/// 判断路径是否为分卷成员。
 pub(crate) fn is_volume_path(path: &Path) -> bool {
     path.file_name()
         .and_then(|value| value.to_str())
@@ -73,6 +79,7 @@ pub(crate) fn is_volume_path(path: &Path) -> bool {
         .is_some_and(|(_, suffix)| suffix == "001")
 }
 
+/// 按顺序列出同一归档的全部分卷。
 pub(super) fn volume_paths(path: &Path) -> Result<Option<Vec<PathBuf>>, ArchiveError> {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
         return Ok(None);
@@ -111,6 +118,7 @@ pub(super) fn volume_paths(path: &Path) -> Result<Option<Vec<PathBuf>>, ArchiveE
     Ok(Some(volumes.into_iter().map(|(_, path)| path).collect()))
 }
 
+/// 为只接受路径的后端准备物化输入和清理守卫。
 pub(super) fn materialize_input(
     path: &Path,
 ) -> Result<(PathBuf, Option<tempfile::TempDir>), ArchiveError> {
@@ -133,6 +141,7 @@ pub(super) fn materialize_input(
     Ok((joined, Some(directory)))
 }
 
+/// 确认删除源文件不会误删输出或工作目录。
 pub(super) fn ensure_sources_safe_to_delete(
     sources: &[PathBuf],
     output: &Path,
@@ -153,6 +162,7 @@ pub(super) fn ensure_sources_safe_to_delete(
     Ok(())
 }
 
+/// 返回用于路径比较的绝对规范化路径。
 pub(super) fn absolute_for_comparison(path: &Path) -> Option<PathBuf> {
     if let Ok(canonical) = fs::canonicalize(path) {
         return Some(canonical);
@@ -162,6 +172,7 @@ pub(super) fn absolute_for_comparison(path: &Path) -> Option<PathBuf> {
     Some(parent.join(path.file_name()?))
 }
 
+/// 删除源路径并记录失败原因。
 pub(super) fn remove_source_paths(sources: &[PathBuf], errors: &mut Vec<String>) {
     for source in sources {
         let result = if source.is_dir() {
@@ -175,6 +186,7 @@ pub(super) fn remove_source_paths(sources: &[PathBuf], errors: &mut Vec<String>)
     }
 }
 
+/// 按目标大小把归档拆成 .001 分卷。
 pub(super) fn split_file(
     source: &Path,
     base: &Path,
@@ -249,6 +261,7 @@ pub(super) fn split_file(
     Ok(targets)
 }
 
+/// 把临时分卷提交到目标位置并清理旧卷。
 pub(super) fn commit_split_volumes(
     staged: &[PathBuf],
     targets: &[PathBuf],
@@ -295,12 +308,14 @@ pub(super) fn commit_split_volumes(
     Ok(())
 }
 
+/// 提交失败时恢复原分卷。
 pub(super) fn restore_split_backups(backups: &[(PathBuf, PathBuf)]) {
     for (target, backup) in backups.iter().rev() {
         let _ = fs::rename(backup, target);
     }
 }
 
+/// 列出目标归档同目录的现有分卷。
 pub(super) fn sibling_volume_paths(path: &Path) -> Result<Vec<PathBuf>, ArchiveError> {
     let Some(parent) = path.parent() else {
         return Ok(Vec::new());
@@ -336,6 +351,7 @@ pub(super) fn sibling_volume_paths(path: &Path) -> Result<Vec<PathBuf>, ArchiveE
     Ok(volumes.into_iter().map(|(_, path)| path).collect())
 }
 
+/// 原子替换文件，失败时保留旧文件。
 #[cfg(windows)]
 pub(crate) fn atomic_replace_file(temp: &Path, output: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -371,6 +387,7 @@ pub(crate) fn atomic_replace_file(temp: &Path, output: &Path) -> io::Result<()> 
     }
 }
 
+/// 原子替换文件，失败时保留旧文件。
 #[cfg(not(windows))]
 pub(crate) fn atomic_replace_file(temp: &Path, output: &Path) -> io::Result<()> {
     fs::rename(temp, output)

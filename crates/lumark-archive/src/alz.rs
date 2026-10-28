@@ -400,6 +400,7 @@ impl<W: Write> CountingWriter<W> {
 }
 
 impl<W: Write> Write for CountingWriter<W> {
+    /// 写入解压数据并更新 CRC 和预算。
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         if self.written.saturating_add(buffer.len() as u64) > self.limit {
             self.exceeded = true;
@@ -410,6 +411,7 @@ impl<W: Write> Write for CountingWriter<W> {
         Ok(written)
     }
 
+    /// 刷新底层输出。
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }

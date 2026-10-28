@@ -1,6 +1,9 @@
+//! 各归档格式的创建流程。
+
 use super::*;
 
 impl ArchiveService {
+    /// 创建 ZIP 归档，按分块响应取消并上报进度。
     pub(crate) fn create_zip<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -110,6 +113,7 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 创建 7Z 归档，支持固实块、密码和线程参数。
     pub(crate) fn create_seven_zip<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -419,6 +423,7 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 创建 TAR 及压缩变体归档。
     pub(crate) fn create_tar<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -550,6 +555,7 @@ impl ArchiveService {
         )
     }
 
+    /// 创建 GZ/BZ2/XZ/ZST/Brotli/LZ4 单文件流。
     pub(crate) fn create_single_stream<F>(
         output: &Path,
         sources: &[PathBuf],

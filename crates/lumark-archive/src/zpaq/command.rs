@@ -12,6 +12,7 @@ use crate::error::ArchiveError;
 // UCRT 的 `stdout`/`stderr` 宏背后返回 `FILE*` 的函数。
 #[cfg(all(windows, target_env = "msvc"))]
 unsafe extern "C" {
+    /// UCRT 标准流查询函数。
     fn __acrt_iob_func(index: u32) -> *mut libc::FILE;
 }
 
@@ -64,6 +65,7 @@ fn ensure_jidac_stdio() {
     {
         use std::sync::Once;
 
+        /// 标准流修复只执行一次。
         static ONCE: Once = Once::new();
         ONCE.call_once(|| {
             // SAFETY: 这里只查询和重绑定 CRT 的标准流；

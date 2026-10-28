@@ -1,3 +1,5 @@
+//! 压缩窗口打开、输出目录选择和任务提交。
+
 use super::*;
 
 impl LumarkApp {

@@ -1,5 +1,8 @@
+//! RAR 和传统只读格式的列表、解压与测试。
+
 use super::*;
 
+/// 判断 UnRAR 错误是否表示归档加密。
 pub(crate) fn rar_error_means_encrypted(error: &unrar::error::UnrarError) -> bool {
     use unrar::error::{Code, When};
 
@@ -7,6 +10,7 @@ pub(crate) fn rar_error_means_encrypted(error: &unrar::error::UnrarError) -> boo
         || (error.when == When::Open && error.code == Code::UnknownFormat)
 }
 
+/// 把 UnRAR 错误映射为统一归档错误。
 pub(crate) fn map_rar_error(error: unrar::error::UnrarError) -> ArchiveError {
     match error.code {
         unrar::error::Code::MissingPassword => ArchiveError::PasswordRequired,
@@ -15,6 +19,7 @@ pub(crate) fn map_rar_error(error: unrar::error::UnrarError) -> ArchiveError {
     }
 }
 
+/// 按格式打开传统只读归档读取器。
 pub(crate) fn open_legacy_reader(
     path: &Path,
     format: ArchiveFormat,
@@ -49,6 +54,7 @@ pub(crate) fn open_legacy_reader(
 }
 
 impl ArchiveService {
+    /// 探测 RAR 是否加密。
     pub(crate) fn probe_rar(path: &Path) -> Result<EncryptionInfo, ArchiveError> {
         let listing = match UnrarArchive::new(path).open_for_listing() {
             Ok(listing) => listing,
@@ -83,6 +89,7 @@ impl ArchiveService {
         })
     }
 
+    /// 解压传统只读归档。
     pub(crate) fn extract_legacy<F>(
         path: &Path,
         format: ArchiveFormat,
@@ -96,6 +103,7 @@ impl ArchiveService {
         Self::extract_legacy_with(reader, options, progress)
     }
 
+    /// 用已打开的读取器解压传统归档。
     pub(crate) fn extract_legacy_with<F>(
         mut reader: Box<dyn LegacyReader>,
         options: &ExtractionOptions,
@@ -163,6 +171,7 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 验证 RAR 密码。
     pub(crate) fn verify_rar(path: &Path, password: &str) -> Result<bool, ArchiveError> {
         let archive = if password.is_empty() {
             UnrarArchive::new(path)
@@ -183,6 +192,7 @@ impl ArchiveService {
         }
     }
 
+    /// 解压 RAR 条目，处理覆盖、预算和取消。
     pub(crate) fn extract_rar<F>(
         path: &Path,
         options: &ExtractionOptions,
@@ -333,6 +343,7 @@ impl ArchiveService {
         Self::test_legacy_with(reader, progress)
     }
 
+    /// 用已打开的读取器完整测试传统归档。
     pub(crate) fn test_legacy_with<F>(
         mut reader: Box<dyn LegacyReader>,
         progress: &mut F,

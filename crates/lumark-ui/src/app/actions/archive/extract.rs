@@ -1,3 +1,5 @@
+//! 解压窗口、加密探测和任务提交。
+
 use super::*;
 
 impl LumarkApp {

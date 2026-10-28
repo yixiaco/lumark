@@ -1,15 +1,21 @@
+//! 文件系统动作入口。
+
 use super::super::*;
 
 /// 临时解压的用途：复制到剪贴板或准备原生拖出。
 #[derive(Clone, Copy)]
 pub(crate) enum TempExtractMode {
+    /// 复制到剪贴板。
     Copy,
+    /// 拖出到资源管理器。
     Drag { hwnd: isize },
 }
 
 /// 后台临时解压回传的事件。
 enum TempExtractEvent {
+    /// 临时解压进度。
     Progress(lumark_archive::ExtractProgress),
+    /// 临时解压完成。
     Finished(Result<Vec<(PathBuf, bool)>, String>),
 }
 

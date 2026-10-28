@@ -1,3 +1,5 @@
+//! 主文件表、搜索结果条和侧栏详情检查器入口。
+
 use super::super::actions::TempExtractMode;
 use super::super::*;
 use super::components::{AppIcon, entry_icon, entry_icon_color, hint_text, icon_button};

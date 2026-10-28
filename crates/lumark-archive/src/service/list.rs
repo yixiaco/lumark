@@ -1,6 +1,9 @@
+//! 各归档格式的列表和密码验证。
+
 use super::*;
 
 impl ArchiveService {
+    /// 列出 ZIP 条目和加密状态。
     pub(crate) fn list_zip<R: Read + Seek>(reader: R) -> Result<ArchiveInfo, ArchiveError> {
         let mut archive = ZipArchive::new(reader)?;
         let mut info = ArchiveInfo {
@@ -35,6 +38,7 @@ impl ArchiveService {
         Ok(info)
     }
 
+    /// 列出 RAR 条目。
     pub(crate) fn list_rar(
         path: &Path,
         password: Option<&str>,
@@ -68,6 +72,7 @@ impl ArchiveService {
         Ok(info)
     }
 
+    /// 列出传统只读格式条目。
     pub(crate) fn list_legacy(
         path: &Path,
         format: ArchiveFormat,
@@ -75,6 +80,7 @@ impl ArchiveService {
         Self::list_legacy_with(open_legacy_reader(path, format)?, format)
     }
 
+    /// 用已打开的读取器列出传统归档。
     pub(crate) fn list_legacy_with(
         mut reader: Box<dyn LegacyReader>,
         format: ArchiveFormat,
@@ -107,6 +113,7 @@ impl ArchiveService {
         Ok(info)
     }
 
+    /// 列出 7Z 条目、压缩大小和加密状态。
     pub(crate) fn list_seven_zip<R: Read + Seek>(
         reader: R,
         password: &str,
@@ -149,6 +156,7 @@ impl ArchiveService {
         Ok(info)
     }
 
+    /// 列出 TAR 及压缩变体条目。
     pub(crate) fn list_tar(
         reader: Box<dyn Read>,
         format: ArchiveFormat,
@@ -184,6 +192,7 @@ impl ArchiveService {
         Ok(info)
     }
 
+    /// 列出单文件流归档的唯一条目。
     pub(crate) fn list_single_stream(
         path: &Path,
         format: ArchiveFormat,
@@ -225,6 +234,7 @@ impl ArchiveService {
         }
     }
 
+    /// 列出 Unix .Z 归档的唯一条目。
     pub(crate) fn list_unix_compress(path: &Path) -> Result<ArchiveInfo, ArchiveError> {
         let (_, entry) = open_unix_compress(path)?;
         let name = unix_compress_name(path, entry.name());
@@ -248,6 +258,7 @@ impl ArchiveService {
         })
     }
 
+    /// 列出 AES 加密容器的唯一条目。
     pub(crate) fn list_encrypted_container(
         path: &Path,
         password: Option<&str>,

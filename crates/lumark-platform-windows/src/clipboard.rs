@@ -116,6 +116,7 @@ unsafe fn set_copy_effect() {
 struct ClipboardGuard;
 
 impl Drop for ClipboardGuard {
+    /// 释放剪贴板内存。
     fn drop(&mut self) {
         unsafe {
             CloseClipboard();

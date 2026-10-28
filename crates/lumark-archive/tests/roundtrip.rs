@@ -1,3 +1,5 @@
+//! 归档格式往返测试入口，按格式拆分到子模块。
+
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;

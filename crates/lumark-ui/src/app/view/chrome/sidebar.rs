@@ -1,3 +1,5 @@
+//! 常用位置和目录树合并的文件夹侧栏。
+
 use super::*;
 
 impl LumarkApp {

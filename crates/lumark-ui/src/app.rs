@@ -46,37 +46,46 @@ mod stores;
 pub(crate) use stores::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 主窗口当前页面。
 pub(crate) enum Screen {
+    /// 文件浏览页。
     Browser,
+    /// 密码库页。
     Passwords,
+    /// 任务中心页。
     Tasks,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 打开归档后的初始动作。
 pub(crate) enum ArchiveOpenIntent {
+    /// 打开后浏览。
     Browse,
+    /// 打开后解压。
     Extract,
 }
 
 #[derive(Debug, Clone)]
+/// 密码验证成功后要执行的动作。
 pub(crate) enum PendingPasswordAction {
+    /// 密码通过后打开归档。
     OpenArchive {
         archive: PathBuf,
         intent: ArchiveOpenIntent,
     },
-    ExtractDialog {
-        archive: PathBuf,
-    },
+    /// 密码通过后打开解压窗口。
+    ExtractDialog { archive: PathBuf },
+    /// 密码通过后打开条目。
     OpenEntry {
         archive: PathBuf,
         relative: String,
         mode: PendingOpenMode,
     },
-    Test {
-        archive: PathBuf,
-    },
+    /// 密码通过后测试归档。
+    Test { archive: PathBuf },
 }
 
+/// 等待密码验证的后台任务。
 pub(crate) struct PendingPasswordJob {
     action: PendingPasswordAction,
     entry_ids: Vec<Uuid>,
@@ -105,6 +114,7 @@ impl PasswordAttemptProgress {
     }
 }
 
+/// 等待额外密码验证的后台任务。
 struct PendingExtraPasswordJob {
     action: PendingPasswordAction,
     candidates: Vec<lumark_vault::PasswordCandidate>,
@@ -123,17 +133,23 @@ pub(crate) struct CompressTaskOptions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 等待密码验证的归档编辑动作。
 pub(crate) enum PendingEditAction {
+    /// 密码通过后添加文件。
     Add,
+    /// 密码通过后删除条目。
     Delete,
+    /// 密码通过后重命名条目。
     Rename,
 }
 
+/// 等待密码验证的编辑任务。
 struct PendingEditJob {
     archive: PathBuf,
     action: PendingEditAction,
 }
 
+/// 等待密码验证后要打开的归档条目。
 struct PendingOpenEntry {
     task_id: u64,
     temporary: PathBuf,
@@ -156,22 +172,32 @@ pub(crate) enum PendingOpenMode {
 /// 任务中心重新打开后台任务的进度窗口或查看最终结果。
 #[derive(Clone)]
 pub(crate) struct TaskRecord {
+    /// 任务 ID。
     pub(crate) id: u64,
+    /// 任务类型。
     pub(crate) kind: TaskKind,
+    /// 任务展示名称。
     pub(crate) label: String,
+    /// 任务状态。
     pub(crate) state: TaskState,
+    /// 最近进度。
     pub(crate) progress: TaskProgress,
+    /// 完成或失败消息。
     pub(crate) message: Option<String>,
 }
 
 /// 拖出或复制归档条目时的临时解压进度弹窗。
 #[derive(Clone)]
 pub(crate) struct TempExtractDialog {
+    /// 弹窗标题。
     pub(crate) title: String,
+    /// 说明文本。
     pub(crate) message: String,
+    /// 临时解压进度。
     pub(crate) progress: f32,
 }
 
+/// 侧栏目录树的扁平行。
 pub(crate) struct TreeRow {
     path: PathBuf,
     label: String,
@@ -179,6 +205,7 @@ pub(crate) struct TreeRow {
     expanded: bool,
 }
 
+/// Lumark 主应用状态。
 pub struct LumarkApp {
     browser: BrowserModel,
     settings: Arc<SettingsStore>,
@@ -777,6 +804,7 @@ pub(crate) use util::*;
 /// 尺寸来自共享设置，最小尺寸与启动时保持一致；窗口位置只做小范围偏移，
 /// 连续打开多个压缩包时每个窗口都能露出标题栏。
 fn window_options(stores: &SharedStores) -> gpui_kit::WindowOptions {
+    /// 新窗口级联偏移计数。
     static CASCADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let settings = stores.settings.get();
     let cascade = CASCADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 6;

@@ -1,3 +1,5 @@
+//! 密码库自动解压集成测试。
+
 use std::fs;
 
 use lumark_archive::{ArchiveFormat, ArchiveService, CompressionOptions, ExtractionOptions};
@@ -5,6 +7,7 @@ use lumark_vault::{PasswordEntry, PasswordResolver, VaultCrypto, VaultSettings, 
 use tempfile::tempdir;
 
 #[test]
+/// 验证记住的密码会成为候选并自动解压。
 fn remembered_password_is_candidate_and_extracts_archive() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("source");

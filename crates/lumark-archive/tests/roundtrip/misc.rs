@@ -1,7 +1,10 @@
+//! 路径安全、分卷、自解压和资源预算测试。
+
 use super::common::*;
 use super::*;
 
 #[test]
+/// 验证路径逃逸、绝对路径和保留名被拒绝。
 fn unsafe_paths_are_rejected() {
     assert!(safe_join(std::path::Path::new("C:\\out"), "../escape").is_err());
     assert!(safe_join(std::path::Path::new("C:\\out"), "C:\\absolute").is_err());
@@ -10,6 +13,7 @@ fn unsafe_paths_are_rejected() {
     assert!(safe_join(std::path::Path::new("C:\\out"), "folder\\file.txt").is_ok());
 }
 #[test]
+/// 验证分卷归档的列表和解压。
 fn split_volume_archive_can_be_listed_and_extracted() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("large.bin");
@@ -62,6 +66,7 @@ fn split_volume_archive_can_be_listed_and_extracted() {
 }
 
 #[test]
+/// 验证替换分卷归档会清理旧卷。
 fn replacing_a_split_archive_removes_stale_volumes() {
     let dir = tempdir().unwrap();
     let large = dir.path().join("large.bin");
@@ -117,6 +122,7 @@ fn replacing_a_split_archive_removes_stale_volumes() {
 }
 
 #[test]
+/// 验证发布前测试和成功后删除源文件。
 fn compression_can_test_before_publish_and_delete_sources() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("delete-me.txt");
@@ -142,6 +148,7 @@ fn compression_can_test_before_publish_and_delete_sources() {
 }
 
 #[test]
+/// 验证输出位于源目录时拒绝删除源文件。
 fn delete_source_is_rejected_when_output_is_inside_source() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("source");
@@ -164,6 +171,7 @@ fn delete_source_is_rejected_when_output_is_inside_source() {
 }
 
 #[test]
+/// 验证分卷创建失败时保留旧卷。
 fn failed_split_creation_preserves_existing_volumes() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("payload.bin");

@@ -1,3 +1,5 @@
+//! 密码库解锁、持久化、自动锁定和 CRUD。
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -9,6 +11,7 @@ use crate::crypto::{DecryptedVault, VaultCrypto, VaultFile};
 use crate::model::{PasswordEntry, VaultError, VaultSettings, VaultState};
 use crate::resolver::{PasswordCandidate, PasswordResolver};
 
+/// 密码库的内存状态：解锁密钥、条目、设置、活动时间和文件戳。
 struct VaultInner {
     state: VaultState,
     file: Option<VaultFile>,
@@ -28,12 +31,14 @@ fn requires_master_password(inner: &VaultInner) -> bool {
         .is_some_and(|file| matches!(file.key_wrap, crate::crypto::KeyWrap::MasterPassword { .. }))
 }
 
+/// 线程安全的密码库存储，负责解锁、持久化和自动锁定。
 pub struct VaultStore {
     path: PathBuf,
     inner: RwLock<VaultInner>,
 }
 
 impl VaultStore {
+    /// 返回当前用户的默认密码库路径。
     pub fn default_path() -> PathBuf {
         dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -42,6 +47,7 @@ impl VaultStore {
             .join("vault.dat")
     }
 
+    /// 打开或创建密码库，并自动处理损坏恢复和 DPAPI 迁移。
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, VaultError> {
         let path = path.into();
         let mut inner = VaultInner {
@@ -95,24 +101,29 @@ impl VaultStore {
         })
     }
 
+    /// 返回密码库文件路径。
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// 返回当前锁定状态。
     pub fn state(&self) -> VaultState {
         self.inner.read().state
     }
 
+    /// 判断密码库是否已解锁。
     pub fn is_unlocked(&self) -> bool {
         self.state() == VaultState::Unlocked
     }
 
+    /// 判断是否需要主密码才能解锁。
     pub fn has_master_password(&self) -> bool {
         self.inner.read().file.as_ref().is_some_and(|file| {
             matches!(file.key_wrap, crate::crypto::KeyWrap::MasterPassword { .. })
         })
     }
 
+    /// 返回当前内存中的条目数。
     pub fn entry_count(&self) -> usize {
         let inner = self.inner.read();
         inner.entries.len().max(
@@ -123,10 +134,12 @@ impl VaultStore {
         )
     }
 
+    /// 返回密码库设置副本。
     pub fn settings(&self) -> VaultSettings {
         self.inner.read().settings
     }
 
+    /// 用主密码解锁密码库并刷新内存状态。
     pub fn unlock(&self, master_password: &str) -> Result<(), VaultError> {
         let mut inner = self.inner.write();
         let file = inner.file.as_ref().ok_or(VaultError::Uninitialized)?;
@@ -136,6 +149,7 @@ impl VaultStore {
         Ok(())
     }
 
+    /// 未解锁时返回统一错误，供写操作前置检查。
     pub fn ensure_unlocked(&self) -> Result<(), VaultError> {
         let state = self.state();
         if state == VaultState::Unlocked {
@@ -148,6 +162,7 @@ impl VaultStore {
         Err(VaultError::Locked)
     }
 
+    /// 锁定密码库并清零内存中的会话密钥。
     pub fn lock(&self) {
         let mut inner = self.inner.write();
         if !requires_master_password(&inner) {
@@ -164,22 +179,26 @@ impl VaultStore {
         };
     }
 
+    /// 刷新最近活动时间，延迟自动锁定。
     pub fn touch(&self) {
         self.inner.write().last_activity = Instant::now();
     }
 
+    /// 持有临时租约，阻止自动锁定。
     pub fn acquire_lease(&self) {
         let mut inner = self.inner.write();
         inner.leases = inner.leases.saturating_add(1);
         inner.last_activity = Instant::now();
     }
 
+    /// 释放临时租约。
     pub fn release_lease(&self) {
         let mut inner = self.inner.write();
         inner.leases = inner.leases.saturating_sub(1);
         inner.last_activity = Instant::now();
     }
 
+    /// 超过自动锁定时间且没有租约时锁定密码库。
     pub fn maybe_auto_lock(&self) -> bool {
         let mut inner = self.inner.write();
         if inner.state != VaultState::Unlocked || inner.leases > 0 {
@@ -217,10 +236,12 @@ impl VaultStore {
         }
     }
 
+    /// 返回条目列表副本。
     pub fn entries(&self) -> Vec<PasswordEntry> {
         self.inner.read().entries.clone()
     }
 
+    /// 按 ID 查找条目。
     pub fn find_entry(&self, id: Uuid) -> Option<PasswordEntry> {
         self.inner
             .read()
@@ -230,6 +251,7 @@ impl VaultStore {
             .cloned()
     }
 
+    /// 新增条目并立即持久化。
     pub fn add_entry(&self, mut entry: PasswordEntry) -> Result<Uuid, VaultError> {
         self.ensure_unlocked()?;
         validate_pattern(entry.archive_pattern.as_deref())?;
@@ -260,6 +282,7 @@ impl VaultStore {
         Ok(id)
     }
 
+    /// 更新条目并立即持久化。
     pub fn update_entry(&self, mut entry: PasswordEntry) -> Result<(), VaultError> {
         self.ensure_unlocked()?;
         validate_pattern(entry.archive_pattern.as_deref())?;
@@ -281,6 +304,7 @@ impl VaultStore {
         save_inner(&self.path, &mut inner)
     }
 
+    /// 删除条目并立即持久化。
     pub fn remove_entry(&self, id: Uuid) -> Result<(), VaultError> {
         self.ensure_unlocked()?;
         let mut inner = self.inner.write();
@@ -311,10 +335,12 @@ impl VaultStore {
         save_inner(&self.path, &mut inner)
     }
 
+    /// 清空全部条目并持久化。
     pub fn clear_entries(&self) -> Result<(), VaultError> {
         self.replace_entries(Vec::new())
     }
 
+    /// 记录条目最近使用时间。
     pub fn mark_used(&self, id: Uuid) -> Result<(), VaultError> {
         self.ensure_unlocked()?;
         let mut inner = self.inner.write();
@@ -325,6 +351,7 @@ impl VaultStore {
         Ok(())
     }
 
+    /// 更新密码库设置并持久化。
     pub fn update_settings(&self, settings: VaultSettings) -> Result<(), VaultError> {
         self.ensure_unlocked()?;
         let mut inner = self.inner.write();
@@ -341,6 +368,7 @@ impl VaultStore {
         save_inner(&self.path, &mut inner)
     }
 
+    /// 设置或更换主密码，并重新封装会话密钥。
     pub fn set_master_password(
         &self,
         current: Option<&str>,
@@ -374,6 +402,7 @@ impl VaultStore {
         save_inner(&self.path, &mut inner)
     }
 
+    /// 移除主密码并改回 DPAPI 保护。
     pub fn remove_master_password(&self, current: &str) -> Result<(), VaultError> {
         let mut inner = self.inner.write();
         ensure_key(&inner)?;
@@ -385,6 +414,7 @@ impl VaultStore {
         save_inner(&self.path, &mut inner)
     }
 
+    /// 为归档生成按匹配度排序的密码候选。
     pub fn candidates(
         &self,
         archive_path: &Path,
@@ -394,6 +424,7 @@ impl VaultStore {
         PasswordResolver::candidates(&entries, archive_path, fingerprint)
     }
 
+    /// 导出加密密码库副本。
     pub fn export(&self, path: &Path, passphrase: &str) -> Result<(), VaultError> {
         self.ensure_unlocked()?;
         let inner = self.inner.read();
@@ -421,6 +452,7 @@ impl VaultStore {
         Ok(inner.entries.len())
     }
 
+    /// 导入密码库并合并或替换现有条目。
     pub fn import(
         &self,
         path: &Path,
@@ -491,6 +523,7 @@ fn csv_field(value: &str) -> String {
     }
 }
 
+/// 返回会话密钥；未解锁时拒绝访问。
 fn ensure_key(inner: &VaultInner) -> Result<(), VaultError> {
     if inner.key.is_some() {
         Ok(())
@@ -499,6 +532,7 @@ fn ensure_key(inner: &VaultInner) -> Result<(), VaultError> {
     }
 }
 
+/// 校验密码匹配规则语法。
 fn validate_pattern(pattern: Option<&str>) -> Result<(), VaultError> {
     let Some(pattern) = pattern.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(());
@@ -508,6 +542,7 @@ fn validate_pattern(pattern: Option<&str>) -> Result<(), VaultError> {
         .map_err(|_| VaultError::InvalidPattern(pattern.to_string()))
 }
 
+/// 把损坏密码库备份后重新初始化，避免启动失败。
 fn recover_corrupt_vault(path: &Path) -> Result<VaultFile, VaultError> {
     let stamp = Utc::now().format("%Y%m%d-%H%M%S");
     let file_name = path
@@ -533,6 +568,7 @@ fn recover_corrupt_vault(path: &Path) -> Result<VaultFile, VaultError> {
     })
 }
 
+/// 把解密结果写入内存状态。
 fn apply_decrypted(inner: &mut VaultInner, decrypted: DecryptedVault) {
     let (entries, settings, key) = decrypted.into_parts();
     inner.state = VaultState::Unlocked;
@@ -542,6 +578,7 @@ fn apply_decrypted(inner: &mut VaultInner, decrypted: DecryptedVault) {
     inner.last_activity = Instant::now();
 }
 
+/// 用当前会话密钥重新加密并原子写回。
 fn save_inner(path: &Path, inner: &mut VaultInner) -> Result<(), VaultError> {
     let key = inner.key.ok_or(VaultError::Locked)?;
     if let Some(file) = inner.file.as_mut() {
@@ -558,6 +595,7 @@ fn save_inner(path: &Path, inner: &mut VaultInner) -> Result<(), VaultError> {
     Ok(())
 }
 
+/// 读取文件大小和修改时间，用于检测外部变更。
 fn file_stamp(path: &Path) -> Option<(u64, u64)> {
     std::fs::metadata(path).ok().and_then(|metadata| {
         let modified = metadata.modified().ok()?;

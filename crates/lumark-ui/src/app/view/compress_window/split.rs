@@ -1,3 +1,5 @@
+//! 压缩窗口分卷大小输入和预设。
+
 use super::*;
 
 impl CompressWindowView {

@@ -1,34 +1,58 @@
+//! 用户设置的数据模型和默认值。
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+/// Lumark 的用户设置。
 pub struct Settings {
+    /// 设置文件版本。
     pub version: u32,
+    /// 主题模式。
     pub theme: ThemePreference,
     /// 界面强调色的十六进制值，默认蓝色。
     pub accent_color: String,
+    /// 界面语言。
     pub language: String,
+    /// 默认压缩格式。
     pub default_format: String,
+    /// 默认压缩预设。
     pub default_preset: CompressionPreset,
+    /// 默认输出目录。
     pub default_output_dir: Option<PathBuf>,
     /// 自定义密码库文件路径；`None` 表示使用默认位置。
     pub vault_path: Option<PathBuf>,
+    /// 默认解压覆盖策略。
     pub overwrite_policy: OverwritePolicy,
+    /// 解压完成后是否打开输出目录。
     pub open_after_extract: bool,
+    /// 删除文件前是否确认。
     pub confirm_delete: bool,
+    /// 上次浏览目录。
     pub last_directory: Option<PathBuf>,
+    /// 最近打开的路径。
     pub recent_paths: Vec<PathBuf>,
+    /// 收藏目录。
     pub favorites: Vec<PathBuf>,
+    /// 是否显示侧栏详情。
     pub details_visible: bool,
+    /// 文件表列宽预设。
     pub column_layout: u8,
+    /// 主窗口宽度。
     pub window_width: f32,
+    /// 主窗口高度。
     pub window_height: f32,
+    /// 侧栏宽度。
     pub sidebar_width: f32,
+    /// 是否自动解压单文件归档。
     pub auto_extract_enabled: bool,
+    /// 是否提示保存密码。
     pub prompt_save_password: bool,
+    /// 密码库自动锁定分钟数。
     pub auto_lock_minutes: u32,
+    /// 归档编辑是否默认保留备份。
     pub archive_edit_backup: bool,
     /// 新建压缩窗口默认是否勾选伪装输出。
     pub disguise_enabled: bool,
@@ -39,6 +63,7 @@ pub struct Settings {
 }
 
 impl Default for Settings {
+    /// 返回默认设置。
     fn default() -> Self {
         Self {
             version: 1,
@@ -72,24 +97,37 @@ impl Default for Settings {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 界面主题偏好。
 pub enum ThemePreference {
+    /// 跟随系统。
     System,
+    /// 浅色。
     Light,
+    /// 深色。
     Dark,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 默认压缩预设。
 pub enum CompressionPreset {
+    /// 优先速度。
     Speed,
+    /// 平衡。
     Balanced,
+    /// 优先体积。
     Size,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 默认解压覆盖策略。
 pub enum OverwritePolicy {
+    /// 每次询问。
     Ask,
+    /// 直接覆盖。
     Overwrite,
+    /// 跳过。
     Skip,
+    /// 自动改名。
     Rename,
 }
 

@@ -1,3 +1,5 @@
+//! 设置动作入口。
+
 use super::super::*;
 
 impl LumarkApp {

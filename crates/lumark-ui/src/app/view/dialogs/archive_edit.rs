@@ -1,3 +1,5 @@
+//! 归档添加、可执行文件确认和删除确认。
+
 use super::*;
 
 impl LumarkApp {

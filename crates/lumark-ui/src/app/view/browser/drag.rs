@@ -1,12 +1,19 @@
+//! 归档条目拖出和临时解压。
+
 use super::*;
 
 /// 归档条目拖出窗口时携带的数据；解析外部拖放时同步准备临时文件。
 #[derive(Clone)]
 pub(super) struct ArchiveDragItem {
+    /// 拖出来源归档路径。
     pub(super) archive: PathBuf,
+    /// 归档密码。
     pub(super) password: Option<zeroize::Zeroizing<String>>,
+    /// 选中的归档内路径。
     pub(super) selected: Vec<(String, bool)>,
+    /// 临时解压输出目录。
     pub(super) output: PathBuf,
+    /// 拖拽提示文本。
     pub(super) label: String,
 }
 
@@ -27,6 +34,7 @@ impl ArchiveDragItem {
 
 /// 拖出归档条目时跟随鼠标的轻量预览。
 pub(super) struct ArchiveDragPreview {
+    /// 拖拽预览文本。
     pub(super) label: String,
 }
 

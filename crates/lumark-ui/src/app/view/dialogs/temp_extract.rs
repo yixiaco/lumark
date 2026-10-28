@@ -1,3 +1,5 @@
+//! 临时解压进度弹窗。
+
 use super::*;
 
 impl LumarkApp {

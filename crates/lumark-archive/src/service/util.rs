@@ -1,3 +1,5 @@
+//! 归档时间、格式、源计划和流读取辅助。
+
 use super::*;
 
 /// 把系统时间转换为 ZIP 可写入的本地时间。
@@ -14,6 +16,7 @@ pub(crate) fn apply_entry_time(entry: &mut sevenz_rust2::ArchiveEntry, time: Sys
     }
 }
 
+/// 把界面压缩选项映射为 ZIP 压缩方法。
 pub(crate) fn zip_method(options: &CompressionOptions) -> CompressionMethod {
     match options.zip_compression {
         crate::format::ZipCompression::Deflate => CompressionMethod::Deflated,
@@ -22,6 +25,7 @@ pub(crate) fn zip_method(options: &CompressionOptions) -> CompressionMethod {
     }
 }
 
+/// 把 ZIP 本地 DOS 时间转换为 UTC。
 pub(crate) fn zip_time_to_chrono(value: Option<zip::DateTime>) -> Option<DateTime<Utc>> {
     let value = value?;
     let date = NaiveDate::from_ymd_opt(
@@ -40,6 +44,7 @@ pub(crate) fn zip_time_to_chrono(value: Option<zip::DateTime>) -> Option<DateTim
     Some(local.with_timezone(&Utc))
 }
 
+/// 判断条目是否在选择性解压列表中。
 pub(crate) fn selected(name: &str, selected_paths: &[String]) -> bool {
     if selected_paths.is_empty() {
         return true;
@@ -51,10 +56,13 @@ pub(crate) fn selected(name: &str, selected_paths: &[String]) -> bool {
     })
 }
 
+/// 展开全部源后的文件列表、总字节和最新修改时间。
 pub(crate) struct SourcePlan {
     /// 归档内相对路径、源文件路径和规划时的字节数。
     pub(crate) files: Vec<(String, PathBuf, u64)>,
+    /// 全部源文件字节数。
     pub(crate) total_bytes: u64,
+    /// 源文件中最新的修改时间。
     pub(crate) latest_modified: Option<SystemTime>,
 }
 
@@ -70,6 +78,7 @@ pub(crate) fn disguise_stem(name: &str) -> String {
         .to_string()
 }
 
+/// 展开源目录并按路径模式、排除和修改时间生成计划。
 pub(crate) fn build_source_plan(
     sources: &[PathBuf],
     options: &CompressionOptions,
@@ -157,6 +166,7 @@ pub(crate) const LZMA2_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
 /// 固定依赖 sevenz-rust2 0.24.1 / lzma-rust2 0.23.0；升级压缩库时需要同步
 /// 检查这张表与 `from_level_mt` 的钳制逻辑。
 pub(crate) fn lzma2_preset_dictionary(level: u32) -> u64 {
+    /// lzma-rust2 预设级别对应的字典大小。
     const PRESET_DICTIONARY: [u64; 10] = [
         256 * 1024,
         1024 * 1024,
@@ -210,6 +220,7 @@ pub(crate) fn solid_blocks(
     blocks
 }
 
+/// 求多个源路径的共同父目录，用于计算归档内相对路径。
 pub(crate) fn common_base(sources: &[PathBuf]) -> PathBuf {
     let Some(first) = sources.first() else {
         return PathBuf::from(".");
@@ -229,6 +240,7 @@ pub(crate) fn common_base(sources: &[PathBuf]) -> PathBuf {
     base
 }
 
+/// 用 glob 规则匹配归档内相对路径。
 pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {
     let pattern = pattern.replace('\\', "/").to_lowercase();
     let value = value.replace('\\', "/").to_lowercase();
@@ -252,6 +264,7 @@ pub(crate) fn lzh_method(options: &CompressionOptions) -> oxiarc_lzhuf::LzhMetho
         crate::format::CompressionPreset::Size => oxiarc_lzhuf::LzhMethod::Lh7,
     }
 }
+/// 为 TAR 变体套上对应的解压读取器。
 pub(crate) fn tar_reader(
     reader: Box<dyn Read>,
     format: ArchiveFormat,
@@ -273,6 +286,7 @@ pub(crate) fn tar_reader(
     Ok(tar::Archive::new(reader))
 }
 
+/// 把源计划中的文件追加到 TAR 构建器。
 pub(crate) fn append_tar_sources<F>(
     builder: &mut tar::Builder<impl Write>,
     sources: &[PathBuf],
@@ -307,6 +321,7 @@ where
     Ok(())
 }
 
+/// 分块复制单文件并按节流上报进度。
 pub(crate) fn copy_with_progress<F, W: Write>(
     input: &mut File,
     output: &mut W,
@@ -340,6 +355,7 @@ where
     Ok(done)
 }
 
+/// 为单文件流创建解压读取器。
 pub(crate) fn decompress_reader(
     reader: Box<dyn Read>,
     format: ArchiveFormat,
@@ -355,6 +371,7 @@ pub(crate) fn decompress_reader(
     })
 }
 
+/// 打开 Unix .Z 并返回解压读取器。
 pub(crate) fn open_unix_compress(
     path: &Path,
 ) -> Result<
@@ -377,6 +394,7 @@ pub(crate) fn open_unix_compress(
     Ok((archive, entry))
 }
 
+/// 解密 AES 容器数据流。
 pub(crate) fn decrypt_encrypted_container(
     path: &Path,
     password: &str,
@@ -388,6 +406,7 @@ pub(crate) fn decrypt_encrypted_container(
     Ok(data)
 }
 
+/// 从加密容器路径推导输出文件名。
 pub(crate) fn encrypted_container_name(path: &Path) -> String {
     path.file_stem()
         .and_then(|value| value.to_str())
@@ -396,6 +415,7 @@ pub(crate) fn encrypted_container_name(path: &Path) -> String {
         .to_string()
 }
 
+/// 从 .Z 头或路径推导输出文件名。
 pub(crate) fn unix_compress_name(path: &Path, embedded: &str) -> String {
     if !embedded.trim().is_empty() {
         return embedded.replace('\\', "/");
@@ -415,11 +435,13 @@ pub(crate) fn unix_compress_name(path: &Path, embedded: &str) -> String {
     }
 }
 
+/// 判断取消标志是否已置位。
 pub(crate) fn is_cancelled(flag: &Option<Arc<AtomicBool>>) -> bool {
     flag.as_ref()
         .is_some_and(|flag| flag.load(Ordering::Relaxed))
 }
 
+/// 取消已请求时返回 Cancelled。
 pub(crate) fn ensure_not_cancelled(flag: &Option<Arc<AtomicBool>>) -> Result<(), ArchiveError> {
     if is_cancelled(flag) {
         Err(ArchiveError::Cancelled)
@@ -428,6 +450,7 @@ pub(crate) fn ensure_not_cancelled(flag: &Option<Arc<AtomicBool>>) -> Result<(),
     }
 }
 
+/// 判断格式是否由传统只读读取器处理。
 pub(crate) fn is_legacy_archive(format: ArchiveFormat) -> bool {
     matches!(
         format,

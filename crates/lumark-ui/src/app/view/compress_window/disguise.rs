@@ -1,3 +1,5 @@
+//! 压缩窗口伪装选项和提示。
+
 use super::*;
 
 impl CompressWindowView {

@@ -1,3 +1,5 @@
+//! 密码请求、记录候选验证和保存流程。
+
 use super::*;
 
 impl LumarkApp {

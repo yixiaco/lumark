@@ -1,3 +1,5 @@
+//! 独立窗口类型和窗口级状态。
+
 use super::super::*;
 use super::components::{AppIcon, dialog_banner};
 use gpui_kit::component::TitleBar;
@@ -524,7 +526,9 @@ impl Render for ProgressWindowView {
 
 /// 一个任务对应的进度窗口句柄和视图。
 pub(crate) struct ProgressWindowEntry {
+    /// 窗口句柄。
     pub(crate) handle: gpui_kit::AnyWindowHandle,
+    /// 进度窗口实体。
     pub(crate) view: gpui_kit::Entity<ProgressWindowView>,
 }
 

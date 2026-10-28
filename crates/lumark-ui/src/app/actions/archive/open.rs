@@ -1,3 +1,5 @@
+//! 归档打开、条目查看和后台加载。
+
 use super::*;
 
 impl LumarkApp {

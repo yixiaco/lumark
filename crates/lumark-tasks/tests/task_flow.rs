@@ -1,3 +1,5 @@
+//! 后台任务提交、取消、密码和归档加载集成测试。
+
 use std::fs;
 use std::time::{Duration, Instant};
 
@@ -9,6 +11,7 @@ use tempfile::tempdir;
 use zeroize::Zeroizing;
 
 #[test]
+/// 验证压缩和解压通过任务管理器执行。
 fn compress_and_extract_through_task_manager() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("source");
@@ -153,6 +156,7 @@ fn self_extracting_archive_runs_through_the_task_manager() {
 }
 
 #[test]
+/// 验证密码候选在后台验证并上报尝试次数。
 fn password_resolution_runs_in_background_and_reports_attempts() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("secret.txt");
@@ -213,6 +217,7 @@ fn password_resolution_runs_in_background_and_reports_attempts() {
 }
 
 #[test]
+/// 验证归档编辑通过任务管理器执行。
 fn archive_edit_runs_through_the_task_manager() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("payload.txt");
@@ -258,6 +263,7 @@ fn archive_edit_runs_through_the_task_manager() {
 }
 
 #[test]
+/// 验证归档加载结果可直接消费而无需重新列表。
 fn archive_load_result_can_be_consumed_without_relisting() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("listed.txt");

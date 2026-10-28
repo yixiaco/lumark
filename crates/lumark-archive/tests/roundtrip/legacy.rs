@@ -1,7 +1,10 @@
+//! RAR、加密容器和传统格式样本测试。
+
 use super::common::*;
 use super::*;
 
 #[test]
+/// 验证提供 RAR 样本时的列表。
 fn rar_sample_can_be_listed_when_provided() {
     let Ok(sample) = std::env::var("LUMARK_RAR_SAMPLE") else {
         return;
@@ -32,6 +35,7 @@ fn rar_sample_can_be_listed_when_provided() {
 }
 
 #[test]
+/// 验证损坏 RAR 不会被误报为加密。
 fn corrupted_rar_is_not_reported_as_encrypted() {
     let dir = tempdir().unwrap();
     let archive = dir.path().join("broken.rar");
@@ -43,6 +47,7 @@ fn corrupted_rar_is_not_reported_as_encrypted() {
 }
 
 #[test]
+/// 验证畸形 .Z 被报告为损坏。
 fn malformed_unix_compress_is_reported_as_corrupt() {
     let dir = tempdir().unwrap();
     let archive = dir.path().join("broken.Z");
@@ -60,6 +65,7 @@ fn malformed_unix_compress_is_reported_as_corrupt() {
 }
 
 #[test]
+/// 验证 AES 加密容器的列表、密码验证和解压。
 fn aes_encrypted_container_lists_verifies_and_extracts() {
     let dir = tempdir().unwrap();
     let archive = dir.path().join("secret.txt.enc");
@@ -94,6 +100,7 @@ fn aes_encrypted_container_lists_verifies_and_extracts() {
 }
 
 #[test]
+/// 验证解压覆盖策略的跳过和重命名。
 fn extraction_overwrite_policies_skip_or_rename() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("payload.txt");
@@ -141,6 +148,7 @@ fn extraction_overwrite_policies_skip_or_rename() {
 }
 
 #[test]
+/// 验证 CPIO 传统读取器的列表和解压。
 fn cpio_legacy_reader_lists_and_extracts() {
     let dir = tempdir().unwrap();
     let archive = dir.path().join("sample.cpio");

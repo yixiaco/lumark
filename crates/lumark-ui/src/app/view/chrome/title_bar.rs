@@ -1,3 +1,5 @@
+//! 自绘标题栏和工作区切换。
+
 use super::*;
 
 impl LumarkApp {

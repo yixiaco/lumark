@@ -1,7 +1,10 @@
+//! 7Z 往返、固实块、编辑和进度测试。
+
 use super::common::*;
 use super::*;
 
 #[test]
+/// 验证带密码 7Z 的创建、列表、解压和测试。
 fn seven_zip_roundtrip_with_password() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -42,6 +45,7 @@ fn seven_zip_roundtrip_with_password() {
 }
 
 #[test]
+/// 验证未加密头部的 7Z 仍能识别条目加密。
 fn seven_zip_detects_entry_encryption_without_encrypted_header() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -70,6 +74,7 @@ fn seven_zip_detects_entry_encryption_without_encrypted_header() {
 }
 
 #[test]
+/// 验证固实 7Z 的条目和内容往返。
 fn seven_zip_solid_roundtrip() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -106,6 +111,7 @@ fn seven_zip_solid_roundtrip() {
 }
 
 #[test]
+/// 验证固实块按大小拆分后数据完整。
 fn seven_zip_solid_blocks_split_by_size_and_keep_data() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("blocks-source");
@@ -157,6 +163,7 @@ fn seven_zip_solid_blocks_split_by_size_and_keep_data() {
 }
 
 #[test]
+/// 验证固实块选择性解压和跳过保持流对齐。
 fn seven_zip_solid_selective_extraction_and_skip_keep_streams_aligned() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("solid-source");
@@ -232,6 +239,7 @@ fn seven_zip_solid_selective_extraction_and_skip_keep_streams_aligned() {
     );
 }
 #[test]
+/// 验证 7Z 编辑的删除、重命名和添加。
 fn seven_zip_edit_supports_delete_rename_add() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -273,6 +281,7 @@ fn seven_zip_edit_supports_delete_rename_add() {
 }
 
 #[test]
+/// 验证固实块部分删除后剩余条目内容。
 fn seven_zip_solid_edit_keeps_remaining_entry_contents() {
     let dir = tempdir().unwrap();
     let source = dir.path().join("solid-edit-source");

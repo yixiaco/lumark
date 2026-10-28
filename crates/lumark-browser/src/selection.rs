@@ -1,6 +1,9 @@
+//! 文件表多选、范围选择和锚点状态。
+
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Default)]
+/// 按稳定条目 ID 维护的文件表选择状态。
 pub struct SelectionModel {
     selected: BTreeSet<String>,
     anchor: Option<String>,
@@ -8,24 +11,29 @@ pub struct SelectionModel {
 }
 
 impl SelectionModel {
+    /// 返回当前选中的条目 ID。
     pub fn selected_ids(&self) -> Vec<String> {
         self.selected.iter().cloned().collect()
     }
 
+    /// 判断条目是否被选中。
     pub fn is_selected(&self, id: &str) -> bool {
         self.selected.contains(id)
     }
 
+    /// 返回选中数量。
     pub fn count(&self) -> usize {
         self.selected.len()
     }
 
+    /// 清空选择。
     pub fn clear(&mut self) {
         self.selected.clear();
         self.anchor = None;
         self.focus = None;
     }
 
+    /// 只选中指定条目并重置锚点。
     pub fn select_only(&mut self, id: impl Into<String>) {
         let id = id.into();
         self.selected.clear();
@@ -34,6 +42,7 @@ impl SelectionModel {
         self.focus = Some(id);
     }
 
+    /// 切换单个条目的选中状态。
     pub fn toggle(&mut self, id: impl Into<String>) {
         let id = id.into();
         if !self.selected.remove(&id) {
@@ -43,6 +52,7 @@ impl SelectionModel {
         self.focus = Some(id);
     }
 
+    /// 按锚点到目标的范围选择。
     pub fn select_range(&mut self, ordered_ids: &[String], target: &str, additive: bool) {
         let Some(target_index) = ordered_ids.iter().position(|id| id == target) else {
             return;
@@ -66,12 +76,14 @@ impl SelectionModel {
         self.focus = Some(target.to_string());
     }
 
+    /// 选中给定范围内的全部条目。
     pub fn select_all(&mut self, ordered_ids: &[String]) {
         self.selected = ordered_ids.iter().cloned().collect();
         self.focus = ordered_ids.last().cloned();
         self.anchor = ordered_ids.first().cloned();
     }
 
+    /// 记录键盘焦点条目和选择锚点。
     pub fn focus(&self) -> Option<&str> {
         self.focus.as_deref()
     }
@@ -82,6 +94,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// 验证范围选择保留锚点。
     fn range_selection_keeps_anchor() {
         let ids = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         let mut selection = SelectionModel::default();
@@ -93,6 +106,7 @@ mod tests {
     }
 
     #[test]
+    /// 验证 Ctrl 切换不会清除其他选择。
     fn ctrl_toggle() {
         let mut selection = SelectionModel::default();
         selection.toggle("a");

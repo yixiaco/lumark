@@ -1,5 +1,8 @@
+//! 往返测试共享的源目录、NEWC 条目和时间辅助。
+
 use super::*;
 
+/// 创建包含文本和二进制条目的测试源目录。
 pub(crate) fn make_source(root: &std::path::Path) -> PathBuf {
     let source = root.join("source");
     fs::create_dir_all(source.join("nested")).unwrap();
@@ -7,6 +10,7 @@ pub(crate) fn make_source(root: &std::path::Path) -> PathBuf {
     fs::write(source.join("nested").join("data.bin"), [0u8, 1, 2, 3, 4]).unwrap();
     source
 }
+/// 向 NEWC/CPIO 测试数据追加一个条目。
 pub(crate) fn append_newc_entry(output: &mut Vec<u8>, name: &str, data: &[u8]) {
     let name_len = name.len() + 1;
     let header = format!(

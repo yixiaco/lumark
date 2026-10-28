@@ -1,15 +1,25 @@
+//! 文件表列宽和归档附加列可见性。
+
 /// 归档视图在名称、大小、修改时间之外追加的列。
 #[derive(Clone, Copy, Default)]
 pub(super) struct ArchiveColumns {
+    /// 是否显示压缩后大小列。
     pub(super) compressed: bool,
+    /// 是否显示压缩算法列。
     pub(super) algorithm: bool,
+    /// 是否显示 CRC32 列。
     pub(super) crc32: bool,
+    /// 是否显示归档内路径列。
     pub(super) path: bool,
 }
 
+/// 压缩后大小列宽。
 pub(super) const COMPRESSED_WIDTH: f32 = 80.;
+/// 压缩算法列宽。
 pub(super) const ALGORITHM_WIDTH: f32 = 76.;
+/// CRC32 列宽。
 pub(super) const CRC_WIDTH: f32 = 72.;
+/// 归档内路径列宽。
 pub(super) const PATH_WIDTH: f32 = 150.;
 
 /// 按文件表可用宽度选择归档列；窄窗口优先隐藏路径、压缩算法和 CRC32。

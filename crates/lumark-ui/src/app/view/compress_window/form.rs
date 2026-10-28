@@ -1,3 +1,5 @@
+//! 压缩窗口表单动作、校验和任务提交。
+
 use super::*;
 
 impl CompressWindowView {

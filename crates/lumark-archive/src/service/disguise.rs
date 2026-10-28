@@ -1,3 +1,5 @@
+//! 伪装归档的列表、解压、测试、密码校验和创建。
+
 use super::*;
 
 impl ArchiveService {

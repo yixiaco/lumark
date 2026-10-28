@@ -1,7 +1,9 @@
+//! 压缩窗口、伪装窗口和 Shell 压缩批次测试。
+
 use super::*;
 
-#[gpui_kit::test]
 /// 验证 Shell 多选压缩会合并路径，只打开一个轻巧压缩窗口。
+#[gpui_kit::test]
 fn shell_compress_batches_into_one_window(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -57,8 +59,8 @@ fn shell_compress_batches_into_one_window(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证压缩窗口的文本框点击后都能获得焦点，避免只有输出文件名可输入。
+#[gpui_kit::test]
 fn compress_window_inputs_take_focus_on_click(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -153,8 +155,8 @@ fn compress_window_inputs_take_focus_on_click(cx: &mut gpui_kit::TestAppContext)
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证压缩窗口的下拉框按字段宽度渲染，经典模式选项卡可正常切换。
+#[gpui_kit::test]
 fn compress_window_uses_compact_controls(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -310,8 +312,8 @@ fn compress_window_uses_compact_controls(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证独立伪装窗口渲染源文件、输出目录、面具和开始按钮。
+#[gpui_kit::test]
 fn disguise_window_renders_controls(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -357,8 +359,8 @@ fn disguise_window_renders_controls(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证选择 ZPAQ 后算法页渲染 1-5 级压缩级别下拉。
+#[gpui_kit::test]
 fn compress_window_shows_zpaq_level_selector(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -396,8 +398,8 @@ fn compress_window_shows_zpaq_level_selector(cx: &mut gpui_kit::TestAppContext) 
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证已存在的同名压缩包复用原路径，由创建流程原子替换。
+#[gpui_kit::test]
 fn compress_dialog_reuses_existing_output_path(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -429,8 +431,8 @@ fn compress_dialog_reuses_existing_output_path(cx: &mut gpui_kit::TestAppContext
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证打开加密归档时会弹出独立密码输入框，而不是只改状态栏。
+#[gpui_kit::test]
 fn encrypted_archive_requests_password_dialog(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();

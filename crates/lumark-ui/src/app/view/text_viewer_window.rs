@@ -1,3 +1,5 @@
+//! 归档内文本查看窗口。
+
 use super::super::*;
 use super::components::AppIcon;
 use gpui_kit::component::input::{Editor, EditorState};
@@ -136,6 +138,7 @@ impl LumarkApp {
         parent: &Window,
         cx: &mut Context<Self>,
     ) {
+        /// 文本预览的最大读取字节数。
         const LIMIT: u64 = 4 * 1024 * 1024;
         let size = std::fs::metadata(&target)
             .map(|metadata| metadata.len())

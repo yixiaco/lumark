@@ -1,3 +1,5 @@
+//! 归档服务入口：格式识别、公共操作分发和跨模块共享类型。
+
 use std::cell::{Cell, RefCell};
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Seek, Write};
@@ -40,24 +42,39 @@ pub const SFX_MAGIC_V2: [u8; 8] = *b"LMSFX002";
 /// 自解压包尾部页脚长度：魔数 8 + 格式 1 + 标志 1 + 保留 6 + 偏移 8 + 长度 8。
 pub const SFX_FOOTER_LEN: usize = 32;
 
+/// 一次解压任务的进度快照。
 #[derive(Debug, Clone)]
 pub struct ExtractProgress {
+    /// 当前处理的条目或阶段名称。
     pub current: String,
+    /// 已处理字节数。
     pub bytes_done: u64,
+    /// 计划处理的总字节数；未知时为 0。
     pub bytes_total: u64,
+    /// 已处理条目数。
     pub entries_done: usize,
+    /// 计划处理的总条目数。
     pub entries_total: usize,
 }
 
+/// 一次创建任务的进度快照。
 #[derive(Debug, Clone)]
 pub struct CreateProgress {
+    /// 当前处理的文件或阶段名称。
     pub current: String,
+    /// 已读取的源字节数。
     pub bytes_done: u64,
+    /// 源总字节数。
     pub bytes_total: u64,
+    /// 当前文件已处理字节数。
     pub current_bytes_done: u64,
+    /// 当前文件总字节数。
     pub current_bytes_total: u64,
+    /// 已写出的归档字节数。
     pub output_bytes: u64,
+    /// 已处理条目数。
     pub entries_done: usize,
+    /// 总条目数。
     pub entries_total: usize,
 }
 
@@ -69,9 +86,11 @@ pub(crate) enum DisguisedInput {
     Materialized(PathBuf),
 }
 
+/// 归档格式探测、列表、测试、解压和创建的入口。
 pub struct ArchiveService;
 
 impl ArchiveService {
+    /// 按扩展名、魔数或伪装尾部识别归档格式。
     pub fn detect(path: &Path) -> ArchiveFormat {
         let base = strip_volume_suffix(path);
         let extension_format = detect_format(&base);
@@ -113,11 +132,13 @@ impl ArchiveService {
         }
     }
 
+    /// 探测归档是否加密，必要时先物化伪装载荷。
     pub fn probe_encryption(path: &Path) -> Result<EncryptionInfo, ArchiveError> {
         let (input, _guard) = materialize_input(path)?;
         Self::probe_encryption_direct(&input)
     }
 
+    /// 对已物化路径执行加密探测。
     fn probe_encryption_direct(path: &Path) -> Result<EncryptionInfo, ArchiveError> {
         let format = Self::detect(path);
         match format {
@@ -210,11 +231,13 @@ impl ArchiveService {
         )
     }
 
+    /// 列出归档条目，伪装包先解析尾部信息。
     pub fn list(path: &Path, password: Option<&str>) -> Result<ArchiveInfo, ArchiveError> {
         let (input, _guard) = materialize_input(path)?;
         Self::list_direct(&input, password)
     }
 
+    /// 列出已物化归档的条目。
     fn list_direct(path: &Path, password: Option<&str>) -> Result<ArchiveInfo, ArchiveError> {
         let format = Self::detect(path);
         match format {
@@ -259,11 +282,13 @@ impl ArchiveService {
         }
     }
 
+    /// 验证归档密码，伪装包走内层格式。
     pub fn verify_password(path: &Path, password: &str) -> Result<bool, ArchiveError> {
         let (input, _guard) = materialize_input(path)?;
         Self::verify_password_direct(&input, password)
     }
 
+    /// 验证已物化归档的密码。
     fn verify_password_direct(path: &Path, password: &str) -> Result<bool, ArchiveError> {
         let format = Self::detect(path);
         match format {
@@ -536,6 +561,7 @@ impl ArchiveService {
         })
     }
 
+    /// 按选项解压归档，并把取消和预算传递给后端。
     pub fn extract<F>(
         path: &Path,
         options: &ExtractionOptions,
@@ -548,6 +574,7 @@ impl ArchiveService {
         Self::extract_direct(&input, options, progress)
     }
 
+    /// 解压已物化归档。
     fn extract_direct<F>(
         path: &Path,
         options: &ExtractionOptions,
@@ -617,6 +644,7 @@ impl ArchiveService {
         }
     }
 
+    /// 按格式创建归档，处理分卷、伪装、测试和删除源文件。
     pub fn create<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -770,6 +798,7 @@ impl ArchiveService {
         })
     }
 
+    /// 直接创建单个归档文件，不处理分卷和伪装。
     fn create_direct<F>(
         output: &Path,
         sources: &[PathBuf],

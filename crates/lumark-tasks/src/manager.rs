@@ -1,3 +1,5 @@
+//! 固定工作线程池、任务控制和事件通道。
+
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,10 +18,14 @@ use zeroize::Zeroizing;
 
 use crate::progress::{TaskEvent, TaskKind, TaskProgress, TaskState};
 
+/// 任务运行状态编码。
 const RUNNING: u8 = 0;
+/// 任务暂停状态编码。
 const PAUSED: u8 = 1;
+/// 任务取消状态编码。
 const CANCELLED: u8 = 2;
 
+/// 单个任务的暂停、取消和状态控制。
 pub struct TaskControl {
     state: Arc<AtomicU8>,
     cancelled: Arc<AtomicBool>,
@@ -27,6 +33,7 @@ pub struct TaskControl {
 }
 
 impl TaskControl {
+    /// 创建运行中的任务控制器。
     fn new() -> Self {
         Self {
             state: Arc::new(AtomicU8::new(RUNNING)),
@@ -35,6 +42,7 @@ impl TaskControl {
         }
     }
 
+    /// 请求暂停任务。
     pub fn pause(&self) {
         if self.state.load(Ordering::Relaxed) == RUNNING {
             self.state.store(PAUSED, Ordering::Relaxed);
@@ -42,6 +50,7 @@ impl TaskControl {
         }
     }
 
+    /// 恢复被暂停的任务。
     pub fn resume(&self) {
         if self.state.load(Ordering::Relaxed) == PAUSED {
             self.state.store(RUNNING, Ordering::Relaxed);
@@ -50,6 +59,7 @@ impl TaskControl {
         }
     }
 
+    /// 请求取消任务。
     pub fn cancel(&self) {
         self.state.store(CANCELLED, Ordering::Relaxed);
         self.cancelled.store(true, Ordering::Relaxed);
@@ -57,6 +67,7 @@ impl TaskControl {
         self.pause_lock.1.notify_all();
     }
 
+    /// 返回任务状态编码。
     pub fn state(&self) -> TaskState {
         match self.state.load(Ordering::Relaxed) {
             PAUSED => TaskState::Paused,
@@ -65,14 +76,17 @@ impl TaskControl {
         }
     }
 
+    /// 判断任务是否已取消。
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
 
+    /// 返回供归档后端轮询的取消标志。
     pub fn cancelled_flag(&self) -> Arc<AtomicBool> {
         self.cancelled.clone()
     }
 
+    /// 暂停期间阻塞工作线程，取消时立即返回。
     pub fn wait_if_paused(&self) {
         let (lock, condvar) = &*self.pause_lock;
         let mut paused = lock.lock();
@@ -82,7 +96,9 @@ impl TaskControl {
     }
 }
 
+/// 后台任务请求。
 pub enum TaskRequest {
+    /// 压缩请求。
     Compress {
         output: PathBuf,
         sources: Vec<PathBuf>,
@@ -90,23 +106,28 @@ pub enum TaskRequest {
         /// 自解压运行时模块路径；`options.sfx` 为真时必填。
         sfx_stub: Option<PathBuf>,
     },
+    /// 解压请求。
     Extract {
         archive: PathBuf,
         options: ExtractionOptions,
     },
+    /// 测试请求。
     Test {
         archive: PathBuf,
         password: Option<String>,
     },
+    /// 密码候选验证请求。
     ResolvePassword {
         archive: PathBuf,
         candidates: Vec<Zeroizing<String>>,
         load_info: bool,
     },
+    /// 归档编辑请求。
     Edit {
         archive: PathBuf,
         options: EditOptions,
     },
+    /// 后台加载归档请求。
     LoadArchive {
         archive: PathBuf,
         password: Option<Zeroizing<String>>,
@@ -123,16 +144,23 @@ pub enum TaskRequest {
     },
 }
 
+/// 密码候选验证结果。
 pub struct ResolvedPassword {
+    /// 匹配到的候选序号。
     pub candidate_index: usize,
+    /// 匹配到的密码。
     pub password: Zeroizing<String>,
 }
 
+/// 后台归档加载结果。
 pub struct ArchiveLoadResult {
+    /// 加载到的归档信息。
     pub info: ArchiveInfo,
+    /// 加载使用的密码。
     pub password: Option<Zeroizing<String>>,
 }
 
+/// 固定工作线程池和任务事件通道。
 pub struct TaskManager {
     sender: Sender<TaskEvent>,
     receiver: Receiver<TaskEvent>,
@@ -196,6 +224,7 @@ fn default_workers() -> usize {
 }
 
 impl TaskManager {
+    /// 创建运行中的任务控制器。
     pub fn new() -> Self {
         Self::with_workers(default_workers())
     }
@@ -239,18 +268,22 @@ impl TaskManager {
         }
     }
 
+    /// 非阻塞读取一个任务事件。
     pub fn try_recv(&self) -> Option<TaskEvent> {
         self.receiver.try_recv().ok()
     }
 
+    /// 返回指定任务的控制器。
     pub fn control(&self, id: u64) -> Option<Arc<TaskControl>> {
         self.controls.lock().get(&id).cloned()
     }
 
+    /// 取出密码验证结果。
     pub fn take_password_result(&self, id: u64) -> Option<ResolvedPassword> {
         self.password_results.lock().remove(&id)
     }
 
+    /// 取出归档加载结果。
     pub fn take_archive_load_result(&self, id: u64) -> Option<ArchiveLoadResult> {
         self.archive_results.lock().remove(&id)
     }
@@ -260,6 +293,7 @@ impl TaskManager {
         self.restore_results.lock().remove(&id)
     }
 
+    /// 提交任务并返回任务 ID。
     pub fn submit(&self, request: TaskRequest) -> u64 {
         let id = {
             let mut next = self.next_id.lock();
@@ -787,11 +821,13 @@ impl Drop for TaskManager {
 }
 
 impl Default for TaskManager {
+    /// 创建默认任务管理器。
     fn default() -> Self {
         Self::new()
     }
 }
 
+/// 按字节数和耗时计算平均速度。
 fn speed(bytes: u64, seconds: f64) -> f64 {
     if seconds <= 0.0 {
         0.0

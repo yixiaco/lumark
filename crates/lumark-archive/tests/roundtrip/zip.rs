@@ -1,7 +1,10 @@
+//! ZIP 往返、编辑和更新模式测试。
+
 use super::common::*;
 use super::*;
 
 #[test]
+/// 验证带密码 ZIP 的创建、列表和解压。
 fn zip_roundtrip_with_password() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -43,6 +46,7 @@ fn zip_roundtrip_with_password() {
 }
 
 #[test]
+/// 验证 ZipCrypto 兼容写入往返。
 fn zipcrypto_compatibility_writing_roundtrip() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -80,6 +84,7 @@ fn zipcrypto_compatibility_writing_roundtrip() {
     );
 }
 #[test]
+/// 验证 ZIP 编辑的原子性及删除、重命名和添加。
 fn zip_edit_is_atomic_and_supports_delete_rename_add() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -120,6 +125,7 @@ fn zip_edit_is_atomic_and_supports_delete_rename_add() {
     assert_ne!(fs::read(&output).unwrap(), original);
 }
 #[test]
+/// 验证添加同名条目会替换而不是重复。
 fn adding_an_existing_name_replaces_without_duplicate_entries() {
     for (format, extension) in [(ArchiveFormat::Zip, "zip"), (ArchiveFormat::SevenZip, "7z")] {
         let dir = tempdir().unwrap();
@@ -173,6 +179,7 @@ fn adding_an_existing_name_replaces_without_duplicate_entries() {
 }
 
 #[test]
+/// 验证编辑失败时原归档不变。
 fn failed_edit_leaves_original_archive_untouched() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -204,6 +211,7 @@ fn failed_edit_leaves_original_archive_untouched() {
 }
 
 #[test]
+/// 验证编辑取消时原归档不变。
 fn cancelled_edit_leaves_original_archive_untouched() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());

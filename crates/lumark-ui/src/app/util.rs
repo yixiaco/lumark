@@ -1,3 +1,5 @@
+//! 路径、大小、日期、列宽和格式化辅助。
+
 use super::*;
 
 /// 创建带可选密码掩码的主题文本输入框。
@@ -334,6 +336,7 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
 /// 每次替换都再追加一层。只剥离已知后缀，因此 `my.photos` 这类带点的
 /// 主名不会被误伤。
 fn strip_output_extension(name: &str) -> &str {
+    /// 路径剥壳时需要识别的归档、面具和自解压后缀。
     const SUFFIXES: [&str; 46] = [
         ".tar.lzma",
         ".tar.lz4",
@@ -567,10 +570,13 @@ pub(crate) fn parse_size(value: &str) -> Option<u64> {
 /// `100M`、`2G` 等带后缀的写法，此时后缀优先于下拉单位。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum SizeUnit {
+    /// 字节。
     Byte,
+    /// 千字节。
     Kilobyte,
     #[default]
     Megabyte,
+    /// 吉字节。
     Gigabyte,
 }
 
@@ -646,6 +652,7 @@ pub(crate) fn parse_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 
 /// 使用二进制单位格式化字节数，供紧凑界面标签显示。
 pub(crate) fn format_size(bytes: u64) -> String {
+    /// 字节格式化使用的二进制单位。
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
     let mut unit = 0;
@@ -665,6 +672,7 @@ pub(crate) fn format_size(bytes: u64) -> String {
 /// 与 [`format_size`] 的固定一位小数不同，这里去掉末尾的零，让
 /// `4.38 GB`、`700 MB` 等常用预设回显时与用户选择的标签一致。
 pub(crate) fn format_size_precise(bytes: u64) -> String {
+    /// 字节格式化使用的二进制单位。
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
     let mut unit = 0;

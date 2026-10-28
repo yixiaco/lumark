@@ -1,9 +1,14 @@
+//! 压缩进度换算、取消读取器和复制辅助。
+
 use super::*;
 
 /// 固实块内单个文件在块内字节轴上的位置。
 pub(crate) struct ProgressSpan {
+    /// 条目名称。
     pub(crate) name: String,
+    /// 条目在源数据中的起始偏移。
     pub(crate) start: u64,
+    /// 条目在源数据中的结束偏移。
     pub(crate) end: u64,
 }
 
@@ -13,15 +18,25 @@ pub(crate) struct ProgressSpan {
 /// `locate` 把“已压缩字节”换算成当前文件和已完成条目，避免直接使用读取
 /// 位置导致进度提前冲到 100%。
 pub(crate) struct ChunkProgressState {
+    /// 是否处于可计数编码块阶段。
     pub(crate) active: bool,
+    /// 本文件之前的累计字节。
     pub(crate) base: u64,
+    /// 本文件总字节。
     pub(crate) total: u64,
+    /// 单个编码块的大致字节数。
     pub(crate) chunk_bytes: u64,
+    /// 已完成的编码块数。
     pub(crate) chunks: u64,
+    /// 本文件之前的条目数。
     pub(crate) entries_before: usize,
+    /// 总条目数。
     pub(crate) entries_total: usize,
+    /// 全部源字节数。
     pub(crate) bytes_total: u64,
+    /// 已写出的归档字节数。
     pub(crate) output_bytes: u64,
+    /// 文件在源数据中的偏移表。
     pub(crate) spans: Vec<ProgressSpan>,
 }
 
@@ -76,8 +91,11 @@ pub(crate) struct ChunkTrackingWriter<'a, F>
 where
     F: FnMut(CreateProgress),
 {
+    /// 底层输出文件。
     pub(crate) inner: File,
+    /// 共享的编码块进度。
     pub(crate) state: Rc<RefCell<ChunkProgressState>>,
+    /// 进度回调。
     pub(crate) progress: Rc<RefCell<&'a mut F>>,
 }
 
@@ -85,6 +103,7 @@ impl<F> Write for ChunkTrackingWriter<'_, F>
 where
     F: FnMut(CreateProgress),
 {
+    /// 写入一个编码块并推进压缩进度。
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         // 一次性写完，保证调用方的 write_all 只触发一次，和编码块一一对应。
         self.inner.write_all(buffer)?;
@@ -112,6 +131,8 @@ where
         Ok(buffer.len())
     }
 
+    /// 刷新底层文件。
+    /// 刷新底层写入器。
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }
@@ -121,6 +142,7 @@ impl<F> Seek for ChunkTrackingWriter<'_, F>
 where
     F: FnMut(CreateProgress),
 {
+    /// 定位底层文件；进度状态由写路径维护。
     fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
         self.inner.seek(position)
     }
@@ -128,11 +150,14 @@ where
 
 /// 只负责取消检查的读取器；进度由输出写入器按完成块上报。
 pub(crate) struct CancelReader {
+    /// 底层输入文件。
     pub(crate) inner: File,
+    /// 取消标志。
     pub(crate) cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Read for CancelReader {
+    /// 每次读取前检查取消标志。
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if is_cancelled(&self.cancel) {
             return Err(io::Error::new(
@@ -149,17 +174,29 @@ pub(crate) struct ProgressReader<'a, F>
 where
     F: FnMut(CreateProgress),
 {
+    /// 底层输入文件。
     pub(crate) inner: File,
+    /// 当前文件名。
     pub(crate) current: String,
+    /// 当前文件大小。
     pub(crate) total: u64,
+    /// 当前文件已读字节。
     pub(crate) done: u64,
+    /// 当前文件之前的累计字节。
     pub(crate) overall_base: u64,
+    /// 全部源字节数。
     pub(crate) bytes_total: u64,
+    /// 已完成条目数。
     pub(crate) entries_done: usize,
+    /// 总条目数。
     pub(crate) entries_total: usize,
+    /// 已写出归档字节数。
     pub(crate) output: PathBuf,
+    /// 取消标志。
     pub(crate) cancel: Option<Arc<AtomicBool>>,
+    /// 进度回调。
     pub(crate) progress: Rc<RefCell<&'a mut F>>,
+    /// 上次上报时间，用于节流。
     pub(crate) last_report: Instant,
     /// 上一次 read 返回的数据还没上报；下次 read 时它已经被写入编码器。
     pub(crate) pending: bool,
@@ -169,6 +206,7 @@ impl<F> Read for ProgressReader<'_, F>
 where
     F: FnMut(CreateProgress),
 {
+    /// 读取源数据并延迟上报已完成字节。
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if is_cancelled(&self.cancel) {
             return Err(io::Error::new(
@@ -214,18 +252,31 @@ pub(crate) struct SharedProgressReader<'a, F>
 where
     F: FnMut(CreateProgress),
 {
+    /// 底层输入文件。
     pub(crate) inner: File,
+    /// 当前文件名。
     pub(crate) current: String,
+    /// 当前文件大小。
     pub(crate) total: u64,
+    /// 当前文件已读字节。
     pub(crate) done: u64,
+    /// 当前文件之前的累计字节。
     pub(crate) overall_base: u64,
+    /// 全部源字节数。
     pub(crate) bytes_total: u64,
+    /// 已完成条目数。
     pub(crate) entries_done: Rc<Cell<usize>>,
+    /// 总条目数。
     pub(crate) entries_total: usize,
+    /// 已写出归档字节数。
     pub(crate) output: PathBuf,
+    /// 取消标志。
     pub(crate) cancel: Option<Arc<AtomicBool>>,
+    /// 进度回调。
     pub(crate) progress: Rc<RefCell<&'a mut F>>,
+    /// 上次上报时间，用于节流。
     pub(crate) last_report: Instant,
+    /// 是否已经上报最终进度。
     pub(crate) finished: bool,
     /// 上一次 read 返回的数据还没上报；下次 read 时它已经被写入编码器。
     pub(crate) pending: bool,
@@ -235,6 +286,7 @@ impl<F> Read for SharedProgressReader<'_, F>
 where
     F: FnMut(CreateProgress),
 {
+    /// 读取源数据并更新共享进度。
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if is_cancelled(&self.cancel) {
             return Err(io::Error::new(
@@ -290,6 +342,7 @@ where
         Ok(read)
     }
 }
+/// 分块复制并响应取消。
 pub(crate) fn copy_cancellable<R: Read + ?Sized, W: Write>(
     input: &mut R,
     output: &mut W,
@@ -396,6 +449,7 @@ pub(crate) fn copy_cancellable_limited<R: Read + ?Sized, W: Write>(
     Ok(total)
 }
 
+/// 读取并丢弃 7Z 条目数据，保证流对齐。
 pub(crate) fn drain_seven_zip_entry(
     input: &mut dyn Read,
     cancel: &Option<Arc<AtomicBool>>,
@@ -404,12 +458,16 @@ pub(crate) fn drain_seven_zip_entry(
     copy_cancellable(input, &mut sink, cancel)
 }
 
+/// 写入前检查取消标志的包装写入器。
 pub(crate) struct CancelWriter<'a> {
+    /// 底层输出文件。
     pub(crate) inner: File,
+    /// 取消标志。
     pub(crate) cancel: &'a Option<Arc<AtomicBool>>,
 }
 
 impl Write for CancelWriter<'_> {
+    /// 写入前检查取消标志。
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         if is_cancelled(self.cancel) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "task cancelled"));
@@ -417,6 +475,7 @@ impl Write for CancelWriter<'_> {
         self.inner.write(buffer)
     }
 
+    /// 刷新底层写入器。
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }

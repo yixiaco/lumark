@@ -1,3 +1,5 @@
+//! 主窗口弹窗入口和通用弹窗辅助。
+
 use super::super::*;
 use super::components::{AppIcon, card, form_label, hint_text, option_radio};
 use gpui_kit::component::checkbox::Checkbox;

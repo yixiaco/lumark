@@ -1,3 +1,5 @@
+//! 主窗口框架：自绘标题栏、动作带、导航行、侧栏、状态栏和模态层入口。
+
 use super::super::*;
 use super::components::{
     AppIcon, BannerTone, banner_action, banner_gradient, brand_lockup, brand_mark, icon_button,

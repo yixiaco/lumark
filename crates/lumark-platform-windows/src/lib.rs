@@ -13,6 +13,7 @@ pub mod shell;
 pub mod tray;
 
 #[derive(Debug, thiserror::Error)]
+/// Windows 平台集成错误。
 pub enum PlatformError {
     #[error("Windows 操作失败：{0}")]
     Windows(std::io::Error),
@@ -194,6 +195,7 @@ pub struct InstanceGuard {
 }
 
 impl InstanceGuard {
+    /// 加载并持有 COM 初始化上下文。
     pub fn acquire(name: &str) -> Result<Option<Self>, PlatformError> {
         #[cfg(windows)]
         {
@@ -228,6 +230,7 @@ impl InstanceGuard {
 
 #[cfg(windows)]
 impl Drop for InstanceGuard {
+    /// 释放 COM 初始化上下文。
     fn drop(&mut self) {
         use windows_sys::Win32::Foundation::CloseHandle;
         unsafe { CloseHandle(self.handle) };

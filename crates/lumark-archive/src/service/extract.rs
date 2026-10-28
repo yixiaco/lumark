@@ -1,6 +1,9 @@
+//! 各归档格式的解压流程。
+
 use super::*;
 
 impl ArchiveService {
+    /// 解压 AES 加密容器。
     pub(crate) fn extract_encrypted_container<F>(
         path: &Path,
         options: &ExtractionOptions,
@@ -83,6 +86,7 @@ impl ArchiveService {
         })
     }
 
+    /// 解压 Unix .Z 单文件流。
     pub(crate) fn extract_unix_compress<F>(
         path: &Path,
         options: &ExtractionOptions,
@@ -154,6 +158,7 @@ impl ArchiveService {
         })
     }
 
+    /// 解压 ZIP 条目，处理覆盖、预算和取消。
     pub(crate) fn extract_zip<R: Read + Seek, F>(
         reader: R,
         options: &ExtractionOptions,
@@ -241,6 +246,7 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 解压 7Z 条目，处理预算、覆盖和取消。
     pub(crate) fn extract_seven_zip<R: Read + Seek, F>(
         reader: R,
         options: &ExtractionOptions,
@@ -366,6 +372,7 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 解压 TAR 及压缩变体条目。
     pub(crate) fn extract_tar<F>(
         reader: Box<dyn Read>,
         format: ArchiveFormat,
@@ -440,6 +447,7 @@ impl ArchiveService {
         Ok(report)
     }
 
+    /// 解压单个 GZ/BZ2/XZ/ZST/Brotli/LZ4 流。
     pub(crate) fn extract_single_stream<F>(
         name: &str,
         reader: Box<dyn Read>,
@@ -502,6 +510,7 @@ impl ArchiveService {
         })
     }
 
+    /// 解压只读传统格式的单个条目。
     pub(crate) fn extract_legacy_stream<F>(
         path: &Path,
         format: ArchiveFormat,

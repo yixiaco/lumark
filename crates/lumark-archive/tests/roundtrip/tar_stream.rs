@@ -1,7 +1,10 @@
+//! TAR、单文件流和 LZH 往返测试。
+
 use super::common::*;
 use super::*;
 
 #[test]
+/// 验证 TAR.GZ 的创建、列表和解压。
 fn tar_gz_roundtrip() {
     let dir = tempdir().unwrap();
     let source = make_source(dir.path());
@@ -34,6 +37,7 @@ fn tar_gz_roundtrip() {
 }
 
 #[test]
+/// 验证 TAR 各压缩变体往返。
 fn tar_compression_variants_roundtrip() {
     for (format, extension) in [
         (ArchiveFormat::Tar, "tar"),
@@ -88,6 +92,7 @@ fn tar_compression_variants_roundtrip() {
 }
 
 #[test]
+/// 验证单文件流格式的往返。
 fn single_stream_formats_roundtrip() {
     for (format, extension) in [
         (ArchiveFormat::Gzip, "gz"),

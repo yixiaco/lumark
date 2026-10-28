@@ -1,4 +1,5 @@
-use std::path::Path;
+//! 归档格式、选项、条目和报告的数据模型。
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -9,59 +10,108 @@ use zeroize::Zeroizing;
 use crate::disguise::DisguiseOptions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Lumark 支持的归档格式；Unknown 表示无法识别。
 pub enum ArchiveFormat {
+    /// ZIP 归档。
     Zip,
+    /// 7Z 归档。
     SevenZip,
+    /// 未压缩 TAR。
     Tar,
+    /// gzip 压缩 TAR。
     TarGz,
+    /// bzip2 压缩 TAR。
     TarBz2,
+    /// xz 压缩 TAR。
     TarXz,
+    /// zstd 压缩 TAR。
     TarZst,
+    /// Brotli 压缩 TAR。
     TarBr,
+    /// LZ4 压缩 TAR。
     TarLz4,
+    /// Lzip 压缩 TAR。
     TarLz,
+    /// LZMA 压缩 TAR。
     TarLzma,
+    /// Unix compress 压缩 TAR。
     TarZ,
+    /// gzip 单文件流。
     Gzip,
+    /// bzip2 单文件流。
     Bzip2,
+    /// xz 单文件流。
     Xz,
+    /// zstd 单文件流。
     Zstd,
+    /// Brotli 单文件流。
     Brotli,
+    /// LZ4 单文件流。
     Lz4,
+    /// RAR 只读归档。
     Rar,
+    /// ISO 光盘映像。
     Iso,
+    /// UDF 光盘映像。
     Udf,
+    /// Windows CAB。
     Cab,
+    /// ARJ 归档。
     Arj,
+    /// ACE 归档。
     Ace,
+    /// ARC/PAK 归档。
     Arc,
+    /// ALZ 归档。
     Alz,
+    /// ZOO 归档。
     Zoo,
+    /// HA 归档。
     Ha,
+    /// HYP 归档。
     Hyp,
+    /// SQ 归档。
     Sq,
+    /// SQZ 归档。
     Sqz,
+    /// UC2 归档。
     Uc2,
+    /// ICE 归档。
     Ice,
+    /// PACKICE 归档。
     PackIce,
+    /// Unix .Z 单文件流。
     UnixCompress,
+    /// LZH 归档。
     Lzh,
+    /// CPIO 归档。
     Cpio,
+    /// WIM 映像。
     Wim,
+    /// ISZ 映像。
     Isz,
+    /// Debian 包。
     Deb,
+    /// Electron ASAR。
     Asar,
+    /// ZPAQ 归档。
     Zpaq,
+    /// UU 编码文件。
     Uu,
+    /// IMG 软盘/磁盘映像。
     Img,
+    /// BIN 磁盘映像。
     Bin,
+    /// AES 加密容器。
     Enc,
+    /// Lzip 单文件流。
     Lzip,
     /// Lumark 伪装容器：内层格式由尾部信息保存的原文件名决定。
     ///
     /// 该变体只由 `ArchiveService::detect` 在识别到尾部信息时返回，不会
     /// 出现在扩展名或魔数识别结果中，也不属于可写格式。
     Disguised,
+    /// 无法识别的格式。
     Unknown,
 }
 
@@ -120,6 +170,7 @@ impl ArchiveFormat {
         Self::Lzip,
     ];
 
+    /// 返回用于界面展示的格式名称。
     pub fn label(self) -> &'static str {
         match self {
             Self::Zip => "ZIP 压缩文件",
@@ -174,6 +225,7 @@ impl ArchiveFormat {
         }
     }
 
+    /// 判断该格式是否支持创建。
     pub fn is_writable(self) -> bool {
         matches!(
             self,
@@ -227,6 +279,7 @@ impl ArchiveFormat {
         }
     }
 
+    /// 判断该格式是否支持密码。
     pub fn supports_password(self) -> bool {
         matches!(
             self,
@@ -234,10 +287,12 @@ impl ArchiveFormat {
         )
     }
 
+    /// 判断该格式是否支持写入注释。
     pub fn supports_comment(self) -> bool {
         matches!(self, Self::Zip | Self::SevenZip)
     }
 
+    /// 返回该格式的默认扩展名。
     pub fn extension(self) -> &'static str {
         match self {
             Self::Zip => "zip",
@@ -295,59 +350,92 @@ impl ArchiveFormat {
 }
 
 #[derive(Debug, Clone)]
+/// 归档中单个条目或目录的元数据。
 pub struct ArchiveEntry {
+    /// 条目在归档内的稳定索引。
     pub id: u64,
+    /// 归档内相对路径。
     pub path: String,
+    /// 是否为目录条目。
     pub is_dir: bool,
+    /// 原始大小。
     pub size: u64,
+    /// 压缩后大小；未知时为空。
     pub compressed_size: Option<u64>,
+    /// 修改时间。
     pub modified: Option<DateTime<Utc>>,
+    /// CRC32 校验值。
     pub crc32: Option<u32>,
+    /// 压缩方法名称。
     pub method: String,
+    /// 条目数据是否加密。
     pub encrypted: bool,
 }
 
 #[derive(Debug, Clone, Default)]
+/// 一次列表结果的整体信息。
 pub struct ArchiveInfo {
+    /// 识别出的归档格式。
     pub format: Option<ArchiveFormat>,
+    /// 归档稳定标识。
     pub id: u64,
+    /// 条目列表。
     pub entries: Vec<ArchiveEntry>,
+    /// 是否存在加密条目。
     pub encrypted: bool,
+    /// 归档头或文件名是否加密。
     pub header_encrypted: bool,
+    /// 是否为固实归档。
     pub solid: bool,
+    /// 归档注释。
     pub comment: Option<String>,
+    /// 全部条目原始大小之和。
     pub total_size: u64,
+    /// 归档文件或压缩数据大小。
     pub compressed_size: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 压缩速度与体积的预设。
 pub enum CompressionPreset {
+    /// 优先速度。
     Speed,
+    /// 速度与体积平衡。
     Balanced,
+    /// 优先体积。
     Size,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// 归档内路径的根目录处理方式。
 pub enum PathMode {
     #[default]
     Relative,
+    /// 去掉共同根目录。
     NoRoot,
+    /// 所有文件平铺到根。
     Flatten,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// ZIP 密码加密算法。
 pub enum ZipEncryption {
     #[default]
     Aes256,
+    /// ZIP 传统 ZipCrypto。
     ZipCrypto,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// 解压时同名文件的处理策略。
 pub enum OverwritePolicy {
     #[default]
     Ask,
+    /// 覆盖同名文件。
     Overwrite,
+    /// 跳过同名文件。
     Skip,
+    /// 同名文件自动改名。
     Rename,
 }
 
@@ -370,19 +458,26 @@ pub enum UpdateMode {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// ZIP 条目压缩方法。
 pub enum ZipCompression {
     #[default]
     Deflate,
+    /// ZIP BZip2 压缩。
     Bzip2,
+    /// ZIP LZMA 压缩。
     Lzma,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// 7Z 条目压缩方法。
 pub enum SevenZCompression {
     #[default]
     Lzma2,
+    /// 7Z LZMA 压缩。
     Lzma,
+    /// 7Z PPMd 压缩。
     Ppmd,
+    /// 7Z BZip2 压缩。
     Bzip2,
 }
 
@@ -427,54 +522,86 @@ impl ZpaqCompression {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// 归档时间来源。
 pub enum ArchiveTimeSource {
     #[default]
     Current,
+    /// 保留源文件原始时间。
     Original,
+    /// 使用源文件最新修改时间。
     Latest,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// 按文件修改时间过滤添加项。
 pub enum FileTimeFilter {
     #[default]
     Any,
+    /// 只添加指定时间之前的文件。
     Before,
+    /// 只添加指定时间之后的文件。
     After,
+    /// 只添加时间区间内的文件。
     Range,
 }
 
 #[derive(Debug, Clone)]
+/// 创建归档的全部选项。
 pub struct CompressionOptions {
+    /// 输出归档格式。
     pub format: ArchiveFormat,
+    /// 压缩级别；None 表示使用预设。
     pub level: Option<i64>,
+    /// 速度与体积预设。
     pub preset: CompressionPreset,
+    /// 是否创建固实归档。
     pub solid: bool,
     /// 7z：设置密码时同时加密归档文件头和条目数据流。
     /// ZIP 忽略此标志。
     pub encrypt_header: bool,
+    /// LZMA 字典大小。
     pub dictionary_size: Option<u32>,
+    /// 压缩线程数。
     pub threads: u32,
+    /// ZIP 条目压缩方法。
     pub zip_compression: ZipCompression,
+    /// 7Z 条目压缩方法。
     pub sevenz_compression: SevenZCompression,
     /// ZPAQ 数字压缩级别；其他格式忽略。
     pub zpaq_compression: ZpaqCompression,
+    /// LZMA 字长。
     pub word_size: Option<u32>,
+    /// 7Z 固实块大小。
     pub solid_block_size: Option<u64>,
+    /// 归档时间来源。
     pub archive_time: ArchiveTimeSource,
+    /// 按修改时间过滤添加项。
     pub file_time_filter: FileTimeFilter,
+    /// 只添加此时间之后修改的文件。
     pub modified_after: Option<DateTime<Utc>>,
+    /// 只添加此时间之前修改的文件。
     pub modified_before: Option<DateTime<Utc>>,
+    /// 归档内路径根处理方式。
     pub path_mode: PathMode,
+    /// 输出归档密码。
     pub password: Option<Zeroizing<String>>,
+    /// ZIP 密码加密算法。
     pub zip_encryption: ZipEncryption,
+    /// 归档注释。
     pub comment: Option<String>,
+    /// 分卷大小；None 表示不分卷。
     pub split_size: Option<u64>,
+    /// 创建后立即完整测试。
     pub test_after: bool,
+    /// 测试成功后删除源文件。
     pub delete_source: bool,
     /// 生成自解压 EXE；只由 `ArchiveService::create_sfx` 处理，`create` 忽略。
     pub sfx: bool,
+    /// 排除的 glob 规则。
     pub exclude_patterns: Vec<String>,
+    /// 强制 Store 的 glob 规则。
     pub store_only_patterns: Vec<String>,
+    /// 后台任务取消标志。
     pub cancel: Option<Arc<AtomicBool>>,
     /// 伪装输出参数；`None` 表示普通归档。
     ///
@@ -484,6 +611,7 @@ pub struct CompressionOptions {
 }
 
 impl Default for CompressionOptions {
+    /// 返回默认解压选项。
     fn default() -> Self {
         Self {
             format: ArchiveFormat::Zip,
@@ -531,6 +659,7 @@ pub struct ExtractionBudget {
 }
 
 impl Default for ExtractionBudget {
+    /// 返回默认解压选项。
     fn default() -> Self {
         Self {
             max_bytes: 128 * 1024 * 1024 * 1024,
@@ -540,350 +669,60 @@ impl Default for ExtractionBudget {
 }
 
 #[derive(Debug, Clone, Default)]
+/// 解压归档的全部选项。
 pub struct ExtractionOptions {
+    /// 解压输出目录。
     pub output_dir: std::path::PathBuf,
+    /// 只解压这些归档内路径；为空表示全部。
     pub selected_paths: Vec<String>,
+    /// 是否允许覆盖同名文件。
     pub overwrite: bool,
+    /// 同名文件的跳过、覆盖或重命名策略。
     pub overwrite_policy: OverwritePolicy,
+    /// 解压密码。
     pub password: Option<Zeroizing<String>>,
+    /// 是否保留归档内目录层级。
     pub preserve_paths: bool,
+    /// 后台任务取消标志。
     pub cancel: Option<Arc<AtomicBool>>,
     /// 压缩炸弹预算；默认值足够宽松，可按需收紧。
     pub budget: ExtractionBudget,
 }
 
 #[derive(Debug, Clone, Default)]
+/// 解压完成后的文件数、字节数和跳过数。
 pub struct ExtractReport {
+    /// 成功写出的文件数。
     pub files: usize,
+    /// 成功写出的字节数。
     pub bytes: u64,
+    /// 因覆盖策略或过滤跳过的条目数。
     pub skipped: usize,
 }
 
 #[derive(Debug, Clone, Default)]
+/// 创建完成后的输出、条目数和字节数。
 pub struct CreateReport {
+    /// 写入归档的文件数。
     pub files: usize,
+    /// 写入归档的原始字节数。
     pub bytes: u64,
+    /// 输出归档路径。
     pub output: std::path::PathBuf,
+    /// 创建后清理源文件或临时文件时的非致命错误。
     pub cleanup_errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
+/// 归档加密状态和加密算法描述。
 pub struct EncryptionInfo {
+    /// 是否加密。
     pub encrypted: bool,
+    /// 归档头或文件名是否加密。
     pub header_encrypted: bool,
+    /// 加密信息对应的归档格式。
     pub format: Option<ArchiveFormat>,
 }
 
-pub fn detect_format(path: &Path) -> ArchiveFormat {
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
-        return ArchiveFormat::TarGz;
-    }
-    if name.ends_with(".tar.bz2") || name.ends_with(".tbz2") || name.ends_with(".tbz") {
-        return ArchiveFormat::TarBz2;
-    }
-    if name.ends_with(".tar.xz") || name.ends_with(".txz") {
-        return ArchiveFormat::TarXz;
-    }
-    if name.ends_with(".tar.zst") || name.ends_with(".tzst") {
-        return ArchiveFormat::TarZst;
-    }
-    // 带压缩后缀的 TAR 必须先于同名单流格式判断：`.tar.br`、`.tar.lz4`、
-    // `.tar.lz`、`.tar.z` 分别以 `.br`、`.lz4`、`.lz`、`.z` 结尾，顺序
-    // 反过来会把整个归档当成单文件流。`.tar.Z` 会先统一转成小写。
-    if name.ends_with(".tar.br") {
-        return ArchiveFormat::TarBr;
-    }
-    if name.ends_with(".tar.lz4") {
-        return ArchiveFormat::TarLz4;
-    }
-    if name.ends_with(".tar.lz") {
-        return ArchiveFormat::TarLz;
-    }
-    if name.ends_with(".tar.lzma") {
-        return ArchiveFormat::TarLzma;
-    }
-    if name.ends_with(".tar.z") || name.ends_with(".taz") {
-        return ArchiveFormat::TarZ;
-    }
-    if name.ends_with(".zip")
-        || name.ends_with(".zipx")
-        || name.ends_with(".jar")
-        || name.ends_with(".war")
-        || name.ends_with(".apk")
-        || name.ends_with(".ipa")
-        || name.ends_with(".xpi")
-    {
-        return ArchiveFormat::Zip;
-    }
-    if name.ends_with(".7z") {
-        return ArchiveFormat::SevenZip;
-    }
-    if name.ends_with(".tar") {
-        return ArchiveFormat::Tar;
-    }
-    if name.ends_with(".gz") || name.ends_with(".gzip") {
-        return ArchiveFormat::Gzip;
-    }
-    if name.ends_with(".bz2") || name.ends_with(".bzip2") {
-        return ArchiveFormat::Bzip2;
-    }
-    if name.ends_with(".xz") {
-        return ArchiveFormat::Xz;
-    }
-    if name.ends_with(".zst") || name.ends_with(".zstd") {
-        return ArchiveFormat::Zstd;
-    }
-    if name.ends_with(".br") || name.ends_with(".brotli") {
-        return ArchiveFormat::Brotli;
-    }
-    if name.ends_with(".lz4") {
-        return ArchiveFormat::Lz4;
-    }
-    if name.ends_with(".rar") {
-        return ArchiveFormat::Rar;
-    }
-    if name.ends_with(".iso") {
-        return ArchiveFormat::Iso;
-    }
-    if name.ends_with(".udf") {
-        return ArchiveFormat::Udf;
-    }
-    if name.ends_with(".cab") {
-        return ArchiveFormat::Cab;
-    }
-    if name.ends_with(".arj") {
-        return ArchiveFormat::Arj;
-    }
-    if name.ends_with(".ace") {
-        return ArchiveFormat::Ace;
-    }
-    if name.ends_with(".arc") || name.ends_with(".pak") {
-        return ArchiveFormat::Arc;
-    }
-    if name.ends_with(".alz") {
-        return ArchiveFormat::Alz;
-    }
-    if name.ends_with(".z") {
-        return ArchiveFormat::UnixCompress;
-    }
-    if name.ends_with(".lzh") || name.ends_with(".lha") {
-        return ArchiveFormat::Lzh;
-    }
-    if name.ends_with(".cpio") {
-        return ArchiveFormat::Cpio;
-    }
-    if name.ends_with(".wim") || name.ends_with(".swm") {
-        return ArchiveFormat::Wim;
-    }
-    if name.ends_with(".isz") {
-        return ArchiveFormat::Isz;
-    }
-    if name.ends_with(".deb") {
-        return ArchiveFormat::Deb;
-    }
-    if name.ends_with(".asar") {
-        return ArchiveFormat::Asar;
-    }
-    if name.ends_with(".zpaq") || name.ends_with(".zpq") {
-        return ArchiveFormat::Zpaq;
-    }
-    if name.ends_with(".uu") || name.ends_with(".uue") || name.ends_with(".xxe") {
-        return ArchiveFormat::Uu;
-    }
-    if name.ends_with(".img") || name.ends_with(".ima") {
-        return ArchiveFormat::Img;
-    }
-    if name.ends_with(".bin") {
-        return ArchiveFormat::Bin;
-    }
-    if name.ends_with(".enc") {
-        return ArchiveFormat::Enc;
-    }
-    if name.ends_with(".lz") || name.ends_with(".lzma") {
-        return ArchiveFormat::Lzip;
-    }
-    // 传统格式通常没有稳定的魔数，只能按扩展名识别；解码由 `unarc-rs`
-    // 统一适配层完成。
-    if name.ends_with(".zoo") {
-        return ArchiveFormat::Zoo;
-    }
-    if name.ends_with(".ha") {
-        return ArchiveFormat::Ha;
-    }
-    if name.ends_with(".hyp") {
-        return ArchiveFormat::Hyp;
-    }
-    if name.ends_with(".sq") || name.ends_with(".sq2") || name.ends_with(".qqq") {
-        return ArchiveFormat::Sq;
-    }
-    if name.ends_with(".sqz") {
-        return ArchiveFormat::Sqz;
-    }
-    if name.ends_with(".uc2") {
-        return ArchiveFormat::Uc2;
-    }
-    if name.ends_with(".ice") {
-        return ArchiveFormat::Ice;
-    }
-    if name.ends_with(".pi9") {
-        return ArchiveFormat::PackIce;
-    }
-    ArchiveFormat::Unknown
-}
-
-pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
-    if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06") {
-        return ArchiveFormat::Zip;
-    }
-    if bytes.starts_with(b"7z\xbc\xaf\x27\x1c") {
-        return ArchiveFormat::SevenZip;
-    }
-    // ALZ 头固定为 "ALZ\x01"；多卷拆分由 `unalz` 在打开时自行拼接。
-    if bytes.starts_with(b"ALZ\x01") {
-        return ArchiveFormat::Alz;
-    }
-    // 加密 ZPAQ 以随机 salt 开头，只能靠扩展名识别；明文流式归档统一
-    // 以 JIDAC 标签 `7kSt` 或旧版 `zPQ` 版本头开始。
-    if bytes.starts_with(b"7kSt")
-        || (bytes.starts_with(b"zPQ") && bytes.get(3).is_some_and(|version| *version >= 1))
-    {
-        return ArchiveFormat::Zpaq;
-    }
-    if bytes.starts_with(b"Rar!\x1a\x07") {
-        return ArchiveFormat::Rar;
-    }
-    if bytes.starts_with(b"\x1f\x8b") {
-        return ArchiveFormat::Gzip;
-    }
-    if bytes.starts_with(b"\x1f\x9d") {
-        return ArchiveFormat::UnixCompress;
-    }
-    if bytes.starts_with(b"BZh") {
-        return ArchiveFormat::Bzip2;
-    }
-    if bytes.starts_with(b"\xfd7zXZ\x00") {
-        return ArchiveFormat::Xz;
-    }
-    if bytes.starts_with(b"\x28\xb5\x2f\xfd") {
-        return ArchiveFormat::Zstd;
-    }
-    if bytes.starts_with(b"MSCF") {
-        return ArchiveFormat::Cab;
-    }
-    if bytes.starts_with(b"!<arch>\n") {
-        return ArchiveFormat::Deb;
-    }
-    if bytes.starts_with(b"070701") || bytes.starts_with(b"070702") {
-        return ArchiveFormat::Cpio;
-    }
-    ArchiveFormat::Unknown
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ArchiveFormat, detect_format, detect_magic};
-    use std::path::Path;
-
-    /// 验证新增 TAR 变体不会被同名单流格式抢先识别。
-    #[test]
-    fn compressed_tar_extensions_win_over_single_stream() {
-        for (name, expected) in [
-            ("backup.tar.br", ArchiveFormat::TarBr),
-            ("backup.tar.lz4", ArchiveFormat::TarLz4),
-            ("backup.tar.lz", ArchiveFormat::TarLz),
-            ("backup.tar.lzma", ArchiveFormat::TarLzma),
-            ("backup.tar.z", ArchiveFormat::TarZ),
-            ("backup.tar.Z", ArchiveFormat::TarZ),
-            ("backup.taz", ArchiveFormat::TarZ),
-            ("backup.TAR.BR", ArchiveFormat::TarBr),
-        ] {
-            assert_eq!(detect_format(Path::new(name)), expected, "{name}");
-        }
-        assert_eq!(detect_format(Path::new("backup.br")), ArchiveFormat::Brotli);
-        assert_eq!(detect_format(Path::new("backup.lz4")), ArchiveFormat::Lz4);
-        assert_eq!(detect_format(Path::new("backup.lz")), ArchiveFormat::Lzip);
-        assert_eq!(
-            detect_format(Path::new("backup.Z")),
-            ArchiveFormat::UnixCompress
-        );
-    }
-
-    /// 验证传统格式按扩展名识别，并覆盖常见大小写别名。
-    #[test]
-    fn legacy_format_extensions_are_recognized() {
-        for (name, expected) in [
-            ("old.zoo", ArchiveFormat::Zoo),
-            ("old.ha", ArchiveFormat::Ha),
-            ("old.hyp", ArchiveFormat::Hyp),
-            ("old.sq", ArchiveFormat::Sq),
-            ("old.sq2", ArchiveFormat::Sq),
-            ("old.qqq", ArchiveFormat::Sq),
-            ("old.sqz", ArchiveFormat::Sqz),
-            ("old.uc2", ArchiveFormat::Uc2),
-            ("old.ice", ArchiveFormat::Ice),
-            ("old.pi9", ArchiveFormat::PackIce),
-            ("old.PI9", ArchiveFormat::PackIce),
-        ] {
-            assert_eq!(detect_format(Path::new(name)), expected, "{name}");
-        }
-    }
-
-    /// 验证 ALZ 的固定头即使改名也能被魔数识别。
-    #[test]
-    fn alz_magic_is_detected() {
-        assert_eq!(detect_magic(b"ALZ\x01rest"), ArchiveFormat::Alz);
-    }
-
-    /// 验证所有已登记格式都有非空标签和扩展名，且 Unknown 不在列表中。
-    #[test]
-    fn all_formats_are_fully_described() {
-        assert!(!ArchiveFormat::ALL.contains(&ArchiveFormat::Unknown));
-        assert!(!ArchiveFormat::ALL.contains(&ArchiveFormat::Disguised));
-        for format in ArchiveFormat::ALL {
-            assert!(!format.label().is_empty(), "{format:?} 缺少标签");
-            assert!(!format.extension().is_empty(), "{format:?} 缺少扩展名");
-        }
-    }
-
-    /// 验证单文件流格式与 TAR 变体的对应关系。
-    #[test]
-    fn single_stream_formats_have_tar_variants() {
-        for (stream, tar) in [
-            (ArchiveFormat::Gzip, ArchiveFormat::TarGz),
-            (ArchiveFormat::Bzip2, ArchiveFormat::TarBz2),
-            (ArchiveFormat::Xz, ArchiveFormat::TarXz),
-            (ArchiveFormat::Zstd, ArchiveFormat::TarZst),
-            (ArchiveFormat::Brotli, ArchiveFormat::TarBr),
-            (ArchiveFormat::Lz4, ArchiveFormat::TarLz4),
-        ] {
-            assert!(stream.is_single_stream(), "{stream:?}");
-            assert_eq!(stream.single_stream_tar_variant(), Some(tar), "{stream:?}");
-            assert!(tar.is_writable(), "{tar:?}");
-            assert!(!tar.is_single_stream(), "{tar:?}");
-        }
-        assert!(!ArchiveFormat::Zip.is_single_stream());
-        assert_eq!(ArchiveFormat::Zip.single_stream_tar_variant(), None);
-    }
-
-    /// 验证可写格式包含本次新增的 TAR 变体与已有的 Brotli/LZ4。
-    #[test]
-    fn writable_formats_include_new_tar_variants() {
-        for format in [
-            ArchiveFormat::TarBr,
-            ArchiveFormat::TarLz4,
-            ArchiveFormat::TarLz,
-            ArchiveFormat::TarLzma,
-            ArchiveFormat::Brotli,
-            ArchiveFormat::Lz4,
-        ] {
-            assert!(format.is_writable(), "{format:?} 应可写");
-        }
-        assert!(!ArchiveFormat::TarZ.is_writable());
-        assert!(ArchiveFormat::Alz.supports_password());
-    }
-}
+mod detect;
+pub use detect::{detect_format, detect_magic};

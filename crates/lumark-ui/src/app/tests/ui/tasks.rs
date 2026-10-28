@@ -1,3 +1,5 @@
+//! 任务中心和进度窗口测试。
+
 use super::*;
 
 /// 验证跨任务聚合只统计非终态任务，并按字节累加运行任务的进度。
@@ -32,8 +34,8 @@ fn task_aggregate_sums_running_progress() {
     assert!((aggregate.ratio() - 0.3).abs() < f32::EPSILON);
 }
 
-#[gpui_kit::test]
 /// 验证自动进度窗口不会为已经结束的任务补开窗口。
+#[gpui_kit::test]
 fn auto_progress_window_skips_finished_task(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -66,8 +68,8 @@ fn auto_progress_window_skips_finished_task(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证任务中心显示排队数量和跨任务总进度。
+#[gpui_kit::test]
 fn task_center_shows_aggregate_progress(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();

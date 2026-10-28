@@ -1,3 +1,5 @@
+//! 文件系统和归档共用的浏览器导航与搜索模型。
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -11,25 +13,39 @@ use lumark_archive::{ArchiveEntry, ArchiveFormat, ArchiveInfo, ArchiveService};
 use crate::selection::SelectionModel;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// 浏览器当前所在位置：真实文件系统目录或归档内部路径。
 pub enum BrowserLocation {
+    /// 真实文件系统目录。
     FileSystem(PathBuf),
+    /// 归档内部路径。
     Archive { archive: PathBuf, inner: String },
 }
 
 #[derive(Debug, Clone)]
+/// 文件或归档条目在列表中的统一表示。
 pub struct BrowserEntry {
+    /// 条目稳定 ID。
     pub id: String,
+    /// 展示名称。
     pub name: String,
+    /// 真实路径或归档内路径。
     pub path: PathBuf,
+    /// 是否为目录。
     pub is_dir: bool,
+    /// 原始大小。
     pub size: u64,
+    /// 修改时间。
     pub modified: Option<DateTime<Utc>>,
+    /// 文件类型或扩展名。
     pub kind: String,
+    /// 是否为归档内条目。
     pub archive_entry: Option<ArchiveEntry>,
+    /// 条目是否加密。
     pub encrypted: bool,
 }
 
 impl BrowserEntry {
+    /// 把归档条目转换为浏览器条目。
     pub fn from_archive(entry: ArchiveEntry) -> Self {
         Self {
             id: format!("archive:{}", entry.path),
@@ -51,27 +67,41 @@ impl BrowserEntry {
 }
 
 #[derive(Debug, Clone, Default)]
+/// 一次搜索的文本和过滤条件。
 pub struct SearchQuery {
+    /// 搜索文本。
     pub pattern: String,
+    /// 是否递归搜索。
     pub recursive: bool,
+    /// 是否区分大小写。
     pub case_sensitive: bool,
+    /// 文本匹配方式。
     pub mode: SearchMode,
+    /// 扩展名过滤。
     pub extensions: Vec<String>,
+    /// 最小字节数。
     pub min_size: Option<u64>,
+    /// 最大字节数。
     pub max_size: Option<u64>,
+    /// 修改时间下界。
     pub modified_after: Option<DateTime<Utc>>,
+    /// 修改时间上界。
     pub modified_before: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// 搜索文本的匹配方式。
 pub enum SearchMode {
     #[default]
     Contains,
+    /// 通配符匹配。
     Wildcard,
+    /// 正则匹配。
     Regex,
 }
 
 #[derive(Debug, thiserror::Error)]
+/// 浏览器导航和归档加载错误。
 pub enum BrowserError {
     #[error("无法读取目录：{0}")]
     Io(#[from] std::io::Error),
@@ -79,9 +109,13 @@ pub enum BrowserError {
     Archive(String),
 }
 
+/// 文件系统与归档共享的目录导航和搜索状态。
 pub struct BrowserModel {
+    /// 当前位置。
     pub location: BrowserLocation,
+    /// 当前目录条目。
     pub entries: Vec<BrowserEntry>,
+    /// 选择状态。
     pub selection: SelectionModel,
     archive_entries: Vec<ArchiveEntry>,
     archive_format: Option<ArchiveFormat>,
@@ -91,6 +125,7 @@ pub struct BrowserModel {
 }
 
 impl BrowserModel {
+    /// 创建从指定目录开始的浏览器模型。
     pub fn new(path: impl Into<PathBuf>) -> Result<Self, BrowserError> {
         let path = path.into();
         let mut model = Self {
@@ -107,6 +142,7 @@ impl BrowserModel {
         Ok(model)
     }
 
+    /// 重新加载当前位置并保留可恢复的历史。
     pub fn refresh(&mut self) -> Result<(), BrowserError> {
         match &self.location {
             BrowserLocation::FileSystem(path) => self.load_filesystem(path.clone()),
@@ -116,6 +152,7 @@ impl BrowserModel {
         }
     }
 
+    /// 导航到新的文件系统目录。
     pub fn navigate(&mut self, path: impl Into<PathBuf>) -> Result<(), BrowserError> {
         let next = BrowserLocation::FileSystem(path.into());
         self.record_navigation(next);
@@ -123,6 +160,7 @@ impl BrowserModel {
         self.refresh()
     }
 
+    /// 打开归档并进入其根目录。
     pub fn open_archive(
         &mut self,
         archive: impl Into<PathBuf>,
@@ -134,6 +172,7 @@ impl BrowserModel {
         self.open_archive_info(archive, info)
     }
 
+    /// 使用已加载的归档信息进入归档。
     pub fn open_archive_info(
         &mut self,
         archive: impl Into<PathBuf>,
@@ -158,6 +197,7 @@ impl BrowserModel {
         )
     }
 
+    /// 进入选中目录或归档条目。
     pub fn enter_entry(&mut self, id: &str) -> Result<(), BrowserError> {
         let Some(entry) = self.entries.iter().find(|entry| entry.id == id).cloned() else {
             return Ok(());
@@ -196,6 +236,7 @@ impl BrowserModel {
         has_parent(&self.location)
     }
 
+    /// 返回当前位置的父级。
     pub fn go_parent(&mut self) -> Result<(), BrowserError> {
         if !self.can_go_up() {
             return Ok(());
@@ -231,6 +272,7 @@ impl BrowserModel {
         }
     }
 
+    /// 在当前目录或归档中执行搜索。
     pub fn search(&self, query: &SearchQuery) -> Vec<BrowserEntry> {
         if query.pattern.trim().is_empty()
             && query.extensions.is_empty()
@@ -313,14 +355,17 @@ impl BrowserModel {
         }
     }
 
+    /// 返回当前归档格式。
     pub fn archive_format(&self) -> Option<ArchiveFormat> {
         self.archive_format
     }
 
+    /// 返回当前归档是否加密。
     pub fn archive_encrypted(&self) -> bool {
         self.archive_encrypted
     }
 
+    /// 返回用于路径栏展示的当前位置文本。
     pub fn current_display(&self) -> String {
         match &self.location {
             BrowserLocation::FileSystem(path) => path.display().to_string(),
@@ -334,6 +379,7 @@ impl BrowserModel {
         }
     }
 
+    /// 返回上一个历史位置。
     pub fn go_back(&mut self) -> Result<(), BrowserError> {
         let Some(previous) = self.back_stack.pop() else {
             return Ok(());
@@ -344,6 +390,7 @@ impl BrowserModel {
         self.reload_location()
     }
 
+    /// 前进到下一个历史位置。
     pub fn go_forward(&mut self) -> Result<(), BrowserError> {
         let Some(next) = self.forward_stack.pop() else {
             return Ok(());
@@ -354,14 +401,17 @@ impl BrowserModel {
         self.reload_location()
     }
 
+    /// 判断是否可以后退。
     pub fn can_go_back(&self) -> bool {
         !self.back_stack.is_empty()
     }
 
+    /// 判断是否可以前进。
     pub fn can_go_forward(&self) -> bool {
         !self.forward_stack.is_empty()
     }
 
+    /// 按当前位置类型重新加载内容。
     fn reload_location(&mut self) -> Result<(), BrowserError> {
         match &self.location {
             BrowserLocation::FileSystem(path) => self.load_filesystem(path.clone()),
@@ -371,6 +421,7 @@ impl BrowserModel {
         }
     }
 
+    /// 记录目标位置到前进/后退历史。
     fn record_navigation(&mut self, next: BrowserLocation) {
         if self.location == next {
             return;
@@ -380,6 +431,7 @@ impl BrowserModel {
         self.location = next;
     }
 
+    /// 加载真实目录条目并按当前排序排列。
     fn load_filesystem(&mut self, path: PathBuf) -> Result<(), BrowserError> {
         let mut entries = Vec::new();
         for entry in std::fs::read_dir(&path)? {
@@ -413,6 +465,7 @@ impl BrowserModel {
         Ok(())
     }
 
+    /// 加载当前归档路径下的条目。
     fn load_archive_entries(
         &mut self,
         _archive: PathBuf,
@@ -488,6 +541,7 @@ fn navigable_parent(path: &Path) -> Option<&Path> {
         .filter(|parent| !parent.as_os_str().is_empty())
 }
 
+/// 把搜索文本编译为通配符或正则匹配器。
 struct TextMatcher {
     pattern: String,
     case_sensitive: bool,
@@ -495,6 +549,7 @@ struct TextMatcher {
 }
 
 impl TextMatcher {
+    /// 创建从指定目录开始的浏览器模型。
     fn new(query: &SearchQuery) -> Self {
         Self {
             pattern: query.pattern.trim().to_string(),
@@ -503,6 +558,7 @@ impl TextMatcher {
         }
     }
 
+    /// 判断条目名称是否匹配搜索条件。
     fn matches(&self, value: &str) -> bool {
         if self.pattern.is_empty() {
             return true;
@@ -530,6 +586,7 @@ impl TextMatcher {
     }
 }
 
+/// 判断扩展名、类型和大小过滤是否通过。
 fn filters_match(
     query: &SearchQuery,
     name: &str,
@@ -569,6 +626,7 @@ fn filters_match(
     true
 }
 
+/// 按扩展名返回用于筛选的类型名称。
 fn file_kind(path: &Path) -> String {
     path.extension()
         .and_then(|value| value.to_str())
@@ -581,6 +639,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// 验证通配符和扩展名过滤。
     fn wildcard_and_extension_filters_are_applied() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(directory.path().join("report-2026.zip"), b"12345").unwrap();
@@ -599,6 +658,7 @@ mod tests {
     }
 
     #[test]
+    /// 验证正则搜索默认忽略大小写。
     fn regex_search_is_case_insensitive_by_default() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(directory.path().join("Photo.JPG"), b"x").unwrap();
@@ -612,6 +672,7 @@ mod tests {
     }
 
     #[test]
+    /// 验证前进后退历史在目录间移动。
     fn history_moves_between_directories() {
         let root = tempfile::tempdir().unwrap();
         let first = root.path().join("first");

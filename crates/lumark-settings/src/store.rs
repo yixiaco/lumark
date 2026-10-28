@@ -1,3 +1,5 @@
+//! 设置的原子持久化和线程安全访问。
+
 use std::path::{Path, PathBuf};
 
 use parking_lot::RwLock;
@@ -5,6 +7,7 @@ use parking_lot::RwLock;
 use crate::model::Settings;
 
 #[derive(Debug, thiserror::Error)]
+/// 设置读取、写入和解析错误。
 pub enum SettingsError {
     #[error("设置文件读写失败：{0}")]
     Io(#[from] std::io::Error),
@@ -12,12 +15,14 @@ pub enum SettingsError {
     Json(#[from] serde_json::Error),
 }
 
+/// 线程安全的设置存储。
 pub struct SettingsStore {
     path: PathBuf,
     current: RwLock<Settings>,
 }
 
 impl SettingsStore {
+    /// 返回当前用户的设置文件路径。
     pub fn default_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -25,6 +30,7 @@ impl SettingsStore {
             .join("settings.json")
     }
 
+    /// 打开或创建设置文件。
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, SettingsError> {
         let path = path.into();
         let current = if path.exists() {
@@ -52,10 +58,12 @@ impl SettingsStore {
         })
     }
 
+    /// 返回设置快照。
     pub fn get(&self) -> Settings {
         self.current.read().clone()
     }
 
+    /// 修改设置并持久化。
     pub fn update<R>(&self, update: impl FnOnce(&mut Settings) -> R) -> Result<R, SettingsError> {
         let mut current = self.current.write();
         let result = update(&mut current);
@@ -64,11 +72,13 @@ impl SettingsStore {
         Ok(result)
     }
 
+    /// 返回设置文件路径。
     pub fn path(&self) -> &Path {
         &self.path
     }
 }
 
+/// 把设置原子写回磁盘。
 fn save(path: &Path, settings: &Settings) -> Result<(), SettingsError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -89,6 +99,7 @@ fn save(path: &Path, settings: &Settings) -> Result<(), SettingsError> {
 }
 
 #[cfg(windows)]
+/// 原子替换设置文件，并按需保留备份。
 fn atomic_replace(path: &Path, temp: &Path, backup: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
@@ -129,6 +140,7 @@ fn atomic_replace(path: &Path, temp: &Path, backup: &Path) -> std::io::Result<()
 }
 
 #[cfg(not(windows))]
+/// 原子替换设置文件，并按需保留备份。
 fn atomic_replace(path: &Path, temp: &Path, backup: &Path) -> std::io::Result<()> {
     if path.exists() {
         std::fs::copy(path, backup)?;
@@ -141,6 +153,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// 验证设置更新后重新打开仍保留。
     fn settings_update_twice_and_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.json");

@@ -1,3 +1,5 @@
+//! 多窗口共享的设置和密码库存储。
+
 use super::*;
 
 /// 多个窗口共享的持久化服务。
@@ -6,9 +8,13 @@ use super::*;
 /// 并让密码库出现多份互不可见的解锁状态。
 #[derive(Clone)]
 pub(crate) struct SharedStores {
+    /// 共享设置存储。
     pub(super) settings: Arc<SettingsStore>,
+    /// 共享密码库。
     pub(super) vault: Arc<VaultStore>,
+    /// 设置打开错误。
     pub(super) settings_error: Option<String>,
+    /// 密码库打开错误。
     pub(super) vault_error: Option<String>,
 }
 

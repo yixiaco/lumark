@@ -14,25 +14,44 @@ use gpui_kit::{Entity, Subscription};
 /// 设置项仍然写入主应用持有的设置存储，窗口只负责展示和派发操作；
 /// 选项卡索引和密码库位置编辑状态由窗口自己维护，关闭窗口后不会影响主界面。
 pub(crate) struct SettingsWindowView {
+    /// 主应用句柄。
     pub(super) app: Entity<LumarkApp>,
+    /// 当前设置页签。
     pub(super) tab: usize,
+    /// 强调色选择器状态。
     pub(super) accent_picker: Entity<ColorPickerState>,
     _accent_subscription: Subscription,
+    /// 密码库位置选择器是否打开。
     pub(super) vault_location_open: bool,
+    /// 密码库位置输入框。
     pub(super) vault_location_input: Entity<InputState>,
+    /// 密码库位置错误。
     pub(super) vault_location_error: Option<String>,
+    /// 当前设置快照。
     pub(super) settings: Settings,
+    /// 设置文件路径。
     pub(super) settings_path: PathBuf,
+    /// 密码库路径。
     pub(super) vault_path: PathBuf,
+    /// 密码库锁定状态。
     pub(super) vault_state: VaultState,
+    /// 密码库是否设置主密码。
     pub(super) vault_has_master: bool,
+    /// 密码库错误。
     pub(super) vault_error: Option<String>,
+    /// 已注册文件关联数量。
     pub(super) file_association_count: usize,
+    /// 选中的关联格式。
     pub(super) selected_formats: HashSet<String>,
+    /// 设置页状态文本。
     pub(super) status: String,
+    /// 默认格式下拉框。
     pub(super) format_select: CompressionSelect,
+    /// 默认压缩预设下拉框。
     pub(super) preset_select: CompressionSelect,
+    /// 覆盖策略下拉框。
     pub(super) overwrite_select: CompressionSelect,
+    /// 默认面具下拉框。
     pub(super) disguise_select: CompressionSelect,
     _select_subscriptions: Vec<Subscription>,
 }
@@ -43,14 +62,23 @@ pub(crate) struct SettingsWindowView {
 /// 实体；因此所有首帧数据都通过快照传入，后续操作再显式刷新。
 #[derive(Clone)]
 pub(crate) struct SettingsWindowSnapshot {
+    /// 设置快照。
     pub(crate) settings: Settings,
+    /// 设置文件路径。
     pub(crate) settings_path: PathBuf,
+    /// 密码库路径。
     pub(crate) vault_path: PathBuf,
+    /// 密码库状态。
     pub(crate) vault_state: VaultState,
+    /// 是否有主密码。
     pub(crate) vault_has_master: bool,
+    /// 密码库错误。
     pub(crate) vault_error: Option<String>,
+    /// 文件关联数量。
     pub(crate) file_association_count: usize,
+    /// 已选关联格式。
     pub(crate) selected_formats: HashSet<String>,
+    /// 状态文本。
     pub(crate) status: String,
 }
 

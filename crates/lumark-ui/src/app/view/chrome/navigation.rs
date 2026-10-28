@@ -1,3 +1,5 @@
+//! 页面标签和路径/搜索导航行。
+
 use super::*;
 
 impl LumarkApp {

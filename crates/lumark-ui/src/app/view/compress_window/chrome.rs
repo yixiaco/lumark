@@ -1,3 +1,5 @@
+//! 压缩窗口标题栏和底部按钮区。
+
 use super::*;
 
 impl CompressWindowView {

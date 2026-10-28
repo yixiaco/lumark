@@ -1,7 +1,9 @@
+//! 文本查看器和归档添加弹窗测试。
+
 use super::*;
 
-#[gpui_kit::test]
 /// 验证内置文本查看器可以渲染只读编辑器和状态行。
+#[gpui_kit::test]
 fn text_viewer_renders_readonly_editor(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let (_view, cx) = cx.add_window_view(|window, cx| {
@@ -19,8 +21,8 @@ fn text_viewer_renders_readonly_editor(cx: &mut gpui_kit::TestAppContext) {
     });
 }
 
-#[gpui_kit::test]
 /// 验证内置查看器能从普通文本文件读取内容并打开窗口。
+#[gpui_kit::test]
 fn text_viewer_opens_for_text_file(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -48,8 +50,8 @@ fn text_viewer_opens_for_text_file(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证拖入归档的文件先打开更新模式确认框，确认后才提交编辑任务。
+#[gpui_kit::test]
 fn archive_add_dialog_selects_update_mode(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();

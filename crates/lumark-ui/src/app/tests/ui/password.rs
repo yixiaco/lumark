@@ -1,7 +1,9 @@
+//! 密码弹窗、自动验证和保存流程测试。
+
 use super::*;
 
-#[gpui_kit::test]
 /// 验证自动尝试失败后弹出密码框，并默认勾选“保存到密码库”。
+#[gpui_kit::test]
 fn auto_password_failure_offers_saving_password(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -44,8 +46,8 @@ fn auto_password_failure_offers_saving_password(cx: &mut gpui_kit::TestAppContex
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证手动输入密码并勾选保存时先走校验任务，不会立即写入密码库。
+#[gpui_kit::test]
 fn manual_password_with_save_verifies_before_writing(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -90,8 +92,8 @@ fn manual_password_with_save_verifies_before_writing(cx: &mut gpui_kit::TestAppC
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证校验通过的密码按归档路径写入密码库，并跳过重复记录。
+#[gpui_kit::test]
 fn verified_password_is_saved_with_archive_pattern(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
@@ -129,8 +131,8 @@ fn verified_password_is_saved_with_archive_pattern(cx: &mut gpui_kit::TestAppCon
     let _ = app;
 }
 
-#[gpui_kit::test]
 /// 验证校验进度弹窗和状态栏都提供停止自动尝试的入口。
+#[gpui_kit::test]
 fn password_attempt_dialog_offers_stop_button(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();

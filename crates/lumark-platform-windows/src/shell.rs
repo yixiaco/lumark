@@ -11,9 +11,13 @@ use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
 
 use crate::PlatformError;
 
+/// 归档文件关联的 ProgID。
 const ARCHIVE_PROG_ID: &str = "Lumark.Archive";
+/// 注册到默认程序和开机启动项的应用名。
 const APPLICATION_NAME: &str = "Lumark";
+/// Windows 默认程序能力注册表子键。
 const CAPABILITIES_SUBKEY: &str = "Software\\Lumark\\Capabilities";
+/// 已注册应用列表子键。
 const REGISTERED_APPLICATIONS: &str = "Software\\RegisteredApplications";
 
 /// Lumark 注册为打开方式的压缩格式。

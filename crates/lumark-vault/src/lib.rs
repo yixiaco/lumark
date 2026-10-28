@@ -22,12 +22,14 @@ mod tests {
     use super::*;
 
     #[test]
+    /// 验证敏感字符串不会出现在调试输出中。
     fn secret_debug_is_redacted() {
         let secret = model::SecretString::new("very-secret");
         assert!(!format!("{secret:?}").contains("very-secret"));
     }
 
     #[test]
+    /// 验证主密码往返和密文篡改检测。
     fn master_password_roundtrip_and_tamper_detection() {
         let mut entry = PasswordEntry::new("工作压缩包", "s3cret!");
         entry.archive_pattern = Some("C:\\work\\data.zip".to_string());
@@ -56,6 +58,7 @@ mod tests {
     }
 
     #[test]
+    /// 验证密码候选按路径优先并去重。
     fn resolver_prioritizes_path_and_deduplicates() {
         let path = std::path::Path::new("C:\\Downloads\\archive.zip");
         let mut exact = PasswordEntry::new("exact", "same-password");
@@ -84,6 +87,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    /// 验证 DPAPI 密码库往返和存储锁定。
     fn dpapi_vault_roundtrip_and_store_lock() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("vault.dat");
@@ -131,6 +135,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    /// 验证 CSV 导出转义和锁定检查。
     fn csv_export_escapes_fields_and_requires_unlock() {
         let dir = tempdir().unwrap();
         let store = VaultStore::open(dir.path().join("vault.dat")).unwrap();
@@ -157,6 +162,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    /// 验证加密导出导入往返。
     fn encrypted_export_import_roundtrip() {
         let dir = tempdir().unwrap();
         let store_path = dir.path().join("vault.dat");
@@ -183,6 +189,7 @@ mod tests {
     }
 
     #[test]
+    /// 验证归档内容变化会改变指纹。
     fn archive_fingerprint_changes_with_content() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("a.bin");
@@ -195,6 +202,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    /// 验证损坏密码库的保留和备份恢复。
     fn corrupt_vault_is_preserved_and_restored_from_backup() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("vault.dat");
@@ -220,6 +228,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    /// 验证非法匹配规则被拒绝。
     fn invalid_archive_pattern_is_rejected() {
         let dir = tempdir().unwrap();
         let store = VaultStore::open(dir.path().join("vault.dat")).unwrap();
@@ -232,6 +241,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    /// 验证外部文件变化会强制锁定。
     fn external_vault_change_forces_lock() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("vault.dat");
@@ -247,6 +257,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    /// 验证无主密码的 DPAPI 密码库不进入锁定态。
     fn dpapi_vault_ignores_lock_without_master() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("vault.dat");

@@ -1,3 +1,5 @@
+//! ZIP/7Z 原地编辑和伪装归档透明编辑。
+
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -24,38 +26,58 @@ use crate::service::ArchiveService;
 /// 同步模式会按该目录的内容新增、更新条目，并删除磁盘上已不存在的条目。
 #[derive(Debug, Clone)]
 pub struct EditRoot {
+    /// 归档内根路径前缀。
     pub prefix: String,
+    /// 对应的本地目录。
     pub directory: PathBuf,
 }
 
+/// 一次归档编辑要同步的删除、重命名、添加和目录根。
 #[derive(Debug, Clone, Default)]
 pub struct EditOptions {
+    /// 打开源归档使用的密码。
     pub source_password: Option<Zeroizing<String>>,
+    /// 写回结果归档时使用的密码；为空表示不加密。
     pub output_password: Option<Zeroizing<String>>,
+    /// 需要删除的归档内路径，父目录会连带删除子项。
     pub delete_paths: Vec<String>,
+    /// 旧路径到新路径的重命名列表。
     pub rename: Vec<(String, String)>,
+    /// 需要添加或替换的归档内路径和本地源文件。
     pub additions: Vec<(String, PathBuf)>,
     /// 需要展开或同步的目录根；文件添加仍使用 `additions`。
     pub roots: Vec<EditRoot>,
     /// 同名条目的替换规则，默认整体替换。
     pub update_mode: UpdateMode,
+    /// 写入 7Z 的注释；ZIP 不支持时忽略。
     pub comment: Option<String>,
+    /// 是否在同目录保留 `.lumark.bak`。
     pub keep_backup: bool,
+    /// 后台任务的取消标志。
     pub cancel: Option<Arc<AtomicBool>>,
 }
 
+/// 归档编辑任务的进度快照。
 #[derive(Debug, Clone, Default)]
 pub struct EditProgress {
+    /// 当前处理的归档内路径。
     pub current: String,
+    /// 已处理条目数。
     pub entries_done: usize,
+    /// 计划处理的条目总数。
     pub entries_total: usize,
+    /// 已处理的原始字节数。
     pub bytes_done: u64,
 }
 
+/// 归档编辑完成后的输出、备份和复用块统计。
 #[derive(Debug, Clone)]
 pub struct EditReport {
+    /// 编辑后归档包含的条目数。
     pub files: usize,
+    /// 被替换的归档路径。
     pub output: PathBuf,
+    /// 可选的 `.lumark.bak` 备份路径。
     pub backup: Option<PathBuf>,
     /// 因更新模式判定为未变化而跳过的添加文件数。
     pub skipped: usize,
@@ -291,6 +313,7 @@ impl ArchiveService {
         })
     }
 }
+/// 目录根展开后的添加项、跳过数和同步删除列表。
 struct EditPlan {
     additions: Vec<(String, PathBuf)>,
     skipped: usize,
@@ -443,6 +466,7 @@ fn source_is_newer(archived: Option<DateTime<Utc>>, source: &Path) -> bool {
     DateTime::<Utc>::from(disk) > archived + chrono::Duration::seconds(2)
 }
 
+/// 把 ZIP 归档重写到临时文件，保留未变化条目。
 fn write_zip(
     source: &Path,
     output: &Path,
@@ -710,6 +734,7 @@ fn archive_has_aes(archive: &sevenz_rust2::Archive) -> bool {
         .any(|coder| coder.encoder_method_id() == sevenz_rust2::EncoderMethod::ID_AES256_SHA256)
 }
 
+/// 全量重压缩 7Z 归档；原始块复制不可用时使用。
 fn write_seven_zip_recompress(
     source: &Path,
     output: &Path,
@@ -817,11 +842,13 @@ fn write_seven_zip_recompress(
     Ok(())
 }
 
+/// 判断取消标志是否已置位。
 fn is_cancelled(flag: &Option<Arc<AtomicBool>>) -> bool {
     flag.as_ref()
         .is_some_and(|flag| flag.load(Ordering::Relaxed))
 }
 
+/// 取消已请求时返回 Cancelled。
 fn ensure_not_cancelled(flag: &Option<Arc<AtomicBool>>) -> Result<(), ArchiveError> {
     if is_cancelled(flag) {
         Err(ArchiveError::Cancelled)
@@ -830,6 +857,7 @@ fn ensure_not_cancelled(flag: &Option<Arc<AtomicBool>>) -> Result<(), ArchiveErr
     }
 }
 
+/// 分块复制编辑数据并响应取消。
 fn copy_cancellable_edit<R: Read + ?Sized, W: std::io::Write>(
     input: &mut R,
     output: &mut W,
@@ -849,6 +877,7 @@ fn copy_cancellable_edit<R: Read + ?Sized, W: std::io::Write>(
     Ok(total)
 }
 
+/// 返回条目重命名后的名字。
 fn rename_for(name: &str, rename: &[(String, String)]) -> String {
     rename
         .iter()
@@ -857,6 +886,7 @@ fn rename_for(name: &str, rename: &[(String, String)]) -> String {
         .unwrap_or_else(|| name.to_string())
 }
 
+/// 判断条目是否在删除列表中。
 fn is_deleted(name: &str, deleted: &[String]) -> bool {
     deleted.iter().any(|item| {
         let item = item.replace('\\', "/");
@@ -864,6 +894,7 @@ fn is_deleted(name: &str, deleted: &[String]) -> bool {
     })
 }
 
+/// 原子替换目标文件，并按需保留备份。
 #[cfg(windows)]
 fn atomic_replace(path: &Path, temp: &Path, backup: Option<&Path>) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -905,6 +936,7 @@ fn atomic_replace(path: &Path, temp: &Path, backup: Option<&Path>) -> io::Result
     }
 }
 
+/// 原子替换目标文件，并按需保留备份。
 #[cfg(not(windows))]
 fn atomic_replace(path: &Path, temp: &Path, backup: Option<&Path>) -> io::Result<()> {
     if let Some(backup) = backup {

@@ -117,7 +117,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 | `app/view/settings_window_pages.rs` | 综合、外观和关于选项卡 |
 | `app/view/settings_window_tabs.rs` | 压缩、文件关联和密码库选项卡 |
 | `app/view/password_windows.rs` | 独立密码编辑窗口和主密码设置窗口 |
-| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项、伪装选项卡；按表单、布局、分卷和选项卡拆分 |
+| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项、伪装选项卡；按表单、布局、分卷、标签和选项卡拆分 |
 | `app/view/disguise_window.rs` | 独立伪装窗口、输出目录、面具选择和删除源文件选项 |
 | `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
 | `app/view/dialogs.rs` | 确认对话框、密码提示和导入导出表单；按归档密码、归档编辑、文件编辑、密码库和临时解压拆分 |
@@ -177,7 +177,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 
 | Crate | 职责 |
 |---|---|
-| `lumark-archive` | 格式检测、归档读写、路径安全、选择性解压 |
+| `lumark-archive` | 格式模型与检测、归档读写、路径安全、选择性解压 |
 | `lumark-vault` | 加密密码库、DPAPI、主密码、密码匹配 |
 | `lumark-tasks` | 后台任务、进度、暂停和取消 |
 | `lumark-browser` | 文件系统与归档浏览、多选、搜索 |

@@ -1,3 +1,5 @@
+//! 主窗口渐变动作带。
+
 use super::*;
 
 impl LumarkApp {

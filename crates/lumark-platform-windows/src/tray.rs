@@ -134,6 +134,7 @@ fn create_message_window() -> Result<HWND, PlatformError> {
 
 /// 返回稳定的托盘窗口类名 UTF-16 缓冲区。
 fn tray_class_name() -> &'static [u16] {
+    /// 托盘图标的唯一类名。
     static NAME: OnceLock<Vec<u16>> = OnceLock::new();
     NAME.get_or_init(|| {
         TRAY_CLASS_NAME

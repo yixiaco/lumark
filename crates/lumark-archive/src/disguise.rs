@@ -309,6 +309,7 @@ impl PayloadReader {
 }
 
 impl Read for PayloadReader {
+    /// 从解混淆载荷视图读取并推进偏移。
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.position >= self.payload_len {
             return Ok(0);
@@ -327,6 +328,7 @@ impl Read for PayloadReader {
 }
 
 impl Seek for PayloadReader {
+    /// 在解密载荷范围内定位读取位置。
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
         let target = match position {
             SeekFrom::Start(value) => value as i64,
@@ -707,6 +709,7 @@ static MATERIALIZED: OnceLock<Mutex<Vec<CachedMaterialized>>> = OnceLock::new();
 
 /// 清理一次残留的物化目录；只在首次物化时执行。
 fn cleanup_stale_materialized() {
+    /// 已清理的物化缓存路径，避免同一进程重复删除。
     static CLEANED: OnceLock<()> = OnceLock::new();
     CLEANED.get_or_init(|| {
         let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {

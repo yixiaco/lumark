@@ -1,3 +1,5 @@
+//! 独立密码相关窗口入口。
+
 use super::super::*;
 use super::components::{AppIcon, banner_gradient, form_label, hint_text};
 use gpui_kit::Entity;

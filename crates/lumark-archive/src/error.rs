@@ -1,4 +1,7 @@
+//! 归档操作的统一错误类型。
+
 #[derive(Debug, thiserror::Error)]
+/// 归档操作统一错误；界面和任务层都依赖这些分类。
 pub enum ArchiveError {
     #[error("不支持的归档格式：{0}")]
     UnsupportedFormat(String),

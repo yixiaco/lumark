@@ -1,3 +1,5 @@
+//! 归档动作入口，按打开、压缩、解压、密码和测试拆分。
+
 use super::super::*;
 
 mod compress;

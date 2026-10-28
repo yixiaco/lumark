@@ -709,10 +709,15 @@ pub(crate) fn is_terminal_task_state(state: TaskState) -> bool {
 /// 任务中心用它展示“跨任务总进度”：排队、运行和结束的任务分别计数，
 /// 运行中（含暂停）的任务按字节累加，避免只看单个任务时忽略其它任务。
 pub(crate) struct TaskAggregate {
+    /// 运行中任务数。
     pub running: usize,
+    /// 排队任务数。
     pub queued: usize,
+    /// 已完成任务数。
     pub finished: usize,
+    /// 合并已完成字节。
     pub bytes_done: u64,
+    /// 合并总字节。
     pub bytes_total: u64,
 }
 

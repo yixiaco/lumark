@@ -1,14 +1,23 @@
+//! 任务类型、状态、进度和事件的公共模型。
+
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 后台任务类型。
 pub enum TaskKind {
+    /// 压缩任务。
     Compress,
+    /// 解压任务。
     Extract,
+    /// 完整测试任务。
     Test,
+    /// 归档编辑任务。
     Edit,
+    /// 后台加载归档。
     LoadArchive,
+    /// 密码候选验证任务。
     PasswordResolve,
     /// 把普通文件批量伪装成媒体外观。
     Disguise,
@@ -17,20 +26,32 @@ pub enum TaskKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 后台任务生命周期状态。
 pub enum TaskState {
+    /// 排队中。
     Queued,
+    /// 运行中。
     Running,
+    /// 已暂停。
     Paused,
+    /// 正在取消。
     Cancelling,
+    /// 已完成。
     Completed,
+    /// 失败。
     Failed,
+    /// 已取消。
     Cancelled,
 }
 
 #[derive(Debug, Clone, Default)]
+/// 任务进度的可序列化快照。
 pub struct TaskProgress {
+    /// 当前文件或阶段。
     pub current: String,
+    /// 已完成字节数。
     pub bytes_done: u64,
+    /// 总字节数。
     pub bytes_total: u64,
     /// 当前文件已处理的字节数。
     pub current_file_done: u64,
@@ -38,9 +59,13 @@ pub struct TaskProgress {
     pub current_file_total: u64,
     /// 已写入压缩包输出文件的字节数。
     pub output_bytes: u64,
+    /// 已完成条目数。
     pub entries_done: usize,
+    /// 总条目数。
     pub entries_total: usize,
+    /// 当前平均速度。
     pub speed_bps: f64,
+    /// 已运行秒数。
     pub elapsed_seconds: u64,
     /// 界面平滑显示用的估算字节数；真实完成字节仍是 `bytes_done`。
     pub display_bytes: u64,
@@ -124,6 +149,7 @@ impl TaskProgress {
         (self.bytes_done > 0).then(|| self.output_bytes as f32 / self.bytes_done as f32)
     }
 
+    /// 按当前速度估算剩余秒数。
     pub fn eta_seconds(&self) -> Option<u64> {
         let done = self.display_bytes.max(self.bytes_done);
         if self.speed_bps <= 0.0 || self.bytes_total <= done {
@@ -134,36 +160,26 @@ impl TaskProgress {
 }
 
 #[derive(Debug, Clone)]
+/// 工作线程发给界面的任务事件。
 pub enum TaskEvent {
+    /// 任务已排队。
     Queued {
         id: u64,
         kind: TaskKind,
         label: String,
     },
-    Progress {
-        id: u64,
-        progress: TaskProgress,
-    },
-    PasswordAttempt {
-        id: u64,
-        index: usize,
-        total: usize,
-    },
-    Completed {
-        id: u64,
-        message: String,
-    },
-    Failed {
-        id: u64,
-        message: String,
-    },
-    Cancelled {
-        id: u64,
-    },
-    StateChanged {
-        id: u64,
-        state: TaskState,
-    },
+    /// 任务进度。
+    Progress { id: u64, progress: TaskProgress },
+    /// 密码尝试。
+    PasswordAttempt { id: u64, index: usize, total: usize },
+    /// 任务完成。
+    Completed { id: u64, message: String },
+    /// 任务失败。
+    Failed { id: u64, message: String },
+    /// 任务取消。
+    Cancelled { id: u64 },
+    /// 任务状态变化。
+    StateChanged { id: u64, state: TaskState },
 }
 
 #[cfg(test)]

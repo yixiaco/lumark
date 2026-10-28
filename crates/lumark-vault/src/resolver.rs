@@ -1,3 +1,5 @@
+//! 归档密码候选排序和匹配。
+
 use std::path::{Path, PathBuf};
 
 use blake3::Hasher;
@@ -6,25 +8,38 @@ use globset::Glob;
 use crate::model::{PasswordEntry, SecretString, VaultError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// 密码候选的优先级别。
 pub enum CandidatePriority {
+    /// 完整路径精确匹配。
     ExactPath = 0,
+    /// 归档指纹匹配。
     Fingerprint = 1,
+    /// 通配规则匹配。
     Pattern = 2,
+    /// 最近使用。
     Recent = 3,
+    /// 通用候选。
     Generic = 4,
 }
 
 #[derive(Debug, Clone)]
+/// 带优先级和匹配原因的密码候选。
 pub struct PasswordCandidate {
+    /// 密码库条目 ID。
     pub entry_id: uuid::Uuid,
+    /// 候选展示名称。
     pub label: String,
+    /// 候选密码。
     pub password: SecretString,
+    /// 候选优先级。
     pub priority: CandidatePriority,
 }
 
+/// 按归档路径、指纹和匹配规则排序密码候选。
 pub struct PasswordResolver;
 
 impl PasswordResolver {
+    /// 生成去重后的密码候选列表。
     pub fn candidates(
         entries: &[PasswordEntry],
         archive_path: &Path,
@@ -91,6 +106,7 @@ impl PasswordResolver {
         result
     }
 
+    /// 计算归档路径和内容相关的指纹。
     pub fn archive_fingerprint(path: &Path) -> Result<String, VaultError> {
         let metadata = std::fs::metadata(path)?;
         let mut hasher = Hasher::new();
@@ -112,6 +128,7 @@ impl PasswordResolver {
     }
 }
 
+/// 规范化路径以便跨大小写和分隔符比较。
 fn normalize_path(path: &Path) -> String {
     let mut value = path.to_string_lossy().replace('/', "\\");
     while value.ends_with('\\') && value.len() > 1 {
@@ -120,6 +137,7 @@ fn normalize_path(path: &Path) -> String {
     value.to_lowercase()
 }
 
+/// 判断归档路径是否匹配密码记录规则。
 fn pattern_matches(pattern: &str, full_path: &str, file_name: &str) -> bool {
     let normalized = normalize_path(Path::new(pattern));
     if normalized == full_path {
@@ -135,6 +153,7 @@ fn pattern_matches(pattern: &str, full_path: &str, file_name: &str) -> bool {
     false
 }
 
+/// 去掉分卷后缀后计算逻辑归档指纹。
 pub fn split_volume_fingerprint(paths: &[PathBuf]) -> Result<String, VaultError> {
     let mut hasher = Hasher::new();
     for path in paths {

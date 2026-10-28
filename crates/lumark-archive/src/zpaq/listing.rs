@@ -25,8 +25,11 @@ pub(super) struct ListedEntry {
     pub(super) path: String,
     /// 引擎输出中的原始路径，外部工具可能写入 `\`。
     pub(super) raw_path: String,
+    /// 是否为目录条目。
     pub(super) is_dir: bool,
+    /// 原始大小。
     pub(super) size: u64,
+    /// 修改时间。
     pub(super) modified: Option<DateTime<Utc>>,
 }
 

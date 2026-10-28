@@ -226,13 +226,21 @@ fn show_dialog(
         WS_VISIBLE,
     };
 
+    /// 窗口类只注册一次。
     static REGISTER: std::sync::Once = std::sync::Once::new();
+    /// 自解压目录/密码窗口的窗口类名。
     const CLASS_NAME: &str = "LumarkSfxDialog";
+    /// 浏览目录按钮的控件 ID。
     const ID_BROWSE: usize = 101;
+    /// 密码输入框的控件 ID。
     const ID_PASSWORD: usize = 102;
+    /// 开始解压按钮的控件 ID。
     const ID_EXTRACT: usize = 103;
+    /// 取消按钮的控件 ID。
     const ID_CANCEL: usize = 104;
+    /// 解压目录输入框的控件 ID。
     const ID_TARGET: usize = 105;
+    /// 错误提示文本的控件 ID。
     const ID_ERROR: usize = 106;
 
     unsafe extern "system" fn window_proc(

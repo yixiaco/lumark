@@ -1,3 +1,5 @@
+//! 主窗口视图入口，按框架、页面、弹窗和组件拆分。
+
 mod browser;
 mod chrome;
 mod components;

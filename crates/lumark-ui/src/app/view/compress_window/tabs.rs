@@ -1,3 +1,5 @@
+//! 压缩窗口经典模式各选项卡。
+
 use super::*;
 
 impl CompressWindowView {

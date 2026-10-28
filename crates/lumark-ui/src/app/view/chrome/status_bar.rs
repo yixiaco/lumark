@@ -1,3 +1,5 @@
+//! 底部状态栏。
+
 use super::*;
 
 impl LumarkApp {

@@ -1,3 +1,5 @@
+//! 独立解压窗口。
+
 use super::super::*;
 use super::components::{AppIcon, classic_field, dialog_banner, hint_text};
 use gpui_kit::Entity;

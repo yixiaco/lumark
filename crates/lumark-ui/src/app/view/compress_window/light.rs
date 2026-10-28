@@ -1,3 +1,5 @@
+//! 压缩窗口轻巧排版。
+
 use super::*;
 
 impl CompressWindowView {

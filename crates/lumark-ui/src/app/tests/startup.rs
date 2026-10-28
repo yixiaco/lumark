@@ -1,3 +1,5 @@
+//! 启动参数和单实例请求测试。
+
 mod startup_tests {
     use crate::app::{StartupMode, StartupRequest};
     use std::path::PathBuf;

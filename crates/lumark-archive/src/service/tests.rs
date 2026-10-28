@@ -1,3 +1,5 @@
+//! 归档服务内部进度和分卷测试。
+
 use super::*;
 
 #[cfg(test)]
@@ -63,6 +65,7 @@ mod progress_tests {
     }
 
     impl Read for SlowReader {
+        /// 每次返回一小块并休眠，模拟慢速解压读取。
         fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
             std::thread::sleep(Duration::from_millis(30));
             let size = buffer.len().min(self.remaining).min(1024);

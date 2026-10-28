@@ -33,15 +33,20 @@ pub const FOOTER_LEN: usize = 32;
 /// 自解压载荷格式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SfxFormat {
+    /// ZIP 载荷。
     Zip,
+    /// 7Z 载荷。
     SevenZip,
 }
 
 /// 自解压数据段在文件中的位置和载荷属性。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SfxFooter {
+    /// 载荷格式（ZIP/7Z）。
     pub format: SfxFormat,
+    /// 载荷是否加密。
     pub encrypted: bool,
+    /// 归档头是否加密。
     pub header_encrypted: bool,
     /// 数据段起始偏移，等于运行时模块的字节数。
     pub offset: u64,
@@ -52,8 +57,11 @@ pub struct SfxFooter {
 /// 自解压运行时可区分的错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SfxError {
+    /// 需要密码。
     PasswordRequired,
+    /// 密码错误。
     WrongPassword,
+    /// 其他解压错误。
     Other(String),
 }
 
@@ -295,6 +303,7 @@ struct PayloadReader {
 }
 
 impl Read for PayloadReader {
+    /// 从载荷视图读取并受长度边界限制。
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.pos >= self.len {
             return Ok(0);
@@ -309,6 +318,7 @@ impl Read for PayloadReader {
 }
 
 impl Seek for PayloadReader {
+    /// 在载荷范围内定位。
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
         let target = match position {
             SeekFrom::Start(value) => value as i64,
