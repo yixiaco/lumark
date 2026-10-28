@@ -1,6 +1,7 @@
 //! 密码库导入导出、主密码和删除确认弹窗。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 使用独立口令导入或导出加密密码库，并可导出明文 CSV。
@@ -9,13 +10,13 @@ impl LumarkApp {
     /// 解锁后同一层立即切换为导入/导出表单。
     pub(crate) fn render_vault_transfer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let locked = self.vault.state() == VaultState::Locked;
-        centered_modal(cx, "加密密码库导入 / 导出")
+        centered_modal(cx, tr("加密密码库导入 / 导出", "Encrypted vault import / export"))
             .child(
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(
-                        "加密备份使用独立口令和 Argon2id + XChaCha20-Poly1305；CSV 为明文，任何程序都能读取。",
+                        tr("加密备份使用独立口令和 Argon2id + XChaCha20-Poly1305；CSV 为明文，任何程序都能读取。", "Encrypted backups use a separate passphrase with Argon2id + XChaCha20-Poly1305; CSV is plain text readable by any program."),
                     ),
             )
             .when(locked, |this| {
@@ -33,13 +34,13 @@ impl LumarkApp {
                                 .gap_2()
                                 .items_center()
                                 .child(AppIcon::Lock.element(15.))
-                                .child(div().text_sm().font_semibold().child("密码库已锁定")),
+                                .child(div().text_sm().font_semibold().child(tr("密码库已锁定", "Vault is locked"))),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("锁定时不保留记录，导入、导出和 CSV 都需要先解锁。"),
+                                .child(tr("锁定时不保留记录，导入、导出和 CSV 都需要先解锁。", "Records are not kept while locked; unlock before import, export or CSV.")),
                         )
                         .child(
                             h_flex()
@@ -55,7 +56,7 @@ impl LumarkApp {
                                 .child(
                                     button("vault-transfer-unlock-confirm")
                                         .primary()
-                                        .label("解锁")
+                                        .label(tr("解锁", "Unlock"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.unlock_vault_transfer(window, cx);
                                             cx.notify();
@@ -67,7 +68,7 @@ impl LumarkApp {
             .when(!locked, |this| {
                 this.child(labeled_input(
                     cx,
-                    "导出位置",
+                    tr("导出位置", "Export location"),
                     h_flex()
                         .w_full()
                         .gap_2()
@@ -82,7 +83,7 @@ impl LumarkApp {
                             button("vault-export-browse")
                                 .ghost()
                                 .icon(AppIcon::FolderOpen.element(15.))
-                                .label("浏览…")
+                                .label(tr("浏览…", "Browse..."))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.browse_vault_export_dir(cx);
                                 })),
@@ -90,18 +91,18 @@ impl LumarkApp {
                 ))
                 .child(hint_text(
                     cx,
-                    "导出文件写入所选文件夹，文件名自动附带本地时间戳，不覆盖旧备份。",
+                    tr("导出文件写入所选文件夹，文件名自动附带本地时间戳，不覆盖旧备份。", "Export files go to the selected folder with a local timestamp; old backups are not overwritten."),
                 ))
                 .child(labeled_input(
                     cx,
-                    "独立口令",
+                    tr("独立口令", "Separate passphrase"),
                     Input::new(&self.vault_transfer_passphrase)
                         .id("vault-transfer-passphrase")
                         .w_full(),
                 ))
                 .child(labeled_input(
                     cx,
-                    "导入文件",
+                    tr("导入文件", "Import file"),
                     h_flex()
                         .w_full()
                         .gap_2()
@@ -116,7 +117,7 @@ impl LumarkApp {
                             button("vault-import-browse")
                                 .ghost()
                                 .icon(AppIcon::FolderOpen.element(15.))
-                                .label("浏览…")
+                                .label(tr("浏览…", "Browse..."))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.browse_vault_import(cx);
                                 })),
@@ -126,9 +127,9 @@ impl LumarkApp {
                     button("toggle-import-replace")
                         .cursor_pointer()
                         .label(if self.vault_transfer_replace {
-                            "导入策略：替换现有记录"
+                            tr("导入策略：替换现有记录", "Import policy: replace existing records")
                         } else {
-                            "导入策略：合并去重"
+                            tr("导入策略：合并去重", "Import policy: merge and deduplicate")
                         })
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.vault_transfer_replace = !this.vault_transfer_replace;
@@ -147,7 +148,7 @@ impl LumarkApp {
                             button("vault-export")
                                 .primary()
                                 .icon(AppIcon::Save.element(15.))
-                                .label("导出加密备份")
+                                .label(tr("导出加密备份", "Export encrypted backup"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.export_vault(window, cx);
                                     cx.notify();
@@ -157,7 +158,7 @@ impl LumarkApp {
                             button("vault-export-csv")
                                 .warning()
                                 .icon(AppIcon::Doc.element(15.))
-                                .label("导出明文 CSV")
+                                .label(tr("导出明文 CSV", "Export plain CSV"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.export_vault_csv(window, cx);
                                     cx.notify();
@@ -165,7 +166,7 @@ impl LumarkApp {
                         )
                         .child(
                             button("vault-import")
-                                .label("导入")
+                                .label(tr("导入", "Import"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.import_vault(window, cx);
                                     cx.notify();
@@ -174,7 +175,7 @@ impl LumarkApp {
                     })
                     .child(
                         button("vault-transfer-cancel")
-                            .label("关闭")
+                            .label(tr("关闭", "Close"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_vault_transfer = false;
                                 cx.notify();
@@ -185,9 +186,9 @@ impl LumarkApp {
 
     /// 删除主密码前验证当前主密码，并让密码库恢复 DPAPI 包裹。
     pub(crate) fn render_confirm_remove_master(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        centered_modal(cx, "删除主密码")
+        centered_modal(cx, tr("删除主密码", "Remove master password"))
             .child(
-                "删除后密码库将改由与当前计算机绑定的 Windows DPAPI 保护。请输入当前主密码确认。",
+                tr("删除后密码库将改由与当前计算机绑定的 Windows DPAPI 保护。请输入当前主密码确认。", "After removal the vault returns to Windows DPAPI protection bound to this computer. Enter the current master password to confirm."),
             )
             .child(
                 Input::new(&self.master_remove)
@@ -199,7 +200,7 @@ impl LumarkApp {
                     .gap_2()
                     .child(
                         button("cancel-remove-master")
-                            .label("取消")
+                            .label(tr("取消", "Cancel"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 set_input(&this.master_remove, "", window, cx);
                                 this.show_confirm_remove_master = false;
@@ -209,7 +210,7 @@ impl LumarkApp {
                     .child(
                         button("confirm-remove-master")
                             .danger()
-                            .label("确认删除")
+                            .label(tr("确认删除", "Confirm removal"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.confirm_remove_master(window, cx);
                                 cx.notify();
@@ -220,14 +221,14 @@ impl LumarkApp {
 
     /// 警告清除密码库不可恢复。
     pub(crate) fn render_confirm_clear_vault(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        centered_modal(cx, "清除密码库")
-            .child("此操作会删除密码库中的所有记录，无法撤销。建议先加密导出备份。")
+        centered_modal(cx, tr("清除密码库", "Clear vault"))
+            .child(tr("此操作会删除密码库中的所有记录，无法撤销。建议先加密导出备份。", "This deletes all vault records and cannot be undone. Export an encrypted backup first."))
             .child(
                 h_flex()
                     .gap_2()
                     .child(
                         button("cancel-clear-vault")
-                            .label("取消")
+                            .label(tr("取消", "Cancel"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_confirm_clear_vault = false;
                                 cx.notify();
@@ -236,7 +237,7 @@ impl LumarkApp {
                     .child(
                         button("confirm-clear-vault")
                             .danger()
-                            .label("确认清除")
+                            .label(tr("确认清除", "Confirm clear"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.clear_vault(window, cx);
                                 cx.notify();
@@ -254,15 +255,21 @@ impl LumarkApp {
             .selected_password
             .and_then(|id| self.find_password(id))
             .map(|entry| entry.display_name().to_string())
-            .unwrap_or_else(|| "所选密码".to_string());
+            .unwrap_or_else(|| tr("所选密码", "Selected password").to_string());
         destructive_confirm_card(
             cx,
-            "删除密码记录",
-            "记录将从本地加密密码库移除",
-            "条记录",
+            tr("删除密码记录", "Delete password record"),
+            tr(
+                "记录将从本地加密密码库移除",
+                "The record will be removed from the local encrypted vault",
+            ),
+            tr("条记录", "record"),
             1,
             vec![label],
-            "删除后无法恢复，但不会影响已经解压的文件。",
+            tr(
+                "删除后无法恢复，但不会影响已经解压的文件。",
+                "Deletion cannot be undone but does not affect already extracted files.",
+            ),
         )
         .child(
             h_flex()
@@ -275,7 +282,7 @@ impl LumarkApp {
                 .child(
                     button("cancel-delete-password")
                         .secondary()
-                        .label("取消")
+                        .label(tr("取消", "Cancel"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.show_confirm_delete_password = false;
                             cx.notify();
@@ -285,7 +292,7 @@ impl LumarkApp {
                     button("confirm-delete-password")
                         .danger()
                         .icon(AppIcon::Delete.element(14.))
-                        .label("删除记录")
+                        .label(tr("删除记录", "Delete record"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.confirm_delete_password();
                             cx.notify();
