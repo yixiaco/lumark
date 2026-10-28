@@ -891,10 +891,13 @@ pub fn run() -> anyhow::Result<()> {
     let instance = lumark_platform_windows::InstanceGuard::acquire("Lumark.SingleInstance")?;
     if instance.is_none() {
         let arguments = std::env::args().skip(1).collect::<Vec<_>>();
-        let _ = lumark_platform_windows::ipc::send_request(&arguments);
+        if lumark_platform_windows::pipe::send_request(&arguments).is_err() {
+            let _ = lumark_platform_windows::ipc::send_request(&arguments);
+        }
         return Ok(());
     }
     let _instance = instance;
+    lumark_platform_windows::pipe::start_server();
     let stores = SharedStores::open(SettingsStore::default_path());
     let request = StartupRequest::from_env();
     // ISO 挂载/卸载由资源管理器菜单触发，只执行动作，不打开主窗口。

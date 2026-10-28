@@ -311,11 +311,14 @@ impl LumarkApp {
                     if !app.ipc_poll_owner && !IPC_POLL_OWNER.swap(true, Ordering::AcqRel) {
                         app.ipc_poll_owner = true;
                     }
-                    let requests = if app.ipc_poll_owner {
+                    let mut requests = if app.ipc_poll_owner {
                         lumark_platform_windows::ipc::take_requests().unwrap_or_default()
                     } else {
                         Vec::new()
                     };
+                    if app.ipc_poll_owner {
+                        requests.extend(lumark_platform_windows::pipe::take_requests());
+                    }
                     let had_requests = !requests.is_empty();
                     let had_events = !events.is_empty() || had_requests;
                     let auto_locked = app.vault.maybe_auto_lock();
