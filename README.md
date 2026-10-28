@@ -62,6 +62,19 @@ cargo build --release -p lumark-app -p lumark-sfx
 ./installer/install.ps1
 ```
 
+需要 Authenticode 签名时，在安装前运行：
+
+```powershell
+# 当前用户证书存储中的指纹
+./installer/sign.ps1 -Thumbprint <SHA1指纹>
+
+# 或 PFX 文件
+./installer/sign.ps1 -PfxPath .\codesign.pfx -PfxPassword <密码>
+
+# 只校验已有签名
+./installer/sign.ps1 -VerifyOnly
+```
+
 ## 测试
 
 ```powershell
@@ -218,7 +231,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 - 7Z 后端继续使用 `sevenz-rust2`：`zesven` 的解压进度、流式和编辑 API 更全，但更年轻（2026 年首版、下载量约为前者 1/27、七个月跨了三个大版本），整体迁移要重写 list/extract/create/edit/probe/verify 并重跑 7-Zip 互操作矩阵；现阶段用读取器包装和编码块完成量补进度（加密归档退回读取进度），等需要“7Z 编辑避免全量重压缩”等能力时再做 spike 评估。
 - LZH 创建复用 `geezipx-core` 的 `LzhWriter`，按预设映射到 lh4/lh5/lh7；该写入器需要把单个文件整块读入内存，因此项目对单条目限制 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
 - ISO 挂载不引入第三方驱动，直接调用系统 `Mount-DiskImage`/`Dismount-DiskImage`；挂载状态在 Lumark 退出后仍由 Windows 保留，卸载入口在 Lumark 文件列表和资源管理器右键菜单。资源管理器入口注册在 `SystemFileAssociations\.iso\shell`，不依赖 `.iso` 当前绑定的 ProgID，因此第三方软件占用文件关联也不影响。
-- Windows 11 稀疏 MSIX/新版菜单和代码签名仍在后续阶段；会话锁定和 UI 自动化已覆盖。
+- Windows 11 稀疏 MSIX/新版菜单仍在后续阶段；会话锁定、Authenticode 签名脚本和 UI 自动化已覆盖。
 - 视频、图片、PDF 压缩按规划暂不实现。
 
 ## 许可与来源

@@ -80,6 +80,7 @@
 - [x] 自解压图标真实模块测试：以当前测试 EXE 作为运行时模块，替换图标后读取页脚并解压载荷，覆盖 PE 资源改写和偏移重算。
 - [x] 自解压自定义图标：压缩窗口可选择 `.ico`，生成时在追加载荷前用 Win32 资源 API 替换运行时模块的 RT_ICON/RT_GROUP_ICON，页脚偏移按替换后的实际大小计算。
 - [x] CHM 只读格式：使用 `libchm` 解析 ITSF/ITSP、PMGL 目录和 LZX 数据，支持普通命名空间文件/目录列表、选择性解压、预算/取消和完整性测试；已加入 `.chm` Shell 关联。
+- [x] Authenticode 代码签名脚本：`installer/sign.ps1` 支持证书存储指纹或 PFX、SHA-256 时间戳、签名后自动 `signtool verify /pa`，以及 `-VerifyOnly` 校验；没有证书时脚本明确失败。
 - [x] EGG 只读格式：使用 MIT `unegg` 读取 Store/Deflate/Bzip2/LZMA 条目，支持列表、选择性解压、覆盖策略、预算/取消和完整性测试；AZO 条目因缺少可用解码器明确报不支持，使用本地 `libazo` 占位依赖。已加入 `.egg` Shell 关联。
 - [x] DMG（UDIF）只读格式：使用 MIT `dpp` 自动识别 HFS+/APFS 卷，支持遍历、列表、选择性解压、覆盖策略、预算/取消和完整性测试；按 `.dmg` 扩展名或末尾 `koly` 识别，跳过符号链接。测试用 `hfsplus`/`udif` 合成原始 HFS+ DMG。
 - [x] NSIS 安装包只读格式：使用 Apache-2.0 `nsis` 解析 PE overlay、压缩头和 `EW_EXTRACTFILE` 条目，支持列表、选择性解压、覆盖策略、预算/取消和完整性测试；按内容识别，不注册 `.exe` 默认关联，避免劫持普通可执行文件。测试夹具来自 nsis-rs 并保留 NOTICE。
