@@ -1,6 +1,7 @@
 //! 归档测试任务。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 测试所选归档，并在检测到加密时解析已保存密码。
@@ -9,14 +10,18 @@ impl LumarkApp {
     /// 探测结果返回后再决定是否使用密码库记录或直接提交测试任务。
     pub(crate) fn start_test(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(archive) = self.selected_archive() else {
-            self.status = "请选择一个压缩包".to_string();
+            self.status = tr("请选择一个压缩包", "Select an archive").to_string();
             return;
         };
         if let Some(password) = &self.archive_password {
             self.submit_archive_test(archive, Some(password.to_string()));
             return;
         }
-        self.status = format!("正在检查压缩包：{}", archive.display());
+        self.status = format!(
+            "{}{}",
+            tr("正在检查压缩包：", "Checking archive: "),
+            archive.display()
+        );
         let probe_archive = archive.clone();
         cx.spawn(async move |this, cx| {
             let encrypted = cx
@@ -71,6 +76,10 @@ impl LumarkApp {
         });
         self.active_task = Some(id);
         self.task_progress = None;
-        self.status = format!("开始测试：{}", archive.display());
+        self.status = format!(
+            "{}{}",
+            tr("开始测试：", "Starting test: "),
+            archive.display()
+        );
     }
 }

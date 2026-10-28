@@ -1,12 +1,13 @@
 //! 解压窗口、加密探测和任务提交。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 为所选归档打开解压流程，并在提示前探测加密状态。
     pub(crate) fn open_extract_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(archive) = self.selected_archive() else {
-            self.status = "请选择一个压缩包".to_string();
+            self.status = tr("请选择一个压缩包", "Select an archive").to_string();
             return;
         };
         let password = self
@@ -123,7 +124,11 @@ impl LumarkApp {
                 }
             }
             Ok(_) => {
-                self.status = format!("准备解压：{}", archive.display());
+                self.status = format!(
+                    "{}{}",
+                    tr("准备解压：", "Preparing to extract: "),
+                    archive.display()
+                );
             }
             Err(error) => {
                 self.status = error.to_string();
@@ -201,7 +206,11 @@ impl LumarkApp {
         }
         self.active_task = Some(id);
         self.task_progress = None;
-        self.status = format!("开始解压：{}", archive.display());
+        self.status = format!(
+            "{}{}",
+            tr("开始解压：", "Starting extraction: "),
+            archive.display()
+        );
         Ok(())
     }
 }
