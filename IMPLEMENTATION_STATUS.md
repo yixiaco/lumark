@@ -100,7 +100,7 @@
 - [x] RPM 只读格式：解析 lead、签名/主 header 和 gzip/xz/BZip2/zstd/LZMA 压缩的 newc cpio 载荷，支持列表、选择性解压、符号链接跳过、预算/取消和完整性测试；`.rpm` 已加入 Shell 关联。
 - [x] MSI 只读格式：读取 OLE 复合文档中的 File/Media 表，打开内嵌或同目录外部 CAB 并列表、选择性解压和完整性测试；按 File/Component/Directory 表还原目录层级，MSI 写入仍不支持。
 - [x] 命名管道单实例请求：首个进程启动管道服务，后续进程优先通过命名管道转发参数，失败时回退现有请求目录；参数带长度前缀，不落盘。
-- [x] 归档头部确定性变异测试：对 ZIP/7Z/TAR/GZIP 各做 64 次单字节篡改，并对 ZIP 做多组截断；列表、测试和解压只返回错误，不 panic。
+- [x] 归档头部确定性变异测试：对 ZIP/7Z/TAR/GZIP 各做 64 次单字节篡改，对 NSIS/SquashFS/DMG 各做 32 次单字节篡改，并对 ZIP 做多组截断；列表、测试和解压只返回错误，不 panic。
 - [x] WIM 创建（未压缩 Store）：复用 `WimWriter` 生成可被 Lumark 只读 WIM 后端打开的归档，支持多文件和目录；LZMS 压缩、SWM 分卷和压缩 WIM 写入仍不支持。
 - [x] cargo-fuzz 持续目标：新增 `fuzz/fuzz_targets/archive_list.rs`，把输入写成临时 ZIP 后调用列表和完整测试，可直接用 `cargo +nightly fuzz run archive_list` 运行；工作区外独立 lockfile。
 - [x] 设置窗口通知页 UI 测试：打开真实设置窗口、切到“通知”页并验证 SMTP 主机、端口和密码控件可见。
@@ -122,7 +122,7 @@
 - [ ] Windows 11 稀疏 MSIX `IExplorerCommand` 和代码签名。
 - [ ] EGG 和 PAQ8/LPAQ 仍未支持；SquashFS XZ 仍受依赖链接冲突限制；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
 - [ ] LZH 的 lh4/lh5/lh7 创建仍受单条目 512 MiB 内存上限限制；Store（lh0）已支持分块流式写入。上游 lh4-lh7 编码器尚无可安全跨块续写的接口，后续可评估自研流式编码器或分块归档策略。
-- [ ] 扩展 UI 自动化到自动解压提示、任务暂停/取消按钮和拖放；传统格式的实际写入上限仍取决于上游适配器，模糊测试、性能基准、完整键盘/高对比度验收和中英文资源文件仍待完成。
+- [ ] 传统格式的实际写入上限仍取决于上游适配器；完整键盘/高对比度验收、中英文资源文件和原生 OS 拖出目标窗口行为仍待完成。
 - [ ] 将 `geezipx-core` 所需适配器复制进项目并移除整体直接依赖，减少重复 ZIP/7z 依赖。
 
 ## 验证命令

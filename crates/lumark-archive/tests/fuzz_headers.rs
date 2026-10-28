@@ -84,3 +84,76 @@ fn truncated_archives_return_errors_without_panics() {
         assert!(extracted.is_ok(), "截断 {fraction}/64 导致解压 panic");
     }
 }
+
+/// 构造 SquashFS 测试镜像。
+fn squashfs_bytes() -> Vec<u8> {
+    use backhand::compression::Compressor;
+    use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
+    use std::io::Cursor;
+
+    let mut writer = FilesystemWriter::default();
+    writer.set_compressor(FilesystemCompressor::new(Compressor::Gzip, None).unwrap());
+    writer
+        .push_file(
+            Cursor::new(b"fuzz squashfs"),
+            "hello.txt",
+            NodeHeader::default(),
+        )
+        .unwrap();
+    let mut bytes = Vec::new();
+    writer.write(Cursor::new(&mut bytes)).unwrap();
+    bytes
+}
+
+/// 构造 HFS+ DMG 测试镜像。
+fn dmg_bytes() -> Vec<u8> {
+    use std::io::Cursor;
+
+    let mut builder = hfsplus::testutil::HfsPlusImageBuilder::new();
+    builder.add_file("hello.txt", b"fuzz dmg", 0o644);
+    let hfs = builder.build();
+    let mut bytes = Vec::new();
+    let mut writer = udif::DmgWriter::new(Cursor::new(&mut bytes))
+        .compression(udif::CompressionMethod::Raw)
+        .skip_checksums(true);
+    writer.add_partition("Apple_HFSX", &hfs).unwrap();
+    writer.finish().unwrap();
+    bytes
+}
+
+/// 对 NSIS、SquashFS、DMG 依次做单字节变异，解析器不得 panic。
+#[test]
+fn mutated_new_formats_never_panic() {
+    let directory = tempdir().unwrap();
+    let fixtures = [
+        (
+            "nsis.exe",
+            include_bytes!("fixtures/nsis/installer.exe").to_vec(),
+        ),
+        ("image.squashfs", squashfs_bytes()),
+        ("image.dmg", dmg_bytes()),
+    ];
+    for (name, original) in fixtures {
+        for step in 0..32usize {
+            let mut bytes = original.clone();
+            let index = (step * 41 + 7) % bytes.len();
+            bytes[index] ^= (step as u8).wrapping_mul(17).max(1);
+            let path = directory.path().join(format!("{step}-{name}"));
+            fs::write(&path, &bytes).unwrap();
+            let listed = catch_unwind(AssertUnwindSafe(|| ArchiveService::list(&path, None)));
+            assert!(listed.is_ok(), "{name} 第 {step} 次变异导致列表 panic");
+            let tested = catch_unwind(AssertUnwindSafe(|| {
+                ArchiveService::extract(
+                    &path,
+                    &ExtractionOptions {
+                        output_dir: directory.path().join(format!("out-{step}-{name}")),
+                        overwrite: true,
+                        ..Default::default()
+                    },
+                    |_| {},
+                )
+            }));
+            assert!(tested.is_ok(), "{name} 第 {step} 次变异导致解压 panic");
+        }
+    }
+}

@@ -76,7 +76,7 @@ powershell -NoProfile -File tools/check_file_sizes.ps1
 
 DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 Shell 通知图标的交互式桌面会话，受限会话可能返回“拒绝访问”。
 
-归档解析另有确定性头部变异测试：对有效 ZIP 做 256 次单字节篡改和截断，确保列表、测试、解压只返回错误而不 panic。
+归档解析另有确定性变异测试：对 ZIP/7Z/TAR/GZIP 和 NSIS/SquashFS/DMG 做多轮单字节篡改与截断，确保列表、测试、解压只返回错误而不 panic。
 
 持续模糊测试：`cargo +nightly fuzz run archive_list`（需要 nightly 和 cargo-fuzz；目标位于 `fuzz/`）。
 
