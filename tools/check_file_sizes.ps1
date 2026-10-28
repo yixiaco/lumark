@@ -4,13 +4,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$crates = Join-Path $root "crates"
-if (-not (Test-Path -LiteralPath $crates)) {
-    throw "crates directory not found: $crates"
+$roots = @("crates", "vendor", "fuzz") | ForEach-Object { Join-Path $root $_ } | Where-Object { Test-Path -LiteralPath $_ }
+if ($roots.Count -eq 0) {
+    throw "No Rust source directories found under $root"
 }
 
 $violations = @()
-foreach ($file in Get-ChildItem -LiteralPath $crates -Recurse -Filter *.rs -File) {
+foreach ($file in $roots | ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -Filter *.rs -File }) {
     $lines = [System.IO.File]::ReadAllLines($file.FullName).Count
     if ($lines -gt $Limit) {
         $relative = $file.FullName.Substring($root.Length).TrimStart([char]'\')
