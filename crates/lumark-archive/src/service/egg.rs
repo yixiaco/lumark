@@ -7,6 +7,12 @@ use std::io::BufReader;
 use crate::format::OverwritePolicy;
 use unegg::archive::EggArchive;
 use unegg::extract::extract_entry;
+use unegg::volume::MultiVolumeReader;
+
+/// EGG 单文件或分卷读取器的统一接口。
+trait EggReadSeek: Read + Seek {}
+
+impl<T: Read + Seek> EggReadSeek for T {}
 
 impl ArchiveService {
     /// 列出 EGG 归档条目。
@@ -95,9 +101,14 @@ impl ArchiveService {
 }
 
 /// 打开 EGG 归档。
-fn open_egg(path: &Path) -> Result<EggArchive<BufReader<File>>, ArchiveError> {
-    let file = File::open(path)?;
-    EggArchive::open(BufReader::new(file))
+fn open_egg(path: &Path) -> Result<EggArchive<Box<dyn EggReadSeek>>, ArchiveError> {
+    let reader: Box<dyn EggReadSeek> = match MultiVolumeReader::try_open(path)
+        .map_err(|error| ArchiveError::Corrupt(format!("EGG 分卷发现失败：{error}")))?
+    {
+        Some(reader) => Box::new(reader),
+        None => Box::new(BufReader::new(File::open(path)?)),
+    };
+    EggArchive::open(reader)
         .map_err(|error| ArchiveError::Corrupt(format!("EGG 解析失败：{error}")))
 }
 
