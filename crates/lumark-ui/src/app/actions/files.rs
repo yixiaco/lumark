@@ -1,6 +1,7 @@
 //! 文件系统动作入口。
 
 use super::super::*;
+use crate::i18n::tr;
 
 /// 临时解压的用途：复制到剪贴板或准备原生拖出。
 #[derive(Clone, Copy)]
@@ -605,7 +606,11 @@ impl LumarkApp {
                 .as_ref()
                 .map(|value| value.to_string());
             if self.temp_extract.is_some() {
-                self.status = "正在准备临时文件，请稍候".to_string();
+                self.status = tr(
+                    "正在准备临时文件，请稍候",
+                    "Preparing temporary files, please wait",
+                )
+                .to_string();
                 return;
             }
             self.start_temp_extract(
@@ -624,7 +629,7 @@ impl LumarkApp {
             .map(|entry| entry.path)
             .collect::<Vec<_>>();
         match platform::clipboard::set_clipboard_files(&paths) {
-            Ok(()) => self.status = format!("已复制 {} 个项目", paths.len()),
+            Ok(()) => self.status = format!("{}{}", tr("已复制 ", "Copied "), paths.len()),
             Err(error) => self.status = error.to_string(),
         }
     }
@@ -643,12 +648,14 @@ impl LumarkApp {
             return;
         }
         let title = match mode {
-            TempExtractMode::Copy => "正在准备复制文件",
-            TempExtractMode::Drag { .. } => "正在准备拖出文件",
+            TempExtractMode::Copy => tr("正在准备复制文件", "Preparing files for copying"),
+            TempExtractMode::Drag { .. } => {
+                tr("正在准备拖出文件", "Preparing files for dragging out")
+            }
         };
         self.temp_extract = Some(TempExtractDialog {
             title: title.to_string(),
-            message: "正在读取归档…".to_string(),
+            message: tr("正在读取归档…", "Reading archive...").to_string(),
             progress: 0.,
         });
         self.status = title.to_string();
@@ -686,7 +693,11 @@ impl LumarkApp {
                         }
                         Err(std::sync::mpsc::TryRecvError::Empty) => break,
                         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                            finished = Some(Err("临时解压任务已中断".to_string()));
+                            finished = Some(Err(tr(
+                                "临时解压任务已中断",
+                                "Temporary extraction was interrupted",
+                            )
+                            .to_string()));
                             break;
                         }
                     }

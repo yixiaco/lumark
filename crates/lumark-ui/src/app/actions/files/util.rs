@@ -1,6 +1,7 @@
 //! 文件动作的目录大小和临时解压进度辅助。
 
 use super::*;
+use crate::i18n::tr;
 
 /// 递归统计文件夹内普通文件的总字节数。
 ///
@@ -45,13 +46,16 @@ pub(super) fn extract_progress_percent(progress: &lumark_archive::ExtractProgres
 pub(super) fn extract_progress_message(progress: &lumark_archive::ExtractProgress) -> String {
     if progress.entries_total > 0 {
         format!(
-            "正在解压 {}/{}：{}",
-            progress.entries_done, progress.entries_total, progress.current
+            "{}{}/{}：{}",
+            tr("正在解压 ", "Extracting "),
+            progress.entries_done,
+            progress.entries_total,
+            progress.current
         )
     } else if !progress.current.is_empty() {
-        format!("正在解压：{}", progress.current)
+        format!("{}{}", tr("正在解压：", "Extracting: "), progress.current)
     } else {
-        "正在解压…".to_string()
+        tr("正在解压…", "Extracting...").to_string()
     }
 }
 
