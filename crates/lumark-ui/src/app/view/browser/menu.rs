@@ -1,6 +1,7 @@
 //! 文件表右键菜单和菜单动作。
 
 use super::*;
+use crate::i18n::tr;
 
 /// 右键菜单按位置和项目类型区分的动作集合。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,21 +74,21 @@ pub(super) fn file_context_menu(
                     AppIcon::Doc
                 };
                 menu.item(popup_action(
-                    "打开",
+                    tr("打开", "Open"),
                     icon,
                     &app,
                     window,
                     |app, window, cx| app.open_selected(window, cx),
                 ))
                 .item(popup_action(
-                    "使用内置查看器打开",
+                    tr("使用内置查看器打开", "Open in built-in viewer"),
                     AppIcon::Doc,
                     &app,
                     window,
                     |app, window, cx| app.open_selected_in_viewer(window, cx),
                 ))
                 .item(popup_action(
-                    "解压到…",
+                    tr("解压到…", "Extract to..."),
                     AppIcon::Zip,
                     &app,
                     window,
@@ -95,21 +96,21 @@ pub(super) fn file_context_menu(
                 ))
                 .separator()
                 .item(popup_action(
-                    "复制文件",
+                    tr("复制文件", "Copy files"),
                     AppIcon::Copy,
                     &app,
                     window,
                     |app, _, cx| app.copy_selected_items(cx),
                 ))
                 .item(popup_action(
-                    "复制路径",
+                    tr("复制路径", "Copy path"),
                     AppIcon::Copy,
                     &app,
                     window,
                     |app, _, cx| app.copy_selected_path(cx),
                 ))
                 .item(popup_action(
-                    "打开压缩包所在目录",
+                    tr("打开压缩包所在目录", "Open archive folder"),
                     AppIcon::Search,
                     &app,
                     window,
@@ -117,14 +118,14 @@ pub(super) fn file_context_menu(
                 ))
                 .separator()
                 .item(popup_action(
-                    "重命名",
+                    tr("重命名", "Rename"),
                     AppIcon::Edit,
                     &app,
                     window,
                     |app, window, cx| app.start_rename(window, cx),
                 ))
                 .item(popup_action(
-                    "删除",
+                    tr("删除", "Delete"),
                     AppIcon::Delete,
                     &app,
                     window,
@@ -133,14 +134,14 @@ pub(super) fn file_context_menu(
             }
             FileMenuKind::Folder => menu
                 .item(popup_action(
-                    "打开",
+                    tr("打开", "Open"),
                     AppIcon::FolderOpen,
                     &app,
                     window,
                     |app, window, cx| app.open_selected(window, cx),
                 ))
                 .item(popup_action(
-                    "在新窗口打开",
+                    tr("在新窗口打开", "Open in new window"),
                     AppIcon::Grid,
                     &app,
                     window,
@@ -148,14 +149,14 @@ pub(super) fn file_context_menu(
                 ))
                 .separator()
                 .item(popup_action(
-                    "压缩为 Lumark 归档",
+                    tr("压缩为 Lumark 归档", "Compress to Lumark archive"),
                     AppIcon::Compression,
                     &app,
                     window,
                     |app, window, cx| app.open_compress_dialog(window, cx),
                 ))
                 .item(popup_action(
-                    "伪装压缩…",
+                    tr("伪装压缩…", "Disguise compression..."),
                     AppIcon::Video,
                     &app,
                     window,
@@ -163,28 +164,28 @@ pub(super) fn file_context_menu(
                 ))
                 .separator()
                 .item(popup_action(
-                    "新建文件夹",
+                    tr("新建文件夹", "New folder"),
                     AppIcon::FolderPlus,
                     &app,
                     window,
                     |app, window, cx| app.start_new_folder(window, cx),
                 ))
                 .item(popup_action(
-                    "复制文件",
+                    tr("复制文件", "Copy files"),
                     AppIcon::Copy,
                     &app,
                     window,
                     |app, _, cx| app.copy_selected_items(cx),
                 ))
                 .item(popup_action(
-                    "复制路径",
+                    tr("复制路径", "Copy path"),
                     AppIcon::Copy,
                     &app,
                     window,
                     |app, _, cx| app.copy_selected_path(cx),
                 ))
                 .item(popup_action(
-                    "在资源管理器中显示",
+                    tr("在资源管理器中显示", "Show in Explorer"),
                     AppIcon::Search,
                     &app,
                     window,
@@ -192,14 +193,14 @@ pub(super) fn file_context_menu(
                 ))
                 .separator()
                 .item(popup_action(
-                    "重命名",
+                    tr("重命名", "Rename"),
                     AppIcon::Edit,
                     &app,
                     window,
                     |app, window, cx| app.start_rename(window, cx),
                 ))
                 .item(popup_action(
-                    "删除",
+                    tr("删除", "Delete"),
                     AppIcon::Delete,
                     &app,
                     window,
@@ -208,21 +209,21 @@ pub(super) fn file_context_menu(
             FileMenuKind::ArchiveFileSystem | FileMenuKind::IsoFile => {
                 let menu = menu
                     .item(popup_action(
-                        "用 Lumark 打开",
+                        tr("用 Lumark 打开", "Open with Lumark"),
                         AppIcon::FolderOpen,
                         &app,
                         window,
                         |app, window, cx| app.open_selected(window, cx),
                     ))
                     .item(popup_action(
-                        "解压到…",
+                        tr("解压到…", "Extract to..."),
                         AppIcon::Zip,
                         &app,
                         window,
                         |app, window, cx| app.open_extract_dialog(window, cx),
                     ))
                     .item(popup_action(
-                        "伪装为媒体文件…",
+                        tr("伪装为媒体文件…", "Disguise as media file..."),
                         AppIcon::Video,
                         &app,
                         window,
@@ -230,21 +231,21 @@ pub(super) fn file_context_menu(
                     ))
                     .separator()
                     .item(popup_action(
-                        "复制文件",
+                        tr("复制文件", "Copy files"),
                         AppIcon::Copy,
                         &app,
                         window,
                         |app, _, cx| app.copy_selected_items(cx),
                     ))
                     .item(popup_action(
-                        "复制路径",
+                        tr("复制路径", "Copy path"),
                         AppIcon::Copy,
                         &app,
                         window,
                         |app, _, cx| app.copy_selected_path(cx),
                     ))
                     .item(popup_action(
-                        "在资源管理器中显示",
+                        tr("在资源管理器中显示", "Show in Explorer"),
                         AppIcon::Search,
                         &app,
                         window,
@@ -253,14 +254,14 @@ pub(super) fn file_context_menu(
                 let menu = if kind == FileMenuKind::IsoFile {
                     menu.separator()
                         .item(popup_action(
-                            "加载至虚拟光驱",
+                            tr("加载至虚拟光驱", "Mount to virtual drive"),
                             AppIcon::Download,
                             &app,
                             window,
                             |app, window, cx| app.mount_selected_iso(window, cx),
                         ))
                         .item(popup_action(
-                            "卸载虚拟光驱",
+                            tr("卸载虚拟光驱", "Unmount virtual drive"),
                             AppIcon::Close,
                             &app,
                             window,
@@ -271,7 +272,7 @@ pub(super) fn file_context_menu(
                 };
                 let menu = if disguised {
                     menu.separator().item(popup_action(
-                        "还原伪装文件",
+                        tr("还原伪装文件", "Restore disguised file"),
                         AppIcon::Unlock,
                         &app,
                         window,
@@ -282,14 +283,14 @@ pub(super) fn file_context_menu(
                 };
                 menu.separator()
                     .item(popup_action(
-                        "重命名",
+                        tr("重命名", "Rename"),
                         AppIcon::Edit,
                         &app,
                         window,
                         |app, window, cx| app.start_rename(window, cx),
                     ))
                     .item(popup_action(
-                        "删除",
+                        tr("删除", "Delete"),
                         AppIcon::Delete,
                         &app,
                         window,
@@ -300,9 +301,9 @@ pub(super) fn file_context_menu(
                 let menu = menu
                     .item(popup_action(
                         if kind == FileMenuKind::ExecutableFile {
-                            "运行"
+                            tr("运行", "Run")
                         } else {
-                            "打开"
+                            tr("打开", "Open")
                         },
                         AppIcon::Doc,
                         &app,
@@ -310,21 +311,21 @@ pub(super) fn file_context_menu(
                         |app, window, cx| app.open_selected(window, cx),
                     ))
                     .item(popup_action(
-                        "使用内置查看器打开",
+                        tr("使用内置查看器打开", "Open in built-in viewer"),
                         AppIcon::Doc,
                         &app,
                         window,
                         |app, window, cx| app.open_selected_in_viewer(window, cx),
                     ))
                     .item(popup_action(
-                        "压缩为 Lumark 归档",
+                        tr("压缩为 Lumark 归档", "Compress to Lumark archive"),
                         AppIcon::Compression,
                         &app,
                         window,
                         |app, window, cx| app.open_compress_dialog(window, cx),
                     ))
                     .item(popup_action(
-                        "伪装为媒体文件…",
+                        tr("伪装为媒体文件…", "Disguise as media file..."),
                         AppIcon::Video,
                         &app,
                         window,
@@ -332,7 +333,7 @@ pub(super) fn file_context_menu(
                     ));
                 let menu = if disguised {
                     menu.separator().item(popup_action(
-                        "还原伪装文件",
+                        tr("还原伪装文件", "Restore disguised file"),
                         AppIcon::Unlock,
                         &app,
                         window,
@@ -343,21 +344,21 @@ pub(super) fn file_context_menu(
                 };
                 menu.separator()
                     .item(popup_action(
-                        "复制文件",
+                        tr("复制文件", "Copy files"),
                         AppIcon::Copy,
                         &app,
                         window,
                         |app, _, cx| app.copy_selected_items(cx),
                     ))
                     .item(popup_action(
-                        "复制路径",
+                        tr("复制路径", "Copy path"),
                         AppIcon::Copy,
                         &app,
                         window,
                         |app, _, cx| app.copy_selected_path(cx),
                     ))
                     .item(popup_action(
-                        "在资源管理器中显示",
+                        tr("在资源管理器中显示", "Show in Explorer"),
                         AppIcon::Search,
                         &app,
                         window,
@@ -365,14 +366,14 @@ pub(super) fn file_context_menu(
                     ))
                     .separator()
                     .item(popup_action(
-                        "重命名",
+                        tr("重命名", "Rename"),
                         AppIcon::Edit,
                         &app,
                         window,
                         |app, window, cx| app.start_rename(window, cx),
                     ))
                     .item(popup_action(
-                        "删除",
+                        tr("删除", "Delete"),
                         AppIcon::Delete,
                         &app,
                         window,
