@@ -75,6 +75,11 @@ impl LumarkApp {
                     .overflow_y_scroll()
                     .when_some(selected, |this, entry| {
                         let icon_color = entry_icon_color(cx, &entry);
+                        let kind_text = if entry.is_dir {
+                            tr("文件夹", "Folder").to_string()
+                        } else {
+                            entry.kind.clone()
+                        };
                         let detail_icon = if let Some(icon) = system_icon_for(self, &entry) {
                             gpui_kit::img(icon).size(px(17.)).into_any_element()
                         } else {
@@ -109,7 +114,7 @@ impl LumarkApp {
                                         .child(entry.name.clone()),
                                 ),
                         )
-                        .child(detail_row(cx, tr("类型", "Type"), &entry.kind))
+                        .child(detail_row(cx, tr("类型", "Type"), &kind_text))
                         .child(detail_row(cx, tr("大小", "Size"), &size_text))
                         .when_some(entry.modified, |this, modified| {
                             this.child(detail_row(

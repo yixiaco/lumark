@@ -1,6 +1,7 @@
 //! 归档条目拖出和临时解压。
 
 use super::*;
+use crate::i18n::tr;
 
 /// 归档条目拖出窗口时携带的数据；解析外部拖放时同步准备临时文件。
 #[derive(Clone)]
@@ -132,7 +133,7 @@ pub(super) fn archive_drag_item(app: &LumarkApp, entry: &BrowserEntry) -> Option
     let label = if selected.len() == 1 {
         entry.name.clone()
     } else {
-        format!("{} 个项目", selected.len())
+        format!("{} {}", selected.len(), tr("个项目", "items"))
     };
     Some(ArchiveDragItem {
         archive: archive.clone(),

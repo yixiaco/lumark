@@ -1,6 +1,7 @@
 //! 文件表父行、文件行和空状态。
 
 use super::*;
+use crate::i18n::tr;
 
 /// 判断文件表最上方是否需要显示“..”行。
 ///
@@ -32,15 +33,18 @@ pub(super) fn empty_state(cx: &Context<LumarkApp>, search_active: bool) -> gpui_
                 .child(AppIcon::FolderOpen.element(24.)),
         )
         .child(div().font_semibold().child(if search_active {
-            "没有匹配的项目"
+            tr("没有匹配的项目", "No matching items")
         } else {
-            "此文件夹为空"
+            tr("此文件夹为空", "This folder is empty")
         }))
         .child(
             div()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child("拖入文件即可开始压缩，或切换到其他位置。"),
+                .child(tr(
+                    "拖入文件即可开始压缩，或切换到其他位置。",
+                    "Drop files here to compress, or switch to another location.",
+                )),
         )
 }
 
@@ -102,7 +106,7 @@ pub(super) fn render_parent_row(
             this.child(muted_cell(cx, widths.path, "—"))
         })
         .when(!inside_archive, |this| {
-            this.child(muted_cell(cx, widths.kind, "文件夹"))
+            this.child(muted_cell(cx, widths.kind, tr("文件夹", "Folder")))
         })
         .on_click(
             cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {
