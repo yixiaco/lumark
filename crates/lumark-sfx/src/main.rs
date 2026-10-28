@@ -82,7 +82,7 @@ fn run() -> Result<(), String> {
             password.as_ref().map(|value| value.as_str()),
             overwrite,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| localized_error(&error))?;
         return Ok(());
     }
 
@@ -138,9 +138,28 @@ fn run() -> Result<(), String> {
                 password = None;
             }
             Err(error_value) => {
-                error = Some(error_value.to_string());
+                error = Some(localized_error(&error_value));
             }
         }
+    }
+}
+
+/// 把 SFX 错误转换为当前界面语言。
+fn localized_error(error: &SfxError) -> String {
+    localized_error_language(error, lang::is_english())
+}
+
+/// 按指定语言转换 SFX 错误。
+fn localized_error_language(error: &SfxError, english: bool) -> String {
+    let text = |zh: &'static str, en: &'static str| if english { en } else { zh };
+    match error {
+        SfxError::PasswordRequired => {
+            text("该自解压包需要密码", "This package requires a password").to_string()
+        }
+        SfxError::WrongPassword => {
+            text("密码错误，请重新输入", "Wrong password; please try again").to_string()
+        }
+        SfxError::Other(message) => message.clone(),
     }
 }
 
@@ -634,3 +653,21 @@ fn from_wide(value: &[u16]) -> String {
 
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::GWLP_USERDATA;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 验证错误文本按语言切换。
+    #[test]
+    fn errors_follow_language() {
+        assert_eq!(
+            localized_error_language(&SfxError::PasswordRequired, true),
+            "This package requires a password"
+        );
+        assert_eq!(
+            localized_error_language(&SfxError::WrongPassword, false),
+            "密码错误，请重新输入"
+        );
+    }
+}
