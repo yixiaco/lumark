@@ -192,11 +192,11 @@ impl CompressWindowView {
             let suggestion = self
                 .format
                 .single_stream_tar_variant()
-                .map(|format| format.label())
-                .unwrap_or(tr("TAR 归档", "TAR archive"));
+                .map(crate::app::format_text::format_name)
+                .unwrap_or_else(|| tr("TAR 归档", "TAR archive").to_string());
             self.error = Some(format!(
                 "{}{}{}{}",
-                self.format.label(),
+                crate::app::format_text::format_name(self.format),
                 tr(
                     " 只能压缩一个普通文件；压缩多个文件或文件夹请改用 ",
                     " can only compress one regular file; use "

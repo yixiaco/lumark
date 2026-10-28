@@ -40,6 +40,7 @@ use lumark_settings::{
 use lumark_tasks::{TaskEvent, TaskKind, TaskManager, TaskProgress, TaskRequest, TaskState};
 use lumark_vault::{PasswordEntry, VaultState, VaultStore};
 
+mod format_text;
 mod startup;
 pub(crate) use startup::*;
 mod stores;

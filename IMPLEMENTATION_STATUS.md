@@ -130,7 +130,7 @@
 - [x] Windows 11 稀疏 MSIX 上下文菜单骨架：新增 `lumark-shell-command` COM DLL（`IExplorerCommand` + 类工厂测试）、`AppxSparseManifest.xml`、`pack-msix.ps1 -Sparse` 和 `install-msix.ps1 -ExternalLocation`；已验证 MakeAppx 打包和 COM 类工厂创建。实际安装/Explorer 验收仍需受信任证书。
 - [ ] PAQ8/LPAQ 仍未支持；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
 - [ ] LZH 的 lh4/lh5/lh7 创建仍受单条目 512 MiB 内存上限限制；Store（lh0）已支持分块流式写入。上游 lh4-lh7 编码器尚无可安全跨块续写的接口，后续可评估自研流式编码器或分块归档策略。
-- [ ] 传统格式的实际写入上限仍取决于上游适配器；完整键盘/高对比度验收和原生 OS 拖出目标窗口行为仍待完成；主界面文案迁移已覆盖主要页面，剩余少量状态/格式名称。
+- [ ] 传统格式的实际写入上限仍取决于上游适配器；完整键盘/高对比度验收和原生 OS 拖出目标窗口行为仍待完成；主界面文案迁移已覆盖主要页面，压缩格式错误提示已使用本地化格式名称，剩余少量状态文案。
 - [ ] 将 `geezipx-core` 所需适配器复制进项目并移除整体直接依赖，减少重复 ZIP/7z 依赖。
 
 ## 外部依赖/架构限制
