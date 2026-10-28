@@ -1,6 +1,7 @@
 //! 自绘标题栏和工作区切换。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 渲染自绘标题栏：当前位置、工作区切换和全局工具入口。
@@ -10,8 +11,8 @@ impl LumarkApp {
     pub(crate) fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let title = match self.screen {
             Screen::Browser => format!("{} - Lumark", self.browser.current_display()),
-            Screen::Passwords => "密码库 - Lumark".to_string(),
-            Screen::Tasks => "任务中心 - Lumark".to_string(),
+            Screen::Passwords => tr("密码库 - Lumark", "Vault - Lumark").to_string(),
+            Screen::Tasks => tr("任务中心 - Lumark", "Task center - Lumark").to_string(),
         };
         // 标题栏宽度由窗口决定，超长路径必须在这里先按字符收口：
         // 只依赖文本省略号时弹性布局仍可能把右侧工作区入口挤出窗口。
@@ -55,14 +56,14 @@ impl LumarkApp {
                     .child(self.top_nav_button(
                         "title-nav-files",
                         AppIcon::FileZip,
-                        "文件",
+                        tr("文件", "Files"),
                         Screen::Browser,
                         cx,
                     ))
                     .child(self.top_nav_button(
                         "title-nav-passwords",
                         AppIcon::Key,
-                        "密码库",
+                        tr("密码库", "Vault"),
                         Screen::Passwords,
                         cx,
                     ))
@@ -73,7 +74,7 @@ impl LumarkApp {
                             .cursor_pointer()
                             .occlude()
                             .icon(AppIcon::Setting.element(16.))
-                            .label("设置")
+                            .label(tr("设置", "Settings"))
                             .on_click(cx.listener(|_, _, window, cx| {
                                 // 创建窗口会立即渲染新视图并读取主应用状态，
                                 // 必须等当前按钮更新结束后再执行，避免重入。
@@ -84,7 +85,7 @@ impl LumarkApp {
                     )
                     .child(div().w(px(1.)).h(px(20.)).bg(cx.theme().border))
                     .child(
-                        icon_button("title-theme", AppIcon::Tool, "切换主题")
+                        icon_button("title-theme", AppIcon::Tool, tr("切换主题", "Toggle theme"))
                             .occlude()
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.cycle_theme(window, cx);

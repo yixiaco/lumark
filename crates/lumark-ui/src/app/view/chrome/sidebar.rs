@@ -1,6 +1,7 @@
 //! 常用位置和目录树合并的文件夹侧栏。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 渲染持久文件侧栏：常用位置、文件夹树、详细信息区和密码库状态。
@@ -46,26 +47,39 @@ impl LumarkApp {
                             .text_xs()
                             .font_semibold()
                             .text_color(cx.theme().muted_foreground)
-                            .child("文件夹"),
+                            .child(tr("文件夹", "Folders")),
                     )
                     .child(
                         h_flex()
                             .ml_auto()
                             .gap_1()
                             .child(
-                                icon_button("sidebar-refresh-tree", AppIcon::Refresh, "刷新目录树")
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                icon_button(
+                                    "sidebar-refresh-tree",
+                                    AppIcon::Refresh,
+                                    tr("刷新目录树", "Refresh folder tree"),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.tree_children.clear();
-                                        this.status = "目录树已刷新".to_string();
+                                        this.status =
+                                            tr("目录树已刷新", "Folder tree refreshed").to_string();
                                         cx.notify();
-                                    })),
+                                    },
+                                )),
                             )
                             .child(
-                                icon_button("sidebar-close", AppIcon::Close, "隐藏文件夹栏")
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                icon_button(
+                                    "sidebar-close",
+                                    AppIcon::Close,
+                                    tr("隐藏文件夹栏", "Hide folder pane"),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.sidebar_visible = false;
                                         cx.notify();
-                                    })),
+                                    },
+                                )),
                             ),
                     ),
             )
@@ -117,21 +131,34 @@ impl LumarkApp {
                             v_flex()
                                 .gap(px(0.))
                                 .min_w_0()
-                                .child(div().text_xs().font_semibold().child("密码库已锁定"))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_semibold()
+                                        .child(tr("密码库已锁定", "Vault is locked")),
+                                )
                                 .child(
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child(format!("{} 条记录", self.vault.entry_count())),
+                                        .child(format!(
+                                            "{}{}",
+                                            self.vault.entry_count(),
+                                            tr(" 条记录", " records")
+                                        )),
                                 ),
                         )
                         .child(
-                            icon_button("sidebar-vault-open", AppIcon::ArrowRight, "打开密码库")
-                                .ml_auto()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.switch_screen(Screen::Passwords);
-                                    cx.notify();
-                                })),
+                            icon_button(
+                                "sidebar-vault-open",
+                                AppIcon::ArrowRight,
+                                tr("打开密码库", "Open vault"),
+                            )
+                            .ml_auto()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.switch_screen(Screen::Passwords);
+                                cx.notify();
+                            })),
                         ),
                 )
             })

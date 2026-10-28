@@ -1,6 +1,7 @@
 //! 底部状态栏。
 
 use super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 渲染底部状态栏和紧凑任务控件。
@@ -70,32 +71,34 @@ impl LumarkApp {
                         ),
                 )
                 .child(
-                    icon_button("pause-task", AppIcon::Time, "暂停或继续").on_click(cx.listener(
-                        |this, _, _, cx| {
-                            if let Some(id) = this.active_task
-                                && let Some(control) = this.tasks.control(id)
-                            {
-                                if control.state() == lumark_tasks::TaskState::Paused {
-                                    control.resume();
-                                } else {
-                                    control.pause();
-                                }
+                    icon_button(
+                        "pause-task",
+                        AppIcon::Time,
+                        tr("暂停或继续", "Pause or resume"),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(id) = this.active_task
+                            && let Some(control) = this.tasks.control(id)
+                        {
+                            if control.state() == lumark_tasks::TaskState::Paused {
+                                control.resume();
+                            } else {
+                                control.pause();
                             }
-                            cx.notify();
-                        },
-                    )),
+                        }
+                        cx.notify();
+                    })),
                 )
                 .child(
-                    icon_button("cancel-task", AppIcon::Close, "取消任务").on_click(cx.listener(
-                        |this, _, _, cx| {
+                    icon_button("cancel-task", AppIcon::Close, tr("取消任务", "Cancel task"))
+                        .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(id) = this.active_task
                                 && let Some(control) = this.tasks.control(id)
                             {
                                 control.cancel();
                             }
                             cx.notify();
-                        },
-                    )),
+                        })),
                 )
                 .child(
                     button("show-progress")
@@ -104,8 +107,8 @@ impl LumarkApp {
                         .rounded(px(6.))
                         .cursor_pointer()
                         .icon(AppIcon::List.element(13.))
-                        .label("进度")
-                        .tooltip("显示任务进度窗口")
+                        .label(tr("进度", "Progress"))
+                        .tooltip(tr("显示任务进度窗口", "Show task progress window"))
                         .on_click(cx.listener(|_, _, window, cx| {
                             cx.defer_in(window, |app, window, cx| {
                                 app.open_progress_window(window, cx);
@@ -123,8 +126,11 @@ impl LumarkApp {
                         .rounded(px(6.))
                         .cursor_pointer()
                         .icon(AppIcon::Close.element(13.))
-                        .label("停止自动尝试")
-                        .tooltip("停止验证记录密码并改为手动输入")
+                        .label(tr("停止自动尝试", "Stop auto-try"))
+                        .tooltip(tr(
+                            "停止验证记录密码并改为手动输入",
+                            "Stop verifying saved passwords and enter one manually",
+                        ))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.cancel_password_attempt(cx);
                         })),
@@ -136,8 +142,10 @@ impl LumarkApp {
                     .whitespace_nowrap()
                     .child(if self.screen == Screen::Browser {
                         format!(
-                            "总计 {} 个项目 · {}",
+                            "{}{} {} · {}",
+                            tr("总计 ", "Total "),
                             self.displayed_count(),
+                            tr(" 个项目", " items"),
                             format_size(total_size)
                         )
                     } else {
