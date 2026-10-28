@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::components::AppIcon;
+use crate::i18n::tr;
 use gpui_kit::component::input::{Editor, EditorState};
 
 /// 内置只读文本查看器窗口。
@@ -69,7 +70,11 @@ impl TextViewerWindowView {
                             .text_ellipsis_start()
                             .text_sm()
                             .font_semibold()
-                            .child(format!("{} - 文本查看器 - Lumark", self.name)),
+                            .child(format!(
+                                "{} - {} - Lumark",
+                                self.name,
+                                tr("文本查看器", "Text viewer")
+                            )),
                     )
                     .child(
                         div()
@@ -80,7 +85,7 @@ impl TextViewerWindowView {
                             .py(px(1.))
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("只读"),
+                            .child(tr("只读", "Read-only")),
                     ),
             )
     }
@@ -123,7 +128,7 @@ impl Render for TextViewerWindowView {
                             .text_ellipsis_start()
                             .child(self.path.clone()),
                     )
-                    .child(format!("{} 行", self.line_count))
+                    .child(format!("{} {}", self.line_count, tr("行", "lines")))
                     .child(format_size(self.size)),
             )
     }
@@ -144,18 +149,32 @@ impl LumarkApp {
             .map(|metadata| metadata.len())
             .unwrap_or(0);
         if size > LIMIT {
-            self.status = format!("文件超过 4 MB，内置查看器只支持较小的文本文件：{display}");
+            self.status = format!(
+                "{}{display}",
+                tr(
+                    "文件超过 4 MB，内置查看器只支持较小的文本文件：",
+                    "File exceeds 4 MB; the built-in viewer only supports smaller text files: "
+                )
+            );
             return;
         }
         let bytes = match std::fs::read(&target) {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.status = format!("无法读取文件：{error}");
+                self.status = format!("{}{error}", tr("无法读取文件：", "Cannot read file: "));
                 return;
             }
         };
         if bytes.iter().take(8192).any(|byte| *byte == 0) {
-            self.status = format!("{display} 不是文本文件，内置查看器无法显示");
+            self.status = format!(
+                "{}{}{}",
+                tr("", ""),
+                display,
+                tr(
+                    " 不是文本文件，内置查看器无法显示",
+                    " is not a text file and cannot be shown in the built-in viewer"
+                )
+            );
             return;
         }
         let content = String::from_utf8_lossy(&bytes).to_string();

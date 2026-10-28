@@ -1,6 +1,7 @@
 //! 压缩窗口伪装选项和提示。
 
 use super::*;
+use crate::i18n::tr;
 
 impl CompressWindowView {
     /// 当前面具偏好对应的输出扩展名；无法解析时回退到当前格式扩展名。
@@ -84,7 +85,7 @@ impl CompressWindowView {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("选择伪装面具文件".into()),
+            prompt: Some(tr("选择伪装面具文件", "Choose disguise mask file").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await
@@ -102,13 +103,23 @@ impl CompressWindowView {
     /// 伪装区域的状态提示。
     pub(super) fn disguise_hint(&self) -> String {
         if !self.disguise {
-            return "把输出包装成可正常播放/查看的媒体文件；内层格式保持不变。".to_string();
+            return tr(
+                "把输出包装成可正常播放/查看的媒体文件；内层格式保持不变。",
+                "Wrap output as playable/viewable media; the inner format is unchanged.",
+            )
+            .to_string();
         }
         match resolve_disguise_mask(self.disguise_mask, self.disguise_custom.as_deref()) {
             Ok(mask) => format!(
-                "面具：{}，输出扩展名 .{}；伪装不加密，只能由 Lumark 打开或还原。",
+                "{}{}{} .{}{}",
+                tr("面具：", "Mask: "),
                 mask.display_name(),
-                mask.extension().unwrap_or_default()
+                tr("，输出扩展名 .", ", output extension ."),
+                mask.extension().unwrap_or_default(),
+                tr(
+                    "；伪装不加密，只能由 Lumark 打开或还原。",
+                    "; disguise does not encrypt and can only be opened or restored by Lumark."
+                )
             ),
             Err(error) => error,
         }
@@ -121,19 +132,19 @@ impl CompressWindowView {
             .gap_3()
             .child(classic_group(
                 cx,
-                "伪装输出",
+                tr("伪装输出", "Disguised output"),
                 v_flex()
                     .gap_3()
                     .child(
                         Checkbox::new("classic-disguise")
-                            .label("伪装为媒体文件")
+                            .label(tr("伪装为媒体文件", "Disguise as media file"))
                             .checked(self.disguise)
                             .on_click(cx.listener(|this, value: &bool, window, cx| {
                                 this.set_disguise(*value, window, cx);
                             })),
                     )
                     .child(classic_field(
-                        "面具:",
+                        tr("面具:", "Mask:"),
                         92.,
                         h_flex()
                             .w_full()
@@ -143,14 +154,14 @@ impl CompressWindowView {
                                 "compress-disguise-mask",
                                 &self.disguise_select,
                                 200.,
-                                "伪装面具",
+                                tr("伪装面具", "Disguise mask"),
                             ))
                             .child(
                                 button("classic-disguise-choose-mask")
                                     .small()
                                     .rounded(px(6.))
                                     .cursor_pointer()
-                                    .label("选择面具文件…")
+                                    .label(tr("选择面具文件…", "Choose mask file..."))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.choose_disguise_mask(window, cx);
                                     })),
@@ -160,10 +171,10 @@ impl CompressWindowView {
             ))
             .child(classic_group(
                 cx,
-                "说明",
+                tr("说明", "Description"),
                 v_flex().gap_2().child(hint_text(
                     cx,
-                    "伪装只改变文件外观，不提供加密；载荷经过混淆，只能由 Lumark 直接打开或一键还原。内层归档格式保持不变。",
+                    tr("伪装只改变文件外观，不提供加密；载荷经过混淆，只能由 Lumark 直接打开或一键还原。内层归档格式保持不变。", "Disguise changes only the appearance; it does not encrypt. The obfuscated payload can only be opened or restored by Lumark. The inner archive format is unchanged."),
                 )),
             ))
             .into_any_element()
