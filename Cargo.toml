@@ -73,6 +73,7 @@ unalz = "0.2.1"
 walkdir = "2.5"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",

@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 use lumark_sfx::{SfxError, SfxFooter, extract_payload_with_password, read_footer};
 use zeroize::Zeroizing;
 
+mod lang;
+
 /// 运行自解压流程；失败时用消息框提示用户。
 fn main() {
     if let Err(error) = run() {
@@ -24,11 +26,32 @@ fn main() {
 
 /// 读取自身页脚并解压数据段，最后打开目标目录。
 fn run() -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|error| format!("无法定位自身文件：{error}"))?;
-    let mut file = File::open(&exe).map_err(|error| format!("无法打开自身文件：{error}"))?;
+    let exe = std::env::current_exe().map_err(|error| {
+        format!(
+            "{}：{error}",
+            lang::t("无法定位自身文件", "Cannot locate executable")
+        )
+    })?;
+    let mut file = File::open(&exe).map_err(|error| {
+        format!(
+            "{}：{error}",
+            lang::t("无法打开自身文件", "Cannot open executable")
+        )
+    })?;
     let footer = read_footer(&mut file)
-        .map_err(|error| format!("无法读取自解压页脚：{error}"))?
-        .ok_or_else(|| "这不是有效的 Lumark 自解压文件".to_string())?;
+        .map_err(|error| {
+            format!(
+                "{}：{error}",
+                lang::t("无法读取自解压页脚", "Cannot read self-extractor footer")
+            )
+        })?
+        .ok_or_else(|| {
+            lang::t(
+                "这不是有效的 Lumark 自解压文件",
+                "This is not a valid Lumark self-extracting file",
+            )
+            .to_string()
+        })?;
     drop(file);
 
     let plan = lumark_sfx::parse_args(std::env::args().skip(1).collect::<Vec<_>>());
@@ -39,7 +62,11 @@ fn run() -> Result<(), String> {
 
     if plan.silent {
         if footer.encrypted && password.is_none() {
-            return Err("静默模式下的自解压包需要 /P=密码".to_string());
+            return Err(lang::t(
+                "静默模式下的自解压包需要 /P=密码",
+                "Silent self-extraction requires /P=password",
+            )
+            .to_string());
         }
         extract(
             &exe,
@@ -66,12 +93,13 @@ fn run() -> Result<(), String> {
         password = result.password;
 
         if target.as_os_str().is_empty() {
-            error = Some("请选择解压目录".to_string());
+            error =
+                Some(lang::t("请选择解压目录", "Please choose an extraction folder").to_string());
             continue;
         }
         if target.exists() && !overwrite && !directory_is_empty(&target) {
             if !confirm_overwrite(&target) {
-                error = Some("目标目录已有文件，请选择其他目录或确认覆盖".to_string());
+                error = Some(lang::t("目标目录已有文件，请选择其他目录或确认覆盖", "The target folder is not empty; choose another folder or confirm overwrite").to_string());
                 continue;
             }
             overwrite = true;
@@ -86,11 +114,20 @@ fn run() -> Result<(), String> {
         ) {
             Ok(_) => {
                 reveal(&target);
-                show_message(&format!("已解压到：\n{}", target.display()), false);
+                show_message(
+                    &format!(
+                        "{}\n{}",
+                        lang::t("已解压到：", "Extracted to:"),
+                        target.display()
+                    ),
+                    false,
+                );
                 return Ok(());
             }
             Err(SfxError::WrongPassword) => {
-                error = Some("密码错误，请重新输入".to_string());
+                error = Some(
+                    lang::t("密码错误，请重新输入", "Wrong password; please try again").to_string(),
+                );
                 password = None;
             }
             Err(error_value) => {
@@ -108,8 +145,12 @@ fn extract(
     password: Option<&str>,
     overwrite: bool,
 ) -> Result<usize, SfxError> {
-    let file =
-        File::open(exe).map_err(|error| SfxError::Other(format!("无法打开自身文件：{error}")))?;
+    let file = File::open(exe).map_err(|error| {
+        SfxError::Other(format!(
+            "{}：{error}",
+            lang::t("无法打开自身文件", "Cannot open executable")
+        ))
+    })?;
     extract_payload_with_password(file, footer, target, password, overwrite)
 }
 
@@ -136,7 +177,7 @@ fn show_message(message: &str, error: bool) {
     };
 
     let text = wide(message);
-    let title = wide("Lumark 自解压");
+    let title = wide(lang::t("Lumark 自解压", "Lumark Self-Extractor"));
     let icon = if error {
         MB_ICONERROR
     } else {
@@ -167,10 +208,12 @@ fn confirm_overwrite(target: &Path) -> bool {
     };
 
     let text = wide(&format!(
-        "目标目录已有文件：\n{}\n\n是否覆盖同名文件？",
-        target.display()
+        "{}\n{}\n\n{}",
+        lang::t("目标目录已有文件：", "The target folder is not empty:"),
+        target.display(),
+        lang::t("是否覆盖同名文件？", "Overwrite files with the same name?")
     ));
-    let title = wide("Lumark 自解压");
+    let title = wide(lang::t("Lumark 自解压", "Lumark Self-Extractor"));
     let result = unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -272,7 +315,7 @@ fn show_dialog(
                     ID_EXTRACT => {
                         let target = get_text(state.target_edit);
                         if target.trim().is_empty() {
-                            let text = wide("请选择解压目录");
+                            let text = wide(lang::t("请选择解压目录", "Choose extraction folder"));
                             SetWindowTextW(state.error_hwnd, text.as_ptr());
                             return 0;
                         }
@@ -334,7 +377,7 @@ fn show_dialog(
             return None;
         }
         let class_name = wide(CLASS_NAME);
-        let title = wide("Lumark 自解压");
+        let title = wide(lang::t("Lumark 自解压", "Lumark Self-Extractor"));
         let height = if footer.encrypted { 250 } else { 210 };
         let hwnd = CreateWindowExW(
             WS_EX_DLGMODALFRAME,
@@ -396,7 +439,16 @@ fn show_dialog(
             child
         };
 
-        make("解压到：", "STATIC", 0, 16, 14, 420, 20, 0);
+        make(
+            lang::t("解压到：", "Extract to:"),
+            "STATIC",
+            0,
+            16,
+            14,
+            420,
+            20,
+            0,
+        );
         state.target_edit = make(
             &default_target.display().to_string(),
             "EDIT",
@@ -407,9 +459,27 @@ fn show_dialog(
             24,
             ID_TARGET,
         );
-        make("浏览…", "BUTTON", 0, 364, 36, 80, 24, ID_BROWSE);
+        make(
+            lang::t("浏览…", "Browse..."),
+            "BUTTON",
+            0,
+            364,
+            36,
+            80,
+            24,
+            ID_BROWSE,
+        );
         if footer.encrypted {
-            make("密码：", "STATIC", 0, 16, 68, 420, 20, 0);
+            make(
+                lang::t("密码：", "Password:"),
+                "STATIC",
+                0,
+                16,
+                68,
+                420,
+                20,
+                0,
+            );
             state.password_edit = make(
                 initial_password.unwrap_or_default(),
                 "EDIT",
@@ -433,8 +503,26 @@ fn show_dialog(
             ID_ERROR,
         );
         state.error_hwnd = error_hwnd;
-        make("解压", "BUTTON", 0, 300, height - 44, 70, 26, ID_EXTRACT);
-        make("取消", "BUTTON", 0, 378, height - 44, 70, 26, ID_CANCEL);
+        make(
+            lang::t("解压", "Extract"),
+            "BUTTON",
+            0,
+            300,
+            height - 44,
+            70,
+            26,
+            ID_EXTRACT,
+        );
+        make(
+            lang::t("取消", "Cancel"),
+            "BUTTON",
+            0,
+            378,
+            height - 44,
+            70,
+            26,
+            ID_CANCEL,
+        );
 
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
@@ -483,7 +571,7 @@ fn browse_for_folder(owner: windows_sys::Win32::Foundation::HWND) -> Option<Path
     };
 
     let mut display = [0u16; 260];
-    let title = wide("选择解压目录");
+    let title = wide(lang::t("选择解压目录", "Choose extraction folder"));
     let browse = BROWSEINFOW {
         hwndOwner: owner,
         pidlRoot: std::ptr::null_mut(),
