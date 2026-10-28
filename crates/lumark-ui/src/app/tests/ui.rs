@@ -7,6 +7,7 @@ use tempfile::tempdir;
 
 mod browser;
 mod compress;
+mod files;
 mod mail;
 mod password;
 mod settings;
