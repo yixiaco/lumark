@@ -110,3 +110,52 @@ fn azo_entries_report_unsupported() {
     .unwrap_err();
     assert!(error.to_string().contains("AZO"), "{error}");
 }
+
+/// 把单卷 EGG 拆成两卷，验证自动分卷发现。
+#[test]
+fn egg_discovers_split_volumes() {
+    let directory = tempdir().unwrap();
+    let base_path = directory.path().join("base.egg");
+    make_egg(&base_path, "hello.txt", b"split egg data");
+    let base = fs::read(&base_path).unwrap();
+    let split = base.len() / 2;
+    let mut first = Vec::new();
+    first.extend_from_slice(&base[..14]);
+    push_u32(&mut first, 0x24F5_A262);
+    first.push(0);
+    push_u16(&mut first, 8);
+    push_u32(&mut first, 0);
+    push_u32(&mut first, 2);
+    push_u32(&mut first, 0x08E2_8222);
+    first.extend_from_slice(&base[14..split]);
+
+    let mut second = Vec::new();
+    second.extend_from_slice(&base[..6]);
+    second.extend_from_slice(&2u32.to_le_bytes());
+    second.extend_from_slice(&base[10..14]);
+    push_u32(&mut second, 0x08E2_8222);
+    second.extend_from_slice(&base[split..]);
+
+    let first_path = directory.path().join("part1.egg");
+    let second_path = directory.path().join("part2.egg");
+    fs::write(&first_path, first).unwrap();
+    fs::write(&second_path, second).unwrap();
+
+    let info = ArchiveService::list(&first_path, None).unwrap();
+    assert_eq!(info.entries[0].path, "hello.txt");
+    let output = directory.path().join("out");
+    ArchiveService::extract(
+        &first_path,
+        &ExtractionOptions {
+            output_dir: output.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(output.join("hello.txt")).unwrap(),
+        "split egg data"
+    );
+}
