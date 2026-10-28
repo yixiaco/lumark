@@ -728,3 +728,33 @@ fn metric_row(cx: &gpui_kit::App, label: &str, value: &str) -> gpui_kit::Div {
         )
         .child(div().font_semibold().child(value.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::test::TestWindowExt;
+
+    /// 验证取消确认弹层渲染两个操作按钮。
+    #[gpui_kit::test]
+    fn cancel_confirmation_renders_actions(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (view, cx) = cx.add_window_view(|_, _| {
+            ProgressWindowView::new(
+                TaskKind::Compress,
+                "测试任务".to_string(),
+                None,
+                TaskState::Running,
+                None,
+            )
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.confirm_cancel = true;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            assert!(window.find("progress-cancel-no").visible());
+            assert!(window.find("progress-cancel-yes").visible());
+        });
+    }
+}
