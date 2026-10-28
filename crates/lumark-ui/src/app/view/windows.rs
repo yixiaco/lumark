@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::components::{AppIcon, dialog_banner};
+use crate::i18n::tr;
 use gpui_kit::component::TitleBar;
 
 /// 独立任务进度窗口的视图。
@@ -67,12 +68,12 @@ impl Render for ProgressWindowView {
             .map(|(_, rest)| rest.to_string())
             .unwrap_or_else(|| self.label.clone());
         let operation = match self.kind {
-            TaskKind::Compress => "压缩文件",
-            TaskKind::Extract => "解压文件",
-            TaskKind::Test => "测试压缩文件",
-            TaskKind::Disguise => "伪装文件",
-            TaskKind::Restore => "还原伪装文件",
-            _ => "后台任务",
+            TaskKind::Compress => tr("压缩文件", "Compressing"),
+            TaskKind::Extract => tr("解压文件", "Extracting"),
+            TaskKind::Test => tr("测试压缩文件", "Testing archive"),
+            TaskKind::Disguise => tr("伪装文件", "Disguising"),
+            TaskKind::Restore => tr("还原伪装文件", "Restoring disguise"),
+            _ => tr("后台任务", "Background task"),
         };
         let elapsed = if paused || cancelling {
             progress.elapsed_seconds
@@ -142,9 +143,9 @@ impl Render for ProgressWindowView {
                                         })
                                         .text_xs()
                                         .child(if cancelling {
-                                            "正在取消"
+                                            tr("正在取消", "Cancelling")
                                         } else {
-                                            "已暂停"
+                                            tr("已暂停", "Paused")
                                         }),
                                 )
                             })
@@ -251,9 +252,9 @@ impl Render for ProgressWindowView {
                                             .whitespace_nowrap()
                                             .text_color(cx.theme().muted_foreground)
                                             .child(if progress.current.is_empty() {
-                                                "正在准备文件…".to_string()
+                                                tr("正在准备文件…", "Preparing files...").to_string()
                                             } else {
-                                                format!("正在处理：{}", progress.current)
+                                                format!("{}{}", tr("正在处理：", "Processing: "), progress.current)
                                             }),
                                     )
                                     .child(
@@ -261,7 +262,7 @@ impl Render for ProgressWindowView {
                                             .flex_shrink_0()
                                             .whitespace_nowrap()
                                             .font_semibold()
-                                            .child(format!("总进度 {:.1}%", ratio * 100.0)),
+                                            .child(format!("{} {:.1}%", tr("总进度", "Overall progress"), ratio * 100.0)),
                                     ),
                             )
                             .child(
@@ -273,9 +274,9 @@ impl Render for ProgressWindowView {
                                     .text_xs()
                                     .child(div().text_color(cx.theme().muted_foreground).child(
                                         if self.kind == TaskKind::Compress {
-                                            "当前文件"
+                                            tr("当前文件", "Current file")
                                         } else {
-                                            "当前进度"
+                                            tr("当前进度", "Current progress")
                                         },
                                     ))
                                     .child(
@@ -297,7 +298,7 @@ impl Render for ProgressWindowView {
                                     .child(
                                         div()
                                             .text_color(cx.theme().muted_foreground)
-                                            .child("总进度"),
+                                            .child(tr("总进度", "Overall progress")),
                                     )
                                     .child(
                                         div()
@@ -317,22 +318,22 @@ impl Render for ProgressWindowView {
                                 v_flex()
                                     .flex_1()
                                     .gap_2()
-                                    .child(metric_row(cx, "已用时间", &format_duration(elapsed)))
+                                    .child(metric_row(cx, tr("已用时间", "Elapsed"), &format_duration(elapsed)))
                                     .child(metric_row(
                                         cx,
-                                        "总大小",
+                                        tr("总大小", "Total size"),
                                         &format_size(progress.bytes_total),
                                     ))
                                     .when(self.kind == TaskKind::Compress, |this| {
                                         this.child(metric_row(
                                             cx,
-                                            "已压缩",
+                                            tr("已压缩", "Compressed"),
                                             &format_size(progress.bytes_done),
                                         ))
                                         .child(
                                             metric_row(
                                                 cx,
-                                                "文件个数",
+                                                tr("文件个数", "Files"),
                                                 &format!(
                                                     "{} / {}",
                                                     progress.entries_done, progress.entries_total
@@ -343,7 +344,7 @@ impl Render for ProgressWindowView {
                                     .when(self.kind != TaskKind::Compress, |this| {
                                         this.child(metric_row(
                                             cx,
-                                            "已处理",
+                                            tr("已处理", "Processed"),
                                             &format_size(progress.bytes_done),
                                         ))
                                     }),
@@ -354,20 +355,20 @@ impl Render for ProgressWindowView {
                                     .gap_2()
                                     .child(metric_row(
                                         cx,
-                                        "剩余时间",
+                                        tr("剩余时间", "Remaining"),
                                         &if terminal {
                                             "—".to_string()
                                         } else {
                                             progress
                                                 .eta_seconds()
                                                 .map(format_duration)
-                                                .unwrap_or_else(|| "计算中".to_string())
+                                                .unwrap_or_else(|| tr("计算中", "Calculating").to_string())
                                         },
                                     ))
                                     .when(self.kind == TaskKind::Compress, |this| {
                                         this.child(metric_row(
                                             cx,
-                                            "压缩后",
+                                            tr("压缩后", "Output size"),
                                             &if progress.output_bytes > 0 {
                                                 format_size(progress.output_bytes)
                                             } else {
@@ -377,7 +378,7 @@ impl Render for ProgressWindowView {
                                         .child(
                                             metric_row(
                                                 cx,
-                                                "压缩率",
+                                                tr("压缩率", "Ratio"),
                                                 &compression_ratio
                                                     .map(|value| format!("{:.1}%", value * 100.0))
                                                     .unwrap_or_else(|| "—".to_string()),
@@ -387,7 +388,7 @@ impl Render for ProgressWindowView {
                                     .when(self.kind != TaskKind::Compress, |this| {
                                         this.child(metric_row(
                                             cx,
-                                            "文件个数",
+                                            tr("文件个数", "Files"),
                                             &format!(
                                                 "{} / {}",
                                                 progress.entries_done, progress.entries_total
@@ -396,7 +397,7 @@ impl Render for ProgressWindowView {
                                     })
                                     .child(metric_row(
                                         cx,
-                                        "处理速度",
+                                        tr("处理速度", "Speed"),
                                         &format!(
                                             "{}/秒",
                                             format_size(progress.speed_bps.max(0.0) as u64)
@@ -409,9 +410,9 @@ impl Render for ProgressWindowView {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(if terminal {
-                                "任务已结束，可以关闭此窗口。"
+                                tr("任务已结束，可以关闭此窗口。", "The task has finished; you can close this window.")
                             } else {
-                                "任务在后台继续运行；关闭此窗口不会中断任务。"
+                                tr("任务在后台继续运行；关闭此窗口不会中断任务。", "The task continues in the background; closing this window does not stop it.")
                             }),
                     )
                     .when(self.confirm_cancel, |this| {
@@ -430,14 +431,14 @@ impl Render for ProgressWindowView {
                                         .flex_1()
                                         .min_w_0()
                                         .text_xs()
-                                        .child("取消后当前任务会停止，已写入的临时文件会被清理。"),
+                                        .child(tr("取消后当前任务会停止，已写入的临时文件会被清理。", "Cancelling stops the current task and cleans up temporary files.")),
                                 )
                                 .child(
                                     button("progress-cancel-no")
                                         .secondary()
                                         .xsmall()
                                         .cursor_pointer()
-                                        .label("继续任务")
+                                        .label(tr("继续任务", "Keep running"))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.confirm_cancel = false;
                                             cx.notify();
@@ -448,7 +449,7 @@ impl Render for ProgressWindowView {
                                         .danger()
                                         .xsmall()
                                         .cursor_pointer()
-                                        .label("确认取消")
+                                        .label(tr("确认取消", "Confirm cancel"))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             if let Some(control) = &this.control {
                                                 control.cancel();
@@ -469,7 +470,7 @@ impl Render for ProgressWindowView {
                                 this.child(
                                     button("progress-background")
                                         .icon(AppIcon::ArrowLeft.element(14.))
-                                        .label("后台")
+                                        .label(tr("后台", "Background"))
                                         .cursor_pointer()
                                         .on_click(cx.listener(|_, _, window, _| {
                                             window.remove_window();
@@ -481,7 +482,7 @@ impl Render for ProgressWindowView {
                                 this.child(
                                     button("progress-close")
                                         .primary()
-                                        .label("关闭")
+                                        .label(tr("关闭", "Close"))
                                         .cursor_pointer()
                                         .on_click(cx.listener(|_, _, window, _| {
                                             window.remove_window();
@@ -492,7 +493,7 @@ impl Render for ProgressWindowView {
                                 this.child(
                                     button("progress-pause")
                                         .icon(AppIcon::Time.element(14.))
-                                        .label(if paused { "继续" } else { "暂停" })
+                                        .label(if paused { tr("继续", "Resume") } else { tr("暂停", "Pause") })
                                         .cursor_pointer()
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             if let Some(control) = &this.control {
@@ -511,7 +512,7 @@ impl Render for ProgressWindowView {
                                     button("progress-cancel")
                                         .danger()
                                         .icon(AppIcon::Close.element(14.))
-                                        .label("取消")
+                                        .label(tr("取消", "Cancel"))
                                         .cursor_pointer()
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.confirm_cancel = true;
@@ -628,7 +629,7 @@ impl LumarkApp {
                 size,
             })),
             titlebar: Some(gpui_kit::TitlebarOptions {
-                title: Some("任务进度 - Lumark".into()),
+                title: Some(tr("任务进度 - Lumark", "Task progress - Lumark").into()),
                 appears_transparent: true,
                 traffic_light_position: None,
             }),
@@ -647,7 +648,10 @@ impl LumarkApp {
                     .insert(task_id, ProgressWindowEntry { handle, view });
             }
             Err(error) => {
-                self.status = format!("无法打开进度窗口：{error}");
+                self.status = format!(
+                    "{}{error}",
+                    tr("无法打开进度窗口：", "Cannot open progress window: ")
+                );
             }
         }
     }
