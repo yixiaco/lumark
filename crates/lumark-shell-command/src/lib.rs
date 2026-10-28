@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use windows::Win32::Foundation::{CLASS_E_CLASSNOTAVAILABLE, E_NOTIMPL, E_OUTOFMEMORY, S_FALSE};
+use windows::Win32::Globalization::GetUserDefaultUILanguage;
 use windows::Win32::System::Com::{
     CoTaskMemAlloc, CoTaskMemFree, IBindCtx, IClassFactory, IClassFactory_Impl,
 };
@@ -29,7 +30,7 @@ struct LumarkCommand;
 impl IExplorerCommand_Impl for LumarkCommand_Impl {
     /// 菜单标题。
     fn GetTitle(&self, _items: Ref<'_, IShellItemArray>) -> Result<PWSTR> {
-        wide_task_mem("用 Lumark 压缩")
+        wide_task_mem(command_title())
     }
 
     /// 菜单图标由可执行文件提供。
@@ -89,6 +90,20 @@ impl IExplorerCommand_Impl for LumarkCommand_Impl {
     /// 当前没有子命令。
     fn EnumSubCommands(&self) -> Result<IEnumExplorerCommand> {
         Err(windows::core::Error::from_hresult(E_NOTIMPL))
+    }
+}
+
+/// 返回当前用户界面语言的菜单标题。
+fn command_title() -> &'static str {
+    title_for_language(unsafe { GetUserDefaultUILanguage() })
+}
+
+/// 按 Windows 主语言 ID 选择菜单标题。
+fn title_for_language(language: u16) -> &'static str {
+    if language & 0x3ff == 0x04 {
+        "用 Lumark 压缩"
+    } else {
+        "Compress with Lumark"
     }
 }
 
@@ -204,6 +219,13 @@ mod tests {
             drop(unknown);
             windows::Win32::System::Com::CoUninitialize();
         }
+    }
+
+    /// 验证菜单标题跟随 Windows 主语言。
+    #[test]
+    fn title_follows_ui_language() {
+        assert_eq!(title_for_language(0x0804), "用 Lumark 压缩");
+        assert_eq!(title_for_language(0x0409), "Compress with Lumark");
     }
 
     /// CLSID 必须和清单保持稳定。

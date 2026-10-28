@@ -280,4 +280,4 @@ cargo build --release -p lumark-shell-command
   -ExternalLocation "C:\Program Files\Lumark" -PackageName Lumark.Shell
 ```
 
-稀疏包必须使用受信任证书签名；开发阶段可先导入证书，或在允许未签名包的系统中使用 `-AllowUnsigned`。注册后重启资源管理器，右键文件/文件夹即可看到“用 Lumark 压缩”，点击后启动 `Lumark.exe --compress` 并传入选中路径。
+稀疏包必须使用受信任证书签名；开发阶段可先导入证书，或在允许未签名包的系统中使用 `-AllowUnsigned`。注册后重启资源管理器，右键文件/文件夹即可看到“用 Lumark 压缩”/“Compress with Lumark”，点击后启动 `Lumark.exe --compress` 并传入选中路径。
