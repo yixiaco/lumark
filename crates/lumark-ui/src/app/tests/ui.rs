@@ -9,6 +9,7 @@ mod browser;
 mod compress;
 mod mail;
 mod password;
+mod settings;
 mod tasks;
 mod vault;
 mod viewer;
