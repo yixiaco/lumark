@@ -1,6 +1,9 @@
 param(
     [string]$Binary = (Join-Path $PSScriptRoot "..\target\release\lumark-app.exe"),
-    [string]$SfxStub = (Join-Path $PSScriptRoot "..\target\release\lumark-sfx.exe")
+    [string]$SfxStub = (Join-Path $PSScriptRoot "..\target\release\lumark-sfx.exe"),
+    [string]$SignThumbprint,
+    [string]$SignPfxPath,
+    [string]$SignPfxPassword
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +18,25 @@ $programs = Join-Path $env:LOCALAPPDATA "Programs\Lumark"
 New-Item -ItemType Directory -Force -Path $programs | Out-Null
 Copy-Item -LiteralPath $Binary -Destination (Join-Path $programs "Lumark.exe") -Force
 Copy-Item -LiteralPath $SfxStub -Destination (Join-Path $programs "lumark-sfx.exe") -Force
+
+if ($SignThumbprint -or $SignPfxPath) {
+    $signArgs = @{
+        Path = @(
+            (Join-Path $programs "Lumark.exe"),
+            (Join-Path $programs "lumark-sfx.exe")
+        )
+    }
+    if ($SignThumbprint) {
+        $signArgs["Thumbprint"] = $SignThumbprint
+    }
+    if ($SignPfxPath) {
+        $signArgs["PfxPath"] = $SignPfxPath
+    }
+    if ($SignPfxPassword) {
+        $signArgs["PfxPassword"] = $SignPfxPassword
+    }
+    & (Join-Path $PSScriptRoot "sign.ps1") @signArgs
+}
 
 & (Join-Path $programs "Lumark.exe") --register-shell
 

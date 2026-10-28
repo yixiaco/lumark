@@ -62,7 +62,14 @@ cargo build --release -p lumark-app -p lumark-sfx
 ./installer/install.ps1
 ```
 
-需要 Authenticode 签名时，在安装前运行：
+安装时直接签名：
+
+```powershell
+./installer/install.ps1 -SignThumbprint <SHA1指纹>
+./installer/install.ps1 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
+```
+
+也可以单独在安装前运行：
 
 ```powershell
 # 当前用户证书存储中的指纹
