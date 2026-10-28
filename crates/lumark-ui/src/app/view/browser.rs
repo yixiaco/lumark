@@ -3,6 +3,7 @@
 use super::super::actions::TempExtractMode;
 use super::super::*;
 use super::components::{AppIcon, entry_icon, entry_icon_color, hint_text, icon_button};
+use crate::i18n::tr;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -179,36 +180,39 @@ impl LumarkApp {
                     .text_color(cx.theme().muted_foreground)
                     .child(div().w(px(22.)).flex_shrink_0())
                     .child(if tile_view {
-                        div().flex_1().child("名称与类型").into_any_element()
+                        div()
+                            .flex_1()
+                            .child(tr("名称与类型", "Name and type"))
+                            .into_any_element()
                     } else {
                         h_flex()
                             .flex_1()
                             .min_w_0()
                             .gap_2()
-                            .child(header_cell("名称", None, None, cx))
+                            .child(header_cell(tr("名称", "Name"), None, None, cx))
                             .child(header_cell(
-                                "大小",
+                                tr("大小", "Size"),
                                 Some(widths.size),
                                 Some(ColumnKind::Size),
                                 cx,
                             ))
                             .when(archive_columns.compressed, |this| {
                                 this.child(header_cell(
-                                    "压缩后大小",
+                                    tr("压缩后大小", "Compressed size"),
                                     Some(widths.compressed),
                                     Some(ColumnKind::Compressed),
                                     cx,
                                 ))
                             })
                             .child(header_cell(
-                                "修改时间",
+                                tr("修改时间", "Modified"),
                                 Some(widths.modified),
                                 Some(ColumnKind::Modified),
                                 cx,
                             ))
                             .when(archive_columns.algorithm, |this| {
                                 this.child(header_cell(
-                                    "压缩算法",
+                                    tr("压缩算法", "Method"),
                                     Some(widths.algorithm),
                                     Some(ColumnKind::Algorithm),
                                     cx,
@@ -224,7 +228,7 @@ impl LumarkApp {
                             })
                             .when(archive_columns.path, |this| {
                                 this.child(header_cell(
-                                    "路径",
+                                    tr("路径", "Path"),
                                     Some(widths.path),
                                     Some(ColumnKind::Path),
                                     cx,
@@ -232,7 +236,7 @@ impl LumarkApp {
                             })
                             .when(!inside_archive, |this| {
                                 this.child(header_cell(
-                                    "类型",
+                                    tr("类型", "Type"),
                                     Some(widths.kind),
                                     Some(ColumnKind::Kind),
                                     cx,
