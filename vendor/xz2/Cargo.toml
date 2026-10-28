@@ -1,0 +1,12 @@
+[package]
+name = "xz2"
+version = "0.1.7"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Lumark compatibility shim backed by lzma-rust2"
+
+[dependencies]
+lzma-rust2 = { version = "0.22", default-features = false, features = ["std", "encoder", "lzip"] }
+
+[features]
+static = []

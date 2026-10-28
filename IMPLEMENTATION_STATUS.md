@@ -85,8 +85,8 @@
 - [x] EGG 只读格式：使用 MIT `unegg` 读取 Store/Deflate/Bzip2/LZMA 条目，支持列表、选择性解压、覆盖策略、预算/取消、完整性测试和自动发现 EGG 分卷（含双卷回归测试）；AZO 条目因缺少可用解码器明确报不支持，使用本地 `libazo` 占位依赖并有回归测试。已加入 `.egg` Shell 关联。
 - [x] DMG（UDIF）只读格式：使用 MIT `dpp` 自动识别 HFS+/APFS 卷，支持遍历、列表、选择性解压、覆盖策略、预算/取消和完整性测试；按 `.dmg` 扩展名或末尾 `koly` 识别，跳过符号链接。测试用 `hfsplus`/`udif` 合成原始 HFS+ DMG。
 - [x] NSIS 安装包只读格式：使用 Apache-2.0 `nsis` 解析 PE overlay、压缩头和 `EW_EXTRACTFILE` 条目，支持列表、选择性解压、覆盖策略、预算/取消、完整性测试和自动发现 EGG 分卷（含双卷回归测试）；按内容识别，不注册 `.exe` 默认关联，避免劫持普通可执行文件。测试夹具来自 nsis-rs 并保留 NOTICE。
-- [x] XZ 编解码依赖收敛：RPM/XAR 解码和 TAR/单文件流创建改用纯 Rust `lzma-rust2`，移除直接 `xz2` 依赖；`geezipx-core` 仍间接引入 `xz2`，是其 SquashFS XZ 支持暂不可用的原因。
-- [x] SquashFS 只读格式：使用 `backhand` 解析 v4 镜像，支持目录/文件列表、选择性解压、覆盖策略、预算和取消；当前启用 gzip/zstd/lz4 压缩，XZ 因 `geezipx-core` 间接依赖的 `xz2` 与 `liblzma` 原生链接冲突暂未启用。已加入 `.squashfs`/`.sqfs` Shell 关联。
+- [x] XZ 编解码依赖收敛：RPM/XAR 解码和 TAR/单文件流创建改用纯 Rust `lzma-rust2`，移除直接 `xz2` 依赖；新增 MIT/Apache 兼容的本地 `xz2` 适配层，把 `geezipx-core` 的 XZ/LZMA 调用转到 `lzma-rust2`，并用 `liblzma` 为 `backhand` 提供 SquashFS XZ 后端，已通过 XZ/LZMA 往返和 XZ SquashFS 测试。
+- [x] SquashFS 只读格式：使用 `backhand` 解析 v4 镜像，支持目录/文件列表、选择性解压、覆盖策略、预算和取消；启用 gzip/zstd/lz4/xz 压缩。已加入 `.squashfs`/`.sqfs` Shell 关联。
 - [x] ZPAQ 解压和完整测试改走可杀死工作进程：取消时终止子进程并清理暂存区；解压仍由引擎一次性完成，移动阶段继续逐条上报进度。
 - [x] 伪装归档原地编辑：ZIP/7Z 内层恢复、编辑、复用原面具重新包装后原子替换，保留原文件名和可选 `.lumark.bak`；其他内层格式仍要求先还原。
 - [x] 资源管理器新增“伪装为媒体文件…”动词（`--disguise`），启动后直接打开轻巧伪装压缩窗口。
@@ -125,7 +125,7 @@
 - [ ] ZPAQ 解压仍由引擎一次性阻塞完成，只有任务级取消和移动阶段逐条进度，没有引擎内部逐文件进度；后续可评估按条目分块调用引擎。PAQ8/LPAQ 系列暂无许可兼容的成熟 Rust 后端，待生态出现可用实现后再评估。
 - [ ] 邮件通知只做纯文本；没有连接超时配置、发送历史、重试队列和 OAuth2/XOAUTH2。
 - [ ] Windows 11 稀疏 MSIX `IExplorerCommand`（全信任 MSIX 打包已完成） 和代码签名。
-- [ ] PAQ8/LPAQ 仍未支持；SquashFS XZ 仍受依赖链接冲突限制；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
+- [ ] PAQ8/LPAQ 仍未支持；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
 - [ ] LZH 的 lh4/lh5/lh7 创建仍受单条目 512 MiB 内存上限限制；Store（lh0）已支持分块流式写入。上游 lh4-lh7 编码器尚无可安全跨块续写的接口，后续可评估自研流式编码器或分块归档策略。
 - [ ] 传统格式的实际写入上限仍取决于上游适配器；完整键盘/高对比度验收、中英文资源文件和原生 OS 拖出目标窗口行为仍待完成。
 - [ ] 将 `geezipx-core` 所需适配器复制进项目并移除整体直接依赖，减少重复 ZIP/7z 依赖。

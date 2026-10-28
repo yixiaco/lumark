@@ -65,3 +65,43 @@ fn squashfs_lists_extracts_and_tests() {
     assert_eq!(tested.files, 2);
     assert_eq!(tested.bytes, report.bytes);
 }
+
+/// 验证 XZ 压缩的 SquashFS 可以列表和解压。
+#[test]
+fn squashfs_xz_lists_and_extracts() {
+    use backhand::FilesystemWriter;
+    use std::io::Cursor;
+
+    let directory = tempdir().unwrap();
+    let archive = directory.path().join("image-xz.squashfs");
+    let mut writer = FilesystemWriter::default();
+    writer.set_compressor(
+        backhand::FilesystemCompressor::new(backhand::compression::Compressor::Xz, None).unwrap(),
+    );
+    writer
+        .push_file(
+            Cursor::new(b"xz squashfs"),
+            "hello.txt",
+            backhand::NodeHeader::default(),
+        )
+        .unwrap();
+    writer.write(fs::File::create(&archive).unwrap()).unwrap();
+
+    let info = ArchiveService::list(&archive, None).unwrap();
+    assert!(info.entries.iter().any(|entry| entry.path == "hello.txt"));
+    let output = directory.path().join("out-xz");
+    ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: output.clone(),
+            overwrite: true,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(output.join("hello.txt")).unwrap(),
+        "xz squashfs"
+    );
+}

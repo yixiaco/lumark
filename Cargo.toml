@@ -46,7 +46,7 @@ unegg = "0.2"
 dpp = "0.6"
 hfsplus = "0.4"
 udif = "0.4.2"
-backhand = { version = "0.25", default-features = false, features = ["gzip", "zstd", "lz4"] }
+backhand = { version = "0.25", default-features = false, features = ["gzip", "zstd", "lz4", "xz", "xz-static"] }
 msi = "0.10"
 cab = "0.6"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "rustls-tls"] }
@@ -100,3 +100,4 @@ zstd = "0.14"
 
 [patch.crates-io]
 libazo = { path = "vendor/libazo" }
+xz2 = { path = "vendor/xz2" }
