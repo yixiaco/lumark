@@ -98,7 +98,7 @@ cargo build --release -p lumark-app -p lumark-sfx
 ./installer/install-msix.ps1 -Uninstall
 ```
 
-Windows 11 稀疏 MSIX/新版资源管理器菜单仍未实现。
+Windows 11 稀疏 MSIX 上下文菜单已提供骨架：`lumark-shell-command` COM DLL、稀疏包清单和打包/安装脚本；实际安装需要受信任证书。
 
 ## 测试
 
@@ -256,7 +256,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 - 7Z 后端继续使用 `sevenz-rust2`：`zesven` 的解压进度、流式和编辑 API 更全，但更年轻（2026 年首版、下载量约为前者 1/27、七个月跨了三个大版本），整体迁移要重写 list/extract/create/edit/probe/verify 并重跑 7-Zip 互操作矩阵；现阶段用读取器包装和编码块完成量补进度（加密归档退回读取进度），等需要“7Z 编辑避免全量重压缩”等能力时再做 spike 评估。
 - LZH 创建复用 `geezipx-core` 的 `LzhWriter`，按预设映射到 lh4/lh5/lh7；该写入器需要把单个文件整块读入内存，因此项目对单条目限制 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
 - ISO 挂载不引入第三方驱动，直接调用系统 `Mount-DiskImage`/`Dismount-DiskImage`；挂载状态在 Lumark 退出后仍由 Windows 保留，卸载入口在 Lumark 文件列表和资源管理器右键菜单。资源管理器入口注册在 `SystemFileAssociations\.iso\shell`，不依赖 `.iso` 当前绑定的 ProgID，因此第三方软件占用文件关联也不影响。
-- Windows 11 稀疏 MSIX/新版菜单仍在后续阶段；会话锁定、Authenticode 签名脚本和 UI 自动化已覆盖。
+- Windows 11 稀疏 MSIX 上下文菜单已提供 COM DLL、稀疏包清单和打包/安装脚本；实际 Explorer 验收仍需受信任证书。会话锁定、Authenticode 签名脚本和 UI 自动化已覆盖。
 - 视频、图片、PDF 压缩按规划暂不实现。
 
 ## 许可与来源
@@ -266,3 +266,18 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 ## 本地化
 
 主界面使用 gpui-kit 0.8.1 的组件 locale 与 `rust-i18n 4.2`。应用文案放在 `crates/lumark-ui/locales/ui.yml`，当前覆盖动作带和设置窗口；通过设置“综合 → 界面语言”切换 `zh-CN`/`en`，同时同步 gpui-kit 组件语言。
+
+## Windows 11 稀疏 MSIX 上下文菜单
+
+`crates/lumark-shell-command` 提供 `IExplorerCommand` COM DLL，`installer/msix/AppxSparseManifest.xml` 把它注册为 Windows 11 资源管理器上下文菜单。应用二进制仍由普通安装程序放在 `C:\Program Files\Lumark`：
+
+```powershell
+cargo build --release -p lumark-shell-command
+./installer/pack-msix.ps1 -Sparse -InputDir target/release `
+  -OutputPath target/release/LumarkShell.msix `
+  -Publisher "CN=Lumark" -Version 1.0.0.0
+./installer/install-msix.ps1 -PackagePath target/release/LumarkShell.msix `
+  -ExternalLocation "C:\Program Files\Lumark" -PackageName Lumark.Shell
+```
+
+稀疏包必须使用受信任证书签名；开发阶段可先导入证书，或在允许未签名包的系统中使用 `-AllowUnsigned`。注册后重启资源管理器，右键文件/文件夹即可看到“用 Lumark 压缩”，点击后启动 `Lumark.exe --compress` 并传入选中路径。

@@ -139,7 +139,7 @@
 - WIM LZMS/SWM 需要许可兼容的 LZMS 后端或完整的 WIMGAPI/`wimlib` 集成；当前只使用纯 Rust WIM 读取器。
 - PAQ8/LPAQ 没有许可兼容的成熟 Rust 后端。
 - LZH lh4/lh5/lh7 的上游编码器没有跨块续写接口，当前仍受 512 MiB 单条目内存上限。
-- Windows 11 稀疏 MSIX `IExplorerCommand` 需要随包分发的 COM 本地服务器和包身份/注册清单，工作量和验证环境都超出单轮改动。
+- Windows 11 稀疏 MSIX 的 COM DLL、清单和打包脚本已完成；真实安装验证依赖受信任证书和 Explorer 会话。
 
 ## 验证命令
 
