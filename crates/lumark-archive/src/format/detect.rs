@@ -114,6 +114,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".isz") {
         return ArchiveFormat::Isz;
     }
+    if name.ends_with(".xar") || name.ends_with(".pkg") {
+        return ArchiveFormat::Xar;
+    }
     if name.ends_with(".deb") {
         return ArchiveFormat::Deb;
     }
@@ -174,6 +177,9 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     }
     if bytes.starts_with(b"7z\xbc\xaf\x27\x1c") {
         return ArchiveFormat::SevenZip;
+    }
+    if bytes.starts_with(b"xar!") {
+        return ArchiveFormat::Xar;
     }
     // ALZ 头固定为 "ALZ\x01"；多卷拆分由 `unalz` 在打开时自行拼接。
     if bytes.starts_with(b"ALZ\x01") {

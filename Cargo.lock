@@ -5041,6 +5041,7 @@ dependencies = [
  "lz4_flex",
  "lzma-rust2 0.22.0",
  "oxiarc-lzhuf",
+ "quick-xml",
  "rand 0.8.8",
  "serde",
  "serde_json",

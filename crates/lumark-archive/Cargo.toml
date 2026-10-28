@@ -19,6 +19,7 @@ geezipx-core.workspace = true
 lz4_flex.workspace = true
 lzma-rust2.workspace = true
 oxiarc-lzhuf.workspace = true
+quick-xml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sevenz-rust2.workspace = true

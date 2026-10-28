@@ -9,6 +9,7 @@ mod lzh;
 pub mod path;
 pub mod service;
 mod unarc;
+mod xar;
 mod zpaq;
 
 pub use disguise::{

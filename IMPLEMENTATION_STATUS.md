@@ -89,6 +89,7 @@
 - [x] 卸载数据保留选项：`installer/uninstall.ps1` 默认保留设置和密码库，新增 `-RemoveUserData` 显式删除并输出对应提示。
 - [x] 邮件通知基础：新增 `lumark-mail` SMTP 发送器（隐式 TLS/STARTTLS/无 TLS、多收件人、配置校验）和 `lumark-mail` 单元测试；SMTP 密码使用 Windows DPAPI 保护，设置模型已加入邮件字段。
 - [x] 邮件通知完整接入：设置窗口新增“通知”页，可保存 SMTP 主机/端口/账号/密码/发件人/收件人和 TLS 模式，支持测试发送；压缩任务成功后自动发送通知，密码用 DPAPI 加密保存。
+- [x] XAR/PKG 只读格式：解析 28 字节头、zlib 目录和逐文件 zlib/BZip2/XZ/Store 数据，支持列表、选择性解压、符号链接跳过、预算/取消和完整性测试；`.xar`/`.pkg` 已加入 Shell 关联。
 
 ## 下一步（按优先级）
 
@@ -97,7 +98,7 @@
 - [ ] ZPAQ 解压仍由引擎一次性阻塞完成，只有任务级取消和移动阶段逐条进度，没有引擎内部逐文件进度；后续可评估按条目分块调用引擎。PAQ8/LPAQ 系列暂无许可兼容的成熟 Rust 后端，待生态出现可用实现后再评估。
 - [ ] 邮件通知只做纯文本；没有连接超时配置、发送历史、重试队列和 OAuth2/XOAUTH2。
 - [ ] Windows 11 稀疏 MSIX `IExplorerCommand`、代码签名和命名管道单实例。
-- [ ] RPM、XAR/PKG、MSI、CHM、SquashFS、DMG、EGG、NSIS 安装包和 PAQ8/LPAQ 仍未支持；WIM 的 LZMS 压缩、SWM 多分卷和 WIM 创建仍未实现，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
+- [ ] RPM、MSI、CHM、SquashFS、DMG、EGG、NSIS 安装包和 PAQ8/LPAQ 仍未支持；XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩、SWM 多分卷和 WIM 创建仍未实现，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
 - [ ] LZH 的 lh4/lh5/lh7 创建仍受单条目 512 MiB 内存上限限制；Store（lh0）已支持分块流式写入。上游 lh4-lh7 编码器尚无可安全跨块续写的接口，后续可评估自研流式编码器或分块归档策略。
 - [ ] 扩展 UI 自动化到密码编辑窗口、自动解压提示、任务暂停/取消和拖放；传统格式的实际写入上限仍取决于上游适配器，模糊测试、性能基准、完整键盘/高对比度验收和中英文资源文件仍待完成。
 - [ ] 将 `geezipx-core` 所需适配器复制进项目并移除整体直接依赖，减少重复 ZIP/7z 依赖。

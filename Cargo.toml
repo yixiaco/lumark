@@ -46,6 +46,7 @@ lzma-rust2 = { version = "0.22", default-features = false, features = ["std", "e
 oxiarc-lzhuf = "0.3.6"
 natord = "1"
 parking_lot = "0.12"
+quick-xml = "0.41"
 rand = "0.8"
 rayon = "1.12"
 regex = "1"
