@@ -1,6 +1,7 @@
 //! 密码库记录列表：搜索、新建入口、锁定面板和记录行。
 use super::super::super::*;
 use super::super::components::{AppIcon, card};
+use crate::i18n::tr;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::scroll::ScrollableElement;
 
@@ -24,7 +25,7 @@ impl LumarkApp {
                     .bg(cx.theme().muted.opacity(0.45))
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .child(div().text_sm().font_semibold().child("记录列表"))
+                    .child(div().text_sm().font_semibold().child(tr("记录列表", "Records")))
                     .child(
                         div()
                             .px_2()
@@ -33,7 +34,7 @@ impl LumarkApp {
                             .bg(cx.theme().muted)
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} 条", entries.len())),
+                            .child(format!("{} {}", entries.len(), tr("条", "items"))),
                     )
                     .child(
                         h_flex()
@@ -60,8 +61,8 @@ impl LumarkApp {
                                 .primary()
                                 .cursor_pointer()
                                 .icon(AppIcon::Add.element(16.))
-                                .label("新建")
-                                .tooltip("新建密码记录")
+                                .label(tr("新建", "New"))
+                                .tooltip(tr("新建密码记录", "New password record"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.open_password_editor_window(None, window, cx);
                                     cx.notify();
@@ -89,12 +90,12 @@ impl LumarkApp {
                                 .justify_center()
                                 .child(AppIcon::Lock.element(26.)),
                         )
-                        .child(div().font_semibold().child("密码库已锁定"))
+                        .child(div().font_semibold().child(tr("密码库已锁定", "Vault is locked")))
                         .child(
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("输入主密码后才能查看、编辑或自动尝试记录密码。"),
+                                .child(tr("输入主密码后才能查看、编辑或自动尝试记录密码。", "Enter the master password to view, edit or auto-try saved passwords.")),
                         )
                         .child(
                             h_flex()
@@ -108,7 +109,7 @@ impl LumarkApp {
                                     button("unlock")
                                         .primary()
                                         .icon(AppIcon::Unlock.element(15.))
-                                        .label("解锁")
+                                        .label(tr("解锁", "Unlock"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.unlock_vault(window, cx);
                                             cx.notify();
@@ -153,14 +154,14 @@ impl LumarkApp {
                                     .gap_2()
                                     .child(AppIcon::Key.element(28.))
                                     .child(
-                                        div().text_sm().font_semibold().child("还没有保存的密码"),
+                                        div().text_sm().font_semibold().child(tr("还没有保存的密码", "No saved passwords yet")),
                                     )
                                     .child(
                                         div()
                                             .text_xs()
                                             .text_color(cx.theme().muted_foreground)
                                             .child(
-                                                "点击右上角加号新建记录，或解压成功后选择保存。",
+                                                tr("点击右上角加号新建记录，或解压成功后选择保存。", "Use the add button to create a record, or save one after extraction."),
                                             ),
                                     ),
                             )
@@ -171,7 +172,7 @@ impl LumarkApp {
                                     let pattern_label = entry
                                         .archive_pattern
                                         .clone()
-                                        .unwrap_or_else(|| "通用密码".to_string());
+                                        .unwrap_or_else(|| tr("通用密码", "General password").to_string());
                                     let updated_label = format_record_time(entry.updated_at);
                                     let selected = self.selected_password == Some(id);
                                     let revealed = self.revealed_password == Some(id);
@@ -262,9 +263,9 @@ impl LumarkApp {
                                                     .element(14.),
                                                 )
                                                 .tooltip(if revealed {
-                                                    "隐藏密码"
+                                                    tr("隐藏密码", "Hide password")
                                                 } else {
-                                                    "显示 10 秒"
+                                                    tr("显示 10 秒", "Show 10s")
                                                 })
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     this.toggle_password_reveal(reveal_id, cx);
@@ -288,7 +289,7 @@ impl LumarkApp {
                             .flex_1()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("新建、编辑和删除都会立即写入本地加密密码库。"),
+                            .child(tr("新建、编辑和删除都会立即写入本地加密密码库。", "Create, edit and delete are written to the local encrypted vault immediately.")),
                     ),
             )
             .into_any_element()
