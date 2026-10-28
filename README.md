@@ -82,6 +82,8 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 
 10 万项目录基准：`cargo run -p lumark-browser --release --example bench_100k`，当前实测加载约 167 ms、搜索约 75 ms。
 
+归档闭环基准：`cargo run -p lumark-archive --release --example bench_archive`，32 MiB 源下 ZIP 创建约 94 ms、7Z 约 3.5 s、TAR.GZ 约 133 ms；列表、解压和测试耗时同时输出。
+
 测试覆盖：
 
 - ZIP/7Z/TAR 系列/流式格式往返、AES 密码、固实压缩、原子编辑、分卷和路径穿越拒绝。
