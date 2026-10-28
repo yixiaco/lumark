@@ -152,6 +152,7 @@ pub fn is_archive_extension(path: &Path) -> bool {
             | "udf"
             | "xar"
             | "pkg"
+            | "rpm"
             | "cab"
             | "arj"
             | "ace"

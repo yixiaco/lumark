@@ -92,6 +92,8 @@ pub enum ArchiveFormat {
     Isz,
     /// XAR/PKG 归档。
     Xar,
+    /// RPM 包。
+    Rpm,
     /// Debian 包。
     Deb,
     /// Electron ASAR。
@@ -215,6 +217,7 @@ impl ArchiveFormat {
             Self::Wim => "WIM 镜像",
             Self::Isz => "ISZ 镜像",
             Self::Xar => "XAR/PKG 归档",
+            Self::Rpm => "RPM 包",
             Self::Deb => "DEB 包",
             Self::Asar => "ASAR 归档",
             Self::Zpaq => "ZPAQ 压缩文件",
@@ -338,6 +341,7 @@ impl ArchiveFormat {
             Self::Wim => "wim",
             Self::Isz => "isz",
             Self::Xar => "xar",
+            Self::Rpm => "rpm",
             Self::Deb => "deb",
             Self::Asar => "asar",
             Self::Zpaq => "zpaq",

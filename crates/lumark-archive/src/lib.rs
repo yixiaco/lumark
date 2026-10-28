@@ -7,6 +7,7 @@ pub mod error;
 pub mod format;
 mod lzh;
 pub mod path;
+mod rpm;
 pub mod service;
 mod unarc;
 mod xar;

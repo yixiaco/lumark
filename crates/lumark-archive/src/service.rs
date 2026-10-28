@@ -252,6 +252,7 @@ impl ArchiveService {
                 )
             }
             ArchiveFormat::Xar => Self::list_xar(path),
+            ArchiveFormat::Rpm => Self::list_rpm(path),
             ArchiveFormat::Rar => Self::list_rar(path, password),
             ArchiveFormat::Zpaq => crate::zpaq::list(path, password),
             ArchiveFormat::Alz => crate::alz::list(path),
@@ -400,6 +401,7 @@ impl ArchiveService {
             }
             ArchiveFormat::Alz => crate::alz::test(&input, password, progress),
             ArchiveFormat::Xar => Self::test_xar(&input, &mut progress),
+            ArchiveFormat::Rpm => Self::test_rpm(&input, &mut progress),
             ArchiveFormat::Rar => Self::test_rar(&input, &mut progress),
             format if crate::unarc::is_supported(format) => {
                 crate::unarc::test(&input, format, &mut progress)
@@ -623,6 +625,7 @@ impl ArchiveService {
                 )
             }
             ArchiveFormat::Xar => Self::extract_xar(path, options, &mut progress),
+            ArchiveFormat::Rpm => Self::extract_rpm(path, options, &mut progress),
             ArchiveFormat::Rar => Self::extract_rar(path, options, &mut progress),
             ArchiveFormat::Zpaq => crate::zpaq::extract(path, options, &mut progress),
             ArchiveFormat::Alz => crate::alz::extract(path, options, &mut progress),
@@ -858,6 +861,7 @@ mod legacy;
 use legacy::*;
 mod disguise;
 mod list;
+mod rpm;
 #[cfg(test)]
 mod tests;
 mod xar;
