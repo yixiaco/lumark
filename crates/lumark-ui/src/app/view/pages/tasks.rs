@@ -1,6 +1,7 @@
 //! 任务中心页面：任务统计、任务队列和任务行。
 use super::super::super::*;
 use super::super::components::{AppIcon, card};
+use crate::i18n::tr;
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement;
 
@@ -23,28 +24,28 @@ impl LumarkApp {
                     .child(task_stat_card(
                         cx,
                         AppIcon::Time,
-                        "运行中",
+                        tr("运行中", "Running"),
                         aggregate.running,
                         cx.theme().primary,
                     ))
                     .child(task_stat_card(
                         cx,
                         AppIcon::List,
-                        "排队中",
+                        tr("排队中", "Queued"),
                         aggregate.queued,
                         cx.theme().muted_foreground,
                     ))
                     .child(task_stat_card(
                         cx,
                         AppIcon::Check,
-                        "已完成",
+                        tr("已完成", "Completed"),
                         aggregate.finished,
                         cx.theme().success_foreground,
                     ))
                     .child(task_stat_card(
                         cx,
                         AppIcon::List,
-                        "任务总数",
+                        tr("任务总数", "Total tasks"),
                         total,
                         cx.theme().muted_foreground,
                     )),
@@ -62,7 +63,7 @@ impl LumarkApp {
                                     .w_full()
                                     .justify_between()
                                     .items_center()
-                                    .child(div().text_sm().font_semibold().child("跨任务总进度"))
+                                    .child(div().text_sm().font_semibold().child(tr("跨任务总进度", "Overall progress")))
                                     .child(
                                         div()
                                             .text_xs()
@@ -111,13 +112,13 @@ impl LumarkApp {
                                     .gap_2()
                                     .items_center()
                                     .child(AppIcon::List.element(16.))
-                                    .child(div().font_semibold().child("任务队列")),
+                                    .child(div().font_semibold().child(tr("任务队列", "Task queue"))),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(format!("共 {total} 个任务")),
+                                    .child(format!("{}{total} {}", tr("共 ", "Total "), tr(" 个任务", " tasks"))),
                             ),
                     )
                     .child(
@@ -138,13 +139,13 @@ impl LumarkApp {
                                             div()
                                                 .text_sm()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child("还没有任务"),
+                                                .child(tr("还没有任务", "No tasks yet")),
                                         )
                                         .child(
                                             div()
                                                 .text_xs()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child("压缩、解压和测试任务会显示在这里，点击任务可查看进度。"),
+                                                .child(tr("压缩、解压和测试任务会显示在这里，点击任务可查看进度。", "Compression, extraction and test tasks appear here; click a task to view progress.")),
                                         ),
                                 )
                             })
@@ -195,23 +196,30 @@ impl LumarkApp {
             .message
             .clone()
             .or_else(|| {
-                (!record.progress.current.is_empty())
-                    .then(|| format!("正在处理：{}", record.progress.current))
+                (!record.progress.current.is_empty()).then(|| {
+                    format!(
+                        "{}{}",
+                        tr("正在处理：", "Processing: "),
+                        record.progress.current
+                    )
+                })
             })
             .unwrap_or_else(|| {
                 if state == TaskState::Queued {
-                    "等待开始…".to_string()
+                    tr("等待开始…", "Waiting to start...").to_string()
                 } else {
-                    "正在准备文件…".to_string()
+                    tr("正在准备文件…", "Preparing files...").to_string()
                 }
             });
         let metrics = format!(
-            "{} / {} · {} / {} 项 · {}/秒 · {}",
+            "{} / {} · {} / {} {} · {}{} · {}",
             format_size(record.progress.bytes_done),
             format_size(record.progress.bytes_total),
             record.progress.entries_done,
             record.progress.entries_total,
+            tr("项", "items"),
             format_size(record.progress.speed_bps.max(0.0) as u64),
+            tr("/秒", "/s"),
             format_duration(record.progress.elapsed_seconds),
         );
         h_flex()
@@ -319,7 +327,7 @@ impl LumarkApp {
                         button(format!("task-open-{task_id}"))
                             .ghost()
                             .xsmall()
-                            .label("查看")
+                            .label(tr("查看", "View"))
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_progress_window_for(task_id, window, cx);
@@ -335,9 +343,9 @@ impl LumarkApp {
                                     .ghost()
                                     .xsmall()
                                     .label(if state == TaskState::Paused {
-                                        "继续"
+                                        tr("继续", "Resume")
                                     } else {
-                                        "暂停"
+                                        tr("暂停", "Pause")
                                     })
                                     .cursor_pointer()
                                     .on_click(cx.listener(move |this, _, _, cx| {

@@ -792,15 +792,15 @@ pub(crate) fn aggregate_task_progress(records: &[TaskRecord]) -> TaskAggregate {
     aggregate
 }
 
-/// 返回任务状态的中文名称。
+/// 返回任务状态名称。
 pub(crate) fn task_state_label(state: TaskState) -> &'static str {
     match state {
-        TaskState::Queued => "排队中",
-        TaskState::Running => "进行中",
-        TaskState::Paused => "已暂停",
-        TaskState::Cancelling => "取消中",
-        TaskState::Completed => "已完成",
-        TaskState::Failed => "失败",
-        TaskState::Cancelled => "已取消",
+        TaskState::Queued => crate::i18n::tr("排队中", "Queued"),
+        TaskState::Running => crate::i18n::tr("进行中", "Running"),
+        TaskState::Paused => crate::i18n::tr("已暂停", "Paused"),
+        TaskState::Cancelling => crate::i18n::tr("取消中", "Cancelling"),
+        TaskState::Completed => crate::i18n::tr("已完成", "Completed"),
+        TaskState::Failed => crate::i18n::tr("失败", "Failed"),
+        TaskState::Cancelled => crate::i18n::tr("已取消", "Cancelled"),
     }
 }
