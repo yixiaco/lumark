@@ -117,6 +117,11 @@ if ($signed) {
     if ($NoTimestamp) { $signArgs["NoTimestamp"] = $true }
     & (Join-Path $PSScriptRoot "sign.ps1") @signArgs
 }
+
+# 构建产物可能从下载的源目录继承 Zone.Identifier；清除它，避免本机运行时
+# 触发“来自 Internet 的文件”安全警告。它不影响文件内容或 Authenticode。
+Get-ChildItem -LiteralPath $stage -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
+Unblock-File -LiteralPath $installer -ErrorAction SilentlyContinue
 $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$installer.sha256" -Value $hash -Encoding ASCII
 Write-Host "安装器：$installer"

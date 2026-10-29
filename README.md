@@ -278,4 +278,17 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 
 安装器使用稳定的 `AppId`，在 `PrivilegesRequired=lowest` 下安装到当前用户的 `%LOCALAPPDATA%\Programs\Lumark`，不需要管理员权限，并创建开始菜单入口和可选桌面图标，在安装/卸载时调用 `--register-shell` / `--unregister-shell`。正式发布前应在干净的 Windows 机器上验证安装、升级、卸载和签名；当前外层签名脚本不会单独签名 Inno 生成的内嵌卸载器，完整覆盖需要在 Inno 的 `SignTool` 配置中签名卸载器。
 
+### 去掉“来自 Internet 的文件”安全警告
+
+截图中的警告是 Windows 的 Mark-of-the-Web（MOTW），不是 Inno Setup 的签名错误，也不是安装器损坏。文件从浏览器、聊天软件或压缩包带上了 `Zone.Identifier`，Windows 就会在运行 exe 时显示该警告；即使发布者签名有效也会显示。
+
+本机单个文件可以右键“属性 → 解除锁定”，或执行：
+
+```powershell
+Unblock-File .\dist\windows\Lumark.exe
+Unblock-File .\dist\Lumark-Setup-0.1.0.exe
+```
+
+打包脚本在生成后会清除 `dist\windows` 和最终安装器的 MOTW，因此本机构建产物不应再出现该警告。其它机器从网络下载安装包时，Windows 会重新写入 MOTW，构建脚本无法替接收方永久移除；接收方可对安装包执行 `Unblock-File`，或通过受信任的签名和分发渠道降低 SmartScreen 提示。Tauri 的 NSIS 安装器同样是下载的 exe，也会受到同一机制影响；MSIX 由 Windows 包部署栈安装，不走 loose exe 的 MOTW 路径。
+
 安装器使用官方文档描述的暂存目录和 Inno Setup 流程。Windows 右键菜单使用应用已有的当前用户经典 Shell 注册（`--register-shell` / `--unregister-shell`），由 Inno Setup 的安装/卸载步骤调用。
