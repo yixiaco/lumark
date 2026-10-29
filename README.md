@@ -63,18 +63,27 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 
 Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 `lib.exe`/`link.exe` 在系统临时目录创建 `lnk*.tmp` 时被安全软件拦截的 `LNK1104`。
 
-Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup：
+Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup。仓库已内置 Inno Setup 6.7.3 命令行编译器：
 
 ```powershell
 ./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
-需要签名时传入证书参数；脚本会先签名暂存二进制，再签名最终安装器：
+构建机不需要安装 Inno Setup，脚本只调用 `installer/tools/innosetup/ISCC.exe`；不要删除该目录。需要签名时传入证书参数；脚本会先签名暂存二进制，再签名最终安装器：
 
 ```powershell
 ./installer/pack-installer.ps1 -Version 0.1.0 -SignThumbprint <SHA1指纹>
 ./installer/pack-installer.ps1 -Version 0.1.0 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
 ```
+
+开发阶段可创建当前用户级自签名证书，不需要管理员权限。脚本会把证书加入当前用户的根和受信任发布者存储，并输出指纹：
+
+```powershell
+$cert = ./installer/self-sign.ps1
+./installer/pack-installer.ps1 -Version 0.1.0 -SignThumbprint $cert.Thumbprint -NoTimestamp
+```
+
+自签名只对本机或已手动信任 `dist\dev-cert\Lumark-Dev.cer` 的机器有效；其它机器仍可能显示未知发布者，SmartScreen 信誉也不能靠自签名获得。正式分发应使用受信任 CA 的 Authenticode 证书。签名不会授予管理员权限；当前安装器使用 `PrivilegesRequired=lowest`，普通用户安装不需要管理员权限。
 
 也可以单独校验已有签名：
 
@@ -258,15 +267,15 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 ./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
-脚本需要 Inno Setup 6（`ISCC.exe`）；未安装时可在 Windows 上运行 `winget install JRSoftware.InnoSetup`，脚本会同时查找系统目录和当前用户的 Inno Setup 安装目录。脚本会：
+仓库内置 Inno Setup 6.7.3 编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装 Inno Setup，也不再从 PATH 或系统安装目录查找 `ISCC.exe`。脚本会：
 
 - 校验并暂存 `Lumark.exe`、`lumark-sfx.exe` 和许可文本到 `dist\windows`；
 - 调用 `installer/lumark.iss` 生成 `dist\Lumark-Setup-<版本>.exe`；
 - 写出对应的 `.sha256` 校验文件；
 - 传入 `-SignThumbprint` 或 `-SignPfxPath` 时，先签名暂存二进制，再签名最终安装器。
 
-安装器本身已经包含 Inno Setup 运行时；构建机安装 Inno Setup 只用于编译，不需要随应用分发。若运行时出现 `Temp\is-*.tmp` 的 Error 5，通常是 `%TEMP%` 权限、受限令牌或安全软件拦截，而不是缺少 Inno Setup；需要为安装器放行临时目录或使用代码签名后的安装器。
+安装器本身已经包含 Inno Setup 运行时；构建机不需要安装 Inno Setup。若运行时出现 `Temp\is-*.tmp` 的 Error 5，通常是 `%TEMP%` 权限、受限令牌或安全软件拦截，而不是缺少 Inno Setup；需要为安装器放行临时目录或使用代码签名后的安装器。自签名只能让本机信任该签名，不能绕过安全软件或获得 SmartScreen 信誉。
 
-安装器使用稳定的 `AppId`，按 `{autopf}` 安装（普通用户目录或 Program Files，取决于权限），创建开始菜单入口和可选桌面图标，并在安装/卸载时调用 `--register-shell` / `--unregister-shell`。正式发布前应在干净的 Windows 机器上验证安装、升级、卸载和签名；Inno Setup 内嵌卸载器的签名需要在 Inno 的 `SignTool` 配置中完成，不能只给安装器外层签名。
+安装器使用稳定的 `AppId`，在 `PrivilegesRequired=lowest` 下安装到当前用户的 `%LOCALAPPDATA%\Programs\Lumark`，不需要管理员权限，并创建开始菜单入口和可选桌面图标，在安装/卸载时调用 `--register-shell` / `--unregister-shell`。正式发布前应在干净的 Windows 机器上验证安装、升级、卸载和签名；当前外层签名脚本不会单独签名 Inno 生成的内嵌卸载器，完整覆盖需要在 Inno 的 `SignTool` 配置中签名卸载器。
 
 安装器使用官方文档描述的暂存目录和 Inno Setup 流程。Windows 右键菜单使用应用已有的当前用户经典 Shell 注册（`--register-shell` / `--unregister-shell`），由 Inno Setup 的安装/卸载步骤调用。

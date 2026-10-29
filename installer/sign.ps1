@@ -21,6 +21,8 @@
 
 .PARAMETER TimestampUrl
     RFC 3161 时间戳服务；默认 DigiCert。
+.PARAMETER NoTimestamp
+    不请求时间戳。自签名开发证书或离线构建时使用。
 
 .PARAMETER VerifyOnly
     只校验，不签名。
@@ -35,6 +37,7 @@ param(
     [string]$PfxPath,
     [string]$PfxPassword,
     [string]$TimestampUrl = "http://timestamp.digicert.com",
+    [switch]$NoTimestamp,
     [switch]$VerifyOnly,
     [switch]$MachineStore
 )
@@ -104,7 +107,13 @@ foreach ($file in $files) {
         throw "Provide -Thumbprint or -PfxPath, or use -VerifyOnly."
     }
 
-    & $signTool sign /fd SHA256 /tr $TimestampUrl /td SHA256 @certificateArgs $file
+    $signArgs = @("sign", "/fd", "SHA256")
+    if (-not $NoTimestamp) {
+        $signArgs += @("/tr", $TimestampUrl, "/td", "SHA256")
+    }
+    $signArgs += $certificateArgs
+    $signArgs += $file
+    & $signTool @signArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Signing failed: $file"
     }

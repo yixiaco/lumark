@@ -37,6 +37,7 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **libazo（本地占位）** — MIT — AZO 解码占位；AZO 条目明确返回不支持
 - **vendor/xz2（本地适配层）** — MIT OR Apache-2.0 — 将 `geezipx-core` 的 XZ/LZMA 调用转到 `lzma-rust2`
 - **liblzma / liblzma-sys** — public domain / MIT — `backhand` 的 SquashFS XZ 后端；仅构建期链接
+- **Inno Setup 6.7.3（`installer/tools/innosetup` 内置编译器）** — Inno Setup License — https://jrsoftware.org/ — Windows 安装器构建工具；生成的安装器包含其运行时，构建机不再需要安装 Inno Setup。商业使用请阅读上游商业许可说明。
 
 - **deflate64** — MIT — https://github.com/anatawa12/deflate64-rs — ZIP Deflate64 只读解码
 - **bitstream-io** — MIT OR Apache-2.0 — https://github.com/tuffy/bitstream-io — ZIP 旧方法（Shrink/Reduce/Implode）只读解码

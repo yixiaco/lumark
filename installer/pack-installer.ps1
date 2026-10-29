@@ -13,13 +13,15 @@
 .PARAMETER OutputDir
     暂存和安装器输出目录，默认 dist。
 .PARAMETER IsccPath
-    ISCC.exe 路径；未提供时在 PATH 和 Inno Setup 默认安装目录中查找。
+    ISCC.exe 路径；未提供时使用仓库内置的 installer\tools\innosetup\ISCC.exe。
 .PARAMETER SignThumbprint
     可选，当前用户证书存储中的代码签名证书 SHA-1 指纹。
 .PARAMETER SignPfxPath
     可选，PFX 证书路径；与 -SignThumbprint 二选一。
 .PARAMETER SignPfxPassword
     PFX 密码。
+.PARAMETER NoTimestamp
+    不对签名做 RFC 3161 时间戳。开发用自签名证书应启用此开关。
 #>
 [CmdletBinding()]
 param(
@@ -29,7 +31,8 @@ param(
     [string]$IsccPath,
     [string]$SignThumbprint,
     [string]$SignPfxPath,
-    [string]$SignPfxPassword
+    [string]$SignPfxPassword,
+    [switch]$NoTimestamp
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,21 +76,11 @@ function Find-Iscc([string]$Explicit) {
         }
         return (Resolve-Path -LiteralPath $Explicit).ProviderPath
     }
-    $command = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
+    $bundled = Join-Path $PSScriptRoot "tools\innosetup\ISCC.exe"
+    if (Test-Path -LiteralPath $bundled) {
+        return (Resolve-Path -LiteralPath $bundled).ProviderPath
     }
-    $localPrograms = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Programs" }
-    foreach ($root in @(${env:ProgramFiles}, ${env:ProgramFiles(x86)}, $localPrograms)) {
-        if (-not $root) { continue }
-        foreach ($edition in @("Inno Setup 6", "Inno Setup 5")) {
-            $candidate = Join-Path (Join-Path $root $edition) "ISCC.exe"
-            if (Test-Path -LiteralPath $candidate) {
-                return $candidate
-            }
-        }
-    }
-    throw "未找到 ISCC.exe。请安装 Inno Setup 6：https://jrsoftware.org/isdl.php"
+    throw "内置 ISCC.exe 不存在：$bundled。请恢复 installer\tools\innosetup 目录；该目录随仓库提交，构建机不需要安装 Inno Setup。"
 }
 
 $signed = $SignThumbprint -or $SignPfxPath
@@ -101,6 +94,7 @@ if ($signed) {
     if ($SignThumbprint) { $signArgs["Thumbprint"] = $SignThumbprint }
     if ($SignPfxPath) { $signArgs["PfxPath"] = $SignPfxPath }
     if ($SignPfxPassword) { $signArgs["PfxPassword"] = $SignPfxPassword }
+    if ($NoTimestamp) { $signArgs["NoTimestamp"] = $true }
     & (Join-Path $PSScriptRoot "sign.ps1") @signArgs
 }
 
@@ -120,6 +114,7 @@ if ($signed) {
     if ($SignThumbprint) { $signArgs["Thumbprint"] = $SignThumbprint }
     if ($SignPfxPath) { $signArgs["PfxPath"] = $SignPfxPath }
     if ($SignPfxPassword) { $signArgs["PfxPassword"] = $SignPfxPassword }
+    if ($NoTimestamp) { $signArgs["NoTimestamp"] = $true }
     & (Join-Path $PSScriptRoot "sign.ps1") @signArgs
 }
 $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
