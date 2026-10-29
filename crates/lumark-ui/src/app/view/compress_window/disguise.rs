@@ -160,7 +160,7 @@ impl CompressWindowView {
                                 button("classic-disguise-choose-mask")
                                     .small()
                                     .rounded(px(6.))
-                                    .cursor_pointer()
+
                                     .label(tr("选择面具文件…", "Choose mask file..."))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.choose_disguise_mask(window, cx);

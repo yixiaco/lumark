@@ -243,9 +243,9 @@ impl DisguiseWindowView {
                     .child(
                         button("disguise-window-browse")
                             .secondary()
-                            .small()
+
                             .rounded(px(6.))
-                            .cursor_pointer()
+
                             .label(tr("浏览…", "Browse..."))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.choose_directory(cx);
@@ -272,9 +272,9 @@ impl DisguiseWindowView {
                     .child(
                         button("disguise-window-choose-mask")
                             .secondary()
-                            .small()
+
                             .rounded(px(6.))
-                            .cursor_pointer()
+
                             .label(tr("选择面具文件…", "Choose mask file..."))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.choose_mask(cx);
@@ -318,9 +318,7 @@ impl DisguiseWindowView {
             .border_color(cx.theme().border)
             .child(
                 button("disguise-window-cancel")
-                    .small()
                     .rounded(px(6.))
-                    .cursor_pointer()
                     .label(tr("取消", "Cancel"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         let app = this.app.clone();
@@ -334,9 +332,7 @@ impl DisguiseWindowView {
             .child(
                 button("disguise-window-start")
                     .primary()
-                    .small()
                     .rounded(px(6.))
-                    .cursor_pointer()
                     .icon(AppIcon::Video.element(14.))
                     .label(tr("开始伪装", "Start disguising"))
                     .on_click(cx.listener(|this, _, window, cx| {

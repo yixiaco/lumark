@@ -144,6 +144,21 @@ pub enum TaskRequest {
     },
 }
 
+impl TaskRequest {
+    /// 执行这个请求期间是否需要阻止系统睡眠。
+    pub fn prevents_sleep(&self) -> bool {
+        matches!(
+            self,
+            Self::Compress { .. }
+                | Self::Extract { .. }
+                | Self::Test { .. }
+                | Self::Edit { .. }
+                | Self::Disguise { .. }
+                | Self::Restore { .. }
+        )
+    }
+}
+
 /// 密码候选验证结果。
 pub struct ResolvedPassword {
     /// 匹配到的候选序号。
@@ -412,6 +427,12 @@ fn run_job(
         id,
         state: TaskState::Running,
     });
+    // 真正开始执行的压缩/解压/测试/编辑/伪装/还原任务才请求阻止系统睡眠；
+    // 排队、归档加载和密码验证不延长电源状态。守卫覆盖暂停、取消和 panic。
+    #[cfg(windows)]
+    let _sleep_guard = request
+        .prevents_sleep()
+        .then(lumark_platform_windows::power::prevent_system_sleep);
     // 任务线程里的 panic 只会终止这条线程，事件通道收不到任何结果，
     // 进度窗口会永远停在最后一帧；这里统一捕获并转成失败事件。
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match request {

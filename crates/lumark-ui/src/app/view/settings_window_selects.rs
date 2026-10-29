@@ -12,8 +12,9 @@ use lumark_settings::OverwritePolicy;
 pub(super) type CompressionSelect = Entity<SelectState<SearchableVec<&'static str>>>;
 
 /// 默认格式下拉项：第一项写入设置，第二项显示给用户。
-const FORMAT_OPTIONS: [(&str, &str); 19] = [
+const FORMAT_OPTIONS: [(&str, &str); 22] = [
     ("zip", "ZIP"),
+    ("zipx", "ZIPX"),
     ("7z", "7Z"),
     ("zpaq", "ZPAQ"),
     ("lzh", "LZH"),
@@ -32,6 +33,8 @@ const FORMAT_OPTIONS: [(&str, &str); 19] = [
     ("zst", "ZST"),
     ("br", "BROTLI"),
     ("lz4", "LZ4"),
+    ("sz", "SNAPPY"),
+    ("bz3", "BZIP3"),
 ];
 
 /// 压缩预设下拉项，顺序与设置枚举保持一致。
@@ -222,17 +225,20 @@ mod tests {
     #[test]
     fn option_tables_map_saved_settings() {
         assert_eq!(format_index("zip"), 0);
-        assert_eq!(format_index("7Z"), 1);
-        assert_eq!(format_index("zpaq"), 2);
-        assert_eq!(format_index("lzh"), 3);
-        assert_eq!(format_index("tar.zst"), 8);
-        assert_eq!(format_index("tar.br"), 9);
-        assert_eq!(format_index("tar.lz4"), 10);
-        assert_eq!(format_index("tar.lz"), 11);
-        assert_eq!(format_index("tar.lzma"), 12);
-        assert_eq!(format_index("gz"), 13);
-        assert_eq!(format_index("br"), 17);
-        assert_eq!(format_index("lz4"), 18);
+        assert_eq!(format_index("zipx"), 1);
+        assert_eq!(format_index("7Z"), 2);
+        assert_eq!(format_index("zpaq"), 3);
+        assert_eq!(format_index("lzh"), 4);
+        assert_eq!(format_index("tar.zst"), 9);
+        assert_eq!(format_index("tar.br"), 10);
+        assert_eq!(format_index("tar.lz4"), 11);
+        assert_eq!(format_index("tar.lz"), 12);
+        assert_eq!(format_index("tar.lzma"), 13);
+        assert_eq!(format_index("gz"), 14);
+        assert_eq!(format_index("br"), 18);
+        assert_eq!(format_index("lz4"), 19);
+        assert_eq!(format_index("sz"), 20);
+        assert_eq!(format_index("bz3"), 21);
         assert_eq!(format_index("unknown-format"), 0);
         assert_eq!(preset_index(SettingsPreset::Balanced), 1);
         assert_eq!(overwrite_index(OverwritePolicy::Rename), 3);

@@ -466,7 +466,7 @@ impl SettingsWindowView {
             .flex()
             .items_center()
             .justify_center()
-            .bg(hsla(222. / 360., 0.18, 0.08, 0.42))
+            .bg(cx.theme().overlay)
             .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, _| {})
             .on_mouse_down(gpui_kit::MouseButton::Right, |_, _, _| {})
             .child(

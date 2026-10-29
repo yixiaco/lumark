@@ -151,6 +151,20 @@ mod startup_tests {
         assert!(request.target().is_none());
     }
 
+    /// 嵌套压缩包请求由进程内部构造，并携带子窗口独占的临时目录。
+    #[test]
+    fn nested_archive_request_keeps_owned_temp() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive = directory.path().join("inner.bin");
+        std::fs::write(&archive, b"not a real archive").unwrap();
+        let owned = directory.path().join("owned-temp");
+        let request = StartupRequest::for_nested_archive(archive.clone(), owned.clone());
+        assert_eq!(request.mode, StartupMode::Open);
+        assert!(request.force_open);
+        assert_eq!(request.owned_temp.as_deref(), Some(owned.as_path()));
+        assert_eq!(request.target(), Some(archive.as_path()));
+    }
+
     /// 验证没有路径时不会创建窗口，未知开关按默认浏览处理。
     #[test]
     fn startup_request_ignores_empty_and_unknown_arguments() {

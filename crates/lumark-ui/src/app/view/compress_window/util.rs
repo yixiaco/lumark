@@ -3,6 +3,33 @@
 use super::*;
 use crate::i18n::tr;
 
+/// 压缩窗口可选的格式顺序。
+pub(super) const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
+    (ArchiveFormat::Zip, "ZIP"),
+    (ArchiveFormat::Zipx, "ZIPX"),
+    (ArchiveFormat::SevenZip, "7Z"),
+    (ArchiveFormat::Zpaq, "ZPAQ"),
+    (ArchiveFormat::Lzh, "LZH"),
+    (ArchiveFormat::Wim, "WIM"),
+    (ArchiveFormat::Tar, "TAR"),
+    (ArchiveFormat::TarGz, "TAR.GZ"),
+    (ArchiveFormat::TarBz2, "TAR.BZ2"),
+    (ArchiveFormat::TarXz, "TAR.XZ"),
+    (ArchiveFormat::TarZst, "TAR.ZST"),
+    (ArchiveFormat::TarBr, "TAR.BR"),
+    (ArchiveFormat::TarLz4, "TAR.LZ4"),
+    (ArchiveFormat::TarLz, "TAR.LZ"),
+    (ArchiveFormat::TarLzma, "TAR.LZMA"),
+    (ArchiveFormat::Gzip, "GZ"),
+    (ArchiveFormat::Bzip2, "BZ2"),
+    (ArchiveFormat::Xz, "XZ"),
+    (ArchiveFormat::Zstd, "ZST"),
+    (ArchiveFormat::Brotli, "BROTLI"),
+    (ArchiveFormat::Lz4, "LZ4"),
+    (ArchiveFormat::Snappy, "SNAPPY"),
+    (ArchiveFormat::Bz3, "BZIP3"),
+];
+
 /// 创建带标签的官方复选框。
 pub(super) fn check_button(
     cx: &Context<CompressWindowView>,

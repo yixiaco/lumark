@@ -2,8 +2,30 @@
 
 use super::*;
 use crate::i18n::tr;
+use gpui_kit::component::button::ButtonVariant;
 
 impl LumarkApp {
+    /// 在新的独立窗口中浏览归档内解压出的嵌套压缩包。
+    ///
+    /// 临时目录所有权在窗口创建成功后转交子窗口；失败时调用方仍持有
+    /// `OwnedTempDir`，会在返回后删除该目录。
+    pub(crate) fn spawn_nested_archive_window(
+        &self,
+        archive: PathBuf,
+        owned_temp: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let stores = self.shared_stores();
+        let options = window_options(&stores);
+        let request = StartupRequest::for_nested_archive(archive, owned_temp);
+        gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| window.activate_window());
+            cx.new(|cx| Self::new_shared(window, cx, stores, None, Some(request)))
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+    }
+
     /// 先把一个归档条目解压到受控临时目录，再交给系统默认应用打开。
     pub(crate) fn open_archive_entry(
         &mut self,
@@ -25,6 +47,16 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         self.open_archive_entry_as(entry, PendingOpenMode::Viewer, window, cx);
+    }
+
+    /// 把归档内的一个压缩包解压到子窗口专属目录，并在新窗口中打开。
+    pub(crate) fn open_nested_archive_entry(
+        &mut self,
+        entry: BrowserEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_archive_entry_as(entry, PendingOpenMode::NestedArchive, window, cx);
     }
 
     /// 按指定处理方式解压归档条目并记录后续动作。
@@ -55,8 +87,8 @@ impl LumarkApp {
                 return;
             } else if self.vault.state() == VaultState::Locked {
                 self.pending_unlock_archive = Some(archive);
-                self.show_unlock_for_extract = true;
                 self.unlock_for_browse = true;
+                self.request_unlock_for_extract(window, cx);
                 self.status = tr(
                     "压缩包已加密，解锁密码库后将尝试记录密码",
                     "Archive is encrypted; saved passwords will be tried after unlocking the vault",
@@ -100,6 +132,8 @@ impl LumarkApp {
             .join("Lumark")
             .join("open")
             .join(Uuid::new_v4().to_string());
+        let archive_for_target = archive.clone();
+        let password_for_target = password.clone();
         let options = ExtractionOptions {
             output_dir: temporary.clone(),
             selected_paths: vec![relative.clone()],
@@ -108,11 +142,16 @@ impl LumarkApp {
             ..Default::default()
         };
         let id = self.tasks.submit(TaskRequest::Extract { archive, options });
+        let owned_temp =
+            (mode == PendingOpenMode::NestedArchive).then(|| OwnedTempDir::new(temporary.clone()));
         self.pending_open_entry = Some(PendingOpenEntry {
             task_id: id,
             temporary,
             relative,
             mode,
+            owned_temp,
+            archive: archive_for_target,
+            password: password_for_target,
         });
         self.active_task = Some(id);
         self.task_progress = None;
@@ -125,18 +164,56 @@ impl LumarkApp {
         let _ = cx;
     }
 
-    /// 打开临时解压结果，并在适当时候安排清理。
-    pub(crate) fn open_extracted_target(&mut self, target: PathBuf, temporary: &Path) {
+    /// 打开临时解压结果；可执行文件先弹官方确认框。
+    pub(crate) fn open_extracted_target(
+        &mut self,
+        target: PathBuf,
+        temporary: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if is_executable_like(&target) {
-            self.pending_open_target = Some(target);
-            self.show_open_executable_confirm = true;
+            let app = cx.entity();
+            let dialog_target = target.clone();
+            let temporary_text = temporary.display().to_string();
+            window.open_alert_dialog(cx, move |alert, _, _| {
+                let app = app.clone();
+                let target = dialog_target.clone();
+                alert
+                    .title(tr(
+                        "打开归档中的可执行文件？",
+                        "Open executable from archive?",
+                    ))
+                    .description(format!(
+                        "{}\n{}{}",
+                        tr(
+                            "该条目已解压到临时目录，但可执行文件或脚本可能修改系统。",
+                            "The entry has been extracted to a temporary folder, but executable files or scripts may modify the system.",
+                        ),
+                        tr("路径：", "Path: "),
+                        target.display()
+                    ))
+                    .confirm()
+                    .ok_text(tr("仍然打开", "Open anyway"))
+                    .ok_variant(ButtonVariant::Danger)
+                    .cancel_text(tr("取消", "Cancel"))
+                    .on_ok(move |_, _, cx| {
+                        let app = app.clone();
+                        let target = target.clone();
+                        app.update(cx, |app, cx| {
+                            app.open_confirmed_target(target);
+                            cx.notify();
+                        });
+                        true
+                    })
+            });
             self.status = format!(
                 "{}{}{}",
                 tr(
                     "归档条目已解压到临时目录：",
                     "Archive entry extracted to temporary folder: "
                 ),
-                temporary.display(),
+                temporary_text,
                 tr(
                     "；打开可执行文件前需要确认",
                     "; confirmation is required before opening an executable"
@@ -144,9 +221,7 @@ impl LumarkApp {
             );
             return;
         }
-        let _ = std::process::Command::new("explorer.exe")
-            .arg(&target)
-            .spawn();
+        self.open_confirmed_target(target);
         self.status = format!(
             "{}{}",
             tr("已解压到临时目录：", "Extracted to temporary folder: "),
@@ -154,23 +229,16 @@ impl LumarkApp {
         );
     }
 
-    /// 执行此前已确认的归档可执行文件或脚本。
-    pub(crate) fn confirm_open_executable(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        if let Some(target) = self.pending_open_target.take() {
-            let _ = std::process::Command::new("explorer.exe")
-                .arg(target)
-                .spawn();
-            self.status = tr(
-                "已按用户确认打开归档中的可执行文件",
-                "Opened the archive executable after confirmation",
-            )
-            .to_string();
-        }
-        self.show_open_executable_confirm = false;
+    /// 实际启动系统默认应用打开解压结果。
+    fn open_confirmed_target(&mut self, target: PathBuf) {
+        let _ = std::process::Command::new("explorer.exe")
+            .arg(&target)
+            .spawn();
+        self.status = tr(
+            "已按用户确认打开归档中的可执行文件",
+            "Opened the archive executable after confirmation",
+        )
+        .to_string();
     }
 
     /// 探测加密并匹配记录密码后打开或解压归档。
@@ -199,8 +267,8 @@ impl LumarkApp {
                         }
                         VaultState::Locked => {
                             self.pending_unlock_archive = Some(archive);
-                            self.show_unlock_for_extract = true;
                             self.unlock_for_browse = intent == ArchiveOpenIntent::Browse;
+                            self.request_unlock_for_extract(window, cx);
                             self.status = tr("压缩包已加密，解锁密码库后将尝试记录密码", "Archive is encrypted; saved passwords will be tried after unlocking the vault").to_string();
                             return;
                         }

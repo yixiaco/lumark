@@ -4,6 +4,8 @@ use super::super::*;
 use super::components::{AppIcon, dialog_banner};
 use crate::i18n::tr;
 use gpui_kit::component::TitleBar;
+use gpui_kit::component::progress::Progress;
+use gpui_kit::component::tag::Tag;
 
 /// 独立任务进度窗口的视图。
 ///
@@ -216,6 +218,23 @@ impl Render for ProgressWindowView {
                                     ),
                             ),
                     )
+                    .when(
+                        self.kind.prevents_sleep()
+                            && matches!(
+                                self.state,
+                                TaskState::Running | TaskState::Paused | TaskState::Cancelling
+                            ),
+                        |this| {
+                            this.child(
+                                Tag::secondary()
+                                    .xsmall()
+                                    .child(tr(
+                                        "任务运行期间阻止系统休眠",
+                                        "System sleep is blocked while the task runs",
+                                    )),
+                            )
+                        },
+                    )
                     .when_some(self.message.clone(), |this, message| {
                         let color = match self.state {
                             TaskState::Failed => cx.theme().danger,
@@ -287,7 +306,7 @@ impl Render for ProgressWindowView {
                                             .child(format!("{:.1}%", file_ratio * 100.0)),
                                     ),
                             )
-                            .child(progress_bar(cx, bar_width, file_ratio))
+                            .child(progress_bar("file-progress", bar_width, file_ratio))
                             .child(
                                 h_flex()
                                     .w_full()
@@ -308,7 +327,7 @@ impl Render for ProgressWindowView {
                                             .child(format!("{:.1}%", ratio * 100.0)),
                                     ),
                             )
-                            .child(progress_bar(cx, bar_width, ratio)),
+                            .child(progress_bar("task-progress", bar_width, ratio)),
                     )
                     .child(
                         h_flex()
@@ -436,8 +455,6 @@ impl Render for ProgressWindowView {
                                 .child(
                                     button("progress-cancel-no")
                                         .secondary()
-                                        .xsmall()
-                                        .cursor_pointer()
                                         .label(tr("继续任务", "Keep running"))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.confirm_cancel = false;
@@ -447,8 +464,6 @@ impl Render for ProgressWindowView {
                                 .child(
                                     button("progress-cancel-yes")
                                         .danger()
-                                        .xsmall()
-                                        .cursor_pointer()
                                         .label(tr("确认取消", "Confirm cancel"))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             if let Some(control) = &this.control {
@@ -471,7 +486,7 @@ impl Render for ProgressWindowView {
                                     button("progress-background")
                                         .icon(AppIcon::ArrowLeft.element(14.))
                                         .label(tr("后台", "Background"))
-                                        .cursor_pointer()
+
                                         .on_click(cx.listener(|_, _, window, _| {
                                             window.remove_window();
                                         })),
@@ -483,7 +498,7 @@ impl Render for ProgressWindowView {
                                     button("progress-close")
                                         .primary()
                                         .label(tr("关闭", "Close"))
-                                        .cursor_pointer()
+
                                         .on_click(cx.listener(|_, _, window, _| {
                                             window.remove_window();
                                         })),
@@ -494,7 +509,7 @@ impl Render for ProgressWindowView {
                                     button("progress-pause")
                                         .icon(AppIcon::Time.element(14.))
                                         .label(if paused { tr("继续", "Resume") } else { tr("暂停", "Pause") })
-                                        .cursor_pointer()
+
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             if let Some(control) = &this.control {
                                                 if control.state()
@@ -513,7 +528,7 @@ impl Render for ProgressWindowView {
                                         .danger()
                                         .icon(AppIcon::Close.element(14.))
                                         .label(tr("取消", "Cancel"))
-                                        .cursor_pointer()
+
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.confirm_cancel = true;
                                             cx.notify();
@@ -702,21 +717,12 @@ impl LumarkApp {
     }
 }
 
-/// 渲染进度条，按固定宽度计算填充比例。
-fn progress_bar(cx: &gpui_kit::App, width: f32, ratio: f32) -> gpui_kit::Div {
-    div()
+/// 渲染官方进度条，按固定宽度和 0–1 比例显示。
+fn progress_bar(id: &'static str, width: f32, ratio: f32) -> Progress {
+    Progress::new(id)
+        .value(ratio.clamp(0.0, 1.0) * 100.0)
         .w(px(width))
-        .h(px(12.))
-        .rounded_full()
-        .overflow_hidden()
-        .bg(cx.theme().secondary_active)
-        .child(
-            div()
-                .w(px(width * ratio.clamp(0.0, 1.0)))
-                .h_full()
-                .rounded_full()
-                .bg(cx.theme().primary),
-        )
+        .accessibility_label(tr("任务进度", "Task progress"))
 }
 
 /// 渲染进度窗口中的一行指标。

@@ -30,35 +30,6 @@ pub(crate) fn set_input(
     input.update(cx, |state, cx| state.set_value(value, window, cx));
 }
 
-/// 构建聚焦的模态卡片；应用外壳负责遮罩背景，并在当前窗口居中显示该卡片。
-///
-/// 标题行使用浅色衬底和分隔线，与参考图片的窗体标题区保持同一层级感，
-/// 同时让确认类对话框不必各自复制标题样式。
-pub(crate) fn centered_modal(cx: &mut Context<LumarkApp>, title: &str) -> gpui_kit::Div {
-    v_flex()
-        .w(px(560.))
-        .max_h(px(680.))
-        .overflow_hidden()
-        .gap_4()
-        .p_5()
-        .bg(cx.theme().popover)
-        .border_1()
-        .border_color(cx.theme().border)
-        .rounded(px(10.))
-        .shadow_xl()
-        .child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap_2()
-                .pb_2()
-                .border_b_1()
-                .border_color(cx.theme().border)
-                .child(div().size(px(8.)).rounded_full().bg(cx.theme().primary))
-                .child(div().text_base().font_semibold().child(title.to_string())),
-        )
-}
-
 /// 收集现有用户文件夹和收藏，供侧栏常用位置列表使用。
 ///
 /// 磁盘根目录由下方可展开的目录树负责，避免同一位置在侧栏出现两次。
@@ -205,24 +176,11 @@ pub(crate) fn is_iso_path(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("iso"))
 }
 
-/// 识别需要显式打开确认的可执行文件和脚本扩展名。
-pub(crate) fn is_executable_like(path: &Path) -> bool {
-    path.extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|extension| {
-            [
-                "exe", "com", "bat", "cmd", "ps1", "vbs", "js", "jse", "wsf", "wsh", "msi", "scr",
-                "cpl", "hta", "reg",
-            ]
-            .iter()
-            .any(|candidate| extension.eq_ignore_ascii_case(candidate))
-        })
-}
-
 /// 把持久化的可写格式偏好映射为归档格式。
 pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
     match settings.default_format.to_ascii_lowercase().as_str() {
         "7z" | "sevenzip" => ArchiveFormat::SevenZip,
+        "zipx" => ArchiveFormat::Zipx,
         "zpaq" => ArchiveFormat::Zpaq,
         "lzh" | "lha" => ArchiveFormat::Lzh,
         "wim" => ArchiveFormat::Wim,
@@ -241,6 +199,8 @@ pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
         "zst" => ArchiveFormat::Zstd,
         "br" | "brotli" => ArchiveFormat::Brotli,
         "lz4" => ArchiveFormat::Lz4,
+        "sz" | "snappy" => ArchiveFormat::Snappy,
+        "bz3" | "bzip3" => ArchiveFormat::Bz3,
         _ => ArchiveFormat::Zip,
     }
 }
@@ -256,7 +216,9 @@ pub(crate) fn single_stream_allowed(sources: &[PathBuf]) -> bool {
 /// 设置里的默认格式或已有会话格式，保证输出扩展名和实际写入格式一致。
 pub(crate) fn resolve_compress_format(format: ArchiveFormat, sources: &[PathBuf]) -> ArchiveFormat {
     if format.is_single_stream() && !single_stream_allowed(sources) {
-        format.single_stream_tar_variant().unwrap_or(format)
+        format
+            .single_stream_tar_variant()
+            .unwrap_or(ArchiveFormat::Zip)
     } else {
         format
     }
@@ -299,7 +261,8 @@ pub(crate) fn truncate_title(text: &str, limit: usize) -> String {
 #[allow(dead_code)]
 pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
     match format {
-        ArchiveFormat::Zip => ArchiveFormat::SevenZip,
+        ArchiveFormat::Zip => ArchiveFormat::Zipx,
+        ArchiveFormat::Zipx => ArchiveFormat::SevenZip,
         ArchiveFormat::SevenZip => ArchiveFormat::Zpaq,
         ArchiveFormat::Zpaq => ArchiveFormat::Lzh,
         ArchiveFormat::Lzh => ArchiveFormat::Tar,
@@ -317,6 +280,9 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
         ArchiveFormat::Xz => ArchiveFormat::Zstd,
         ArchiveFormat::Zstd => ArchiveFormat::Brotli,
         ArchiveFormat::Brotli => ArchiveFormat::Lz4,
+        ArchiveFormat::Lz4 => ArchiveFormat::Snappy,
+        ArchiveFormat::Snappy => ArchiveFormat::Bz3,
+        ArchiveFormat::Bz3 => ArchiveFormat::Zip,
         _ => ArchiveFormat::Zip,
     }
 }
@@ -855,6 +821,14 @@ mod tests {
         assert_eq!(
             resolve_compress_format(ArchiveFormat::Brotli, &[folder]),
             ArchiveFormat::TarBr
+        );
+        assert_eq!(
+            resolve_compress_format(ArchiveFormat::Snappy, &[two.clone(), one.clone()]),
+            ArchiveFormat::Zip
+        );
+        assert_eq!(
+            resolve_compress_format(ArchiveFormat::Bz3, &[two.clone(), one.clone()]),
+            ArchiveFormat::Zip
         );
         assert_eq!(
             resolve_compress_format(ArchiveFormat::Zip, &[one, two]),

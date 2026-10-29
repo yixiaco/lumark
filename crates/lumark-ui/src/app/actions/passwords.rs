@@ -88,7 +88,6 @@ impl LumarkApp {
 
     /// 确认删除当前选中的密码记录。
     pub(crate) fn confirm_delete_password(&mut self) {
-        self.show_confirm_delete_password = false;
         let Some(id) = self.selected_password else {
             return;
         };
@@ -171,7 +170,6 @@ impl LumarkApp {
         match self.vault.unlock(&password) {
             Ok(()) => {
                 set_input(&self.master_extract_unlock, "", window, cx);
-                self.show_unlock_for_extract = false;
                 if let Some(archive) = self.pending_unlock_archive.take() {
                     let action = if self.unlock_for_browse {
                         PendingPasswordAction::OpenArchive {
@@ -480,36 +478,32 @@ impl LumarkApp {
                         tr(" 条记录", " records")
                     ),
                 );
-                self.show_vault_transfer = false;
+                window.close_dialog(cx);
                 self.selected_password = None;
             }
             Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
         }
     }
 
-    /// 在导入/导出弹窗内解锁密码库，解锁后继续使用同一弹窗。
-    pub(crate) fn unlock_vault_transfer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 在导入/导出官方对话框中解锁密码库，成功时返回 true。
+    pub(crate) fn unlock_vault_transfer(&mut self, cx: &mut Context<Self>) -> bool {
         let password = input_value(&self.vault_transfer_unlock, cx);
         if password.is_empty() {
-            self.notify(
-                window,
-                cx,
-                NotificationType::Warning,
-                tr("请输入主密码", "Enter the master password"),
-            );
-            return;
+            self.status = tr("请输入主密码", "Enter the master password").to_string();
+            cx.notify();
+            return false;
         }
         match self.vault.unlock(&password) {
             Ok(()) => {
-                set_input(&self.vault_transfer_unlock, "", window, cx);
-                self.notify(
-                    window,
-                    cx,
-                    NotificationType::Success,
-                    tr("密码库已解锁", "Vault unlocked"),
-                );
+                self.status = tr("密码库已解锁", "Vault unlocked").to_string();
+                cx.notify();
+                true
             }
-            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
+            Err(error) => {
+                self.status = error.to_string();
+                cx.notify();
+                false
+            }
         }
     }
 
@@ -625,39 +619,37 @@ impl LumarkApp {
         .detach();
     }
 
-    /// 验证当前主密码，并让密码库恢复 DPAPI 包裹。
-    pub(crate) fn confirm_remove_master(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 验证当前主密码，并让密码库恢复 DPAPI 包裹；成功时关闭官方对话框。
+    pub(crate) fn confirm_remove_master(&mut self, cx: &mut Context<Self>) -> bool {
         let current = input_value(&self.master_remove, cx);
         match self.vault.remove_master_password(&current) {
             Ok(()) => {
-                set_input(&self.master_remove, "", window, cx);
-                self.show_confirm_remove_master = false;
-                self.notify(
-                    window,
-                    cx,
-                    NotificationType::Success,
-                    "主密码已删除，密码库改由与当前计算机绑定的 Windows DPAPI 保护",
-                );
+                self.status = tr(
+                    "主密码已删除，密码库重新由 Windows DPAPI 保护",
+                    "Master password removed; the vault is protected by Windows DPAPI again",
+                )
+                .to_string();
+                cx.notify();
+                true
             }
-            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
+            Err(error) => {
+                self.status = error.to_string();
+                cx.notify();
+                false
+            }
         }
     }
 
     /// 确认对话框通过后清除密码库全部记录。
-    pub(crate) fn clear_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn clear_vault_entries(&mut self, cx: &mut Context<Self>) {
         match self.vault.clear_entries() {
             Ok(()) => {
-                self.show_confirm_clear_vault = false;
                 self.selected_password = None;
-                self.notify(
-                    window,
-                    cx,
-                    NotificationType::Success,
-                    tr("密码库记录已清空", "Vault records cleared"),
-                );
+                self.status = tr("密码库记录已清空", "Vault records cleared").to_string();
             }
-            Err(error) => self.notify(window, cx, NotificationType::Error, error.to_string()),
+            Err(error) => self.status = error.to_string(),
         }
+        cx.notify();
     }
 }
 

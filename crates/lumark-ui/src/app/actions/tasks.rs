@@ -331,7 +331,6 @@ impl LumarkApp {
                         app.dismiss_password_windows(cx);
                         app.selected_password = None;
                         app.pending_extra_password = None;
-                        app.show_extra_password_prompt = false;
                         app.status = tr("密码库已自动锁定", "Vault locked automatically").to_string();
                     }
                     for event in events {
@@ -386,7 +385,9 @@ impl LumarkApp {
                                 app.dismiss_progress_window_for(id, cx);
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
-                                    app.clear_password_attempt(id);
+                                    if app.clear_password_attempt(id) {
+                                        window.close_dialog(cx);
+                                    }
                                     if let Some(resolved) = tasks.take_password_result(id) {
                                         let archive_info = tasks
                                             .take_archive_load_result(id)
@@ -413,7 +414,7 @@ impl LumarkApp {
                                                 action: job.action,
                                                 candidates: job.extras,
                                             });
-                                        app.show_extra_password_prompt = true;
+                                        app.request_extra_password_prompt(window, cx);
                                         app.status = format!(
                                             "前 32 条记录密码不正确，还有 {count} 条未尝试"
                                         );
@@ -425,7 +426,7 @@ impl LumarkApp {
                                     .as_ref()
                                     .is_some_and(|pending| pending.task_id == id)
                                 {
-                                    if let Some(pending) = app.pending_open_entry.take() {
+                                    if let Some(mut pending) = app.pending_open_entry.take() {
                                         if app.active_task == Some(id) {
                                             app.active_task = None;
                                             app.task_progress = None;
@@ -440,15 +441,52 @@ impl LumarkApp {
                                                 app.open_extracted_target(
                                                     target,
                                                     &pending.temporary,
-                                                );
-                                            }
-                                            PendingOpenMode::Viewer => {
-                                                app.open_text_viewer(
-                                                    target,
-                                                    pending.relative.clone(),
                                                     window,
                                                     cx,
                                                 );
+                                            }
+                                            PendingOpenMode::Viewer => {
+                                                let archive_target =
+                                                    crate::app::view::text_viewer_window::ViewerArchiveTarget {
+                                                        archive: pending.archive.clone(),
+                                                        entry: pending.relative.clone(),
+                                                        password: pending.password.clone(),
+                                                        keep_backup: app
+                                                            .settings
+                                                            .get()
+                                                            .archive_edit_backup,
+                                                    };
+                                                app.open_builtin_viewer(
+                                                    target,
+                                                    pending.relative.clone(),
+                                                    true,
+                                                    Some(archive_target),
+                                                    window,
+                                                    cx,
+                                                );
+                                            }
+                                            PendingOpenMode::NestedArchive => {
+                                                let temp = pending.temporary.clone();
+                                                match app.spawn_nested_archive_window(
+                                                    target, temp, cx,
+                                                ) {
+                                                    Ok(()) => {
+                                                        if let Some(mut guard) =
+                                                            pending.owned_temp.take()
+                                                        {
+                                                            guard.disarm();
+                                                        }
+                                                    }
+                                                    Err(error) => {
+                                                        app.status = format!(
+                                                            "{}{error}",
+                                                            tr(
+                                                                "无法打开嵌套压缩包：",
+                                                                "Cannot open nested archive: "
+                                                            )
+                                                        );
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -554,7 +592,7 @@ impl LumarkApp {
                                         cx,
                                     );
                                     app.selected_password = None;
-                                    app.show_save_prompt = true;
+                                    app.request_save_password(window, cx);
                                 }
                                 // 关机计划只在这个压缩任务真正成功后执行；失败
                                 // 或取消在各自分支里清除，不会关机。
@@ -603,7 +641,9 @@ impl LumarkApp {
                                 }
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
-                                    app.clear_password_attempt(id);
+                                    if app.clear_password_attempt(id) {
+                                        window.close_dialog(cx);
+                                    }
                                     app.apply_password_failure(job.action, window, cx);
                                     app.status = format!("{}{message}", tr("验证密码失败，请手动输入：", "Password verification failed; enter it manually: "));
                                 }
@@ -633,7 +673,9 @@ impl LumarkApp {
                                 }
                                 if let Some(job) = app.pending_password_jobs.remove(&id) {
                                     app.vault.release_lease();
-                                    app.clear_password_attempt(id);
+                                    if app.clear_password_attempt(id) {
+                                        window.close_dialog(cx);
+                                    }
                                     if app.active_task == Some(id) {
                                         app.focus_next_running_task(id);
                                     }
@@ -672,6 +714,7 @@ impl LumarkApp {
                                 {
                                     attempt.index = index;
                                     attempt.total = total;
+                                    window.refresh();
                                 }
                             }
                             TaskEvent::StateChanged { id, state } => {

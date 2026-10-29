@@ -40,6 +40,8 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **Inno Setup 6.7.3（`installer/tools/innosetup` 内置编译器）** — Inno Setup License — https://jrsoftware.org/ — Windows 安装器构建工具；生成的安装器包含其运行时，构建机不再需要安装 Inno Setup。商业使用请阅读上游商业许可说明。
 
 - **deflate64** — MIT — https://github.com/anatawa12/deflate64-rs — ZIP Deflate64 只读解码
+- **snap** — BSD-3-Clause — https://github.com/BurntSushi/rust-snappy — Snappy Framed 单文件流读写
+- **bzip3-rs** — LGPL-3.0-only AND Apache-2.0 — https://github.com/ing-systems/bzip3-rs — BZip3 单文件流读写；静态链接，合规说明见 `docs/lgpl-compliance.md`
 - **bitstream-io** — MIT OR Apache-2.0 — https://github.com/tuffy/bitstream-io — ZIP 旧方法（Shrink/Reduce/Implode）只读解码
 - **Lucide icons** (through gpui-kit assets) — ISC — https://lucide.dev
 - **IconPark** — Apache-2.0 — https://iconpark.oceanengine.com/official — selected SVG assets are stored under `crates/lumark-ui/assets/icons/iconpark/` with the upstream license.
@@ -49,6 +51,7 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 RAR support is read-only. The embedded UnRAR source and its license must be included in release artifacts; no RAR creation is implemented.
 
 `crates/lumark-archive/tests/fixtures/` contains small read-only test samples copied from the MIT-licensed
-[zip-rs/zip2](https://github.com/zip-rs/zip2) and the MIT OR Apache-2.0 licensed
-[unarc-rs](https://github.com/mkrueger/unarc-rs) test corpora. They are used only by tests and are not part of
+[zip-rs/zip2](https://github.com/zip-rs/zip2), the MIT OR Apache-2.0 licensed
+[unarc-rs](https://github.com/mkrueger/unarc-rs) test corpora, and the MIT OR Apache-2.0 licensed
+[muja/unrar.rs](https://github.com/muja/unrar.rs) RAR5 corpus (`tests/fixtures/rar5/NOTICE.txt`). They are used only by tests and are not part of
 release binaries.

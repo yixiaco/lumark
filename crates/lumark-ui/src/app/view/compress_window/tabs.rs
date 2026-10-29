@@ -138,7 +138,7 @@ impl CompressWindowView {
                 cx,
                 tr("ZIP 使用 AES-256；7Z 设置密码后同时加密文件内容；ZPAQ 固定使用 AES-256（唯一加密算法）。", "ZIP uses AES-256; 7Z encrypts file contents when a password is set; ZPAQ always uses AES-256, its only algorithm."),
             ))
-            .when(matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::SevenZip), |this| {
+            .when(matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::Zipx | ArchiveFormat::SevenZip), |this| {
                 this.child(check_button(
                     cx,
                     "classic-zipcrypto",
@@ -211,7 +211,7 @@ impl CompressWindowView {
 
     /// 渲染“算法”选项卡：格式方法、字典、单词、固实块和线程数。
     pub(super) fn render_algorithm_tab(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
-        let zip = self.format == ArchiveFormat::Zip;
+        let zip = matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::Zipx);
         let seven = self.format == ArchiveFormat::SevenZip;
         let zpaq = self.format == ArchiveFormat::Zpaq;
         v_flex()

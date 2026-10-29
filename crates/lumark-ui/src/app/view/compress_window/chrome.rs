@@ -60,7 +60,6 @@ impl CompressWindowView {
             .child(
                 button("compress-window-switch")
                     .ghost()
-                    .cursor_pointer()
                     .icon(AppIcon::Tool.element(15.))
                     .label(if classic {
                         "切换至轻巧模式"

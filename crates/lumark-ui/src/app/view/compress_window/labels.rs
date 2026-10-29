@@ -1,11 +1,13 @@
 //! 压缩窗口下拉框的固定标签和选项。
 
 /// ZIP 压缩方法选项。
-pub(crate) fn zip_method_labels() -> [&'static str; 3] {
+pub(crate) fn zip_method_labels() -> [&'static str; 5] {
     [
         crate::i18n::tr("Deflate（推荐）", "Deflate (recommended)"),
         "BZip2",
-        "LZMA",
+        "XZ",
+        "ZSTD",
+        "PPMd",
     ]
 }
 /// 7Z 压缩方法选项。

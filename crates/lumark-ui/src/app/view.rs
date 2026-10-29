@@ -7,6 +7,7 @@ mod compress_window;
 mod dialogs;
 pub(crate) mod disguise_window;
 pub(crate) mod extract_window;
+pub(crate) mod image_viewer_window;
 mod pages;
 pub(crate) mod password_windows;
 mod settings_window;

@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// 按压缩预设选择 BZip3 块大小：4/16/64 MiB。
+fn bzip3_block_size(options: &CompressionOptions) -> bzip3_rs::BlockSize {
+    let kib = match options.preset {
+        crate::format::CompressionPreset::Speed => 4 * 1024,
+        crate::format::CompressionPreset::Balanced => 16 * 1024,
+        crate::format::CompressionPreset::Size => 64 * 1024,
+    };
+    bzip3_rs::BlockSize::kib(kib).unwrap_or(bzip3_rs::BlockSize::DEFAULT)
+}
+
 impl ArchiveService {
     /// 创建 ZIP 归档，按分块响应取消并上报进度。
     pub(crate) fn create_zip<F>(
@@ -839,6 +849,24 @@ impl ArchiveService {
             }
             ArchiveFormat::Lz4 => {
                 let mut encoder = lz4_flex::frame::FrameEncoder::new(destination);
+                let copied = copy_with_progress(&mut input, &mut encoder, total, source, progress)?;
+                encoder
+                    .finish()
+                    .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+                copied
+            }
+            ArchiveFormat::Snappy => {
+                let mut encoder = snap::write::FrameEncoder::new(destination);
+                let copied = copy_with_progress(&mut input, &mut encoder, total, source, progress)?;
+                encoder
+                    .into_inner()
+                    .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
+                copied
+            }
+            ArchiveFormat::Bz3 => {
+                let mut encoder =
+                    bzip3_rs::write::Encoder::new(destination, bzip3_block_size(options))
+                        .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
                 let copied = copy_with_progress(&mut input, &mut encoder, total, source, progress)?;
                 encoder
                     .finish()

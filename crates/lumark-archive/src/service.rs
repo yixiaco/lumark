@@ -94,6 +94,11 @@ impl ArchiveService {
     pub fn detect(path: &Path) -> ArchiveFormat {
         let base = strip_volume_suffix(path);
         let extension_format = detect_format(&base);
+        // ZIPX 与 ZIP 共用 ZIP 魔数，扩展名必须优先保留，否则用户创建的
+        // `.zipx` 会在重新打开时被标成普通 ZIP。
+        if extension_format == ArchiveFormat::Zipx {
+            return ArchiveFormat::Zipx;
+        }
         if matches!(
             extension_format,
             ArchiveFormat::Tar
@@ -163,7 +168,7 @@ impl ArchiveService {
     fn probe_encryption_direct(path: &Path) -> Result<EncryptionInfo, ArchiveError> {
         let format = Self::detect(path);
         match format {
-            ArchiveFormat::Zip => {
+            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
                 let encrypted = Self::probe_zip(File::open(path)?)?;
                 Ok(EncryptionInfo {
                     encrypted,
@@ -232,6 +237,7 @@ impl ArchiveService {
         matches!(
             format,
             ArchiveFormat::Zip
+                | ArchiveFormat::Zipx
                 | ArchiveFormat::SevenZip
                 | ArchiveFormat::Tar
                 | ArchiveFormat::TarGz
@@ -264,6 +270,11 @@ impl ArchiveService {
         match format {
             ArchiveFormat::Disguised => Self::list_disguised(path, password),
             ArchiveFormat::Zip => Self::list_zip(File::open(path)?),
+            ArchiveFormat::Zipx => {
+                let mut info = Self::list_zip(File::open(path)?)?;
+                info.format = Some(ArchiveFormat::Zipx);
+                Ok(info)
+            }
             ArchiveFormat::SevenZip => {
                 let header_encrypted = ArchiveReader::open(path, Password::empty()).is_err();
                 Self::list_seven_zip(
@@ -300,6 +311,8 @@ impl ArchiveService {
             | ArchiveFormat::Zstd
             | ArchiveFormat::Brotli
             | ArchiveFormat::Lz4
+            | ArchiveFormat::Snappy
+            | ArchiveFormat::Bz3
             | ArchiveFormat::Isz
             | ArchiveFormat::Img
             | ArchiveFormat::Bin
@@ -322,7 +335,9 @@ impl ArchiveService {
         let format = Self::detect(path);
         match format {
             ArchiveFormat::Disguised => Self::verify_password_disguised(path, password),
-            ArchiveFormat::Zip => Self::verify_zip(File::open(path)?, password),
+            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+                Self::verify_zip(File::open(path)?, password)
+            }
             ArchiveFormat::SevenZip => Self::verify_seven_zip(File::open(path)?, password),
             ArchiveFormat::Rar => match Self::verify_rar(path, password) {
                 Ok(verified) => Ok(verified),
@@ -411,7 +426,9 @@ impl ArchiveService {
             ArchiveFormat::Zpaq => {
                 crate::zpaq::test_cancellable(&input, password, cancel, progress)
             }
-            ArchiveFormat::Zip => Self::test_zip(File::open(&input)?, password, &mut progress),
+            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+                Self::test_zip(File::open(&input)?, password, &mut progress)
+            }
             ArchiveFormat::SevenZip => {
                 Self::test_seven_zip(File::open(&input)?, password, &mut progress)
             }
@@ -435,7 +452,7 @@ impl ArchiveService {
             ArchiveFormat::Nsis => Self::test_nsis(&input, &mut progress),
             ArchiveFormat::Dmg => Self::test_dmg(&input, &mut progress),
             ArchiveFormat::Egg => Self::test_egg(&input, &mut progress),
-            ArchiveFormat::Rar => Self::test_rar(&input, &mut progress),
+            ArchiveFormat::Rar => Self::test_rar(&input, password, &mut progress),
             format if crate::unarc::is_supported(format) => {
                 crate::unarc::test(&input, format, &mut progress)
             }
@@ -623,7 +640,9 @@ impl ArchiveService {
         let format = Self::detect(path);
         match format {
             ArchiveFormat::Disguised => Self::extract_disguised(path, options, progress),
-            ArchiveFormat::Zip => Self::extract_zip(File::open(path)?, options, &mut progress),
+            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+                Self::extract_zip(File::open(path)?, options, &mut progress)
+            }
             ArchiveFormat::SevenZip => {
                 Self::extract_seven_zip(File::open(path)?, options, &mut progress)
             }
@@ -643,7 +662,9 @@ impl ArchiveService {
             | ArchiveFormat::Xz
             | ArchiveFormat::Zstd
             | ArchiveFormat::Brotli
-            | ArchiveFormat::Lz4 => {
+            | ArchiveFormat::Lz4
+            | ArchiveFormat::Snappy
+            | ArchiveFormat::Bz3 => {
                 let name = path
                     .file_stem()
                     .and_then(|value| value.to_str())
@@ -877,7 +898,9 @@ impl ArchiveService {
         F: FnMut(CreateProgress),
     {
         match options.format {
-            ArchiveFormat::Zip => Self::create_zip(output, sources, options, &mut progress),
+            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+                Self::create_zip(output, sources, options, &mut progress)
+            }
             ArchiveFormat::SevenZip => {
                 Self::create_seven_zip(output, sources, options, &mut progress)
             }
@@ -895,7 +918,9 @@ impl ArchiveService {
             | ArchiveFormat::Xz
             | ArchiveFormat::Zstd
             | ArchiveFormat::Brotli
-            | ArchiveFormat::Lz4 => {
+            | ArchiveFormat::Lz4
+            | ArchiveFormat::Snappy
+            | ArchiveFormat::Bz3 => {
                 Self::create_single_stream(output, sources, options, &mut progress)
             }
             ArchiveFormat::Lzh => Self::create_lzh(output, sources, options, &mut progress),

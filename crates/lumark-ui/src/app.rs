@@ -21,7 +21,7 @@ use gpui_kit::component::{ActiveTheme, Selectable, Sizable, TitleBar, WindowExt 
 use gpui_kit::prelude::*;
 use gpui_kit::{
     ClipboardItem, Context, FocusHandle, IntoElement, ParentElement, Render, Styled, Window, div,
-    hsla, px,
+    px,
 };
 use uuid::Uuid;
 
@@ -156,6 +156,9 @@ struct PendingOpenEntry {
     temporary: PathBuf,
     relative: String,
     mode: PendingOpenMode,
+    owned_temp: Option<OwnedTempDir>,
+    archive: PathBuf,
+    password: Option<zeroize::Zeroizing<String>>,
 }
 
 /// 归档条目解压完成后的处理方式。
@@ -163,8 +166,10 @@ struct PendingOpenEntry {
 pub(crate) enum PendingOpenMode {
     /// 交给系统默认应用打开。
     External,
-    /// 在内置只读文本查看器中打开。
+    /// 在内置查看器中打开文本、二进制或图片。
     Viewer,
+    /// 作为嵌套压缩包在独立窗口中打开。
+    NestedArchive,
 }
 
 /// 任务中心展示的一条任务记录。
@@ -296,11 +301,8 @@ pub struct LumarkApp {
     disguise_output: gpui_kit::Entity<InputState>,
     pending_extract_saves: HashMap<u64, (PathBuf, zeroize::Zeroizing<String>)>,
     pending_extract_open_dirs: HashMap<u64, PathBuf>,
-    show_save_prompt: bool,
     pending_unlock_archive: Option<PathBuf>,
-    show_unlock_for_extract: bool,
     unlock_for_browse: bool,
-    show_archive_password_prompt: bool,
     archive_password_input: gpui_kit::Entity<InputState>,
     archive_password_visible: bool,
     archive_password_use_vault: bool,
@@ -311,6 +313,8 @@ pub struct LumarkApp {
     archive_password_save_to_vault: bool,
     temp_extract: Option<TempExtractDialog>,
     temp_root: PathBuf,
+    /// 嵌套压缩包子窗口独占的临时目录；父窗口不清理它。
+    owned_temp_root: Option<PathBuf>,
     settings_error: Option<String>,
     vault_error: Option<String>,
     location_input: gpui_kit::Entity<InputState>,
@@ -322,18 +326,14 @@ pub struct LumarkApp {
     tile_view: bool,
     browser_focus: FocusHandle,
     dropped_sources: Option<Vec<PathBuf>>,
-    show_delete_confirm: bool,
     pending_delete_paths: Vec<PathBuf>,
-    show_new_folder: bool,
     new_folder_name: gpui_kit::Entity<InputState>,
-    show_rename: bool,
     rename_name: gpui_kit::Entity<InputState>,
     rename_target: Option<PathBuf>,
     /// 拖入归档后等待确认更新模式的文件列表。
     pending_archive_additions: Vec<(String, PathBuf)>,
     /// 拖入归档的目录根，同步模式据此新增、更新和删除条目。
     pending_archive_roots: Vec<EditRoot>,
-    show_archive_add_dialog: bool,
     /// 本次添加到归档时同名条目的处理方式。
     archive_add_mode: UpdateMode,
     password_search: gpui_kit::Entity<InputState>,
@@ -341,7 +341,6 @@ pub struct LumarkApp {
     password_page_scroll: gpui_kit::ScrollHandle,
     password_list_scroll: gpui_kit::ScrollHandle,
     revealed_password: Option<Uuid>,
-    show_vault_transfer: bool,
     /// 导出文件夹；加密备份和 CSV 都写入该目录。
     vault_export_dir: gpui_kit::Entity<InputState>,
     /// 待导入的加密密码库文件。
@@ -350,10 +349,7 @@ pub struct LumarkApp {
     /// 密码库锁定时在导入/导出弹窗内输入的主密码。
     vault_transfer_unlock: gpui_kit::Entity<InputState>,
     vault_transfer_replace: bool,
-    show_confirm_remove_master: bool,
-    show_confirm_clear_vault: bool,
     archive_password: Option<zeroize::Zeroizing<String>>,
-    show_confirm_delete_password: bool,
     last_window_size: (f32, f32),
     last_size_save: std::time::Instant,
     folder_sizes: HashMap<PathBuf, u64>,
@@ -362,12 +358,9 @@ pub struct LumarkApp {
     /// 正在校验记录密码的任务进度，用于展示停止入口。
     password_attempt: Option<PasswordAttemptProgress>,
     pending_extra_password: Option<PendingExtraPasswordJob>,
-    show_extra_password_prompt: bool,
     pending_edit_jobs: HashMap<u64, PendingEditJob>,
     pending_archive_loads: HashMap<u64, PendingPasswordAction>,
     pending_open_entry: Option<PendingOpenEntry>,
-    pending_open_target: Option<PathBuf>,
-    show_open_executable_confirm: bool,
     tree_expanded: HashSet<PathBuf>,
     tree_children: HashMap<PathBuf, Vec<PathBuf>>,
     file_list_scroll: gpui_kit::base::VirtualListScrollHandle,
@@ -393,6 +386,9 @@ impl Drop for LumarkApp {
             IPC_POLL_OWNER.store(false, Ordering::Release);
         }
         let _ = std::fs::remove_dir_all(&self.temp_root);
+        if let Some(root) = &self.owned_temp_root {
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 }
 
@@ -465,6 +461,9 @@ impl LumarkApp {
                 StartupMode::Compress | StartupMode::Disguise | StartupMode::Restore
             )
         });
+        let owned_temp_root = request
+            .as_ref()
+            .and_then(|request| request.owned_temp.clone());
         apply_theme(
             settings_snapshot.theme,
             &settings_snapshot.accent_color,
@@ -586,11 +585,8 @@ impl LumarkApp {
             disguise_output,
             pending_extract_saves: HashMap::new(),
             pending_extract_open_dirs: HashMap::new(),
-            show_save_prompt: false,
             pending_unlock_archive: None,
-            show_unlock_for_extract: false,
             unlock_for_browse: false,
-            show_archive_password_prompt: false,
             archive_password_input,
             archive_password_visible: false,
             archive_password_use_vault: false,
@@ -602,6 +598,7 @@ impl LumarkApp {
                 .join("Lumark")
                 .join("clipboard")
                 .join(Uuid::new_v4().to_string()),
+            owned_temp_root,
             settings_error,
             vault_error,
             location_input,
@@ -613,32 +610,24 @@ impl LumarkApp {
             tile_view: false,
             browser_focus,
             dropped_sources: None,
-            show_delete_confirm: false,
             pending_delete_paths: Vec::new(),
-            show_new_folder: false,
             new_folder_name,
-            show_rename: false,
             rename_name,
             rename_target: None,
             pending_archive_additions: Vec::new(),
             pending_archive_roots: Vec::new(),
-            show_archive_add_dialog: false,
             archive_add_mode: UpdateMode::Replace,
             password_search,
             password_note,
             password_page_scroll: gpui_kit::ScrollHandle::new(),
             password_list_scroll: gpui_kit::ScrollHandle::new(),
             revealed_password: None,
-            show_vault_transfer: false,
             vault_export_dir,
             vault_import_path,
             vault_transfer_passphrase,
             vault_transfer_unlock,
             vault_transfer_replace: false,
-            show_confirm_remove_master: false,
-            show_confirm_clear_vault: false,
             archive_password: None,
-            show_confirm_delete_password: false,
             last_window_size: (
                 settings_snapshot.window_width,
                 settings_snapshot.window_height,
@@ -649,12 +638,9 @@ impl LumarkApp {
             pending_password_jobs: HashMap::new(),
             password_attempt: None,
             pending_extra_password: None,
-            show_extra_password_prompt: false,
             pending_edit_jobs: HashMap::new(),
             pending_archive_loads: HashMap::new(),
             pending_open_entry: None,
-            pending_open_target: None,
-            show_open_executable_confirm: false,
             tree_expanded: HashSet::new(),
             tree_children: HashMap::new(),
             file_list_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
@@ -718,6 +704,8 @@ impl LumarkApp {
                     StartupRequest {
                         mode: request.mode,
                         paths: vec![path.clone()],
+                        owned_temp: None,
+                        force_open: false,
                     },
                     cx,
                 );
@@ -806,13 +794,14 @@ mod diagnostics;
 mod theme;
 mod util;
 mod view;
+mod viewer_support;
 
-/// 创建带点击手势的官方按钮。
+/// 创建官方按钮。
 ///
-/// 组件库默认给普通按钮使用箭头光标；这里统一补上指针，保证悬停时
-/// 所有可点击操作都显示明确的可点击反馈。
+/// 指针手只保留给链接；按钮、菜单和列表行使用桌面默认箭头，点击反馈由
+/// 官方 Button 的 hover/pressed/focus 状态负责。
 pub(crate) fn button(id: impl Into<gpui_kit::ElementId>) -> Button {
-    Button::new(id).cursor_pointer()
+    Button::new(id)
 }
 
 impl LumarkApp {
@@ -844,6 +833,7 @@ pub(crate) use actions::tasks::{
 };
 pub(crate) use theme::{apply_theme, apply_theme_accent, hsla_to_hex, theme_accent_presets};
 pub(crate) use util::*;
+pub(crate) use viewer_support::*;
 
 /// 生成主窗口的初始选项，新窗口按级联序号错开避免完全重叠。
 ///

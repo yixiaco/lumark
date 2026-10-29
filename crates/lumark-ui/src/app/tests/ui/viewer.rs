@@ -6,16 +6,20 @@ use super::*;
 #[gpui_kit::test]
 fn text_viewer_renders_readonly_editor(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let file = directory.path().join("note.txt");
+    std::fs::write(&file, "第一行\n第二行\n").unwrap();
     let (_view, cx) = cx.add_window_view(|window, cx| {
         crate::app::view::text_viewer_window::TextViewerWindowView::new(
-            "第一行\n第二行\n".to_string(),
+            file.clone(),
             "note.txt".to_string(),
-            r"C:\downloads\note.txt".to_string(),
-            18,
+            false,
+            None,
             window,
             cx,
         )
     });
+    let _ = _view;
     cx.update(|window, cx| {
         window.draw(cx).clear(cx);
     });
@@ -39,9 +43,40 @@ fn text_viewer_opens_for_text_file(cx: &mut gpui_kit::TestAppContext) {
     });
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
-            app.open_text_viewer(file.clone(), "note.txt".to_string(), window, cx);
+            app.open_text_viewer(file.clone(), "note.txt".to_string(), true, None, window, cx);
             assert!(
                 app.status.contains("已在内置查看器中打开"),
+                "{}",
+                app.status
+            );
+        });
+    });
+    let _ = app;
+}
+
+/// 验证图片文件走独立图片查看器，而不是文本十六进制视图。
+#[gpui_kit::test]
+fn image_viewer_opens_for_png(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let file = directory.path().join("photo.png");
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([20, 120, 220, 255]))
+        .save(&file)
+        .unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_image_viewer(file.clone(), "photo.png".to_string(), window, cx);
+            assert!(
+                app.status.contains("已在内置图片查看器中打开"),
                 "{}",
                 app.status
             );
@@ -73,20 +108,25 @@ fn archive_add_dialog_selects_update_mode(cx: &mut gpui_kit::TestAppContext) {
     let dropped_folder = directory.path().join("dropped-folder");
     std::fs::create_dir_all(&dropped_folder).unwrap();
     std::fs::write(dropped_folder.join("inside.txt"), b"inside").unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            directory.path().join("vault.dat"),
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建应用视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.browser.open_archive(&archive, None).unwrap();
-            app.add_files_to_current_archive(&[dropped, dropped_folder]);
-            assert!(app.show_archive_add_dialog);
+            app.add_files_to_current_archive(&[dropped, dropped_folder], window, cx);
             assert_eq!(app.pending_archive_additions.len(), 1);
             assert_eq!(app.pending_archive_roots.len(), 1);
             cx.notify();
@@ -104,11 +144,15 @@ fn archive_add_dialog_selects_update_mode(cx: &mut gpui_kit::TestAppContext) {
             assert_eq!(app.archive_add_mode, lumark_archive::UpdateMode::Sync);
         });
         window.click("archive-add-confirm", cx);
+        window.draw(cx).clear(cx);
         app.update(cx, |app, _| {
-            assert!(!app.show_archive_add_dialog);
             assert!(app.pending_archive_additions.is_empty());
             assert!(app.pending_archive_roots.is_empty());
         });
+        assert!(
+            window.try_find("archive-add-confirm").is_none(),
+            "确认后官方添加对话框应关闭"
+        );
     });
     let _ = app;
 }

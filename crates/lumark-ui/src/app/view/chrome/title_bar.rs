@@ -42,14 +42,9 @@ impl LumarkApp {
                             .child(title),
                     )
                     .child(
-                        div()
+                        gpui_kit::component::tag::Tag::secondary()
+                            .xsmall()
                             .ml_auto()
-                            .px_2()
-                            .py(px(1.))
-                            .rounded(cx.theme().radius / 2.)
-                            .bg(cx.theme().success)
-                            .text_color(cx.theme().success_foreground)
-                            .text_xs()
                             .child("AES-256"),
                     )
                     .child(div().w(px(1.)).h(px(20.)).bg(cx.theme().border))
@@ -71,7 +66,6 @@ impl LumarkApp {
                         button("title-nav-settings")
                             .ghost()
                             .rounded(px(6.))
-                            .cursor_pointer()
                             .occlude()
                             .icon(AppIcon::Setting.element(16.))
                             .label(tr("设置", "Settings"))
@@ -108,7 +102,6 @@ impl LumarkApp {
         button(id)
             .ghost()
             .rounded(px(6.))
-            .cursor_pointer()
             .selected(active)
             .occlude()
             .icon(icon.element(16.))

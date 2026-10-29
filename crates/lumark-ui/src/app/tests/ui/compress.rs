@@ -450,19 +450,24 @@ fn encrypted_archive_requests_password_dialog(cx: &mut gpui_kit::TestAppContext)
         |_| {},
     )
     .unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            directory.path().join("vault.dat"),
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建应用视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.open_archive_with_auto_password(archive, ArchiveOpenIntent::Browse, window, cx);
-            assert!(app.show_archive_password_prompt);
             assert!(app.archive_password_action.is_some());
         });
         window.draw(cx).clear(cx);

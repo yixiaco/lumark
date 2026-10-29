@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// 读取 RAR 头，区分 RAR4 与 RAR5。RAR5 头部固定为 8 字节签名。
+fn rar_is_version5(path: &Path) -> bool {
+    let mut signature = [0u8; 8];
+    File::open(path)
+        .and_then(|mut file| file.read_exact(&mut signature))
+        .is_ok()
+        && signature == *b"Rar!\x1a\x07\x01\x00"
+}
+
 impl ArchiveService {
     /// 列出 ZIP 条目和加密状态。
     pub(crate) fn list_zip<R: Read + Seek>(reader: R) -> Result<ArchiveInfo, ArchiveError> {
@@ -43,18 +52,25 @@ impl ArchiveService {
         path: &Path,
         password: Option<&str>,
     ) -> Result<ArchiveInfo, ArchiveError> {
+        let rar5 = rar_is_version5(path);
         let archive = match password.filter(|value| !value.is_empty()) {
             Some(password) => UnrarArchive::with_password(path, password),
             None => UnrarArchive::new(path),
         };
         let listing = archive.open_for_listing().map_err(map_rar_error)?;
+        let solid = listing.is_solid();
+        let header_encrypted = listing.has_encrypted_headers();
         let mut info = ArchiveInfo {
             format: Some(ArchiveFormat::Rar),
+            solid,
+            header_encrypted,
+            encrypted: header_encrypted,
             ..Default::default()
         };
         for (index, header) in listing.enumerate() {
             let header = header.map_err(map_rar_error)?;
             let path = header.filename.to_string_lossy().replace('\\', "/");
+            let method = if rar5 { "RAR5" } else { "RAR" };
             info.entries.push(ArchiveEntry {
                 id: index as u64,
                 path,
@@ -63,7 +79,7 @@ impl ArchiveService {
                 compressed_size: None,
                 modified: None,
                 crc32: Some(header.file_crc),
-                method: "RAR".to_string(),
+                method: method.to_string(),
                 encrypted: header.is_encrypted(),
             });
             info.total_size += header.unpacked_size;

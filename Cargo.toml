@@ -9,6 +9,7 @@ members = [
     "crates/lumark-sfx",
     "crates/lumark-tasks",
     "crates/lumark-ui",
+    "crates/lumark-viewer",
     "crates/lumark-vault",
     "crates/lumark-app",
     "crates/lumark-platform-windows",
@@ -28,6 +29,8 @@ argon2 = "0.5.3"
 base64 = "0.22"
 blake3 = "1"
 brotli = "8"
+bzip3-rs = "=1.0.1"
+snap = "1.1.2"
 bzip2 = "0.6"
 chacha20poly1305 = { version = "0.10.1", features = ["std"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -42,7 +45,16 @@ globset = "0.4"
 gpui-kit = "=0.8.1"
 rust-i18n = "4.2"
 lumark-legacy = { path = "crates/lumark-legacy" }
-image = { version = "0.25.10", default-features = false, features = ["png"] }
+image = { version = "0.25.10", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "webp",
+    "bmp",
+    "tiff",
+    "ico",
+    "pnm",
+] }
 libc = "0.2"
 libchm = "0.3"
 nsis = "0.6"
@@ -54,7 +66,10 @@ backhand = { version = "0.25", default-features = false, features = ["gzip", "zs
 msi = "0.10"
 cab = "0.6"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "rustls-tls"] }
+memchr = "2.7"
+memmap2 = "0.9"
 lz4_flex = { version = "0.13", features = ["frame"] }
+
 lzma-rust2 = { version = "0.22", default-features = false, features = ["std", "encoder", "lzip"] }
 oxiarc-core = "0.3.6"
 oxiarc-lzhuf = "0.3.6"
@@ -95,6 +110,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Memory",
     "Win32_System_Ole",
     "Win32_System_Pipes",
+    "Win32_System_Power",
     "Win32_System_RemoteDesktop",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",

@@ -198,8 +198,8 @@ impl LumarkApp {
                                         .danger()
                                         .icon(AppIcon::Delete.element(16.))
                                         .label(tr("删除", "Delete"))
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.show_confirm_delete_password = true;
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.request_delete_password(window, cx);
                                             cx.notify();
                                         })),
                                 ),
@@ -328,8 +328,8 @@ impl LumarkApp {
                                     button("remove-master")
                                         .icon(AppIcon::Delete.element(16.))
                                         .label(tr("删除主密码", "Remove master password"))
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.show_confirm_remove_master = true;
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.request_remove_master(window, cx);
                                             cx.notify();
                                         })),
                                 )

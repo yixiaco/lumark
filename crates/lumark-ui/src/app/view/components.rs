@@ -5,7 +5,6 @@ use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::base::{Tab as BaseTab, Tabs as BaseTabs};
 use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants as _};
-use gpui_kit::component::radio::Radio;
 use gpui_kit::component::select::{SearchableVec, Select, SelectState};
 
 /// Lumark 标题栏和文件行使用的 IconPark 图标。
@@ -157,8 +156,6 @@ pub(super) fn icon_button(
     button(id)
         .ghost()
         .small()
-        .rounded(px(6.))
-        .cursor_pointer()
         .icon(icon.element(17.))
         .tooltip(tooltip)
         .accessibility_label(tooltip)
@@ -174,8 +171,7 @@ pub(super) fn card(cx: &Context<LumarkApp>) -> gpui_kit::Div {
         .bg(cx.theme().popover)
         .border_1()
         .border_color(cx.theme().border)
-        .rounded(px(10.))
-        .shadow_xs()
+        .rounded(cx.theme().radius_lg)
         .overflow_hidden()
 }
 
@@ -251,19 +247,12 @@ pub(super) fn banner_action(
 /// 渐变只取当前主题的主色和中性表面色，浅色和深色模式各自保持可读对比，
 /// 用户修改主题色后动作带和对话框横幅会同步换色。
 pub(super) fn banner_gradient(cx: &gpui_kit::App) -> gpui_kit::Div {
-    let dark = cx.theme().mode.is_dark();
-    let primary = cx.theme().primary;
-    let (from, to) = if dark {
-        (
-            hsla(primary.h, 0.34, 0.17, 1.),
-            hsla(217. / 360., 0.28, 0.10, 1.),
-        )
+    let from = cx.theme().primary.opacity(if cx.theme().mode.is_dark() {
+        0.18
     } else {
-        (
-            hsla(primary.h, 0.58, 0.94, 1.),
-            hsla(214. / 360., 0.55, 0.99, 1.),
-        )
-    };
+        0.10
+    });
+    let to = cx.theme().background;
     div().bg(gpui_kit::linear_gradient(
         110.,
         gpui_kit::linear_color_stop(from, 0.),
@@ -494,26 +483,6 @@ pub(super) fn hint_text(cx: &gpui_kit::App, text: impl Into<String>) -> impl Int
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(text.into())
-}
-
-/// 渲染官方单选按钮。
-///
-/// 组状态由调用方的枚举字段维护；组件库负责圆点、焦点环、悬停和键盘激活。
-pub(super) fn option_radio(
-    cx: &Context<LumarkApp>,
-    id: &'static str,
-    label: String,
-    checked: bool,
-    handler: impl Fn(&mut LumarkApp, &mut Window, &mut Context<LumarkApp>) + 'static,
-) -> gpui_kit::AnyElement {
-    Radio::new(id)
-        .label(label)
-        .checked(checked)
-        .on_click(cx.listener(move |this, _, window, cx| {
-            handler(this, window, cx);
-            cx.notify();
-        }))
-        .into_any_element()
 }
 
 /// 渲染带图标、标题和说明的分区标题。

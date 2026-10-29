@@ -59,7 +59,7 @@ impl LumarkApp {
                         this.child(
                             button("password-add-new")
                                 .primary()
-                                .cursor_pointer()
+
                                 .icon(AppIcon::Add.element(16.))
                                 .label(tr("新建", "New"))
                                 .tooltip(tr("新建密码记录", "New password record"))
@@ -211,7 +211,7 @@ impl LumarkApp {
                                                 .flex_1()
                                                 .min_w_0()
                                                 .gap_1()
-                                                .cursor_pointer()
+
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     if this.selected_password == Some(id) {
                                                         this.selected_password = None;
@@ -253,7 +253,7 @@ impl LumarkApp {
                                             button(format!("password-reveal-{id}"))
                                                 .ghost()
                                                 .small()
-                                                .cursor_pointer()
+
                                                 .icon(
                                                     if revealed {
                                                         AppIcon::Lock

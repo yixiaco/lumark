@@ -73,8 +73,14 @@ pub(super) fn file_context_menu(
                 } else {
                     AppIcon::Doc
                 };
+                let open_label =
+                    if kind == FileMenuKind::ArchiveFile && is_nested_archive_name(&entry.name) {
+                        tr("在新窗口中打开压缩包", "Open archive in new window")
+                    } else {
+                        tr("打开", "Open")
+                    };
                 menu.item(popup_action(
-                    tr("打开", "Open"),
+                    open_label,
                     icon,
                     &app,
                     window,
@@ -129,7 +135,7 @@ pub(super) fn file_context_menu(
                     AppIcon::Delete,
                     &app,
                     window,
-                    |app, _, _| app.request_delete(),
+                    |app, window, cx| app.request_delete(window, cx),
                 ))
             }
             FileMenuKind::Folder => menu
@@ -204,7 +210,7 @@ pub(super) fn file_context_menu(
                     AppIcon::Delete,
                     &app,
                     window,
-                    |app, _, _| app.request_delete(),
+                    |app, window, cx| app.request_delete(window, cx),
                 )),
             FileMenuKind::ArchiveFileSystem | FileMenuKind::IsoFile => {
                 let menu = menu
@@ -294,7 +300,7 @@ pub(super) fn file_context_menu(
                         AppIcon::Delete,
                         &app,
                         window,
-                        |app, _, _| app.request_delete(),
+                        |app, window, cx| app.request_delete(window, cx),
                     ))
             }
             FileMenuKind::ExecutableFile | FileMenuKind::File => {
@@ -377,7 +383,7 @@ pub(super) fn file_context_menu(
                         AppIcon::Delete,
                         &app,
                         window,
-                        |app, _, _| app.request_delete(),
+                        |app, window, cx| app.request_delete(window, cx),
                     ))
             }
         }

@@ -113,8 +113,8 @@ impl LumarkApp {
                         VaultState::Locked => {
                             self.dismiss_extract_window(cx);
                             self.pending_unlock_archive = Some(archive);
-                            self.show_unlock_for_extract = true;
                             self.unlock_for_browse = false;
+                            self.request_unlock_for_extract(window, cx);
                             self.status = tr(
                                 "密码库已锁定，解锁后将自动尝试记录密码",
                                 "Vault is locked; unlock it to try saved passwords",

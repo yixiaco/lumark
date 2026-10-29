@@ -9,13 +9,16 @@ lumark-mail = { path = "../lumark-mail" }
 anyhow.workspace = true
 chrono.workspace = true
 dirs.workspace = true
-gpui-kit.workspace = true
+gpui-kit = { workspace = true, features = ["syntect"] }
+image.workspace = true
+quick-xml.workspace = true
 rust-i18n.workspace = true
 lumark-archive = { path = "../lumark-archive" }
 lumark-browser = { path = "../lumark-browser" }
  lumark-platform-windows = { path = "../lumark-platform-windows" }
 lumark-settings = { path = "../lumark-settings" }
 lumark-tasks = { path = "../lumark-tasks" }
+lumark-viewer = { path = "../lumark-viewer" }
 lumark-vault = { path = "../lumark-vault" }
 raw-window-handle = "0.6.2"
 serde.workspace = true

@@ -119,7 +119,7 @@ impl LumarkApp {
                                             );
                                         }
                                         set_input(&this.vault_transfer_unlock, "", window, cx);
-                                        this.show_vault_transfer = true;
+                                        this.request_vault_transfer(window, cx);
                                         cx.notify();
                                     })),
                             )
@@ -128,8 +128,8 @@ impl LumarkApp {
                                     .danger()
                                     .icon(AppIcon::Delete.element(15.))
                                     .label(tr("清除密码库", "Clear vault"))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.show_confirm_clear_vault = true;
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.request_clear_vault(window, cx);
                                         cx.notify();
                                     })),
                             ),

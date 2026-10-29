@@ -16,7 +16,6 @@ pub(super) fn render_parent_tile(cx: &mut Context<LumarkApp>) -> impl IntoElemen
         .gap_2()
         .items_center()
         .rounded_lg()
-        .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
         .child(
             div()
@@ -106,7 +105,6 @@ pub(super) fn render_tile_row(
                     .when(!selected, |this| {
                         this.hover(|style| style.bg(cx.theme().list_hover))
                     })
-                    .cursor_pointer()
                     .child(
                         div()
                             .flex_1()

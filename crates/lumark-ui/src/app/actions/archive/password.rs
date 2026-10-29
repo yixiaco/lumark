@@ -12,7 +12,6 @@ impl LumarkApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.show_archive_password_prompt = true;
         self.archive_password_action = Some(action);
         self.archive_password_visible = false;
         self.archive_password_use_vault =
@@ -25,14 +24,18 @@ impl LumarkApp {
             .update(cx, |state, cx| state.set_masked(true, window, cx));
         self.dismiss_extract_window(cx);
         self.status = format!("{} 已加密，请输入密码", archive.display());
+        self.request_archive_password_dialog(window, cx);
         cx.notify();
     }
 
-    /// 读取密码弹窗并继续之前的打开、解压或测试动作。
-    pub(crate) fn confirm_archive_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 读取密码弹窗并继续之前的打开、解压或测试动作；返回是否关闭对话框。
+    pub(crate) fn confirm_archive_password(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(action) = self.archive_password_action.clone() else {
-            self.show_archive_password_prompt = false;
-            return;
+            return true;
         };
         let password = input_value(&self.archive_password_input, cx);
         if password.is_empty() {
@@ -42,23 +45,22 @@ impl LumarkApp {
             {
                 let archive = password_action_archive(&action).to_path_buf();
                 if self.begin_vault_password_resolution(&archive, action, cx) {
-                    self.show_archive_password_prompt = false;
                     self.archive_password_action = None;
-                } else {
-                    self.status = tr(
-                        "密码库中没有匹配密码，请手动输入",
-                        "No matching password in the vault; enter it manually",
-                    )
-                    .to_string();
+                    cx.notify();
+                    return true;
                 }
+                self.status = tr(
+                    "密码库中没有匹配密码，请手动输入",
+                    "No matching password in the vault; enter it manually",
+                )
+                .to_string();
             } else {
                 self.status = tr("请输入压缩包密码", "Enter the archive password").to_string();
             }
             cx.notify();
-            return;
+            return false;
         }
 
-        self.show_archive_password_prompt = false;
         self.archive_password_action = None;
         self.archive_password_after_failure = false;
         // 勾选保存时先在工作线程校验密码：命中后才写入密码库并继续原动作，
@@ -72,7 +74,7 @@ impl LumarkApp {
                 zeroize::Zeroizing::new(password),
             );
             cx.notify();
-            return;
+            return true;
         }
         match action {
             PendingPasswordAction::OpenArchive { archive, intent } => {
@@ -100,6 +102,7 @@ impl LumarkApp {
             }
         }
         cx.notify();
+        true
     }
 
     /// 启动基于密码库的密码匹配，或在需要时先请求解锁。
@@ -232,12 +235,13 @@ impl LumarkApp {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(420))
                 .await;
-            let _ = this.update(cx, |app, cx| {
+            let _ = this.update_in(cx, |app, window, cx| {
                 if app
                     .password_attempt
                     .as_ref()
                     .is_some_and(|attempt| attempt.task_id == task_id)
                 {
+                    app.open_password_attempt_dialog(window, cx);
                     cx.notify();
                 }
             });
@@ -268,14 +272,16 @@ impl LumarkApp {
     /// 清除属于指定任务的校验进度。
     ///
     /// 事件可能晚于用户点击停止到达，按任务 ID 比对可以避免清掉新任务的进度。
-    pub(crate) fn clear_password_attempt(&mut self, task_id: u64) {
-        if self
-            .password_attempt
-            .as_ref()
-            .is_some_and(|attempt| attempt.task_id == task_id)
-        {
-            self.password_attempt = None;
+    pub(crate) fn clear_password_attempt(&mut self, task_id: u64) -> bool {
+        let Some(attempt) = self.password_attempt.as_ref() else {
+            return false;
+        };
+        if attempt.task_id != task_id {
+            return false;
         }
+        let was_visible = attempt.is_visible();
+        self.password_attempt = None;
+        was_visible
     }
 
     /// 应用密码解析结果：保存勾选的密码、记录使用次数并继续原动作。
@@ -334,10 +340,8 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         let Some(extra) = self.pending_extra_password.take() else {
-            self.show_extra_password_prompt = false;
             return;
         };
-        self.show_extra_password_prompt = false;
         let archive = match &extra.action {
             PendingPasswordAction::OpenArchive { archive, .. }
             | PendingPasswordAction::ExtractDialog { archive }
@@ -368,7 +372,6 @@ impl LumarkApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.show_extra_password_prompt = false;
         if let Some(extra) = self.pending_extra_password.take() {
             self.apply_password_failure(extra.action, window, cx);
             self.status = tr(
@@ -485,15 +488,16 @@ impl LumarkApp {
     /// 把新验证成功的解压密码写入加密密码库。
     ///
     /// 保存提示只负责新增记录；若同一密码已经存在，则把当前压缩包路径
-    /// 补充到已有条目，避免密码库出现重复密码。
-    pub(crate) fn save_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 补充到已有条目，避免密码库出现重复密码。成功时返回 true，让官方
+    /// Dialog 关闭；校验失败保留对话框供用户修改。
+    pub(crate) fn save_password(&mut self, cx: &mut Context<Self>) -> bool {
         let label = input_value(&self.password_label, cx);
         let password = input_value(&self.password_value, cx);
         let pattern = input_value(&self.password_pattern, cx);
         let note = input_value(&self.password_note, cx);
         if password.is_empty() {
             self.status = tr("密码不能为空", "Password cannot be empty").to_string();
-            return;
+            return false;
         }
         let duplicate = self
             .vault
@@ -507,28 +511,27 @@ impl LumarkApp {
             if !note.trim().is_empty() {
                 entry.note = note.trim().to_string();
             }
-            match self.vault.update_entry(entry) {
+            return match self.vault.update_entry(entry) {
                 Ok(()) => {
                     self.status = tr(
                         "密码已存在，已将当前压缩包关联到该条目",
                         "Password already exists; linked this archive to the entry",
                     )
                     .to_string();
-                    self.show_save_prompt = false;
+                    true
                 }
-                Err(error) => self.status = error.to_string(),
-            }
-            return;
+                Err(error) => {
+                    self.status = error.to_string();
+                    false
+                }
+            };
         }
         match self.save_password_entry(None, &label, password, &pattern, &note) {
-            Ok(_) => {
-                self.show_save_prompt = false;
-                set_input(&self.password_label, "", window, cx);
-                set_input(&self.password_value, "", window, cx);
-                set_input(&self.password_pattern, "", window, cx);
-                set_input(&self.password_note, "", window, cx);
+            Ok(_) => true,
+            Err(error) => {
+                self.status = error;
+                false
             }
-            Err(error) => self.status = error,
         }
     }
 }

@@ -2,6 +2,9 @@
 
 use super::*;
 use crate::i18n::tr;
+use gpui_kit::component::empty::{
+    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle,
+};
 
 /// 判断文件表最上方是否需要显示“..”行。
 ///
@@ -14,38 +17,24 @@ pub(super) fn shows_parent_row(app: &LumarkApp) -> bool {
 /// 渲染空目录或空搜索结果的状态面板。
 ///
 /// 非根目录的空文件夹仍会先渲染“..”行，用户可以从该面板上方返回上一级。
-pub(super) fn empty_state(cx: &Context<LumarkApp>, search_active: bool) -> gpui_kit::Div {
-    v_flex()
-        .flex_1()
-        .items_center()
-        .justify_center()
-        .gap_2()
-        .p_8()
-        .child(
-            div()
-                .size(px(52.))
-                .rounded_full()
-                .bg(cx.theme().muted)
-                .text_color(cx.theme().muted_foreground)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(AppIcon::FolderOpen.element(24.)),
-        )
-        .child(div().font_semibold().child(if search_active {
-            tr("没有匹配的项目", "No matching items")
-        } else {
-            tr("此文件夹为空", "This folder is empty")
-        }))
-        .child(
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(tr(
-                    "拖入文件即可开始压缩，或切换到其他位置。",
-                    "Drop files here to compress, or switch to another location.",
-                )),
-        )
+pub(super) fn empty_state(_cx: &Context<LumarkApp>, search_active: bool) -> impl IntoElement {
+    Empty::new().header(
+        EmptyHeader::new()
+            .media(
+                EmptyMedia::new()
+                    .with_variant(EmptyMediaVariant::Icon)
+                    .child(AppIcon::FolderOpen.element(17.)),
+            )
+            .title(EmptyTitle::new().child(if search_active {
+                tr("没有匹配的项目", "No matching items")
+            } else {
+                tr("此文件夹为空", "This folder is empty")
+            }))
+            .description(EmptyDescription::new().child(tr(
+                "拖入文件即可开始压缩，或切换到其他位置。",
+                "Drop files here to compress, or switch to another location.",
+            ))),
+    )
 }
 
 /// 渲染文件表最上方用于返回上一级的“..”行。
@@ -70,7 +59,6 @@ pub(super) fn render_parent_row(
         .px_3()
         .border_b_1()
         .border_color(cx.theme().border)
-        .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
         .child(
             div()
@@ -190,7 +178,6 @@ pub(super) fn render_file_row(
         .px_3()
         .border_b_1()
         .border_color(cx.theme().border)
-        .cursor_pointer()
         .when(selected, |this| this.bg(cx.theme().list_active))
         .when(!selected, |this| {
             this.hover(|style| style.bg(cx.theme().list_hover))
@@ -232,7 +219,6 @@ pub(super) fn render_file_row(
                             button(format!("folder-size-{id}"))
                                 .link()
                                 .xsmall()
-                                .cursor_pointer()
                                 .label("可计算")
                                 .tooltip("计算文件夹内文件的总大小")
                                 .on_click(cx.listener(move |this, _, _, cx| {

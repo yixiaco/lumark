@@ -22,20 +22,25 @@ fn dropped_files_open_archive_add_confirmation(cx: &mut gpui_kit::TestAppContext
     .unwrap();
     let dropped = directory.path().join("dropped.txt");
     std::fs::write(&dropped, b"dropped").unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            directory.path().join("vault.dat"),
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建应用视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.browser.open_archive(&archive, None).unwrap();
             app.handle_external_drop(std::slice::from_ref(&dropped), window, cx);
-            assert!(app.show_archive_add_dialog);
             assert_eq!(
                 app.pending_archive_additions,
                 vec![("dropped.txt".to_string(), dropped)]

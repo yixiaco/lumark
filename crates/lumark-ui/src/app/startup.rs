@@ -32,6 +32,10 @@ pub(crate) struct StartupRequest {
     pub(crate) mode: StartupMode,
     /// 请求携带的路径。
     pub(crate) paths: Vec<PathBuf>,
+    /// 仅嵌套压缩包子窗口使用的临时目录，由命令行/IPC 解析时始终为空。
+    pub(crate) owned_temp: Option<PathBuf>,
+    /// 内层归档损坏时仍尝试打开，让子窗口显示具体错误。
+    pub(crate) force_open: bool,
 }
 
 impl StartupRequest {
@@ -66,7 +70,22 @@ impl StartupRequest {
         if paths.is_empty() {
             return None;
         }
-        Some(Self { mode, paths })
+        Some(Self {
+            mode,
+            paths,
+            owned_temp: None,
+            force_open: false,
+        })
+    }
+
+    /// 构造由当前进程内部产生的嵌套压缩包请求。
+    pub(crate) fn for_nested_archive(path: PathBuf, owned_temp: PathBuf) -> Self {
+        Self {
+            mode: StartupMode::Open,
+            paths: vec![path],
+            owned_temp: Some(owned_temp),
+            force_open: true,
+        }
     }
 
     /// 返回请求真正要处理的全部路径。
@@ -84,7 +103,9 @@ impl StartupRequest {
                 StartupMode::MountIso | StartupMode::UnmountIso => {
                     path.is_file() && is_iso_path(path)
                 }
-                StartupMode::Open | StartupMode::Extract => path.is_file() && is_archive_path(path),
+                StartupMode::Open | StartupMode::Extract => {
+                    path.is_file() && (self.force_open || is_archive_path(path))
+                }
             })
             .collect()
     }

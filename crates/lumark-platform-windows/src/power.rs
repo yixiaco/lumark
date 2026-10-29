@@ -7,6 +7,75 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(windows)]
+use std::cell::Cell;
+
+/// 任务运行期间阻止系统进入睡眠的 RAII 守卫。
+///
+/// 只在当前线程生效；同一线程的多个任务用引用计数合并，最后一个守卫
+/// 释放时恢复系统默认行为。守卫失败时保持 inactive，不阻塞任务本身。
+#[must_use = "守卫在 Drop 时恢复系统电源状态，应立即绑定到任务生命周期"]
+pub struct SleepGuard {
+    _private: (),
+}
+
+#[cfg(windows)]
+thread_local! {
+    /// 当前线程持有的睡眠守卫数量。
+    static SLEEP_GUARD_DEPTH: Cell<u32> = const { Cell::new(0) };
+    /// 当前线程是否成功向系统注册了阻止睡眠请求。
+    static SLEEP_GUARD_ACTIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// 请求当前线程运行期间阻止系统睡眠。
+///
+/// 使用 `ES_CONTINUOUS | ES_SYSTEM_REQUIRED`，不请求显示器常亮；显示器仍可
+/// 按系统策略关闭。系统拒绝请求时返回 inactive 守卫，任务继续执行。
+#[cfg(windows)]
+pub fn prevent_system_sleep() -> SleepGuard {
+    use windows_sys::Win32::System::Power::{
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED, SetThreadExecutionState,
+    };
+
+    let depth = SLEEP_GUARD_DEPTH.with(Cell::get);
+    if depth == 0 {
+        // SAFETY: SetThreadExecutionState 没有指针参数，只影响当前线程。
+        let previous = unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) };
+        SLEEP_GUARD_ACTIVE.with(|active| active.set(previous != 0));
+    }
+    SLEEP_GUARD_DEPTH.with(|counter| counter.set(depth.saturating_add(1)));
+    SleepGuard { _private: () }
+}
+
+/// 非 Windows 平台没有需要阻止的系统睡眠，保持调用方代码一致。
+#[cfg(not(windows))]
+pub fn prevent_system_sleep() -> SleepGuard {
+    SleepGuard { _private: () }
+}
+
+#[cfg(windows)]
+impl Drop for SleepGuard {
+    fn drop(&mut self) {
+        use windows_sys::Win32::System::Power::{ES_CONTINUOUS, SetThreadExecutionState};
+
+        let depth = SLEEP_GUARD_DEPTH.with(Cell::get);
+        let next = depth.saturating_sub(1);
+        SLEEP_GUARD_DEPTH.with(|counter| counter.set(next));
+        if next == 0 && SLEEP_GUARD_ACTIVE.with(Cell::get) {
+            // SAFETY: 与 prevent_system_sleep 相同，只清除当前线程的持续请求。
+            unsafe {
+                SetThreadExecutionState(ES_CONTINUOUS);
+            }
+            SLEEP_GUARD_ACTIVE.with(|active| active.set(false));
+        }
+    }
+}
+
+#[cfg(not(windows))]
+impl Drop for SleepGuard {
+    fn drop(&mut self) {}
+}
+
 /// 延迟关机的倒计时秒数，给用户留出取消时间。
 pub const SHUTDOWN_DELAY_SECONDS: u32 = 60;
 
@@ -91,5 +160,23 @@ mod tests {
     fn shutdown_arguments_keep_larger_delay() {
         let arguments = shutdown_arguments(SHUTDOWN_DELAY_SECONDS);
         assert_eq!(arguments[2], "60");
+    }
+
+    /// 睡眠守卫按线程引用计数，嵌套释放不会提前恢复系统状态。
+    #[cfg(windows)]
+    #[test]
+    fn sleep_guard_nests_and_releases() {
+        assert_eq!(SLEEP_GUARD_DEPTH.with(Cell::get), 0);
+        {
+            let _first = prevent_system_sleep();
+            assert_eq!(SLEEP_GUARD_DEPTH.with(Cell::get), 1);
+            {
+                let _second = prevent_system_sleep();
+                assert_eq!(SLEEP_GUARD_DEPTH.with(Cell::get), 2);
+            }
+            assert_eq!(SLEEP_GUARD_DEPTH.with(Cell::get), 1);
+        }
+        assert_eq!(SLEEP_GUARD_DEPTH.with(Cell::get), 0);
+        assert!(!SLEEP_GUARD_ACTIVE.with(Cell::get));
     }
 }

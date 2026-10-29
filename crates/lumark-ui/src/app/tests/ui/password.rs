@@ -13,15 +13,21 @@ fn auto_password_failure_offers_saving_password(cx: &mut gpui_kit::TestAppContex
     VaultCrypto::write_file(&vault_path, &vault).unwrap();
     let archive = directory.path().join("secret.zip");
     std::fs::write(&archive, b"placeholder").unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            vault_path,
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建设置视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.vault.unlock("master-pass").unwrap();
@@ -32,7 +38,6 @@ fn auto_password_failure_offers_saving_password(cx: &mut gpui_kit::TestAppContex
                 window,
                 cx,
             );
-            assert!(app.show_archive_password_prompt);
             assert!(app.archive_password_after_failure);
             assert!(app.archive_password_save_to_vault);
         });
@@ -57,15 +62,21 @@ fn manual_password_with_save_verifies_before_writing(cx: &mut gpui_kit::TestAppC
     VaultCrypto::write_file(&vault_path, &vault).unwrap();
     let archive = directory.path().join("secret.zip");
     std::fs::write(&archive, b"placeholder").unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            vault_path,
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建设置视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.vault.unlock("master-pass").unwrap();
@@ -78,7 +89,6 @@ fn manual_password_with_save_verifies_before_writing(cx: &mut gpui_kit::TestAppC
             );
             set_input(&app.archive_password_input, "archive-pass", window, cx);
             app.confirm_archive_password(window, cx);
-            assert!(!app.show_archive_password_prompt);
             assert_eq!(app.pending_password_jobs.len(), 1);
             assert!(
                 app.pending_password_jobs
@@ -136,15 +146,21 @@ fn verified_password_is_saved_with_archive_pattern(cx: &mut gpui_kit::TestAppCon
 fn password_attempt_dialog_offers_stop_button(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            directory.path().join("vault.dat"),
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建应用视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.password_attempt = Some(PasswordAttemptProgress {
@@ -157,6 +173,7 @@ fn password_attempt_dialog_offers_stop_button(cx: &mut gpui_kit::TestAppContext)
                     .expect("backdated attempt"),
                 hidden: false,
             });
+            app.open_password_attempt_dialog(window, cx);
             cx.notify();
         });
         window.draw(cx).clear(cx);
@@ -237,15 +254,21 @@ fn locked_vault_auto_extract_requests_unlock(cx: &mut gpui_kit::TestAppContext) 
         |_| {},
     )
     .unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            vault_path,
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建设置视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.vault.unlock("master-pass").unwrap();
@@ -259,10 +282,14 @@ fn locked_vault_auto_extract_requests_unlock(cx: &mut gpui_kit::TestAppContext) 
                 window,
                 cx,
             );
-            assert!(app.show_unlock_for_extract);
             assert!(app.pending_unlock_archive.as_ref() == Some(&archive));
             assert!(!app.unlock_for_browse);
         });
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("unlock-for-extract").visible(),
+            "锁定的密码库应打开官方解锁对话框"
+        );
     });
     let _ = app;
 }

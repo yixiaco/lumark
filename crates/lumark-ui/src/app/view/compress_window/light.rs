@@ -28,7 +28,6 @@ impl CompressWindowView {
                     .child(
                         button("compress-window-browse")
                             .ghost()
-                            .cursor_pointer()
                             .label(tr("浏览…", "Browse..."))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.choose_directory(window, cx);
@@ -179,7 +178,6 @@ impl CompressWindowView {
                         button("compress-window-password-toggle")
                             .link()
                             .xsmall()
-                            .cursor_pointer()
                             .icon(AppIcon::Key.element(13.))
                             .label(if self.password_visible {
                                 tr("取消密码", "Remove password")

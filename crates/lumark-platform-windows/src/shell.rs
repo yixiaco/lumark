@@ -23,8 +23,9 @@ const CAPABILITIES_SUBKEY: &str = "Software\\Lumark\\Capabilities";
 const REGISTERED_APPLICATIONS: &str = "Software\\RegisteredApplications";
 
 /// Lumark 注册为打开方式的压缩格式。
-pub const ARCHIVE_EXTENSIONS: [&str; 33] = [
+pub const ARCHIVE_EXTENSIONS: [&str; 37] = [
     ".zip",
+    ".zipx",
     ".7z",
     ".rar",
     ".zpaq",
@@ -37,6 +38,9 @@ pub const ARCHIVE_EXTENSIONS: [&str; 33] = [
     ".xz",
     ".zst",
     ".lz4",
+    ".sz",
+    ".snappy",
+    ".bz3",
     ".cab",
     ".iso",
     ".wim",
@@ -515,5 +519,11 @@ mod tests {
                 .iter()
                 .all(|extension| { extension.starts_with('.') && extension.len() > 1 })
         );
+        for extension in [".zipx", ".sz", ".snappy", ".bz3"] {
+            assert!(
+                ARCHIVE_EXTENSIONS.contains(&extension),
+                "缺少文件关联：{extension}"
+            );
+        }
     }
 }

@@ -425,3 +425,133 @@ fn zip_edit_sync_mode_mirrors_source_directory() {
         "new-d"
     );
 }
+
+#[test]
+/// 验证查看器写回入口能替换单个 ZIP 条目并保留归档其余内容。
+fn replace_entry_writes_back_one_file() {
+    let dir = tempdir().unwrap();
+    let source = make_source(dir.path());
+    let archive = dir.path().join("viewer.zip");
+    ArchiveService::create(
+        &archive,
+        &[source],
+        &CompressionOptions {
+            format: ArchiveFormat::Zip,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let entry = ArchiveService::list(&archive, None)
+        .unwrap()
+        .entries
+        .into_iter()
+        .find(|entry| !entry.is_dir)
+        .unwrap();
+    let replacement = dir.path().join("replacement.txt");
+    fs::write(&replacement, b"replacement from viewer").unwrap();
+    let report = ArchiveService::replace_entry(
+        &archive,
+        &entry.path,
+        &replacement,
+        None,
+        false,
+        None,
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(report.output, archive);
+    let output_dir = dir.path().join("out");
+    ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: output_dir.clone(),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(output_dir.join(&entry.path)).unwrap(),
+        "replacement from viewer"
+    );
+}
+#[test]
+/// 验证 ZIPX 扩展名被识别为独立格式，创建和读取仍复用 ZIP 容器。
+fn zipx_extension_roundtrip() {
+    let dir = tempdir().unwrap();
+    let source = make_source(dir.path());
+    let archive = dir.path().join("archive.zipx");
+    ArchiveService::create(
+        &archive,
+        &[source],
+        &CompressionOptions {
+            format: ArchiveFormat::Zipx,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let info = ArchiveService::list(&archive, None).unwrap();
+    assert_eq!(info.format, Some(ArchiveFormat::Zipx));
+    assert!(
+        info.entries
+            .iter()
+            .any(|entry| entry.path.ends_with("hello.txt"))
+    );
+    let output = dir.path().join("out");
+    ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: output.clone(),
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert!(output.join("source").join("hello.txt").exists());
+}
+
+#[test]
+/// ZIPX 扩展方法应能创建、列表并解压。
+fn zipx_compression_methods_roundtrip() {
+    for (method, name) in [
+        (lumark_archive::ZipCompression::Xz, "xz"),
+        (lumark_archive::ZipCompression::Zstd, "zstd"),
+        (lumark_archive::ZipCompression::Ppmd, "ppmd"),
+    ] {
+        let dir = tempdir().unwrap();
+        let source = make_source(dir.path());
+        let archive = dir.path().join(format!("archive-{name}.zipx"));
+        let result = ArchiveService::create(
+            &archive,
+            &[source],
+            &CompressionOptions {
+                format: ArchiveFormat::Zipx,
+                zip_compression: method,
+                ..Default::default()
+            },
+            |_| {},
+        );
+        if let Err(error) = result {
+            panic!("{name} ZIPX create failed: {error}");
+        }
+        let info = ArchiveService::list(&archive, None).unwrap();
+        assert_eq!(info.format, Some(ArchiveFormat::Zipx));
+        let output = dir.path().join("out");
+        ArchiveService::extract(
+            &archive,
+            &ExtractionOptions {
+                output_dir: output.clone(),
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(output.join("source").join("hello.txt")).unwrap(),
+            "hello from lumark",
+            "{name}"
+        );
+    }
+}

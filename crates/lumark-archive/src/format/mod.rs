@@ -14,6 +14,8 @@ use crate::disguise::DisguiseOptions;
 pub enum ArchiveFormat {
     /// ZIP 归档。
     Zip,
+    /// ZIPX 归档（ZIP 容器，支持扩展压缩方法）。
+    Zipx,
     /// 7Z 归档。
     SevenZip,
     /// 未压缩 TAR。
@@ -50,6 +52,10 @@ pub enum ArchiveFormat {
     Lz4,
     /// RAR 只读归档。
     Rar,
+    /// Snappy Framed 单文件流。
+    Snappy,
+    /// BZip3 单文件流。
+    Bz3,
     /// ISO 光盘映像。
     Iso,
     /// UDF 光盘映像。
@@ -138,6 +144,7 @@ impl ArchiveFormat {
     /// 必须同步登记，避免再次出现“核心支持但界面漏项”的偏差。
     pub const ALL: &'static [ArchiveFormat] = &[
         Self::Zip,
+        Self::Zipx,
         Self::SevenZip,
         Self::Tar,
         Self::TarGz,
@@ -156,6 +163,8 @@ impl ArchiveFormat {
         Self::Brotli,
         Self::Lz4,
         Self::Rar,
+        Self::Snappy,
+        Self::Bz3,
         Self::Iso,
         Self::Udf,
         Self::Cab,
@@ -190,6 +199,7 @@ impl ArchiveFormat {
     pub fn label(self) -> &'static str {
         match self {
             Self::Zip => "ZIP 压缩文件",
+            Self::Zipx => "ZIPX 压缩文件",
             Self::SevenZip => "7Z 压缩文件",
             Self::Tar => "TAR 归档",
             Self::TarGz => "TAR.GZ 归档",
@@ -208,6 +218,8 @@ impl ArchiveFormat {
             Self::Brotli => "BROTLI 文件",
             Self::Lz4 => "LZ4 文件",
             Self::Rar => "RAR 压缩文件",
+            Self::Snappy => "SNAPPY 文件",
+            Self::Bz3 => "BZIP3 文件",
             Self::Iso => "ISO 镜像",
             Self::Udf => "UDF 镜像",
             Self::Cab => "CAB 压缩文件",
@@ -254,6 +266,7 @@ impl ArchiveFormat {
         matches!(
             self,
             Self::Zip
+                | Self::Zipx
                 | Self::SevenZip
                 | Self::Tar
                 | Self::TarGz
@@ -270,6 +283,8 @@ impl ArchiveFormat {
                 | Self::Zstd
                 | Self::Brotli
                 | Self::Lz4
+                | Self::Snappy
+                | Self::Bz3
                 | Self::Lzh
                 | Self::Wim
                 | Self::Zpaq
@@ -283,7 +298,14 @@ impl ArchiveFormat {
     pub fn is_single_stream(self) -> bool {
         matches!(
             self,
-            Self::Gzip | Self::Bzip2 | Self::Xz | Self::Zstd | Self::Brotli | Self::Lz4
+            Self::Gzip
+                | Self::Bzip2
+                | Self::Xz
+                | Self::Zstd
+                | Self::Brotli
+                | Self::Lz4
+                | Self::Snappy
+                | Self::Bz3
         )
     }
 
@@ -308,19 +330,26 @@ impl ArchiveFormat {
     pub fn supports_password(self) -> bool {
         matches!(
             self,
-            Self::Zip | Self::SevenZip | Self::Rar | Self::Zpaq | Self::Alz | Self::Enc
+            Self::Zip
+                | Self::Zipx
+                | Self::SevenZip
+                | Self::Rar
+                | Self::Zpaq
+                | Self::Alz
+                | Self::Enc
         )
     }
 
     /// 判断该格式是否支持写入注释。
     pub fn supports_comment(self) -> bool {
-        matches!(self, Self::Zip | Self::SevenZip)
+        matches!(self, Self::Zip | Self::Zipx | Self::SevenZip)
     }
 
     /// 返回该格式的默认扩展名。
     pub fn extension(self) -> &'static str {
         match self {
             Self::Zip => "zip",
+            Self::Zipx => "zipx",
             Self::SevenZip => "7z",
             Self::Tar => "tar",
             Self::TarGz => "tar.gz",
@@ -339,6 +368,8 @@ impl ArchiveFormat {
             Self::Brotli => "br",
             Self::Lz4 => "lz4",
             Self::Rar => "rar",
+            Self::Snappy => "sz",
+            Self::Bz3 => "bz3",
             Self::Iso => "iso",
             Self::Udf => "udf",
             Self::Cab => "cab",
@@ -497,7 +528,13 @@ pub enum ZipCompression {
     Deflate,
     /// ZIP BZip2 压缩。
     Bzip2,
-    /// ZIP LZMA 压缩。
+    /// ZIP XZ 压缩。
+    Xz,
+    /// ZIP Zstd 压缩。
+    Zstd,
+    /// ZIP PPMd 压缩。
+    Ppmd,
+    /// ZIP LZMA 压缩（读取兼容；写入是否可用取决于后端）。
     Lzma,
 }
 

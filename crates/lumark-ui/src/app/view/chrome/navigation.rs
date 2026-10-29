@@ -79,7 +79,6 @@ impl LumarkApp {
                             .ghost()
                             .small()
                             .rounded(px(6.))
-                            .cursor_pointer()
                             .icon(AppIcon::ArrowLeft.element(15.))
                             .label(tr("返回文件", "Back to files"))
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -287,7 +286,6 @@ impl LumarkApp {
                             .align(InputGroupAddonAlignment::InlineEnd)
                             .child(
                                 InputGroupButton::new("go-location")
-                                    .cursor_pointer()
                                     .label(tr("转到", "Go"))
                                     .tooltip(tr("打开输入的路径", "Open entered path"))
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -318,7 +316,6 @@ impl LumarkApp {
                             .align(InputGroupAddonAlignment::InlineEnd)
                             .child(
                                 InputGroupButton::new("search-run")
-                                    .cursor_pointer()
                                     .label(tr("搜索", "Search"))
                                     .tooltip(tr("在当前目录搜索", "Search current folder"))
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -333,7 +330,6 @@ impl LumarkApp {
                     .ghost()
                     .small()
                     .rounded(px(6.))
-                    .cursor_pointer()
                     .label(if narrow {
                         tr("高级", "Advanced").to_string()
                     } else {
@@ -408,7 +404,6 @@ impl LumarkApp {
                         .ghost()
                         .small()
                         .rounded(px(6.))
-                        .cursor_pointer()
                         .icon(AppIcon::Close.element(14.))
                         .tooltip(tr("清除搜索", "Clear search"))
                         .accessibility_label(tr("清除搜索", "Clear search"))

@@ -49,22 +49,28 @@ fn vault_transfer_dialog_uses_standard_buttons(cx: &mut gpui_kit::TestAppContext
     let (vault, _) =
         VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
     VaultCrypto::write_file(&vault_path, &vault).unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            vault_path,
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建设置视图");
     cx.update(|window, cx| {
         let export_dir = app.read(cx).vault_export_dir.clone();
         set_input(&export_dir, directory.path().to_str().unwrap(), window, cx);
         app.update(cx, |app, cx| {
             app.vault.unlock("master-pass").unwrap();
             app.screen = Screen::Passwords;
-            app.show_vault_transfer = true;
+            app.request_vault_transfer(window, cx);
             cx.notify();
         });
         window.draw(cx).clear(cx);
@@ -84,8 +90,8 @@ fn vault_transfer_dialog_uses_standard_buttons(cx: &mut gpui_kit::TestAppContext
         ] {
             let button = window.find(id);
             assert!(
-                button.bounds().size.height >= px(30.),
-                "弹窗按钮仍为小尺寸：{id} 高度 {:?}",
+                button.bounds().size.height >= px(27.),
+                "弹窗按钮低于官方标准高度：{id} 高度 {:?}",
                 button.bounds().size.height
             );
         }
@@ -102,19 +108,25 @@ fn vault_transfer_dialog_requires_unlock_when_locked(cx: &mut gpui_kit::TestAppC
     let (vault, _) =
         VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
     VaultCrypto::write_file(&vault_path, &vault).unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            vault_path,
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
     });
+    let app = app_slot.expect("测试窗口应创建设置视图");
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.screen = Screen::Passwords;
-            app.show_vault_transfer = true;
+            app.request_vault_transfer(window, cx);
             cx.notify();
         });
         window.draw(cx).clear(cx);
@@ -180,7 +192,6 @@ fn vault_csv_export_requires_unlock(cx: &mut gpui_kit::TestAppContext) {
         set_input(&export_dir, directory.path().to_str().unwrap(), window, cx);
         app.update(cx, |app, cx| {
             app.screen = Screen::Passwords;
-            app.show_vault_transfer = true;
             app.export_vault_csv(window, cx);
             assert!(
                 app.status.contains("请先"),

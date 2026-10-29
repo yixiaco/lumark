@@ -369,7 +369,7 @@ impl CompressWindowView {
                 tr("压缩所需内存：约 ", "Compression memory: about "),
                 tr("；解压所需内存：约 ", "; extraction memory: about ")
             )
-        } else if self.format == ArchiveFormat::Zip {
+        } else if matches!(self.format, ArchiveFormat::Zip | ArchiveFormat::Zipx) {
             tr(
                 "ZIP Deflate 使用固定内存；LZMA/BZip2 方法会额外占用少量内存。",
                 "ZIP Deflate uses fixed memory; LZMA/BZip2 use a little extra.",

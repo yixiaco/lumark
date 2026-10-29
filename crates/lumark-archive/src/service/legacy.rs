@@ -282,13 +282,19 @@ impl ArchiveService {
     ///
     /// `test` 只需要知道成功/失败和条目统计，因此复用默认资源预算防止
     /// 异常归档把测试任务拖成不可中断的长任务。
-    pub(crate) fn test_rar<F>(path: &Path, progress: &mut F) -> Result<ExtractReport, ArchiveError>
+    pub(crate) fn test_rar<F>(
+        path: &Path,
+        password: Option<&str>,
+        progress: &mut F,
+    ) -> Result<ExtractReport, ArchiveError>
     where
         F: FnMut(ExtractProgress),
     {
-        let mut archive = UnrarArchive::new(path)
-            .open_for_processing()
-            .map_err(map_rar_error)?;
+        let archive = match password.filter(|value| !value.is_empty()) {
+            Some(password) => UnrarArchive::with_password(path, password),
+            None => UnrarArchive::new(path),
+        };
+        let mut archive = archive.open_for_processing().map_err(map_rar_error)?;
         let budget = ExtractionBudget::default();
         let mut report = ExtractReport::default();
         loop {

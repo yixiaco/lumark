@@ -2,17 +2,27 @@
 
 Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit) 构建的 Windows 优先桌面压缩管理器。当前实现以可运行的文件浏览、ZIP/7Z/TAR 压缩解压、归档原子编辑和加密密码库为第一条完整链路。
 
+## 本轮新增
+
+- **内置查看器**：文本按内容显示文本、十六进制或 PE 结构；大文本使用 mmap + 虚拟行列表，不再按 4 MB 拒绝；图片使用独立图片查看器，支持适应窗口、100%、缩放、滚动平移、GIF/WebP 动画和 SVG。归档条目和普通文件都走同一路由，ZIP/ZIPX/7Z 条目可直接保存回原归档。
+- **格式**：ZIPX（`.zipx`，ZIP 容器，独立格式选项）、Snappy Framed（`.sz`/`.snappy`；Raw/Hadoop 流会明确提示只支持 Framed）、BZip3（`.bz3`，按预设使用 4/16/64 MiB 块）、RAR5 列表（RAR4/RAR5 签名区分，只读，方法列显示 RAR5）。
+- **系统集成**：压缩、解压、测试、编辑、伪装、还原任务运行期间通过 Windows `SetThreadExecutionState` 阻止系统睡眠，任务结束/失败/取消后恢复；不阻止显示器关闭。
+- **嵌套压缩包**：归档内的 `.zip/.zipx/.7z/.rar/.tar.gz/.sz/.bz3` 等条目默认在新 Lumark 窗口中打开；子窗口独占临时目录，关闭窗口时清理，支持多层嵌套。
+- **主题与 UI**：`app/theme.rs` 改用官方 `ThemeColor` 调色板 + `Theme::update`，只覆盖强调色字段；新增界面从 `cx.theme()` 取色。移除了视图层裸 `hsla`、按钮指针手、自绘进度条、空状态和标题栏徽标的旧实现；统一官方 `Progress`、`Empty`、`Tag`。删除、可执行文件确认、清除密码库、删除密码、新建文件夹、重命名、保存密码、删除主密码、解锁密码库、额外候选确认、加密密码库导入/导出、归档添加模式选择、归档密码输入、自动尝试进度和临时解压进度均已迁移到官方 `Dialog`/`AlertDialog`；`chrome.rs` 不再保留自绘模态遮罩。
+- BZip3 使用 LGPL-3.0-only AND Apache-2.0 的纯 Rust `bzip3-rs`；合规与重链接说明见 [`docs/lgpl-compliance.md`](docs/lgpl-compliance.md)，发布物附带 `licenses/LGPL-3.0-only.txt`。
+
 ## 当前功能
 
-- 参考经典归档器的界面布局：自绘标题栏与工作区切换、渐变动作带、全宽路径与搜索导航行、常用位置和目录树合并的文件夹侧栏、底部详细信息检查器、全宽状态栏和统一模态层；宽窗口显示品牌标语，窄窗口自动收缩搜索框和模式标签。
-- 界面优先使用 gpui-kit 官方组件：动作带和标题栏导航使用官方 Button 变体，格式、压缩方法、字典、单词、固实块、线程和时间筛选统一使用官方 Select 下拉框，文件右键菜单使用官方 ContextMenu/PopupMenu，文件表使用官方 Scrollbar，经典压缩窗口使用官方 Tabs、GroupBox、Radio 和 Checkbox，注释使用官方多行 Textarea。
-- 设置使用独立选项卡窗口，参考经典归档器分为综合、外观、压缩、文件关联、密码库和关于；主题色可在外观页通过官方 ColorPicker 自定义，默认蓝色，主按钮、动作带、选中态、进度条和状态栏会同步换色，并持久化到设置文件。
-- 独立压缩窗口：轻巧模式为 600×330 的紧凑表单，经典模式为 600×390 的六选项卡布局；窗口独立于主界面，不置顶，轻巧/经典切换时保留全部已填参数。多文件或文件夹源会隐藏 GZ/BZ2/XZ/ZST/Brotli/LZ4 等单文件流格式；若默认格式是其中之一，会自动改用对应的 TAR 变体。
+- 参考经典归档器的界面布局：官方 TitleBar/Toolbar/StatusBar 框架、工作区切换、路径与搜索导航行、常用位置和目录树合并的文件夹侧栏、底部详细信息检查器；宽窗口显示品牌标语，窄窗口自动收缩搜索框和模式标签。
+- 界面优先使用 gpui-kit 官方组件：动作带使用官方 Toolbar，状态栏使用官方 StatusBar，动作带和标题栏导航使用官方 Button 变体，格式、压缩方法、字典、单词、固实块、线程和时间筛选统一使用官方 Select 下拉框，文件右键菜单使用官方 ContextMenu/PopupMenu，文件表使用官方 Scrollbar，经典压缩窗口使用官方 Tabs、GroupBox、Radio 和 Checkbox，注释使用官方多行 Textarea。
+- 按钮默认使用官方标准尺寸；只有标题栏、状态栏、表格行、进度确认等明确需要紧凑布局的区域使用 `small`/`xsmall`，新增普通操作按钮不再缩小。
+- 设置使用独立选项卡窗口，参考经典归档器分为综合、外观、压缩、文件关联、密码库和关于；主题以官方 `ThemeColor` 基线整体应用，只覆盖强调色字段，由 `Theme::update` 同步 token、Base 投影和所有窗口；设置页通过官方 ColorPicker 自定义强调色并持久化。
+- 独立压缩窗口：轻巧模式为 600×330 的紧凑表单，经典模式为 600×390 的六选项卡布局；窗口独立于主界面，不置顶，轻巧/经典切换时保留全部已填参数。多文件或文件夹源会隐藏 GZ/BZ2/XZ/ZST/Brotli/LZ4/Snappy/BZip3 等单文件流格式；若默认格式是其中之一，有 TAR 变体的自动切换，Snappy/BZip3 回退 ZIP。
 - 独立任务进度窗口：压缩、解压和测试任务启动后自动弹出，显示目标路径、当前文件进度、总进度、已用/剩余时间、总大小、已压缩、压缩后、压缩率、文件数、处理速度和暂停、继续、取消、后台；取消需要二次确认，确认后立即停止并清理临时文件，关闭窗口不中断任务。
 - 压缩后端使用 zlib-ng 和新版 ZIP/7Z 编码器，ZIP 按 1 MiB 分块读写并按块检查取消；7Z 多线程 LZMA2 默认按 16 MiB 编码块完成量报告真实进度（字典更大时随库钳制），两次块事件之间按最近速度平滑显示并在块完成时校正；单线程/其他算法按已写入编码器的字节更新，加密归档保留读取进度，7Z 解压按 256 KiB 分块、100 毫秒节流上报单文件内部进度。
 - 标题栏工作区按钮和模态遮罩使用阻塞命中区域，右上角密码库/设置按钮不再被拖拽区域吞掉，压缩/解压设置对话框也不会把鼠标事件穿透到下层文件表。
 - IconPark 官方 SVG 图标已本地打包并按主题着色，运行时不依赖网络；来源与许可保存在 `crates/lumark-ui/assets/icons/iconpark/`。
-- ZIP、7Z、LZH、TAR、TAR.GZ/BZ2/XZ/ZST/BR/LZ4/LZ/LZMA；GZ、BZ2、XZ、ZSTD、Brotli、LZ4；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode 只读解压。LZH 创建底层支持 lh0、lh4–lh7，界面预设使用 lh4/lh5/lh7；lh0 条目已分块流式写入，lh4/lh5/lh7 仍需要整块输入，超过 512 MiB 会提前拒绝。
+- ZIP、7Z、LZH、TAR、TAR.GZ/BZ2/XZ/ZST/BR/LZ4/LZ/LZMA；GZ、BZ2、XZ、ZSTD、Brotli、LZ4、Snappy、BZip3；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode 只读解压。LZH 创建底层支持 lh0、lh4–lh7，界面预设使用 lh4/lh5/lh7；lh0 条目已分块流式写入，lh4/lh5/lh7 仍需要整块输入，超过 512 MiB 会提前拒绝。
 - ZPAQ 读写（内嵌 libzpaq/JIDAC 引擎）：创建标准归档、AES-256 密码、列表、完整测试、预算解压、分卷和密码库联动；压缩级别 1–5 可选，轻巧模式的“体积小”对应 5 级，默认保留源文件原始时间，≥32 MiB 的单文件批次交给可杀死的隐藏工作进程执行，压缩中可直接取消；解压和完整测试也通过该工作进程执行，任务取消时终止子进程并清理暂存区；普通小文件批次按 32 MiB / 64 文件分批上报进度。创建时会跳过符号链接和 Windows 目录联接，避免归档条目与源计划不一致；输出同名旧压缩包在任务成功后原子替换。PAQ8/LPAQ 系列暂无许可兼容的成熟后端，不在支持范围。
 - RAR 只读列表、密码验证、解压和完整性测试（UnRAR 后端，保留许可声明）；Unix `.Z`、AES `.enc`、ALZ（Store/Deflate/ALZ 改造 Bzip2，支持 ZipCrypto 和 `.a00` 分卷）只读解压。
 - ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（第一映像，XPRESS/LZX/LZMS，支持 SWM 分卷）、ASAR、DEB、XAR/PKG、RPM、MSI、CHM、SquashFS、NSIS、DMG、EGG、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ、SQZ、UC2、ICE、PACKICE 等 40+ 只读格式适配；WIM 支持 LZX 压缩创建。
@@ -34,15 +44,15 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 解压资源预算：默认单次解压总量 128 GiB、条目 100 万，超出时中止并删除半成品；ZIP/7Z/TAR 在写文件前检查，单文件流、加密容器和容器复制按剩余预算分块中止；RAR、ALZ 和传统只读格式按条目声明大小做预算检查，ALZ 的写入器还会按剩余预算兜底。
 - 压缩后关机：压缩窗口可勾选“完成后关闭计算机”，压缩、测试和删除源文件都成功后由系统 `shutdown.exe` 安排 60 秒倒计时关机，期间可用 `shutdown /a` 取消；失败或取消的任务不会关机。
 - CPU 占用：压缩窗口可勾选“降低压缩优先级”，任务运行期间进程以普通以下优先级调度，全部低优先级任务结束后恢复；压缩线程数仍可在算法页单独限制。
-- Windows 当前用户文件关联：可勾选 ZIP、7Z、RAR、XAR/PKG、RPM、MSI、CHM、SquashFS、DMG、EGG 等 33 种压缩格式，注册后直接打开 Lumark 的 Windows 默认应用页，由系统确认默认值；同时提供经典右键菜单、Send To、回收站删除和安装/卸载脚本。
+- Windows 当前用户文件关联：可勾选 ZIP、ZIPX、7Z、RAR、XAR/PKG、RPM、MSI、CHM、SquashFS、DMG、EGG、Snappy、BZip3 等 37 种压缩格式，注册后直接打开 Lumark 的 Windows 默认应用页，由系统确认默认值；同时提供经典右键菜单、Send To、回收站删除和安装/卸载脚本。
 - ISO 虚拟光驱：Lumark 文件列表和资源管理器右键菜单都提供“加载至虚拟光驱/卸载虚拟光驱”；挂载成功后自动打开盘符，使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`。客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。资源管理器菜单位于 `HKCU\Software\Classes\SystemFileAssociations\.iso\shell`，升级后需要重新运行安装脚本或 `Lumark.exe --register-shell`。
 - 单实例多窗口：首个进程创建命名管道和互斥体，后续进程优先通过命名管道转发参数（失败回退请求目录）；每个文件生成独立窗口，窗口之间共享设置和密码库、各自保留浏览状态，关闭全部窗口后退出进程。
-- 内置只读文本查看器：右键菜单可在独立窗口中查看压缩包内外的文本文件，归档条目自动解压到临时目录后显示，超过 4 MB 或二进制内容会给出提示。
+- 内置查看器：文本/十六进制/PE 按内容自动选择，支持编辑器保存和归档条目写回；图片查看器支持 PNG/JPEG/GIF/WebP/SVG/BMP/TIFF/ICO 等常见格式（实际解码能力取决于 GPUI `Img` 与 image 特性），支持适应窗口、100%、缩放和滚动平移。归档条目先解压到临时目录再打开，临时文件沿用现有查看器生命周期。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
 
 ### 格式支持矩阵
 
-- **读写**：ZIP（AES/传统加密、Deflate/Bzip2/LZMA 写入）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、WIM（LZX 创建）、TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4。
+- **读写**：ZIP、ZIPX（AES/传统加密、Deflate/Bzip2/XZ/Zstd/PPMd 写入；LZMA/Deflate64 只读）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、WIM（LZX 创建）、TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4、Snappy Framed（`.sz`/`.snappy`）、BZip3（`.bz3`）。
 - **只读解压**：RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像，XPRESS/LZX/LZMS，支持 SWM）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
 - **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
 - **暂不支持**：PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取并还原目录层级，写入未实现；WIM 的 LZMS/SWM 写入、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。

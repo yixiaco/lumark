@@ -25,6 +25,24 @@ pub enum TaskKind {
     Restore,
 }
 
+impl TaskKind {
+    /// 这类任务运行期间是否需要阻止系统睡眠。
+    ///
+    /// 归档加载和密码验证通常很短，且可能由打开对话框触发；不延长它们的
+    /// 电源状态，避免后台轮询让机器无法休眠。
+    pub fn prevents_sleep(self) -> bool {
+        matches!(
+            self,
+            Self::Compress
+                | Self::Extract
+                | Self::Test
+                | Self::Edit
+                | Self::Disguise
+                | Self::Restore
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 /// 后台任务生命周期状态。
 pub enum TaskState {
@@ -186,7 +204,20 @@ pub enum TaskEvent {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::TaskProgress;
+    use super::{TaskKind, TaskProgress};
+
+    /// 只有真正的长任务阻止睡眠，加载和密码验证不延长电源状态。
+    #[test]
+    fn only_long_tasks_prevent_sleep() {
+        assert!(TaskKind::Compress.prevents_sleep());
+        assert!(TaskKind::Extract.prevents_sleep());
+        assert!(TaskKind::Test.prevents_sleep());
+        assert!(TaskKind::Edit.prevents_sleep());
+        assert!(TaskKind::Disguise.prevents_sleep());
+        assert!(TaskKind::Restore.prevents_sleep());
+        assert!(!TaskKind::LoadArchive.prevents_sleep());
+        assert!(!TaskKind::PasswordResolve.prevents_sleep());
+    }
 
     /// 总进度按字节统计，当前文件比例仍按字节统计。
     #[test]

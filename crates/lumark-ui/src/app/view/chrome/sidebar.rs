@@ -183,7 +183,6 @@ impl LumarkApp {
             .w_full()
             .gap_2()
             .px_3()
-            .cursor_pointer()
             .text_sm()
             .text_color(if active {
                 cx.theme().sidebar_accent_foreground
@@ -228,7 +227,6 @@ impl LumarkApp {
             .gap_1()
             .pl(px(6. + row.depth as f32 * 12.))
             .pr_2()
-            .cursor_pointer()
             .text_sm()
             .text_color(if active {
                 cx.theme().sidebar_accent_foreground

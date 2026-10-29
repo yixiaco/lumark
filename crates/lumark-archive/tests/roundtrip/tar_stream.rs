@@ -101,6 +101,8 @@ fn single_stream_formats_roundtrip() {
         (ArchiveFormat::Zstd, "zst"),
         (ArchiveFormat::Brotli, "br"),
         (ArchiveFormat::Lz4, "lz4"),
+        (ArchiveFormat::Snappy, "sz"),
+        (ArchiveFormat::Bz3, "bz3"),
     ] {
         let dir = tempdir().unwrap();
         let source = dir.path().join("payload.bin");
@@ -288,4 +290,25 @@ fn stream_extraction_budget_stops_bomb() {
         "{result:?}"
     );
     assert!(!output_dir.join("bomb").exists(), "超限不应留下部分文件");
+}
+
+#[test]
+/// Raw/Hadoop Snappy 流应提示只支持 Framed，而不是笼统的损坏。
+fn raw_snappy_reports_framed_requirement() {
+    let dir = tempdir().unwrap();
+    let archive = dir.path().join("raw.sz");
+    fs::write(&archive, b"not a framed snappy stream").unwrap();
+    let result = ArchiveService::extract(
+        &archive,
+        &ExtractionOptions {
+            output_dir: dir.path().join("out"),
+            ..Default::default()
+        },
+        |_| {},
+    );
+    let error = result.expect_err("Raw Snappy 不应被当成有效流");
+    assert!(
+        error.to_string().contains("Framed"),
+        "错误应说明只支持 Framed：{error}"
+    );
 }

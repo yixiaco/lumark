@@ -247,30 +247,6 @@ static SPLIT_PRESETS: [SplitPreset; 7] = [
     },
 ];
 
-/// 压缩窗口可选的格式顺序。
-const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
-    (ArchiveFormat::Zip, "ZIP"),
-    (ArchiveFormat::SevenZip, "7Z"),
-    (ArchiveFormat::Zpaq, "ZPAQ"),
-    (ArchiveFormat::Lzh, "LZH"),
-    (ArchiveFormat::Wim, "WIM"),
-    (ArchiveFormat::Tar, "TAR"),
-    (ArchiveFormat::TarGz, "TAR.GZ"),
-    (ArchiveFormat::TarBz2, "TAR.BZ2"),
-    (ArchiveFormat::TarXz, "TAR.XZ"),
-    (ArchiveFormat::TarZst, "TAR.ZST"),
-    (ArchiveFormat::TarBr, "TAR.BR"),
-    (ArchiveFormat::TarLz4, "TAR.LZ4"),
-    (ArchiveFormat::TarLz, "TAR.LZ"),
-    (ArchiveFormat::TarLzma, "TAR.LZMA"),
-    (ArchiveFormat::Gzip, "GZ"),
-    (ArchiveFormat::Bzip2, "BZ2"),
-    (ArchiveFormat::Xz, "XZ"),
-    (ArchiveFormat::Zstd, "ZST"),
-    (ArchiveFormat::Brotli, "BROTLI"),
-    (ArchiveFormat::Lz4, "LZ4"),
-];
-
 /// 根据源类型过滤压缩格式。
 ///
 /// 单文件流格式没有归档目录，只能压缩一个普通文件；多选文件或文件夹时
@@ -348,9 +324,11 @@ impl CompressWindowView {
             }
         }
         let zip_method_index = match init.zip_compression {
-            ZipCompression::Deflate => 0,
+            ZipCompression::Deflate | ZipCompression::Lzma => 0,
             ZipCompression::Bzip2 => 1,
-            ZipCompression::Lzma => 2,
+            ZipCompression::Xz => 2,
+            ZipCompression::Zstd => 3,
+            ZipCompression::Ppmd => 4,
         };
         let seven_method_index = match init.sevenz_compression {
             SevenZCompression::Lzma2 => 0,
@@ -446,7 +424,9 @@ impl CompressWindowView {
                 if let SelectEvent::Confirm(Some(value)) = event {
                     this.zip_compression = match *value {
                         "BZip2" => ZipCompression::Bzip2,
-                        "LZMA" => ZipCompression::Lzma,
+                        "XZ" => ZipCompression::Xz,
+                        "ZSTD" => ZipCompression::Zstd,
+                        "PPMd" => ZipCompression::Ppmd,
                         _ => ZipCompression::Deflate,
                     };
                     cx.notify();
@@ -826,6 +806,8 @@ mod tests {
             ArchiveFormat::Zstd,
             ArchiveFormat::Brotli,
             ArchiveFormat::Lz4,
+            ArchiveFormat::Snappy,
+            ArchiveFormat::Bz3,
         ] {
             assert!(
                 single_file.iter().any(|(item, _)| *item == format),
@@ -842,7 +824,7 @@ mod tests {
                 .any(|(format, _)| *format == ArchiveFormat::TarBr),
             "多文件源缺少 TAR.BR"
         );
-        assert_eq!(multiple.len(), single_file.len() - 6);
+        assert_eq!(multiple.len(), single_file.len() - 8);
     }
 
     /// ZPAQ 级别下拉索引与压缩级别必须双向一致。

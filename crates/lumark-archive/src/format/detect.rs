@@ -41,8 +41,10 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".tar.z") || name.ends_with(".taz") {
         return ArchiveFormat::TarZ;
     }
+    if name.ends_with(".zipx") {
+        return ArchiveFormat::Zipx;
+    }
     if name.ends_with(".zip")
-        || name.ends_with(".zipx")
         || name.ends_with(".jar")
         || name.ends_with(".war")
         || name.ends_with(".apk")
@@ -74,6 +76,12 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     }
     if name.ends_with(".lz4") {
         return ArchiveFormat::Lz4;
+    }
+    if name.ends_with(".sz") || name.ends_with(".snappy") {
+        return ArchiveFormat::Snappy;
+    }
+    if name.ends_with(".bz3") {
+        return ArchiveFormat::Bz3;
     }
     if name.ends_with(".rar") {
         return ArchiveFormat::Rar;
@@ -234,6 +242,13 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     if bytes.starts_with(b"BZh") {
         return ArchiveFormat::Bzip2;
     }
+    // Snappy Framed 的流标识块固定为 ff 06 00 00 后接 sNaPpY。
+    if bytes.starts_with(b"\xff\x06\x00\x00sNaPpY") {
+        return ArchiveFormat::Snappy;
+    }
+    if bytes.starts_with(b"BZ3v1") {
+        return ArchiveFormat::Bz3;
+    }
     if bytes.starts_with(b"\xfd7zXZ\x00") {
         return ArchiveFormat::Xz;
     }
@@ -256,6 +271,16 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
 mod tests {
     use super::{ArchiveFormat, detect_format, detect_magic};
     use std::path::Path;
+
+    /// RAR4 和 RAR5 头部都归入只读 RAR 后端；列表层再按签名显示 RAR5。
+    #[test]
+    fn rar5_magic_is_recognized() {
+        assert_eq!(
+            detect_magic(b"Rar!\x1a\x07\x01\x00rest"),
+            ArchiveFormat::Rar
+        );
+        assert_eq!(detect_magic(b"Rar!\x1a\x07\x00rest"), ArchiveFormat::Rar);
+    }
 
     /// 验证新增 TAR 变体不会被同名单流格式抢先识别。
     #[test]

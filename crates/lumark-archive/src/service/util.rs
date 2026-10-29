@@ -21,6 +21,9 @@ pub(crate) fn zip_method(options: &CompressionOptions) -> CompressionMethod {
     match options.zip_compression {
         crate::format::ZipCompression::Deflate => CompressionMethod::Deflated,
         crate::format::ZipCompression::Bzip2 => CompressionMethod::Bzip2,
+        crate::format::ZipCompression::Xz => CompressionMethod::Xz,
+        crate::format::ZipCompression::Zstd => CompressionMethod::Zstd,
+        crate::format::ZipCompression::Ppmd => CompressionMethod::Ppmd,
         crate::format::ZipCompression::Lzma => CompressionMethod::Lzma,
     }
 }
@@ -367,8 +370,31 @@ pub(crate) fn decompress_reader(
         ArchiveFormat::Zstd => Box::new(zstd::stream::read::Decoder::new(reader)?),
         ArchiveFormat::Brotli => Box::new(brotli::Decompressor::new(reader, 64 * 1024)),
         ArchiveFormat::Lz4 => Box::new(lz4_flex::frame::FrameDecoder::new(reader)),
+        ArchiveFormat::Snappy => Box::new(snappy_frame_reader(reader)?),
+        ArchiveFormat::Bz3 => Box::new(
+            bzip3_rs::read::Decoder::new(reader)
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
+        ),
         other => return Err(ArchiveError::UnsupportedFormat(other.label().to_string())),
     })
+}
+
+/// 只接受标准 Snappy Framed 流；Raw/Hadoop 流给出可操作的错误。
+fn snappy_frame_reader(mut reader: Box<dyn Read>) -> Result<Box<dyn Read>, ArchiveError> {
+    const MAGIC: &[u8; 10] = b"\xff\x06\x00\x00sNaPpY";
+    let mut header = [0u8; 10];
+    reader.read_exact(&mut header).map_err(|_| {
+        ArchiveError::UnsupportedFormat(
+            "Snappy Raw/Hadoop 流不受支持；请使用 Framed（.sz/.snappy）".to_string(),
+        )
+    })?;
+    if &header != MAGIC {
+        return Err(ArchiveError::UnsupportedFormat(
+            "Snappy Raw/Hadoop 流不受支持；请使用 Framed（.sz/.snappy）".to_string(),
+        ));
+    }
+    let chained = std::io::Cursor::new(header.to_vec()).chain(reader);
+    Ok(Box::new(snap::read::FrameDecoder::new(chained)))
 }
 
 /// 打开 Unix .Z 并返回解压读取器。

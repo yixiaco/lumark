@@ -180,9 +180,9 @@ impl ExtractWindowView {
                     .child(
                         button("extract-window-browse")
                             .secondary()
-                            .small()
+
                             .rounded(px(6.))
-                            .cursor_pointer()
+
                             .label(tr("浏览…", "Browse..."))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.choose_directory(cx);
@@ -206,9 +206,9 @@ impl ExtractWindowView {
                     .child(
                         button("extract-window-password-toggle")
                             .secondary()
-                            .small()
+
                             .rounded(px(6.))
-                            .cursor_pointer()
+
                             .label(if self.password_visible {
                                 tr("隐藏密码", "Hide password")
                             } else {
@@ -265,9 +265,7 @@ impl ExtractWindowView {
             .border_color(cx.theme().border)
             .child(
                 button("extract-window-cancel")
-                    .small()
                     .rounded(px(6.))
-                    .cursor_pointer()
                     .label(tr("取消", "Cancel"))
                     .on_click(cx.listener(|this, _, window, cx| {
                         let app = this.app.clone();
@@ -281,9 +279,7 @@ impl ExtractWindowView {
             .child(
                 button("extract-window-start")
                     .primary()
-                    .small()
                     .rounded(px(6.))
-                    .cursor_pointer()
                     .icon(AppIcon::Zip.element(14.))
                     .label(tr("开始解压", "Start extraction"))
                     .on_click(cx.listener(|this, _, window, cx| {

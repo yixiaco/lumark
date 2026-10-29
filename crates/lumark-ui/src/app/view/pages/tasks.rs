@@ -77,7 +77,7 @@ impl LumarkApp {
                             )
                             .child(
                                 Progress::new("task-aggregate-progress")
-                                    .value(aggregate.ratio())
+                                    .value(aggregate.ratio() * 100.0)
                                     .w_full(),
                             )
                             .child(
@@ -230,7 +230,6 @@ impl LumarkApp {
             .p_3()
             .border_b_1()
             .border_color(cx.theme().border)
-            .cursor_pointer()
             .hover(|style| style.bg(cx.theme().list_hover))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.open_progress_window_for(task_id, window, cx);
@@ -293,23 +292,13 @@ impl LumarkApp {
                             .child(detail),
                     )
                     .child(
-                        div()
-                            .w_full()
-                            .h(px(5.))
-                            .rounded_full()
-                            .overflow_hidden()
-                            .bg(cx.theme().muted)
-                            .child(
-                                div()
-                                    .w(gpui_kit::relative(ratio))
-                                    .h_full()
-                                    .rounded_full()
-                                    .bg(if state == TaskState::Failed {
-                                        cx.theme().danger
-                                    } else {
-                                        cx.theme().primary
-                                    }),
-                            ),
+                        Progress::new(("task-row-progress", record.id))
+                            .value(ratio * 100.0)
+                            .when(state == TaskState::Failed, |this| {
+                                this.color(cx.theme().danger)
+                            })
+                            .xsmall()
+                            .w_full(),
                     )
                     .child(
                         div()
@@ -328,7 +317,6 @@ impl LumarkApp {
                             .ghost()
                             .xsmall()
                             .label(tr("查看", "View"))
-                            .cursor_pointer()
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_progress_window_for(task_id, window, cx);
                                 cx.stop_propagation();
@@ -347,7 +335,6 @@ impl LumarkApp {
                                     } else {
                                         tr("暂停", "Pause")
                                     })
-                                    .cursor_pointer()
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         if let Some(control) = this.tasks.control(task_id) {
                                             if control.state() == lumark_tasks::TaskState::Paused {

@@ -31,7 +31,6 @@ impl CompressWindowView {
                             .align(InputGroupAddonAlignment::InlineEnd)
                             .child(
                                 InputGroupButton::new("classic-split-presets")
-                                    .cursor_pointer()
                                     .accessibility_label(tr("常用分卷大小", "Common volume sizes"))
                                     .tooltip(tr(
                                         "从常用大小中选择，也可以直接输入",

@@ -1,0 +1,4 @@
+These small RAR5 test samples are copied from the unrar.rs test corpus:
+https://github.com/muja/unrar.rs (unrar 0.5.8, MIT OR Apache-2.0).
+
+They are used only by read-only archive tests and are not included in release binaries.

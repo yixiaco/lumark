@@ -2,6 +2,29 @@
 
 本文件把完整规划拆成可验收的阶段。当前版本是可运行的桌面原型和核心安全链路，不应把未勾选项目视为已完成。
 
+## 2026-10-29 本轮升级
+
+- [x] 新增 `lumark-viewer`：mmap/编码检测、文本索引、十六进制行、PE32/PE32+ 解析、编码/EOL 原样保存。
+- [x] 内置查看器按内容切换文本/十六进制/PE；大文本不再按大小拒绝，超过 10 MiB 或 20 万行改用虚拟行列表；图片使用独立图片查看器。
+- [x] 图片查看器支持适应窗口、100%、缩放、滚动平移、GIF/WebP 动画与 SVG 预检；归档条目和普通文件都走内置查看器路由。
+- [x] 查看器保存普通文件使用编码/EOL 原样写回；ZIP/ZIPX/7Z 归档条目通过 `ArchiveService::replace_entry` 写回，失败不替换原归档。
+- [x] 新增 ZIPX 格式（`.zipx`），复用 ZIP 容器；新增 Snappy Framed（`.sz`/`.snappy`，Raw/Hadoop 流返回明确的不支持提示）和 BZip3（`.bz3`）单文件流读写，并接入压缩/解压/测试/设置/文件关联选项。
+- [x] RAR 列表区分 RAR4/RAR5 签名，方法列显示 RAR5，补齐 `solid` 标记；RAR5 仍为只读。
+- [x] 压缩/解压/测试/编辑/伪装/还原任务运行期间使用 Windows `SetThreadExecutionState` 阻止系统睡眠，任务结束/失败/取消/panic 后恢复；进度窗口显示提示。
+- [x] 归档内嵌套压缩包默认新窗口打开；子窗口独占临时目录，关闭窗口 Drop 清理，支持多层嵌套。
+- [x] 主题改用官方 `ThemeColor::light()/dark()` 基线和 `Theme::update` 整体 palette；删除视图层裸 `hsla`、按钮指针手、自绘进度条、空状态和标题栏徽标，统一官方 `Progress`/`Empty`/`Tag`/`Scrollable`。
+- [x] 新增 `docs/lgpl-compliance.md`、`licenses/LGPL-3.0-only.txt` 和第三方通知；BZip3 使用 `bzip3-rs`（LGPL-3.0-only AND Apache-2.0）。
+
+### 已完成与已接受限制
+
+- [x] 删除确认、打开归档可执行文件确认、清除密码库确认、删除密码记录确认已迁移到官方 `WindowExt::open_alert_dialog`，取消/焦点/Escape 由 Root 处理。
+- [x] 新建文件夹、重命名、保存解压密码、删除主密码迁移到官方 `WindowExt::open_dialog`；新建/重命名失败时保留官方对话框供修改。
+- [x] `chrome.rs` 的自绘模态已全部迁移：归档密码、自动尝试进度、临时解压进度也使用官方 `WindowExt`；进度更新时刷新官方对话框，任务结束时关闭。
+- [x] 侧栏和文件表保留专用自定义组合（懒加载目录树、可调列宽表），内部使用官方 Button/Checkbox/Select/Progress/Scrollable 和主题 token；通用 `Sidebar`/`DataTable` 无法直接表达现有树与列宽交互，作为专用数据视图维护。动作带和状态栏已迁移到官方 `Toolbar`/`StatusBar`。
+- [x] 已知限制：ZIPX 的 LZMA 写入受 `zip` crate 限制；当前 ZIPX 创建支持 Deflate/Bzip2/XZ/Zstd/PPMd，LZMA/Deflate64 为只读。
+- [x] RAR5 样本测试：`comment.rar`、`solid.rar`、Unicode 文件名、头加密密码、后续分卷错误路径；样本来源与许可见 `tests/fixtures/rar5/NOTICE.txt`。
+- [x] 已知限制：图片查看器保留旋转、EXIF 方向校正和超大图分块解码为后续增强；当前在 1 亿像素/512 MiB 前拒绝，避免解码失控。
+
 ## 已完成
 
 - [x] Rust workspace：`lumark-archive`、`lumark-vault`、`lumark-tasks`、`lumark-browser`、`lumark-settings`、`lumark-ui`、`lumark-app`、`lumark-platform-windows`。

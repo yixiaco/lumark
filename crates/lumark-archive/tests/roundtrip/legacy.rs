@@ -179,3 +179,80 @@ fn cpio_legacy_reader_lists_and_extracts() {
     .unwrap();
     assert_eq!(fs::read(output.join("hello.txt")).unwrap(), b"legacy cpio");
 }
+
+/// 返回仓库内 RAR5 测试样本路径。
+fn rar5_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("rar5")
+        .join(name)
+}
+
+#[test]
+/// 验证 RAR5 样本能识别、列出并提取，方法列显示 RAR5。
+fn rar5_samples_list_and_extract() {
+    for name in ["comment.rar", "unicode.rar"] {
+        let archive = rar5_fixture(name);
+        let info = ArchiveService::list(&archive, None)
+            .unwrap_or_else(|error| panic!("{name} list failed: {error}"));
+        assert_eq!(info.format, Some(ArchiveFormat::Rar));
+        assert!(!info.entries.is_empty(), "{name}");
+        assert!(
+            info.entries.iter().all(|entry| entry.method == "RAR5"),
+            "{name} 未显示 RAR5 方法"
+        );
+        let output = tempdir().unwrap();
+        let report = ArchiveService::extract(
+            &archive,
+            &ExtractionOptions {
+                output_dir: output.path().to_path_buf(),
+                overwrite: true,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert!(report.files > 0, "{name} 没有提取文件");
+        ArchiveService::test(&archive, None, |_| {}).unwrap();
+    }
+}
+
+#[test]
+/// 验证固实 RAR5 标记和 Unicode 文件名。
+fn rar5_solid_and_unicode_are_reported() {
+    let solid = ArchiveService::list(&rar5_fixture("solid.rar"), None).unwrap();
+    assert!(solid.solid, "solid.rar 应报告固实标记");
+
+    let unicode = ArchiveService::list(&rar5_fixture("unicode.rar"), None).unwrap();
+    let names = unicode
+        .entries
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        names.iter().any(|path| !path.is_ascii()),
+        "Unicode 样本缺少非 ASCII 文件名：{names:?}"
+    );
+}
+
+#[test]
+/// 验证 RAR5 头加密在无密码时失败、正确密码时可列出。
+fn rar5_header_encryption_requires_password() {
+    let archive = rar5_fixture("comment-hpw-password.rar");
+    assert!(
+        ArchiveService::list(&archive, None).is_err(),
+        "头加密 RAR5 不应在无密码时列出"
+    );
+    let info = ArchiveService::list(&archive, Some("password"))
+        .unwrap_or_else(|error| panic!("头加密 RAR5 使用正确密码仍失败：{error}"));
+    assert!(info.header_encrypted, "头加密标记未上报");
+    assert!(!info.entries.is_empty());
+    ArchiveService::test(&archive, Some("password"), |_| {}).unwrap();
+}
+
+#[test]
+/// 验证后续分卷被拒绝，而不是当成独立归档。
+fn rar5_subsequent_volume_is_rejected() {
+    assert!(ArchiveService::list(&rar5_fixture("100M.part00002.rar"), None).is_err());
+}

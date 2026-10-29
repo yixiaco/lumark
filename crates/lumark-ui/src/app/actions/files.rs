@@ -1,7 +1,9 @@
 //! 文件系统动作入口。
 
 use super::super::*;
+use gpui_kit::component::button::ButtonVariant;
 
+mod fs_edit;
 mod navigation;
 use crate::i18n::tr;
 
@@ -186,7 +188,7 @@ impl LumarkApp {
             return;
         }
         if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
-            self.add_files_to_current_archive(paths);
+            self.add_files_to_current_archive(paths, window, cx);
             return;
         }
         if paths.len() == 1 && paths[0].is_file() && is_archive_path(&paths[0]) {
@@ -210,7 +212,12 @@ impl LumarkApp {
     /// 归档重建代价高，不能按一次拖放直接覆盖；这里先确认同名条目的处理
     /// 方式，确认后才提交后台编辑任务。目录会成为同步根，供同步模式比对
     /// 归档内条目。
-    pub(crate) fn add_files_to_current_archive(&mut self, paths: &[PathBuf]) {
+    pub(crate) fn add_files_to_current_archive(
+        &mut self,
+        paths: &[PathBuf],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
             return;
         }
@@ -249,12 +256,11 @@ impl LumarkApp {
         );
         self.pending_archive_additions = additions;
         self.pending_archive_roots = roots;
-        self.show_archive_add_dialog = true;
+        self.request_archive_add(window, cx);
     }
 
     /// 按所选更新模式提交归档添加或同步任务。
     pub(crate) fn confirm_archive_add(&mut self, cx: &mut Context<Self>) {
-        self.show_archive_add_dialog = false;
         let additions = std::mem::take(&mut self.pending_archive_additions);
         let roots = std::mem::take(&mut self.pending_archive_roots);
         let BrowserLocation::Archive { archive, .. } = &self.browser.location else {
@@ -277,7 +283,6 @@ impl LumarkApp {
 
     /// 放弃本次添加，保持归档内容不变。
     pub(crate) fn cancel_archive_add(&mut self, cx: &mut Context<Self>) {
-        self.show_archive_add_dialog = false;
         self.pending_archive_additions.clear();
         self.pending_archive_roots.clear();
         self.status = tr("已取消添加文件", "Adding files cancelled").to_string();
@@ -325,11 +330,9 @@ impl LumarkApp {
             PendingEditAction::Add => {}
             PendingEditAction::Delete => {
                 self.pending_delete_paths.clear();
-                self.show_delete_confirm = false;
                 self.browser.selection.clear();
             }
             PendingEditAction::Rename => {
-                self.show_rename = false;
                 self.rename_target = None;
             }
         }
@@ -345,21 +348,62 @@ impl LumarkApp {
             .collect()
     }
 
-    /// 根据位置打开回收站删除或归档删除确认框。
-    pub(crate) fn request_delete(&mut self) {
+    /// 打开官方 AlertDialog 确认删除；确认后按当前位置走回收站或归档编辑。
+    pub(crate) fn request_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = self.selected_paths();
         if paths.is_empty() {
             self.status = tr("请先选择要删除的项目", "Select items to delete first").to_string();
             return;
         }
-        self.pending_delete_paths = paths;
-        self.show_delete_confirm = true;
+        let archive = matches!(&self.browser.location, BrowserLocation::Archive { .. });
+        let title = if archive {
+            tr("从归档删除", "Delete from archive")
+        } else {
+            tr("移入回收站", "Move to Recycle Bin")
+        };
+        let description = if archive {
+            tr(
+                "这些项目将从当前归档中永久移除。删除过程会重建归档，请不要同时进行其他写入操作。",
+                "These items will be permanently removed. The archive is rebuilt during deletion; avoid other writes at the same time.",
+            )
+        } else {
+            tr(
+                "删除后可以在回收站中还原；清空回收站后将无法恢复。",
+                "Items can be restored from the Recycle Bin until it is emptied.",
+            )
+        };
+        let app = cx.entity();
+        let dialog_paths = paths.clone();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let app = app.clone();
+            let paths = dialog_paths.clone();
+            alert
+                .title(title)
+                .description(description)
+                .confirm()
+                .ok_text(if archive {
+                    tr("从归档删除", "Delete from archive")
+                } else {
+                    tr("移入回收站", "Move to Recycle Bin")
+                })
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text(tr("取消", "Cancel"))
+                .on_ok(move |_, _, cx| {
+                    let app = app.clone();
+                    let paths = paths.clone();
+                    app.update(cx, |app, cx| {
+                        app.pending_delete_paths = paths;
+                        app.confirm_delete();
+                        cx.notify();
+                    });
+                    true
+                })
+        });
     }
 
     /// 通过回收站删除文件，或提交归档删除编辑。
     pub(crate) fn confirm_delete(&mut self) {
         if self.pending_delete_paths.is_empty() {
-            self.show_delete_confirm = false;
             return;
         }
         if let BrowserLocation::Archive { archive, .. } = &self.browser.location {
@@ -387,125 +431,8 @@ impl LumarkApp {
                     tr(" 个项目移入回收站", " items to the Recycle Bin")
                 );
                 self.pending_delete_paths.clear();
-                self.show_delete_confirm = false;
                 self.browser.selection.clear();
                 self.refresh();
-            }
-            Err(error) => self.status = error.to_string(),
-        }
-    }
-
-    /// 打开新建文件夹对话框并清空名称输入框。
-    pub(crate) fn start_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !matches!(&self.browser.location, BrowserLocation::FileSystem(_)) {
-            self.status = tr(
-                "只能在文件系统目录中新建文件夹",
-                "New folders can only be created in the file system",
-            )
-            .to_string();
-            return;
-        }
-        set_input(&self.new_folder_name, "", window, cx);
-        self.show_new_folder = true;
-    }
-
-    /// 在文件系统位置或当前归档中创建经过校验的文件夹。
-    pub(crate) fn create_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let name = input_value(&self.new_folder_name, cx);
-        let Some(parent) = self.current_directory() else {
-            self.status = tr(
-                "当前不在文件系统目录",
-                "Not currently in a file system folder",
-            )
-            .to_string();
-            return;
-        };
-        if !valid_file_name(&name) {
-            self.status = tr("文件夹名称无效", "Invalid folder name").to_string();
-            return;
-        }
-        match std::fs::create_dir(parent.join(name.trim())) {
-            Ok(()) => {
-                self.show_new_folder = false;
-                self.status = tr("已创建文件夹", "Folder created").to_string();
-                self.refresh();
-                set_input(
-                    &self.location_input,
-                    self.browser.current_display().as_str(),
-                    window,
-                    cx,
-                );
-            }
-            Err(error) => self.status = error.to_string(),
-        }
-    }
-
-    /// 打开重命名对话框并预填所选项目名称。
-    pub(crate) fn start_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(entry) = self.selected_entry() else {
-            self.status =
-                tr("请先选择要重命名的项目", "Select an item to rename first").to_string();
-            return;
-        };
-        if !matches!(
-            &self.browser.location,
-            BrowserLocation::FileSystem(_) | BrowserLocation::Archive { .. }
-        ) {
-            self.status = tr(
-                "归档内重命名尚未启用，请先解压",
-                "Renaming inside archives is not enabled yet; extract first",
-            )
-            .to_string();
-            return;
-        }
-        self.rename_target = Some(entry.path.clone());
-        set_input(&self.rename_name, &entry.name, window, cx);
-        self.show_rename = true;
-    }
-
-    /// 校验并应用文件系统重命名或归档条目重命名。
-    pub(crate) fn confirm_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(target) = self.rename_target.clone() else {
-            self.show_rename = false;
-            return;
-        };
-        let name = input_value(&self.rename_name, cx);
-        if !valid_file_name(&name) {
-            self.status = tr("名称无效", "Invalid name").to_string();
-            return;
-        }
-        let destination = target.with_file_name(name.trim());
-        if let BrowserLocation::Archive { archive, .. } = &self.browser.location {
-            let archive = archive.clone();
-            let old = target.to_string_lossy().replace('\\', "/");
-            let new = {
-                let mut parts: Vec<String> = old.split('/').map(ToString::to_string).collect();
-                if let Some(last) = parts.last_mut() {
-                    *last = name.trim().to_string();
-                }
-                parts.join("/")
-            };
-            let options = EditOptions {
-                source_password: self.archive_password.clone(),
-                rename: vec![(old, new)],
-                keep_backup: self.settings.get().archive_edit_backup,
-                ..Default::default()
-            };
-            self.submit_archive_edit(archive, options, PendingEditAction::Rename);
-            return;
-        }
-        match std::fs::rename(&target, &destination) {
-            Ok(()) => {
-                self.show_rename = false;
-                self.rename_target = None;
-                self.status = tr("已重命名", "Renamed").to_string();
-                self.refresh();
-                set_input(
-                    &self.location_input,
-                    self.browser.current_display().as_str(),
-                    window,
-                    cx,
-                );
             }
             Err(error) => self.status = error.to_string(),
         }
@@ -599,6 +526,12 @@ impl LumarkApp {
         });
         self.status = title.to_string();
         cx.notify();
+        cx.spawn(async move |this, cx| {
+            let _ = this.update_in(cx, |app, window, cx| {
+                app.open_temp_extract_dialog(window, cx);
+            });
+        })
+        .detach();
 
         let cleanup = output.clone();
         let (sender, receiver) = std::sync::mpsc::channel::<TempExtractEvent>();
@@ -643,11 +576,12 @@ impl LumarkApp {
                 }
                 if let Some(progress) = latest_progress
                     && this
-                        .update_in(cx, |app, _, cx| {
+                        .update_in(cx, |app, window, cx| {
                             if let Some(dialog) = &mut app.temp_extract {
                                 dialog.progress = extract_progress_percent(&progress);
                                 dialog.message = extract_progress_message(&progress);
                             }
+                            window.refresh();
                             cx.notify();
                         })
                         .is_err()
@@ -663,8 +597,9 @@ impl LumarkApp {
                 match mode {
                     TempExtractMode::Copy => {
                         let cleanup = cleanup.clone();
-                        let _ = this.update_in(cx, |app, _, cx| {
+                        let _ = this.update_in(cx, |app, window, cx| {
                             app.temp_extract = None;
+                            window.close_dialog(cx);
                             match result {
                                 Ok(items) => {
                                     let paths =
@@ -694,6 +629,7 @@ impl LumarkApp {
                         let weak = this.clone();
                         let _ = this.update_in(cx, |app, window, cx| {
                             app.temp_extract = None;
+                            window.close_dialog(cx);
                             match result {
                                 Ok(items) => {
                                     let paths =
@@ -824,7 +760,11 @@ impl LumarkApp {
             return;
         }
         if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
-            self.open_archive_entry(entry, window, cx);
+            if is_nested_archive_name(&entry.name) {
+                self.open_nested_archive_entry(entry, window, cx);
+            } else {
+                self.open_archive_entry(entry, window, cx);
+            }
             return;
         }
         if is_archive_path(&entry.path) {
@@ -857,7 +797,7 @@ impl LumarkApp {
             self.view_archive_entry(entry, window, cx);
             return;
         }
-        self.open_text_viewer(entry.path, entry.name, window, cx);
+        self.open_builtin_viewer(entry.path, entry.name, true, None, window, cx);
     }
 
     /// 在新的 Lumark 窗口中浏览所选文件夹。

@@ -105,7 +105,7 @@ impl LumarkApp {
                         this.open_selected(window, cx);
                         cx.notify();
                     } else if keystroke.key.eq_ignore_ascii_case("delete") {
-                        this.request_delete();
+                        this.request_delete(window, cx);
                         cx.notify();
                     } else if keystroke.key.eq_ignore_ascii_case("f2") {
                         this.start_rename(window, cx);

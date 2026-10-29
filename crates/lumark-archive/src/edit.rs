@@ -1,5 +1,7 @@
 //! ZIP/7Z 原地编辑和伪装归档透明编辑。
 
+mod replace;
+
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -118,7 +120,10 @@ impl ArchiveService {
         if format == ArchiveFormat::Disguised {
             return Self::edit_disguised(path, options, progress);
         }
-        if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
+        if !matches!(
+            format,
+            ArchiveFormat::Zip | ArchiveFormat::Zipx | ArchiveFormat::SevenZip
+        ) {
             return Err(ArchiveError::UnsupportedFormat(format.label().to_string()));
         }
         let mut addition_names = HashSet::new();
@@ -155,7 +160,7 @@ impl ArchiveService {
         ));
 
         let result = match format {
-            ArchiveFormat::Zip => {
+            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
                 write_zip(path, &temp, &options, progress)?;
                 0
             }
@@ -218,7 +223,10 @@ impl ArchiveService {
         } else {
             by_name
         };
-        if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip) {
+        if !matches!(
+            format,
+            ArchiveFormat::Zip | ArchiveFormat::Zipx | ArchiveFormat::SevenZip
+        ) {
             return Err(ArchiveError::UnsupportedFormat(format!(
                 "伪装内层 {} 暂不支持原地编辑，请先还原",
                 format.label()
