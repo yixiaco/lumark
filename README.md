@@ -278,6 +278,19 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 
 安装器使用稳定的 `AppId`，在 `PrivilegesRequired=lowest` 下安装到当前用户的 `%LOCALAPPDATA%\Programs\Lumark`，不需要管理员权限，并创建开始菜单入口和可选桌面图标，在安装/卸载时调用 `--register-shell` / `--unregister-shell`。正式发布前应在干净的 Windows 机器上验证安装、升级、卸载和签名；当前外层签名脚本不会单独签名 Inno 生成的内嵌卸载器，完整覆盖需要在 Inno 的 `SignTool` 配置中签名卸载器。
 
+### 安装时报 Error 5 / 拒绝访问
+
+如果安装器在创建 `%TEMP%\is-*.tmp` 或 `%LOCALAPPDATA%\Programs\Lumark` 时出现 `Error 5: 拒绝访问`，优先检查 360 安全卫士、其他杀毒软件或主动防御，而不是继续修改 Inno 的临时目录配置。当前机器运行 `360tray` 和 `ZhuDongFangYu` 时，用最小 Rust 程序测试 `create_dir_all` 会得到 OS error 5，但 PowerShell/cmd 可以创建同一目录；给测试程序加上有效的自签名也不会改变结果。这说明拦截来自安全软件对未知安装器进程的文件写入策略，不是 ACL、Inno 或签名链错误。
+
+处理方式：
+
+- 打开 360 的“木马查杀 → 信任区”或“安全防护中心 → 主动防御 → 信任列表”，把 `Lumark-Setup-<版本>.exe` 加入信任；
+- 也可以临时退出 360 或关闭主动防御做一次对照测试，确认后立即恢复，并把安装器加入白名单；
+- 不要用注册表全局关闭 Windows 的附件管理器或文件写入保护来绕过；
+- 自签名证书不能解决这类拦截；对外分发应使用受信任 CA 的代码签名证书，并向安全厂商提交误报/白名单申请。
+
+Tauri 的 NSIS 安装器本身不会天然绕过这一层：如果它在同一台机器上能运行，通常是安全软件已经信任了它的签名、发布者或安装器行为，而不是 NSIS 与 Inno 的格式差异。
+
 ### 去掉“来自 Internet 的文件”安全警告
 
 截图中的警告是 Windows 的 Mark-of-the-Web（MOTW），不是 Inno Setup 的签名错误，也不是安装器损坏。文件从浏览器、聊天软件或压缩包带上了 `Zone.Identifier`，Windows 就会在运行 exe 时显示该警告；即使发布者签名有效也会显示。
