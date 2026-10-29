@@ -14,6 +14,55 @@ use super::LumarkApp;
 /// 默认强调色：蓝色。
 const DEFAULT_ACCENT_COLOR: &str = "#2563eb";
 
+/// 普通中性表面上的状态语义色。
+///
+/// gpui-kit 的 `success_foreground`、`warning_foreground` 和
+/// `danger_foreground` 表示彩色状态底面上的文字色，浅色主题下接近白色，
+/// 不能直接当作普通页面上的图标或文字颜色。这里按当前主题模式派生状态色：
+/// 图标使用状态色并在浅色主题下略微压暗，正文文字进一步压暗以保证对比度。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StatusTone {
+    /// 成功或完成状态。
+    Success,
+    /// 警告或暂停状态。
+    Warning,
+    /// 危险或失败状态。
+    Danger,
+}
+
+impl StatusTone {
+    /// 返回用于图标和装饰性强调的状态色。
+    pub(crate) fn color(self, cx: &gpui_kit::App) -> gpui_kit::Hsla {
+        let color = match self {
+            Self::Success => cx.theme().success,
+            Self::Warning => cx.theme().warning,
+            Self::Danger => cx.theme().danger,
+        };
+        if cx.theme().mode.is_dark() {
+            return color;
+        }
+        let ceiling = match self {
+            Self::Success => 0.40,
+            Self::Warning => 0.42,
+            Self::Danger => 0.50,
+        };
+        hsla(color.h, color.s, color.l.min(ceiling), color.a)
+    }
+
+    /// 返回普通中性表面上可读的状态文字色。
+    pub(crate) fn text_color(self, cx: &gpui_kit::App) -> gpui_kit::Hsla {
+        let color = self.color(cx);
+        if cx.theme().mode.is_dark() {
+            return color;
+        }
+        let lightness = match self {
+            Self::Success | Self::Warning => 0.27,
+            Self::Danger => 0.38,
+        };
+        hsla(color.h, color.s, color.l.min(lightness), color.a)
+    }
+}
+
 /// 在官方主题基线上应用 Lumark 的强调色。
 ///
 /// 中性色、语义状态色和组件 token 全部来自 `ThemeColor::light()/dark()`；

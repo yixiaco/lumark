@@ -1,6 +1,6 @@
 //! 文件系统和归档共用的浏览器导航与搜索模型。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -507,6 +507,24 @@ impl BrowserModel {
                 items.insert(key.clone(), BrowserEntry::from_archive(entry.clone()));
             }
         }
+        // 归档目录在条目列表里可能只作为子文件的隐含父路径出现；统一按
+        // 子文件实际大小汇总，避免 PE 节、普通归档文件夹在“大小”列显示 0 B。
+        let mut directory_sizes: HashMap<String, u64> = HashMap::new();
+        for entry in &self.archive_entries {
+            if entry.is_dir {
+                continue;
+            }
+            let normalized = entry.path.replace('\\', "/");
+            let mut parent = normalized.as_str();
+            while let Some((directory, _)) = parent.rsplit_once('/') {
+                *directory_sizes.entry(directory.to_string()).or_default() += entry.size;
+                parent = directory;
+            }
+        }
+        for item in items.values_mut().filter(|item| item.is_dir) {
+            let path = item.path.to_string_lossy().replace('\\', "/");
+            item.size = directory_sizes.get(&path).copied().unwrap_or(0);
+        }
         let mut entries: Vec<_> = items.into_values().collect();
         entries.sort_by(|left, right| {
             right
@@ -706,6 +724,35 @@ mod tests {
         assert!(!browser.can_go_up());
         browser.go_parent().unwrap();
         assert_eq!(browser.location, BrowserLocation::FileSystem(root));
+    }
+
+    /// 验证归档文件夹显示子文件累计大小，而不是固定 0 B。
+    #[test]
+    fn archive_directories_report_recursive_size() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("content");
+        std::fs::create_dir_all(source.join("docs")).unwrap();
+        std::fs::write(source.join("docs").join("readme.txt"), b"hello").unwrap();
+        let archive = directory.path().join("size.zip");
+        ArchiveService::create(
+            &archive,
+            &[source],
+            &lumark_archive::CompressionOptions {
+                format: ArchiveFormat::Zip,
+                path_mode: lumark_archive::PathMode::NoRoot,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        let mut browser = BrowserModel::new(directory.path()).unwrap();
+        browser.open_archive(&archive, None).unwrap();
+        let folder = browser
+            .entries
+            .iter()
+            .find(|entry| entry.is_dir && entry.name == "docs")
+            .expect("归档根目录应包含 docs");
+        assert_eq!(folder.size, 5);
     }
 
     /// 验证归档内部总能返回，归档根目录只在压缩包有实际父目录时才能跳出。

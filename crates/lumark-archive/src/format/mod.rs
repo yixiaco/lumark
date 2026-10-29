@@ -128,6 +128,8 @@ pub enum ArchiveFormat {
     Enc,
     /// Lzip 单文件流。
     Lzip,
+    /// Windows PE 可执行文件：按节和资源浏览，只读。
+    Pe,
     /// Lumark 伪装容器：内层格式由尾部信息保存的原文件名决定。
     ///
     /// 该变体只由 `ArchiveService::detect` 在识别到尾部信息时返回，不会
@@ -193,6 +195,7 @@ impl ArchiveFormat {
         Self::Bin,
         Self::Enc,
         Self::Lzip,
+        Self::Pe,
     ];
 
     /// 返回用于界面展示的格式名称。
@@ -256,6 +259,7 @@ impl ArchiveFormat {
             Self::Bin => "BIN 镜像",
             Self::Enc => "AES 加密容器",
             Self::Lzip => "LZIP 文件",
+            Self::Pe => "PE 可执行文件",
             Self::Disguised => "Lumark 伪装压缩文件",
             Self::Unknown => "文件",
         }
@@ -406,6 +410,7 @@ impl ArchiveFormat {
             Self::Bin => "bin",
             Self::Enc => "enc",
             Self::Lzip => "lz",
+            Self::Pe => "exe",
             // 伪装容器的扩展名由面具决定，检测逻辑不依赖它。
             Self::Disguised => "",
             Self::Unknown => "",
@@ -798,4 +803,5 @@ pub struct EncryptionInfo {
 }
 
 mod detect;
+pub use detect::is_pe_image;
 pub use detect::{detect_format, detect_magic};

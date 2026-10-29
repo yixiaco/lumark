@@ -24,7 +24,7 @@ pub(super) fn render_parent_tile(cx: &mut Context<LumarkApp>) -> impl IntoElemen
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(cx.theme().warning_foreground)
+                .text_color(StatusTone::Warning.color(cx))
                 .child(AppIcon::FolderOpen.element(48.)),
         )
         .child(

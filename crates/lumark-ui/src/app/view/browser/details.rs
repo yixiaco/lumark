@@ -43,8 +43,8 @@ impl LumarkApp {
                     .px_3()
                     .gap_1()
                     .items_center()
-                    .bg(cx.theme().sidebar_primary)
-                    .text_color(cx.theme().sidebar_foreground)
+                    .bg(cx.theme().secondary)
+                    .text_color(cx.theme().secondary_foreground)
                     .child(AppIcon::Doc.element(13.))
                     .child(
                         div()
@@ -86,10 +86,16 @@ impl LumarkApp {
                             entry_icon(&entry).element(17.).into_any_element()
                         };
                         let size_text = if entry.is_dir {
-                            self.folder_sizes
-                                .get(&entry.path)
-                                .map(|size| format_size(*size))
-                                .unwrap_or_else(|| tr("可计算", "Calculate").to_string())
+                            if let Some(size) = self.folder_sizes.get(&entry.path) {
+                                format_size(*size)
+                            } else if matches!(
+                                &self.browser.location,
+                                BrowserLocation::Archive { .. }
+                            ) {
+                                format_size(entry.size)
+                            } else {
+                                tr("可计算", "Calculate").to_string()
+                            }
                         } else {
                             format_size(entry.size)
                         };
@@ -190,7 +196,7 @@ impl LumarkApp {
                                 .child(
                                     div()
                                         .flex_shrink_0()
-                                        .text_color(cx.theme().warning_foreground)
+                                        .text_color(StatusTone::Warning.color(cx))
                                         .child(AppIcon::Folder.element(17.)),
                                 )
                                 .child(

@@ -27,6 +27,7 @@ use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::disguise::{DisguiseFileOptions, DisguiseInfo, DisguiseOptions, DisguisePayloadKind};
 use crate::error::ArchiveError;
+use crate::format::is_pe_image;
 use crate::format::{
     ArchiveEntry, ArchiveFormat, ArchiveInfo, CompressionOptions, CreateReport, EncryptionInfo,
     ExtractReport, ExtractionBudget, ExtractionOptions, ZipEncryption, detect_format, detect_magic,
@@ -125,11 +126,17 @@ impl ArchiveService {
             // NSIS 是带 PE 外壳的安装包，没有固定头部魔数；只在 MZ 文件上
             // 做一次完整解析，避免把所有 EXE 都当成归档。
             if header[..read].starts_with(b"MZ")
+                && nsis::contains_marker(&base)
                 && fs::read(&base)
                     .ok()
                     .is_some_and(|bytes| ::nsis::NsisInstaller::from_bytes(&bytes).is_ok())
             {
                 return ArchiveFormat::Nsis;
+            }
+            // NSIS 之外的 PE 一律作为只读的节/资源容器；放在 NSIS 之后，
+            // 保证安装包仍按归档浏览而不是只显示 PE 节。
+            if is_pe_image(&header[..read]) {
+                return ArchiveFormat::Pe;
             }
         }
         // DMG 的 `koly` 位于文件末尾 512 字节，不在头部；按扩展名未识别时
@@ -289,6 +296,7 @@ impl ArchiveService {
             ArchiveFormat::Chm => Self::list_chm(path),
             ArchiveFormat::SquashFs => Self::list_squashfs(path),
             ArchiveFormat::Nsis => Self::list_nsis(path),
+            ArchiveFormat::Pe => Self::list_pe(path),
             ArchiveFormat::Dmg => Self::list_dmg(path),
             ArchiveFormat::Egg => Self::list_egg(path),
             ArchiveFormat::Rar => Self::list_rar(path, password),
@@ -450,6 +458,7 @@ impl ArchiveService {
             ArchiveFormat::Chm => Self::test_chm(&input, &mut progress),
             ArchiveFormat::SquashFs => Self::test_squashfs(&input, &mut progress),
             ArchiveFormat::Nsis => Self::test_nsis(&input, &mut progress),
+            ArchiveFormat::Pe => Self::test_pe(&input, &mut progress),
             ArchiveFormat::Dmg => Self::test_dmg(&input, &mut progress),
             ArchiveFormat::Egg => Self::test_egg(&input, &mut progress),
             ArchiveFormat::Rar => Self::test_rar(&input, password, &mut progress),
@@ -684,6 +693,7 @@ impl ArchiveService {
             ArchiveFormat::Chm => Self::extract_chm(path, options, &mut progress),
             ArchiveFormat::SquashFs => Self::extract_squashfs(path, options, &mut progress),
             ArchiveFormat::Nsis => Self::extract_nsis(path, options, &mut progress),
+            ArchiveFormat::Pe => Self::extract_pe(path, options, &mut progress),
             ArchiveFormat::Dmg => Self::extract_dmg(path, options, &mut progress),
             ArchiveFormat::Egg => Self::extract_egg(path, options, &mut progress),
             ArchiveFormat::Rar => Self::extract_rar(path, options, &mut progress),
@@ -954,6 +964,7 @@ mod egg;
 mod list;
 mod msi;
 mod nsis;
+mod pe;
 mod rpm;
 mod squashfs;
 #[cfg(test)]

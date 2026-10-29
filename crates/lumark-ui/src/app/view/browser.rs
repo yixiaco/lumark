@@ -436,6 +436,36 @@ mod tests {
         );
     }
 
+    /// 真实 PE 文件按只读归档处理，菜单提供浏览/解压/运行入口。
+    #[test]
+    fn pe_file_is_classified_as_pe_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("setup.exe");
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        std::fs::write(&file, bytes).unwrap();
+        let executable = BrowserEntry {
+            id: "fs:setup.exe".to_string(),
+            name: "setup.exe".to_string(),
+            path: file,
+            is_dir: false,
+            size: 0,
+            modified: None,
+            kind: String::new(),
+            archive_entry: None,
+            encrypted: false,
+        };
+        assert_eq!(
+            file_menu_kind(
+                &BrowserLocation::FileSystem(directory.path().to_path_buf()),
+                &executable
+            ),
+            FileMenuKind::PeFile
+        );
+    }
+
     /// 伪装归档在文件系统里必须归类为可打开归档，菜单才提供打开/解压/还原入口。
     #[test]
     fn disguised_archive_is_classified_as_archive_file() {

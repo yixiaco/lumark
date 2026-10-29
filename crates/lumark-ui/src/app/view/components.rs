@@ -198,9 +198,9 @@ impl BannerTone {
     fn icon_color(self, cx: &gpui_kit::App) -> gpui_kit::Hsla {
         match self {
             Self::Primary => cx.theme().primary,
-            Self::Success => cx.theme().success_foreground,
-            Self::Warning => cx.theme().warning_foreground,
-            Self::Danger => cx.theme().danger_foreground,
+            Self::Success => StatusTone::Success.color(cx),
+            Self::Warning => StatusTone::Warning.color(cx),
+            Self::Danger => StatusTone::Danger.color(cx),
             Self::Neutral => cx.theme().muted_foreground,
         }
     }
@@ -580,16 +580,16 @@ pub(super) fn entry_icon(entry: &BrowserEntry) -> AppIcon {
 /// 颜色只取自主题语义色，因此深浅色切换时仍保持足够对比。
 pub(super) fn entry_icon_color(cx: &Context<LumarkApp>, entry: &BrowserEntry) -> gpui_kit::Hsla {
     if entry.encrypted {
-        return cx.theme().danger_foreground;
+        return StatusTone::Danger.color(cx);
     }
     if entry.is_dir {
-        return cx.theme().warning_foreground;
+        return StatusTone::Warning.color(cx);
     }
     match entry_icon(entry) {
         AppIcon::Zip => cx.theme().accent_foreground,
-        AppIcon::Picture => cx.theme().success_foreground,
+        AppIcon::Picture => StatusTone::Success.color(cx),
         AppIcon::Music | AppIcon::Video => cx.theme().primary,
-        AppIcon::FileLock => cx.theme().danger_foreground,
+        AppIcon::FileLock => StatusTone::Danger.color(cx),
         _ => cx.theme().muted_foreground,
     }
 }

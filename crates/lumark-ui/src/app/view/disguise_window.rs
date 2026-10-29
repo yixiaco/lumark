@@ -294,7 +294,7 @@ impl DisguiseWindowView {
             .child(match &self.error {
                 Some(error) => div()
                     .text_xs()
-                    .text_color(cx.theme().danger)
+                    .text_color(StatusTone::Danger.text_color(cx))
                     .child(error.clone())
                     .into_any_element(),
                 None => hint_text(

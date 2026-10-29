@@ -6,6 +6,7 @@ use std::rc::Rc;
 use super::super::*;
 use super::components::AppIcon;
 use crate::i18n::tr;
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::{Editor, EditorState};
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -568,8 +569,21 @@ impl TextViewerWindowView {
             return render_error(cx, self.error.as_deref().unwrap_or("无法解析 PE"));
         };
         let info = &pe.info;
-        let mut sections = v_flex().w_full().gap_1();
+        let mut sections = v_flex().w_full().gap_1().child(
+            h_flex()
+                .w_full()
+                .gap_2()
+                .px_1()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(div().w(px(100.)).child(tr("名称", "Name")))
+                .child(div().w(px(92.)).child(tr("虚拟地址", "RVA")))
+                .child(div().w(px(92.)).child(tr("原始偏移", "Raw offset")))
+                .child(div().w(px(92.)).child(tr("原始大小", "Raw size")))
+                .child(div().flex_1().child(tr("特性", "Flags"))),
+        );
         for section in info.sections.iter().take(128) {
+            let size = format_size(u64::from(section.raw_size));
             sections = sections.child(
                 h_flex()
                     .w_full()
@@ -584,15 +598,21 @@ impl TextViewerWindowView {
                     )
                     .child(
                         div()
-                            .w(px(120.))
+                            .w(px(92.))
                             .font_family(cx.theme().mono_font_family.clone())
-                            .child(format!("RVA {:08x}", section.virtual_address)),
+                            .child(format!("{:08x}", section.virtual_address)),
                     )
                     .child(
                         div()
-                            .w(px(120.))
+                            .w(px(92.))
                             .font_family(cx.theme().mono_font_family.clone())
-                            .child(format!("RAW {:08x}", section.raw_offset)),
+                            .child(format!("{:08x}", section.raw_offset)),
+                    )
+                    .child(
+                        div()
+                            .w(px(92.))
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .child(size),
                     )
                     .child(
                         div()
@@ -603,12 +623,13 @@ impl TextViewerWindowView {
             );
         }
         v_flex()
+            .id("pe-summary")
             .flex_1()
             .min_h_0()
             .w_full()
             .p_5()
             .gap_3()
-            .overflow_hidden()
+            .overflow_y_scroll()
             .child(
                 h_flex()
                     .gap_2()
@@ -660,6 +681,8 @@ impl TextViewerWindowView {
             })
             .child(
                 div()
+                    .id("viewer-pe-sections")
+                    .test_support()
                     .text_sm()
                     .font_semibold()
                     .child(tr("节表", "Sections")),
@@ -770,7 +793,7 @@ fn render_error(cx: &Context<impl Render>, message: &str) -> gpui_kit::AnyElemen
             div()
                 .text_sm()
                 .font_semibold()
-                .text_color(cx.theme().danger)
+                .text_color(StatusTone::Danger.text_color(cx))
                 .child(tr("无法打开内容", "Cannot open content")),
         )
         .child(

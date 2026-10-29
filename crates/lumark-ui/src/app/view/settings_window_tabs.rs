@@ -537,7 +537,7 @@ impl SettingsWindowView {
                                 .px_3()
                                 .py_2()
                                 .text_xs()
-                                .text_color(cx.theme().danger_foreground)
+                                .text_color(StatusTone::Danger.text_color(cx))
                                 .child(error),
                         )
                     })

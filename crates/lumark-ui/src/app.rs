@@ -831,7 +831,9 @@ impl LumarkApp {
 pub(crate) use actions::tasks::{
     aggregate_task_progress, is_terminal_task_state, task_state_label,
 };
-pub(crate) use theme::{apply_theme, apply_theme_accent, hsla_to_hex, theme_accent_presets};
+pub(crate) use theme::{
+    StatusTone, apply_theme, apply_theme_accent, hsla_to_hex, theme_accent_presets,
+};
 pub(crate) use util::*;
 pub(crate) use viewer_support::*;
 

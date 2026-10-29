@@ -24,6 +24,11 @@ enum TempExtractEvent {
     Finished(Result<Vec<(PathBuf, bool)>, String>),
 }
 
+/// 把路径交给资源管理器，由系统默认方式打开或运行。
+fn open_path_external(path: &Path) {
+    let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
+}
+
 impl LumarkApp {
     pub(crate) fn displayed_entries(&self) -> Vec<BrowserEntry> {
         self.search_results
@@ -771,9 +776,27 @@ impl LumarkApp {
             self.open_archive_with_auto_password(entry.path, ArchiveOpenIntent::Browse, window, cx);
             return;
         }
-        let _ = std::process::Command::new("explorer.exe")
-            .arg(&entry.path)
-            .spawn();
+        open_path_external(&entry.path);
+    }
+
+    /// 用系统默认方式运行或打开所选文件。
+    ///
+    /// PE 默认作为只读归档浏览；只有用户在右键菜单选择“运行”时才走这里，
+    /// 避免浏览节和资源时意外启动程序。
+    pub(crate) fn open_selected_external(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            self.status = tr("请先选择一个项目", "Select an item first").to_string();
+            return;
+        };
+        if entry.is_dir {
+            self.status = tr("请选择一个文件", "Select a file").to_string();
+            return;
+        }
+        if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
+            self.open_archive_entry(entry, window, cx);
+            return;
+        }
+        open_path_external(&entry.path);
     }
 
     /// 用内置只读文本查看器打开所选文件。

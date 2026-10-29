@@ -309,7 +309,7 @@ impl LumarkApp {
                     div()
                         .w_full()
                         .text_xs()
-                        .text_color(cx.theme().warning)
+                        .text_color(StatusTone::Warning.text_color(cx))
                         .child(tr("记录密码均不正确。输入正确密码后可直接保存，下次自动匹配。", "Saved passwords did not match. Enter the correct one and save it for next time.")),
                 );
             }

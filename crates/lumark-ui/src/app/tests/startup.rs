@@ -130,6 +130,32 @@ mod startup_tests {
         assert_eq!(request.target(), Some(output.as_path()));
     }
 
+    /// 验证 PE 可执行文件作为只读归档被 `--open` 和 `--extract` 接受。
+    #[test]
+    fn open_request_accepts_pe_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let pe = directory.path().join("tool.exe");
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        std::fs::write(&pe, bytes).unwrap();
+        let request = StartupRequest::parse(vec![
+            "--open".to_string(),
+            pe.to_string_lossy().into_owned(),
+        ])
+        .expect("open PE request");
+        assert_eq!(request.mode, StartupMode::Open);
+        assert_eq!(request.target(), Some(pe.as_path()));
+
+        let request = StartupRequest::parse(vec![
+            "--extract".to_string(),
+            pe.to_string_lossy().into_owned(),
+        ])
+        .expect("extract PE request");
+        assert_eq!(request.target(), Some(pe.as_path()));
+    }
+
     /// 验证 ISO 挂载请求只接受真实存在的 .iso 文件。
     #[test]
     fn iso_request_requires_existing_iso_file() {

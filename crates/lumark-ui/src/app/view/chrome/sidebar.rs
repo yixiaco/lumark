@@ -114,7 +114,8 @@ impl LumarkApp {
                         .gap_2()
                         .items_center()
                         .rounded_md()
-                        .bg(cx.theme().sidebar_primary)
+                        .bg(cx.theme().sidebar_accent)
+                        .text_color(cx.theme().sidebar_accent_foreground)
                         .border_1()
                         .border_color(cx.theme().sidebar_border)
                         .child(
@@ -191,7 +192,7 @@ impl LumarkApp {
             })
             .when(active, |this| this.bg(cx.theme().sidebar_accent))
             .when(!active, |this| {
-                this.hover(|style| style.bg(cx.theme().sidebar_primary))
+                this.hover(|style| style.bg(cx.theme().secondary))
             })
             .child(location_icon(label).element(14.))
             .child(
@@ -235,7 +236,7 @@ impl LumarkApp {
             })
             .when(active, |this| this.bg(cx.theme().sidebar_accent))
             .when(!active, |this| {
-                this.hover(|style| style.bg(cx.theme().sidebar_primary))
+                this.hover(|style| style.bg(cx.theme().secondary))
             })
             .child(
                 div()
@@ -261,7 +262,7 @@ impl LumarkApp {
                     })),
             )
             .child(
-                div().text_color(cx.theme().warning_foreground).child(
+                div().text_color(StatusTone::Warning.color(cx)).child(
                     if row.expanded {
                         AppIcon::FolderOpen
                     } else {

@@ -196,6 +196,19 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     ArchiveFormat::Unknown
 }
 
+/// 检查 Windows PE 签名：`MZ`、`e_lfanew` 和 `PE\0\0`。
+///
+/// `bytes` 只需要覆盖 DOS 头和 `e_lfanew` 指向的 PE 签名字节。
+pub fn is_pe_image(bytes: &[u8]) -> bool {
+    if bytes.len() < 0x40 || &bytes[..2] != b"MZ" {
+        return false;
+    }
+    let offset = u32::from_le_bytes([bytes[0x3c], bytes[0x3d], bytes[0x3e], bytes[0x3f]]) as usize;
+    offset
+        .checked_add(4)
+        .is_some_and(|end| end <= bytes.len() && &bytes[offset..end] == b"PE\0\0")
+}
+
 /// 按文件头魔数识别归档格式。
 pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06") {
@@ -345,6 +358,19 @@ mod tests {
             detect_magic(b"hsqs\x00\x00\x00\x00"),
             ArchiveFormat::SquashFs
         );
+    }
+
+    /// 验证 PE 签名单独识别，普通 DOS 头和损坏偏移不误判。
+    #[test]
+    fn pe_signature_is_detected() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        assert!(super::is_pe_image(&bytes));
+        bytes[0x80..0x84].copy_from_slice(b"NE\0\0");
+        assert!(!super::is_pe_image(&bytes));
+        assert!(!super::is_pe_image(b"MZ"));
     }
 
     /// 验证所有已登记格式都有非空标签和扩展名，且 Unknown 不在列表中。

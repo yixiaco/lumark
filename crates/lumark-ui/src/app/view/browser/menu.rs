@@ -18,6 +18,8 @@ pub(super) enum FileMenuKind {
     IsoFile,
     /// 文件系统中的可执行文件。
     ExecutableFile,
+    /// 文件系统中的 PE 可执行文件，作为只读归档浏览。
+    PeFile,
     /// 文件系统中的普通文件。
     File,
 }
@@ -36,12 +38,15 @@ pub(super) fn file_menu_kind(location: &BrowserLocation, entry: &BrowserEntry) -
                 FileMenuKind::Folder
             } else if is_iso_path(&entry.path) {
                 FileMenuKind::IsoFile
-            } else if is_archive_path(&entry.path) {
-                FileMenuKind::ArchiveFileSystem
-            } else if is_executable_like(&entry.path) {
-                FileMenuKind::ExecutableFile
             } else {
-                FileMenuKind::File
+                match ArchiveService::detect(&entry.path) {
+                    ArchiveFormat::Pe => FileMenuKind::PeFile,
+                    ArchiveFormat::Unknown if is_executable_like(&entry.path) => {
+                        FileMenuKind::ExecutableFile
+                    }
+                    ArchiveFormat::Unknown => FileMenuKind::File,
+                    _ => FileMenuKind::ArchiveFileSystem,
+                }
             }
         }
     }
@@ -303,10 +308,63 @@ pub(super) fn file_context_menu(
                         |app, window, cx| app.request_delete(window, cx),
                     ))
             }
+            FileMenuKind::PeFile => menu
+                .item(popup_action(
+                    tr("用 Lumark 打开", "Open with Lumark"),
+                    AppIcon::FolderOpen,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_selected(window, cx),
+                ))
+                .item(popup_action(
+                    tr("解压到…", "Extract to..."),
+                    AppIcon::Zip,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_extract_dialog(window, cx),
+                ))
+                .separator()
+                .item(popup_action(
+                    tr("运行", "Run"),
+                    AppIcon::Doc,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_selected_external(window, cx),
+                ))
+                .item(popup_action(
+                    tr("复制路径", "Copy path"),
+                    AppIcon::Copy,
+                    &app,
+                    window,
+                    |app, _, cx| app.copy_selected_path(cx),
+                ))
+                .item(popup_action(
+                    tr("在资源管理器中显示", "Show in Explorer"),
+                    AppIcon::Search,
+                    &app,
+                    window,
+                    |app, _, _| app.reveal_selected(),
+                ))
+                .separator()
+                .item(popup_action(
+                    tr("重命名", "Rename"),
+                    AppIcon::Edit,
+                    &app,
+                    window,
+                    |app, window, cx| app.start_rename(window, cx),
+                ))
+                .item(popup_action(
+                    tr("删除", "Delete"),
+                    AppIcon::Delete,
+                    &app,
+                    window,
+                    |app, window, cx| app.request_delete(window, cx),
+                )),
             FileMenuKind::ExecutableFile | FileMenuKind::File => {
+                let executable = kind == FileMenuKind::ExecutableFile;
                 let menu = menu
                     .item(popup_action(
-                        if kind == FileMenuKind::ExecutableFile {
+                        if executable {
                             tr("运行", "Run")
                         } else {
                             tr("打开", "Open")
@@ -314,7 +372,13 @@ pub(super) fn file_context_menu(
                         AppIcon::Doc,
                         &app,
                         window,
-                        |app, window, cx| app.open_selected(window, cx),
+                        move |app, window, cx| {
+                            if executable {
+                                app.open_selected_external(window, cx);
+                            } else {
+                                app.open_selected(window, cx);
+                            }
+                        },
                     ))
                     .item(popup_action(
                         tr("使用内置查看器打开", "Open in built-in viewer"),
@@ -322,7 +386,8 @@ pub(super) fn file_context_menu(
                         &app,
                         window,
                         |app, window, cx| app.open_selected_in_viewer(window, cx),
-                    ))
+                    ));
+                let menu = menu
                     .item(popup_action(
                         tr("压缩为 Lumark 归档", "Compress to Lumark archive"),
                         AppIcon::Compression,

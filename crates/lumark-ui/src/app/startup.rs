@@ -103,7 +103,8 @@ impl StartupRequest {
                 StartupMode::MountIso | StartupMode::UnmountIso => {
                     path.is_file() && is_iso_path(path)
                 }
-                StartupMode::Open | StartupMode::Extract => {
+                StartupMode::Open => path.is_file() && (self.force_open || is_archive_path(path)),
+                StartupMode::Extract => {
                     path.is_file() && (self.force_open || is_archive_path(path))
                 }
             })

@@ -40,7 +40,7 @@ impl LumarkApp {
                         AppIcon::Check,
                         tr("已完成", "Completed"),
                         aggregate.finished,
-                        cx.theme().success_foreground,
+                        StatusTone::Success.color(cx),
                     ))
                     .child(task_stat_card(
                         cx,

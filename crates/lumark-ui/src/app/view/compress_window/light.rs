@@ -205,7 +205,7 @@ impl CompressWindowView {
                 this.child(
                     div()
                         .text_xs()
-                        .text_color(cx.theme().danger_foreground)
+                        .text_color(StatusTone::Danger.text_color(cx))
                         .child(error),
                 )
             })

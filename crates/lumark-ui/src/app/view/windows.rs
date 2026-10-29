@@ -237,8 +237,8 @@ impl Render for ProgressWindowView {
                     )
                     .when_some(self.message.clone(), |this, message| {
                         let color = match self.state {
-                            TaskState::Failed => cx.theme().danger,
-                            TaskState::Completed => cx.theme().success_foreground,
+                            TaskState::Failed => StatusTone::Danger.text_color(cx),
+                            TaskState::Completed => StatusTone::Success.text_color(cx),
                             _ => cx.theme().muted_foreground,
                         };
                         this.child(

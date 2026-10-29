@@ -4,7 +4,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 
 ## 本轮新增
 
-- **内置查看器**：文本按内容显示文本、十六进制或 PE 结构；大文本使用 mmap + 虚拟行列表，不再按 4 MB 拒绝；图片使用独立图片查看器，支持适应窗口、100%、缩放、滚动平移、GIF/WebP 动画和 SVG。归档条目和普通文件都走同一路由，ZIP/ZIPX/7Z 条目可直接保存回原归档。
+- **内置查看器与 PE 归档**：文本按内容显示文本或十六进制；exe/dll 等 PE 文件默认作为只读归档打开，按节和资源目录浏览，`.rsrc` 下的图标资源重建为 `.ico`，可解压任意节/资源并用内置查看器或图片查看器打开，右键菜单仍保留显式“运行”。大文本使用 mmap + 虚拟行列表，不再按 4 MB 拒绝；图片查看器支持适应窗口、100%、缩放、滚动平移、GIF/WebP 动画和 SVG。归档条目和普通文件都走同一路由，ZIP/ZIPX/7Z 条目可直接保存回原归档。
 - **格式**：ZIPX（`.zipx`，ZIP 容器，独立格式选项）、Snappy Framed（`.sz`/`.snappy`；Raw/Hadoop 流会明确提示只支持 Framed）、BZip3（`.bz3`，按预设使用 4/16/64 MiB 块）、RAR5 列表（RAR4/RAR5 签名区分，只读，方法列显示 RAR5）。
 - **系统集成**：压缩、解压、测试、编辑、伪装、还原任务运行期间通过 Windows `SetThreadExecutionState` 阻止系统睡眠，任务结束/失败/取消后恢复；不阻止显示器关闭。
 - **嵌套压缩包**：归档内的 `.zip/.zipx/.7z/.rar/.tar.gz/.sz/.bz3` 等条目默认在新 Lumark 窗口中打开；子窗口独占临时目录，关闭窗口时清理，支持多层嵌套。
@@ -47,13 +47,13 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - Windows 当前用户文件关联：可勾选 ZIP、ZIPX、7Z、RAR、XAR/PKG、RPM、MSI、CHM、SquashFS、DMG、EGG、Snappy、BZip3 等 37 种压缩格式，注册后直接打开 Lumark 的 Windows 默认应用页，由系统确认默认值；同时提供经典右键菜单、Send To、回收站删除和安装/卸载脚本。
 - ISO 虚拟光驱：Lumark 文件列表和资源管理器右键菜单都提供“加载至虚拟光驱/卸载虚拟光驱”；挂载成功后自动打开盘符，使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`。客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。资源管理器菜单位于 `HKCU\Software\Classes\SystemFileAssociations\.iso\shell`，升级后需要重新运行安装脚本或 `Lumark.exe --register-shell`。
 - 单实例多窗口：首个进程创建命名管道和互斥体，后续进程优先通过命名管道转发参数（失败回退请求目录）；每个文件生成独立窗口，窗口之间共享设置和密码库、各自保留浏览状态，关闭全部窗口后退出进程。
-- 内置查看器：文本/十六进制/PE 按内容自动选择，支持编辑器保存和归档条目写回；图片查看器支持 PNG/JPEG/GIF/WebP/SVG/BMP/TIFF/ICO 等常见格式（实际解码能力取决于 GPUI `Img` 与 image 特性），支持适应窗口、100%、缩放和滚动平移。归档条目先解压到临时目录再打开，临时文件沿用现有查看器生命周期。
+- 内置查看器：文本/十六进制按内容自动选择，支持编辑器保存和归档条目写回；exe/dll 等 PE 文件默认作为只读归档浏览，按节和 `.rsrc` 资源目录展开，图标资源重建为 `.ico`，可解压节/资源并用内置查看器或图片查看器打开，右键“运行”才交给系统执行；图片查看器支持 PNG/JPEG/GIF/WebP/SVG/BMP/TIFF/ICO 等常见格式（实际解码能力取决于 GPUI `Img` 与 image 特性），支持适应窗口、100%、缩放和滚动平移。归档条目先解压到临时目录再打开，临时文件沿用现有查看器生命周期。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
 
 ### 格式支持矩阵
 
 - **读写**：ZIP、ZIPX（AES/传统加密、Deflate/Bzip2/XZ/Zstd/PPMd 写入；LZMA/Deflate64 只读）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、WIM（LZX 创建）、TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4、Snappy Framed（`.sz`/`.snappy`）、BZip3（`.bz3`）。
-- **只读解压**：RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像，XPRESS/LZX/LZMS，支持 SWM）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
+- **只读解压**：PE（节/资源目录，图标组重建为 ICO）、RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像，XPRESS/LZX/LZMS，支持 SWM）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
 - **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
 - **暂不支持**：PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取并还原目录层级，写入未实现；WIM 的 LZMS/SWM 写入、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
 

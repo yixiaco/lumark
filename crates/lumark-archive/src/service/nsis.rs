@@ -4,6 +4,44 @@ use super::*;
 
 use crate::format::OverwritePolicy;
 use ::nsis::NsisInstaller;
+use std::fs::File;
+use std::io::Read;
+
+/// NSIS 首个头部前后的标准与旧版标记。
+const MARKERS: [&[u8]; 2] = [b"NullsoftInst", b"nsisinstall\0"];
+
+/// 流式检查文件是否包含 NSIS 头部标记。
+///
+/// NSIS 解析器会在 PE 覆盖数据中逐字节搜索头部，普通大 EXE 因此要承受
+/// 完整读入和长时间扫描。先按固定标记过滤，只有真正带 NSIS 数据的外壳
+/// 才进入完整解析；缓冲区保留标记长度减一的重叠，避免跨块漏检。
+pub(super) fn contains_marker(path: &Path) -> bool {
+    let Ok(mut file) = File::open(path) else {
+        return false;
+    };
+    let overlap = MARKERS.iter().map(|marker| marker.len()).max().unwrap_or(1) - 1;
+    let mut buffer = vec![0u8; 64 * 1024 + overlap];
+    let mut carry = 0usize;
+    loop {
+        let Ok(read) = file.read(&mut buffer[carry..]) else {
+            return false;
+        };
+        let filled = carry + read;
+        let bytes = &buffer[..filled];
+        if MARKERS
+            .iter()
+            .any(|marker| bytes.windows(marker.len()).any(|window| window == *marker))
+        {
+            return true;
+        }
+        if read == 0 {
+            return false;
+        }
+        let keep = overlap.min(filled);
+        buffer.copy_within(filled - keep..filled, 0);
+        carry = keep;
+    }
+}
 
 impl ArchiveService {
     /// 列出 NSIS 安装包内嵌文件。
@@ -200,4 +238,29 @@ fn nsis_path(name: &str) -> String {
         .trim_start_matches('/')
         .trim_end_matches('/')
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_marker;
+
+    /// 标记跨越读取缓冲区时仍应被识别，避免漏掉真实安装包。
+    #[test]
+    fn detects_marker_across_buffer_boundary() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("installer.exe");
+        let mut bytes = vec![0u8; 64 * 1024 - 5];
+        bytes.extend_from_slice(b"NullsoftInst");
+        std::fs::write(&path, bytes).unwrap();
+        assert!(contains_marker(&path));
+    }
+
+    /// 普通可执行文件没有 NSIS 标记时直接跳过完整解析。
+    #[test]
+    fn ignores_executable_without_marker() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("app.exe");
+        std::fs::write(&path, vec![0u8; 128 * 1024]).unwrap();
+        assert!(!contains_marker(&path));
+    }
 }
