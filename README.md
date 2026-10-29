@@ -265,6 +265,8 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 - 写出对应的 `.sha256` 校验文件；
 - 传入 `-SignThumbprint` 或 `-SignPfxPath` 时，先签名暂存二进制，再签名最终安装器。
 
+安装器本身已经包含 Inno Setup 运行时；构建机安装 Inno Setup 只用于编译，不需要随应用分发。若运行时出现 `Temp\is-*.tmp` 的 Error 5，通常是 `%TEMP%` 权限、受限令牌或安全软件拦截，而不是缺少 Inno Setup；需要为安装器放行临时目录或使用代码签名后的安装器。
+
 安装器使用稳定的 `AppId`，按 `{autopf}` 安装（普通用户目录或 Program Files，取决于权限），创建开始菜单入口和可选桌面图标，并在安装/卸载时调用 `--register-shell` / `--unregister-shell`。正式发布前应在干净的 Windows 机器上验证安装、升级、卸载和签名；Inno Setup 内嵌卸载器的签名需要在 Inno 的 `SignTool` 配置中完成，不能只给安装器外层签名。
 
 安装器使用官方文档描述的暂存目录和 Inno Setup 流程。Windows 右键菜单使用应用已有的当前用户经典 Shell 注册（`--register-shell` / `--unregister-shell`），由 Inno Setup 的安装/卸载步骤调用。

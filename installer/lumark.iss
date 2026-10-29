@@ -27,6 +27,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; 使用 64 位 Setup Loader，减少 32 位安全软件注入导致的临时目录创建失败。
+UseSetupLdr=x64
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
