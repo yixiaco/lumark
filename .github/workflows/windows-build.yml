@@ -1,0 +1,195 @@
+name: windows-build
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: Check
+    runs-on: windows-latest
+    timeout-minutes: 240
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.99.0
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy --no-self-update
+          rustup default 1.99.0
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-check
+
+      - name: Format
+        shell: pwsh
+        run: cargo fmt --all -- --check
+
+      - name: File sizes
+        shell: pwsh
+        run: pwsh -NoProfile -File tools/check_file_sizes.ps1
+
+      - name: Clippy
+        shell: pwsh
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        shell: pwsh
+        run: cargo test --workspace --locked
+
+  build:
+    name: Build
+    runs-on: windows-latest
+    timeout-minutes: 240
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact: ${{ steps.version.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.99.0
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy --no-self-update
+          rustup default 1.99.0
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-release
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $package = $metadata.packages | Where-Object { $_.name -eq 'lumark-app' } | Select-Object -First 1
+          if (-not $package -or -not $package.version) {
+              throw '无法从 cargo metadata 读取 lumark-app 版本'
+          }
+          $version = $package.version
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+              $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+              if ($tagVersion -ne $version) {
+                  throw "tag $($env:GITHUB_REF_NAME) 与 Cargo 版本 $version 不一致"
+              }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "artifact=Lumark-$version-windows-x64" >> $env:GITHUB_OUTPUT
+
+      - name: Package
+        shell: pwsh
+        env:
+          LUMARK_SIGN_PFX_BASE64: ${{ secrets.LUMARK_SIGN_PFX_BASE64 }}
+          LUMARK_SIGN_PFX_PASSWORD: ${{ secrets.LUMARK_SIGN_PFX_PASSWORD }}
+          LUMARK_SIGN_NO_TIMESTAMP: ${{ vars.LUMARK_SIGN_NO_TIMESTAMP }}
+        run: |
+          $buildArguments = @('-Version', '${{ steps.version.outputs.version }}')
+          if ($env:LUMARK_SIGN_PFX_BASE64) {
+              if (-not $env:LUMARK_SIGN_PFX_PASSWORD) {
+                  throw '已配置 LUMARK_SIGN_PFX_BASE64，但缺少 LUMARK_SIGN_PFX_PASSWORD'
+              }
+              $pfx = Join-Path $env:RUNNER_TEMP 'lumark-sign.pfx'
+              [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:LUMARK_SIGN_PFX_BASE64))
+              $buildArguments += @('-SignPfxPath', $pfx, '-SignPfxPassword', $env:LUMARK_SIGN_PFX_PASSWORD)
+              if ($env:LUMARK_SIGN_NO_TIMESTAMP -eq 'true') {
+                  $buildArguments += '-NoTimestamp'
+              }
+          } else {
+              Write-Host '::warning::未配置代码签名证书，产物未签名'
+          }
+          & ./tools/build_release.ps1 @buildArguments
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+
+      - name: Remove signing certificate
+        if: always()
+        shell: pwsh
+        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'lumark-sign.pfx') -Force -ErrorAction SilentlyContinue
+
+      - name: Write summary
+        shell: pwsh
+        run: |
+          "## Lumark ${{ steps.version.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
+          "" >> $env:GITHUB_STEP_SUMMARY
+          "| 文件 | SHA-256 |" >> $env:GITHUB_STEP_SUMMARY
+          "|---|---|" >> $env:GITHUB_STEP_SUMMARY
+          $files = Get-ChildItem -Path dist -Recurse -File |
+              Where-Object { $_.Extension -in '.exe', '.zip' -or $_.Name -eq 'SHA256SUMS.txt' }
+          foreach ($file in $files) {
+              $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "| $($file.Name) | $hash |" >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.artifact }}
+          path: |
+            dist/Lumark-Setup-*.exe
+            dist/Lumark-Setup-*.exe.sha256
+            dist/Lumark-*-portable-x64.zip
+            dist/windows/**
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, build]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: dist
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $files = Get-ChildItem -Path dist -Recurse -File |
+              Where-Object {
+                  $_.Name -match '^Lumark-Setup-.*\.exe(\.sha256)?$' -or
+                  $_.Name -match '^Lumark-.*-portable-x64\.zip$' -or
+                  $_.Name -eq 'SHA256SUMS.txt'
+              } |
+              ForEach-Object { $_.FullName }
+          if (-not $files) {
+              throw '没有可发布的产物'
+          }
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+              Write-Host "更新已有 Release：$tag"
+              gh release upload $tag @files --clobber
+          } else {
+              gh release create $tag --title "Lumark $tag" --generate-notes @files
+          }
+          if ($LASTEXITCODE -ne 0) {
+              throw "发布 Release 失败：$tag"
+          }

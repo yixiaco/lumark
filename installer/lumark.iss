@@ -17,7 +17,9 @@ AppPublisher=Lumark
 DefaultDirName={autopf}\Lumark
 DefaultGroupName=Lumark
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+; 安装器始终请求管理员权限；admin 模式下 {autopf} 解析为 Program Files，
+; {autoprograms}/{autodesktop} 自动使用公共开始菜单和公共桌面。
+PrivilegesRequired=admin
 OutputDir=..\dist
 OutputBaseFilename=Lumark-Setup-{#AppVersion}
 SetupIconFile=..\crates\lumark-app\assets\lumark.ico
@@ -44,9 +46,12 @@ Name: "{autoprograms}\Lumark"; Filename: "{app}\Lumark.exe"
 Name: "{autodesktop}\Lumark"; Filename: "{app}\Lumark.exe"; Tasks: desktopicon
 
 [Run]
-; 安装后注册当前用户的经典右键菜单。
-Filename: "{app}\Lumark.exe"; Parameters: "--register-shell"; Flags: runhidden nowait
-Filename: "{app}\Lumark.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; 用启动安装器的原始用户身份注册当前用户右键菜单，避免写入提权管理员的 HKCU。
+; postinstall 默认就是 runasoriginaluser，这里显式写出便于审阅。
+Filename: "{app}\Lumark.exe"; Parameters: "--register-shell"; Flags: runhidden nowait runasoriginaluser
+Filename: "{app}\Lumark.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
+; Inno 的 runasoriginaluser 只允许用于 [Run]；卸载器按当前提权用户执行，
+; 同一用户卸载时 HKCU 一致，管理员代其他用户卸载会保留该用户的菜单项。
 Filename: "{app}\Lumark.exe"; Parameters: "--unregister-shell"; Flags: runhidden; RunOnceId: "UnregisterShell"

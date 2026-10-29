@@ -1,0 +1,4 @@
+# Inno Setup 脚本和 PowerShell 脚本使用 CRLF，保证 Windows 构建机（含 GitHub Actions）
+# 检出的行尾与本地一致。
+*.iss text eol=crlf
+*.ps1 text eol=crlf

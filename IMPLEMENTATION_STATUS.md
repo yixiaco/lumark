@@ -106,8 +106,11 @@
 - [x] 自解压图标真实模块测试：以当前测试 EXE 作为运行时模块，替换图标后读取页脚并解压载荷，覆盖 PE 资源改写和偏移重算。
 - [x] 自解压自定义图标：压缩窗口可选择 `.ico`，生成时在追加载荷前用 Win32 资源 API 替换运行时模块的 RT_ICON/RT_GROUP_ICON，页脚偏移按替换后的实际大小计算。
 - [x] CHM 只读格式：使用 `libchm` 解析 ITSF/ITSP、PMGL 目录和 LZX 数据，支持普通命名空间文件/目录列表、选择性解压、预算/取消和完整性测试；已加入 `.chm` Shell 关联。
-- [x] Windows 正式安装器：按 GPUI Kit 官方打包文档新增 `installer/lumark.iss` 和 `installer/pack-installer.ps1`，暂存 app/SFX/许可文本，生成 Inno Setup 安装器和 SHA-256；安装/卸载时注册/移除当前用户经典右键菜单，并支持先签名暂存二进制和最终安装器。已用 Inno Setup 6.7.3 实际编译出 `dist/Lumark-Setup-0.1.0.exe` 并生成校验文件；未签名安装器的静默安装会被 SmartScreen 拦截，正式发布前需签名。
+- [x] Windows 正式安装器：按 GPUI Kit 官方打包文档新增 `installer/lumark.iss` 和 `installer/pack-installer.ps1`，暂存 app/SFX/许可文本，生成 Inno Setup 安装器和 SHA-256；`PrivilegesRequired=admin`，默认安装到 `C:\Program Files\Lumark`，安装器以启动安装器的原始用户身份注册当前用户经典右键菜单，并支持先签名暂存二进制和最终安装器。已用 Inno Setup 6.7.3 实际编译出 `dist/Lumark-Setup-0.1.0.exe` 并生成校验文件；未签名安装器的静默安装会被 SmartScreen 拦截，正式发布前需签名。
 - [x] Authenticode 代码签名脚本：`installer/sign.ps1` 支持证书存储指纹或 PFX、SHA-256 时间戳、签名后自动 `signtool verify /pa`，以及 `-VerifyOnly` 校验；`pack-installer.ps1` 可先签名暂存二进制和最终安装器，没有证书时明确失败。
+- [x] 发布信任检查与安全警告修复：定位到工作区被代码代理沙箱写入 Low Mandatory Level，`target` 下新编译的 exe 继承低完整性后，Windows 附件管理器在双击时弹出“打开文件 - 安全警告”（与 MOTW 同一套 UI，签名不能消除）；已将仓库根目录恢复为 Medium。`tools/build_release.ps1` 在构建前检测工作区，若为 Low 会恢复根目录为 Medium（权限不足时明确失败），再对 release exe、安装器和便携包做 MOTW/Low 完整性检查。
+- [x] 一键发布构建：`tools/build_release.ps1` 统一编译 app/SFX、检查 MOTW 与工作区完整性、按需签名（开发证书/PFX）、调用 `pack-installer.ps1`、生成 `Lumark-<版本>-portable-x64.zip` 和 `SHA256SUMS.txt`。
+- [x] GitHub Actions：新增 `.github/workflows/windows-build.yml`，push/PR 执行格式、行数、clippy、测试和 release 构建并上传 artifact；`v*` tag 校验 Cargo 版本后创建/更新 GitHub Release；支持 `LUMARK_SIGN_PFX_BASE64`/`LUMARK_SIGN_PFX_PASSWORD` 可选签名。
 - [x] EGG 只读格式：使用 MIT `unegg` 读取 Store/Deflate/Bzip2/LZMA 条目，支持列表、选择性解压、覆盖策略、预算/取消、完整性测试和自动发现 EGG 分卷（含双卷回归测试）；AZO 条目因缺少可用解码器明确报不支持，使用本地 `libazo` 占位依赖并有回归测试。已加入 `.egg` Shell 关联。
 - [x] DMG（UDIF）只读格式：使用 MIT `dpp` 自动识别 HFS+/APFS 卷，支持遍历、列表、选择性解压、覆盖策略、预算/取消和完整性测试；按 `.dmg` 扩展名或末尾 `koly` 识别，跳过符号链接。测试用 `hfsplus`/`udif` 合成原始 HFS+ DMG。
 - [x] NSIS 安装包只读格式：使用 Apache-2.0 `nsis` 解析 PE overlay、压缩头和 `EW_EXTRACTFILE` 条目，支持列表、选择性解压、覆盖策略、预算/取消、完整性测试和自动发现 EGG 分卷（含双卷回归测试）；按内容识别，不注册 `.exe` 默认关联，避免劫持普通可执行文件。测试夹具来自 nsis-rs 并保留 NOTICE。
@@ -173,7 +176,7 @@ powershell -NoProfile -File tools/check_file_sizes.ps1
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo build --release -p lumark-app
+powershell -NoProfile -File tools/build_release.ps1 -Version 0.1.0 -UseDevCert
 ```
 
 DPAPI 测试必须在有权访问当前 Windows 用户密钥存储的普通用户会话中运行。托盘图标测试需要可创建 Shell 通知图标的交互式桌面会话；受限会话可能返回“拒绝访问”。

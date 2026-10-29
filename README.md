@@ -10,6 +10,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - **嵌套压缩包**：归档内的 `.zip/.zipx/.7z/.rar/.tar.gz/.sz/.bz3` 等条目默认在新 Lumark 窗口中打开；子窗口独占临时目录，关闭窗口时清理，支持多层嵌套。
 - **主题与 UI**：`app/theme.rs` 改用官方 `ThemeColor` 调色板 + `Theme::update`，只覆盖强调色字段；新增界面从 `cx.theme()` 取色。移除了视图层裸 `hsla`、按钮指针手、自绘进度条、空状态和标题栏徽标的旧实现；统一官方 `Progress`、`Empty`、`Tag`。删除、可执行文件确认、清除密码库、删除密码、新建文件夹、重命名、保存密码、删除主密码、解锁密码库、额外候选确认、加密密码库导入/导出、归档添加模式选择、归档密码输入、自动尝试进度和临时解压进度均已迁移到官方 `Dialog`/`AlertDialog`；`chrome.rs` 不再保留自绘模态遮罩。
 - BZip3 使用 LGPL-3.0-only AND Apache-2.0 的纯 Rust `bzip3-rs`；合规与重链接说明见 [`docs/lgpl-compliance.md`](docs/lgpl-compliance.md)，发布物附带 `licenses/LGPL-3.0-only.txt`。
+- **发布构建与安全警告**：新增 `tools/build_release.ps1`、管理员权限 Inno 安装器和 GitHub Actions 工作流；排查并修复沙箱给工作区写入 Low 完整性标签导致的“打开文件 - 安全警告”，发布脚本会对 MOTW 和 Low 完整性做产物级检查与修复。
 
 ## 当前功能
 
@@ -73,27 +74,46 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 
 Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 `lib.exe`/`link.exe` 在系统临时目录创建 `lnk*.tmp` 时被安全软件拦截的 `LNK1104`。
 
-Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup。仓库已内置 Inno Setup 6.7.3 命令行编译器：
+### 一键发布构建
+
+推荐用 `tools/build_release.ps1` 完成构建、信任检查、签名、安装器和校验文件：
+
+```powershell
+./tools/build_release.ps1 -Version 0.1.0
+./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
+```
+
+首次使用开发证书先运行 `./installer/self-sign.ps1`（当前用户级，不需要管理员）。脚本会：
+
+- 编译 `lumark-app` 和 `lumark-sfx`；
+- 清除 MOTW；发现工作区 Low 完整性时恢复仓库根目录为 Medium（见“打开文件 - 安全警告”章节）；
+- 按需用 `-UseDevCert`、`-SignThumbprint` 或 `-SignPfxPath` 签名；
+- 调用 `installer/pack-installer.ps1` 生成 `dist\Lumark-Setup-<版本>.exe` 和 `.sha256`；
+- 生成 `dist\Lumark-<版本>-portable-x64.zip` 和 `dist\SHA256SUMS.txt`。
+
+需要单独控制打包时仍可直接调用 Inno 脚本；它只负责暂存、编译和签名，不清理 `target\release` 的 MOTW/完整性标签：
 
 ```powershell
 ./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
-构建机不需要安装 Inno Setup，脚本只调用 `installer/tools/innosetup/ISCC.exe`；不要删除该目录。需要签名时传入证书参数；脚本会先签名暂存二进制，再签名最终安装器：
+Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup。仓库已内置 Inno Setup 6.7.3 命令行编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装；不要删除该目录。`build_release.ps1` 会签名 `target\release` 和安装器，直接调用 `pack-installer.ps1` 时只签名暂存二进制和最终安装器：
 
 ```powershell
+./tools/build_release.ps1 -Version 0.1.0 -SignThumbprint <SHA1指纹>
+./tools/build_release.ps1 -Version 0.1.0 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
 ./installer/pack-installer.ps1 -Version 0.1.0 -SignThumbprint <SHA1指纹>
 ./installer/pack-installer.ps1 -Version 0.1.0 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
 ```
 
-开发阶段可创建当前用户级自签名证书，不需要管理员权限。脚本会把证书加入当前用户的根和受信任发布者存储，并输出指纹：
+开发阶段可创建当前用户级自签名证书，不需要管理员权限。脚本会把证书加入当前用户的根和受信任发布者存储，并输出指纹；之后用 `-UseDevCert` 自动选中：
 
 ```powershell
-$cert = ./installer/self-sign.ps1
-./installer/pack-installer.ps1 -Version 0.1.0 -SignThumbprint $cert.Thumbprint -NoTimestamp
+./installer/self-sign.ps1
+./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
 ```
 
-自签名只对本机或已手动信任 `dist\dev-cert\Lumark-Dev.cer` 的机器有效；其它机器仍可能显示未知发布者，SmartScreen 信誉也不能靠自签名获得。正式分发应使用受信任 CA 的 Authenticode 证书。签名不会授予管理员权限；当前安装器使用 `PrivilegesRequired=lowest`，普通用户安装不需要管理员权限。
+自签名只对本机或已手动信任 `dist\dev-cert\Lumark-Dev.cer` 的机器有效；其它机器仍可能显示未知发布者，SmartScreen 信誉也不能靠自签名获得。正式分发应使用受信任 CA 的 Authenticode 证书。签名不会授予管理员权限；当前安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限，默认安装到 `C:\Program Files\Lumark`。
 
 也可以单独校验已有签名：
 
@@ -270,27 +290,35 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 
 ## Windows 安装程序（Inno Setup，推荐）
 
-按 [GPUI Kit 桌面应用打包与分发](https://gpui-kit.com/zh-CN/docs/packaging/) 的 Windows 流程，发布给普通用户时使用 Inno Setup 安装器，而不是只分发 ZIP 或开发脚本。先构建 release 产物，再生成暂存目录、安装器和 SHA-256：
+按 [GPUI Kit 桌面应用打包与分发](https://gpui-kit.com/zh-CN/docs/packaging/) 的 Windows 流程，发布给普通用户时使用 Inno Setup 安装器，而不是只分发 ZIP 或开发脚本。推荐使用一键脚本（见“一键发布构建”），它会完成编译、信任检查、签名和打包：
+
+```powershell
+./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
+```
+
+也可以分步执行；`pack-installer.ps1` 只负责暂存、编译和签名，不清理 `target\release` 的 MOTW/Low 完整性标签：
 
 ```powershell
 cargo build --release --locked -p lumark-app -p lumark-sfx
 ./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
-仓库内置 Inno Setup 6.7.3 编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装 Inno Setup，也不再从 PATH 或系统安装目录查找 `ISCC.exe`。脚本会：
+仓库内置 Inno Setup 6.7.3 编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装 Inno Setup，也不再从 PATH 或系统安装目录查找 `ISCC.exe`。直接调用 `pack-installer.ps1` 时脚本会：
 
 - 校验并暂存 `Lumark.exe`、`lumark-sfx.exe` 和许可文本到 `dist\windows`；
 - 调用 `installer/lumark.iss` 生成 `dist\Lumark-Setup-<版本>.exe`；
 - 写出对应的 `.sha256` 校验文件；
 - 传入 `-SignThumbprint` 或 `-SignPfxPath` 时，先签名暂存二进制，再签名最终安装器。
 
-安装器本身已经包含 Inno Setup 运行时；构建机不需要安装 Inno Setup。若运行时出现 `Temp\is-*.tmp` 的 Error 5，通常是 `%TEMP%` 权限、受限令牌或安全软件拦截，而不是缺少 Inno Setup；需要为安装器放行临时目录或使用代码签名后的安装器。自签名只能让本机信任该签名，不能绕过安全软件或获得 SmartScreen 信誉。
+安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限，默认安装到 `C:\Program Files\Lumark`；admin 模式下 `{autoprograms}`/`{autodesktop}` 自动使用公共开始菜单和公共桌面。安装/卸载时调用 `--register-shell` / `--unregister-shell`；`--register-shell` 使用 `runasoriginaluser`，以启动安装器的原始用户身份写入 HKCU，避免写入提权管理员账户。
 
-安装器使用稳定的 `AppId`，在 `PrivilegesRequired=lowest` 下安装到当前用户的 `%LOCALAPPDATA%\Programs\Lumark`，不需要管理员权限，并创建开始菜单入口和可选桌面图标，在安装/卸载时调用 `--register-shell` / `--unregister-shell`。正式发布前应在干净的 Windows 机器上验证安装、升级、卸载和签名；当前外层签名脚本不会单独签名 Inno 生成的内嵌卸载器，完整覆盖需要在 Inno 的 `SignTool` 配置中签名卸载器。
+旧版（`PrivilegesRequired=lowest`，安装到 `%LOCALAPPDATA%\Programs\Lumark`）不会被新安装器识别为同一安装；升级前先在“设置 → 应用”中卸载旧版，避免残留目录和重复卸载项。`AppId` 保持不变，后续管理员安装版本可正常升级。
+
+安装器本身已经包含 Inno Setup 运行时；构建机不需要安装 Inno Setup。若运行时出现 `Temp\is-*.tmp` 的 Error 5，通常是 `%TEMP%` 权限、受限令牌或安全软件拦截，而不是缺少 Inno Setup；需要为安装器放行临时目录或使用代码签名后的安装器。自签名只能让本机信任该签名，不能绕过安全软件或获得 SmartScreen 信誉。
 
 ### 安装时报 Error 5 / 拒绝访问
 
-如果安装器在创建 `%TEMP%\is-*.tmp` 或 `%LOCALAPPDATA%\Programs\Lumark` 时出现 `Error 5: 拒绝访问`，优先检查 360 安全卫士、其他杀毒软件或主动防御，而不是继续修改 Inno 的临时目录配置。当前机器运行 `360tray` 和 `ZhuDongFangYu` 时，用最小 Rust 程序测试 `create_dir_all` 会得到 OS error 5，但 PowerShell/cmd 可以创建同一目录；给测试程序加上有效的自签名也不会改变结果。这说明拦截来自安全软件对未知安装器进程的文件写入策略，不是 ACL、Inno 或签名链错误。
+如果安装器在创建 `%TEMP%\is-*.tmp` 或 `C:\Program Files\Lumark` 时出现 `Error 5: 拒绝访问`，优先检查 360 安全卫士、其他杀毒软件或主动防御，而不是继续修改 Inno 的临时目录配置。当前机器运行 `360tray` 和 `ZhuDongFangYu` 时，用最小 Rust 程序测试 `create_dir_all` 会得到 OS error 5，但 PowerShell/cmd 可以创建同一目录；给测试程序加上有效的自签名也不会改变结果。这说明拦截来自安全软件对未知安装器进程的文件写入策略，不是 ACL、Inno 或签名链错误。
 
 处理方式：
 
@@ -301,17 +329,44 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 
 Tauri 的 NSIS 安装器本身不会天然绕过这一层：如果它在同一台机器上能运行，通常是安全软件已经信任了它的签名、发布者或安装器行为，而不是 NSIS 与 Inno 的格式差异。
 
-### 去掉“来自 Internet 的文件”安全警告
+### “打开文件 - 安全警告”的两个来源
 
-截图中的警告是 Windows 的 Mark-of-the-Web（MOTW），不是 Inno Setup 的签名错误，也不是安装器损坏。文件从浏览器、聊天软件或压缩包带上了 `Zone.Identifier`，Windows 就会在运行 exe 时显示该警告；即使发布者签名有效也会显示。
+截图中的提示是 Windows 附件管理器的统一 UI，有两类独立触发条件：
 
-本机单个文件可以右键“属性 → 解除锁定”，或执行：
+1. **Mark-of-the-Web（MOTW）**：文件带 `Zone.Identifier`，通常来自浏览器、聊天工具或下载的压缩包；`Get-Item <文件> -Stream *` 能看到该流。
+2. **Low 完整性标签**：文件由低完整性沙箱进程创建，`icacls <文件>` 显示 `Mandatory Label\Low Mandatory Level`。本地 Cargo 构建如果发生在被沙箱标记的工作区，`target` 下每次新生成的 exe 都会继承它；**签名不能消除这类提示**。
+
+本仓库在 2026-10-29 排查到工作区被代码代理沙箱加过 Low 标签（ACL 中可见 `CodexSandboxUsers`/`S-1-4-*` 授权），导致 `target\release\lumark-app.exe` 每次编译后双击都弹“未知发布者”。已将仓库根目录恢复为 Medium。若再次出现：
 
 ```powershell
-Unblock-File .\dist\windows\Lumark.exe
-Unblock-File .\dist\Lumark-Setup-0.1.0.exe
+# 区分来源
+Get-Item .\target\release\lumark-app.exe -Stream *                       # 有 Zone.Identifier → MOTW
+icacls .\target\release\lumark-app.exe | Select-String 'Mandatory'       # Low → 完整性标签
+
+# 修复 MOTW
+Unblock-File .\target\release\lumark-app.exe
+
+# 修复 Low 完整性（在仓库根执行；回退用 "(OI)(CI)Low"）
+$root = (Get-Location).Path
+icacls $root /setintegritylevel "(OI)(CI)Medium"
 ```
 
-打包脚本在生成后会清除 `dist\windows` 和最终安装器的 MOTW，因此本机构建产物不应再出现该警告。其它机器从网络下载安装包时，Windows 会重新写入 MOTW，构建脚本无法替接收方永久移除；接收方可对安装包执行 `Unblock-File`，或通过受信任的签名和分发渠道降低 SmartScreen 提示。Tauri 的 NSIS 安装器同样是下载的 exe，也会受到同一机制影响；MSIX 由 Windows 包部署栈安装，不走 loose exe 的 MOTW 路径。
+`tools/build_release.ps1` 在构建前检测工作区完整性：如果是 Low，会先把仓库根目录恢复为 Medium（需要根目录写权限；失败会打印 `icacls` 命令并中止），再对 release exe、安装器和便携包做 MOTW/Low 检查。这样不会产出仍带 Low 标签的发布物。提升工作区标签会削弱低完整性沙箱的写隔离；如果仍要保留沙箱，请不要在工作区内构建发布产物。
 
-安装器使用官方文档描述的暂存目录和 Inno Setup 流程。Windows 右键菜单使用应用已有的当前用户经典 Shell 注册（`--register-shell` / `--unregister-shell`），由 Inno Setup 的安装/卸载步骤调用。
+其它机器从网络下载安装包时，Windows 会重新写入 MOTW；接收方可执行 `Unblock-File`，或直接使用安装器（安装后的文件不再带 MOTW）。Tauri 的 NSIS 安装器同样受 MOTW 影响；MSIX 由包部署栈安装，不走 loose exe 的 MOTW 路径。
+
+### GitHub Actions 自动构建
+
+`.github/workflows/windows-build.yml`：
+
+- `push`、`pull_request`、`workflow_dispatch` 运行 `check`（格式、文件行数、clippy、测试）和 `build`（Rust 1.99.0、release 构建、安装器、便携包），上传 `Lumark-<版本>-windows-x64` artifact；
+- 推送 `v*` tag 时，`release` job 创建或更新 GitHub Release；tag 必须与 `Cargo.toml` 版本一致；
+- 可选签名：配置仓库 secret `LUMARK_SIGN_PFX_BASE64`（PFX 的 Base64）和 `LUMARK_SIGN_PFX_PASSWORD`；自签名/无时间戳可设仓库变量 `LUMARK_SIGN_NO_TIMESTAMP=true`；未配置时构建未签名产物并给出警告。CI 签名请使用受信任 CA 的 PFX；自签名 PFX 需要先在 runner 的受信任根/发布者存储中安装，否则 `sign.ps1` 的 `signtool verify /pa` 会失败。
+- 构建机不需要安装 Inno Setup；CI runner 的工作区是正常 Medium，不会带本机 Low 标签。
+
+发布示例：
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```

@@ -5,7 +5,11 @@
 .DESCRIPTION
     按 GPUI Kit 官方打包文档的 Windows 流程：先校验 release 产物，暂存到
     dist\windows，再调用 Inno Setup 的 ISCC.exe。安装器携带 app、SFX 运行时
-    和许可文本；安装后由 Lumark 自己注册当前用户的经典右键菜单。
+    和许可文本；安装器需要管理员权限，默认安装到 Program Files，安装后由
+    Lumark 以启动安装器的原始用户身份注册当前用户的经典右键菜单。
+
+    日常发布建议直接运行 tools/build_release.ps1：它会先编译、检查并修复
+    MOTW 和 Low 完整性标签，再调用本脚本，最后生成便携包和 SHA256SUMS.txt。
 .PARAMETER Version
     安装器版本号，同时传给 ISCC 的 AppVersion。
 .PARAMETER InputDir

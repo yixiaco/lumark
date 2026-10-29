@@ -64,7 +64,9 @@ Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePassword -
 Write-Host "已创建并信任开发证书：$($cert.Thumbprint)"
 Write-Host "CER：$cerPath"
 Write-Host "PFX：$pfxPath（密码：$PfxPassword）"
-Write-Host "签名安装器："
+Write-Host "构建并签名发布产物："
+Write-Host "  ./tools/build_release.ps1 -Version 0.1.0 -UseDevCert"
+Write-Host "也可只签名安装器："
 Write-Host "  ./installer/pack-installer.ps1 -Version 0.1.0 -SignThumbprint $($cert.Thumbprint) -NoTimestamp"
 Write-Host "其它机器信任：certutil -user -addstore Root `"$cerPath`"; certutil -user -addstore TrustedPublisher `"$cerPath`""
 
