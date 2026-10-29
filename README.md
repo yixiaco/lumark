@@ -61,6 +61,8 @@ cargo run -p lumark-app
 cargo build --release --locked -p lumark-app -p lumark-sfx
 ```
 
+Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 `lib.exe`/`link.exe` 在系统临时目录创建 `lnk*.tmp` 时被安全软件拦截的 `LNK1104`。
+
 Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup：
 
 ```powershell

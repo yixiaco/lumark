@@ -3,3 +3,10 @@ registry = "sparse+https://index.crates.io/"
 
 [net]
 git-fetch-with-cli = true
+
+[env]
+# Windows 的 lib.exe/link.exe 会在系统临时目录创建 lnk*.tmp；部分安全软件会
+# 拦截该操作并报 LNK1104。把构建期临时目录固定到仓库 target 下，避免依赖
+# 用户系统 %TEMP% 的权限和清理策略。
+TEMP = { value = "target", relative = true, force = true }
+TMP = { value = "target", relative = true, force = true }
