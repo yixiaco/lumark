@@ -258,7 +258,7 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 ./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
-脚本需要 Inno Setup 6（`ISCC.exe`），会：
+脚本需要 Inno Setup 6（`ISCC.exe`）；未安装时可在 Windows 上运行 `winget install JRSoftware.InnoSetup`，脚本会同时查找系统目录和当前用户的 Inno Setup 安装目录。脚本会：
 
 - 校验并暂存 `Lumark.exe`、`lumark-sfx.exe` 和许可文本到 `dist\windows`；
 - 调用 `installer/lumark.iss` 生成 `dist\Lumark-Setup-<版本>.exe`；

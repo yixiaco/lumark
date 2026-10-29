@@ -77,7 +77,8 @@ function Find-Iscc([string]$Explicit) {
     if ($command) {
         return $command.Source
     }
-    foreach ($root in @(${env:ProgramFiles}, ${env:ProgramFiles(x86)})) {
+    $localPrograms = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Programs" }
+    foreach ($root in @(${env:ProgramFiles}, ${env:ProgramFiles(x86)}, $localPrograms)) {
         if (-not $root) { continue }
         foreach ($edition in @("Inno Setup 6", "Inno Setup 5")) {
             $candidate = Join-Path (Join-Path $root $edition) "ISCC.exe"
