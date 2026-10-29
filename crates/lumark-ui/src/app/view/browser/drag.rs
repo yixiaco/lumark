@@ -158,7 +158,7 @@ impl LumarkApp {
         use raw_window_handle::RawWindowHandle;
 
         let Ok(handle) = raw_window_handle::HasWindowHandle::window_handle(window) else {
-            self.status = "无法获取窗口句柄".to_string();
+            self.status = tr("无法获取窗口句柄", "Unable to get window handle").to_string();
             return;
         };
         let RawWindowHandle::Win32(raw) = handle.as_raw() else {

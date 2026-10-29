@@ -6,11 +6,13 @@ pub mod edit;
 pub mod error;
 pub mod format;
 mod lzh;
+mod lzh_stream;
 mod msi;
 pub mod path;
 mod rpm;
 pub mod service;
 mod unarc;
+mod wim;
 mod xar;
 mod zpaq;
 

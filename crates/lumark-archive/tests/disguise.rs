@@ -122,12 +122,16 @@ fn every_writable_format_supports_disguise() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// 密码保护的 ZIP 与头加密的 7Z 伪装后仍能校验密码并解压。
+/// 密码保护的 ZIP、头加密的 7Z 和 AES-CTR ZPAQ 伪装后仍能校验密码并解压。
 #[test]
 fn encrypted_disguise_round_trip() {
     let directory = tempdir().unwrap();
     let source = make_source(directory.path());
-    for format in [ArchiveFormat::Zip, ArchiveFormat::SevenZip] {
+    for format in [
+        ArchiveFormat::Zip,
+        ArchiveFormat::SevenZip,
+        ArchiveFormat::Zpaq,
+    ] {
         let output = directory.path().join(format!("encrypted-{format:?}.jpg"));
         let options = CompressionOptions {
             format,

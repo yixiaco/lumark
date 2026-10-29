@@ -498,7 +498,7 @@ impl LumarkApp {
             Ok(()) => {
                 self.show_rename = false;
                 self.rename_target = None;
-                self.status = "已重命名".to_string();
+                self.status = tr("已重命名", "Renamed").to_string();
                 self.refresh();
                 set_input(
                     &self.location_input,
@@ -525,7 +525,7 @@ impl LumarkApp {
             .filter_map(|id| entries.iter().find(|entry| entry.id == id).cloned())
             .collect::<Vec<_>>();
         if selected.is_empty() {
-            self.status = "请选择要复制的项目".to_string();
+            self.status = tr("请选择要复制的项目", "Select items to copy").to_string();
             return;
         }
 
@@ -744,7 +744,7 @@ impl LumarkApp {
             });
         if let Some(path) = path {
             cx.write_to_clipboard(ClipboardItem::new_string(path.display().to_string()));
-            self.status = "路径已复制".to_string();
+            self.status = tr("路径已复制", "Path copied").to_string();
         }
     }
 
@@ -758,7 +758,7 @@ impl LumarkApp {
             BrowserLocation::Archive { archive, .. } => archive.clone(),
         };
         match platform::reveal(&path) {
-            Ok(()) => self.status = "已在资源管理器中定位".to_string(),
+            Ok(()) => self.status = tr("已在资源管理器中定位", "Located in Explorer").to_string(),
             Err(error) => self.status = error.to_string(),
         }
     }
@@ -871,7 +871,11 @@ impl LumarkApp {
             return;
         };
         if !matches!(&self.browser.location, BrowserLocation::FileSystem(_)) {
-            self.status = "只能在文件系统中打开新窗口".to_string();
+            self.status = tr(
+                "只能在文件系统中打开新窗口",
+                "Only filesystem locations can open in a new window",
+            )
+            .to_string();
             return;
         }
         self.spawn_window(Some(directory), None, cx);

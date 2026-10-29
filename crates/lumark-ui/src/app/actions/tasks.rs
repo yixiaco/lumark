@@ -332,7 +332,7 @@ impl LumarkApp {
                         app.selected_password = None;
                         app.pending_extra_password = None;
                         app.show_extra_password_prompt = false;
-                        app.status = "密码库已自动锁定".to_string();
+                        app.status = tr("密码库已自动锁定", "Vault locked automatically").to_string();
                     }
                     for event in events {
                         match event {

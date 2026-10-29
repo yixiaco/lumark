@@ -57,19 +57,8 @@ where
         .prefix(".lumark-zpaq-out-")
         .tempdir_in(&options.output_dir)?;
     let archive = path_string(path)?;
-    let mut args = vec!["extract".to_string(), archive.to_string()];
     let filters = filter_paths(&entries, &selection);
-    if let Some(filters) = &filters {
-        args.extend(filters.iter().cloned());
-        args.push("-to".to_string());
-        for filter in filters {
-            let target = safe_join(staging.path(), filter)?;
-            args.push(path_string(&target)?.to_string());
-        }
-    } else {
-        args.push("-to".to_string());
-        args.push(path_string(staging.path())?.to_string());
-    }
+    let grouped_filters = filters.clone().or_else(|| top_level_filters(&planned));
     progress(ExtractProgress {
         current: "正在解压 ZPAQ 归档（引擎处理中）".to_string(),
         bytes_done: 0,
@@ -77,7 +66,63 @@ where
         entries_done: 0,
         entries_total: total_files,
     });
-    run_with_auth_worker(&args, info.encrypted, password, &options.cancel)?;
+    if let Some(filters) = &grouped_filters
+        && filters.len() <= 16
+    {
+        // 选择性解压和可分组全量解压按顶层过滤组分段调用引擎，在多个
+        // 顶层条目之间上报进度并响应取消；单个超大条目仍由一次阻塞调用完成。
+        let mut done_files = 0usize;
+        let mut done_bytes = 0u64;
+        for filter in filters {
+            let group: Vec<&ListedEntry> = planned
+                .iter()
+                .copied()
+                .filter(|entry| belongs_to_filter(&entry.path, filter))
+                .collect();
+            let group_files = group.iter().filter(|entry| !entry.is_dir).count();
+            if group_files == 0 {
+                continue;
+            }
+            let target = safe_join(staging.path(), filter)?;
+            let args = vec![
+                "extract".to_string(),
+                archive.to_string(),
+                filter.clone(),
+                "-to".to_string(),
+                path_string(&target)?.to_string(),
+            ];
+            run_with_auth_worker(&args, info.encrypted, password, &options.cancel)?;
+            done_files += group_files;
+            done_bytes = done_bytes.saturating_add(
+                group
+                    .iter()
+                    .filter(|entry| !entry.is_dir)
+                    .map(|entry| entry.size)
+                    .sum::<u64>(),
+            );
+            progress(ExtractProgress {
+                current: filter.clone(),
+                bytes_done: done_bytes,
+                bytes_total: total_bytes,
+                entries_done: done_files,
+                entries_total: total_files,
+            });
+        }
+    } else {
+        let mut args = vec!["extract".to_string(), archive.to_string()];
+        if let Some(filters) = &filters {
+            args.extend(filters.iter().cloned());
+            args.push("-to".to_string());
+            for filter in filters {
+                let target = safe_join(staging.path(), filter)?;
+                args.push(path_string(&target)?.to_string());
+            }
+        } else {
+            args.push("-to".to_string());
+            args.push(path_string(staging.path())?.to_string());
+        }
+        run_with_auth_worker(&args, info.encrypted, password, &options.cancel)?;
+    }
 
     // 引擎返回成功后再用实际暂存大小复核预算：流式归档的声明大小未知，
     // 不能只依赖列表元数据。
@@ -238,9 +283,68 @@ fn move_file(from: &Path, to: &Path) -> Result<(), ArchiveError> {
     }
 }
 
+/// 从全量计划中提取不超过 16 个顶层分组；无法有效分组时返回 `None`。
+fn top_level_filters(planned: &[&ListedEntry]) -> Option<Vec<String>> {
+    let mut filters = Vec::new();
+    for entry in planned.iter().filter(|entry| !entry.is_dir) {
+        let top = entry.path.split('/').next().unwrap_or_default();
+        if top.is_empty() {
+            return None;
+        }
+        if !filters.iter().any(|existing| existing == top) {
+            filters.push(top.to_string());
+            if filters.len() > 16 {
+                return None;
+            }
+        }
+    }
+    if filters.len() > 1 {
+        Some(filters)
+    } else {
+        None
+    }
+}
+
+/// 判断条目路径是否属于顶层过滤路径。
+fn belongs_to_filter(path: &str, filter: &str) -> bool {
+    path == filter
+        || path
+            .strip_prefix(filter)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 全量计划按顶层条目分组，单一顶层条目不做无意义拆分。
+    #[test]
+    fn top_level_grouping_handles_single_and_multiple_roots() {
+        let entry = |path: &str| ListedEntry {
+            path: path.to_string(),
+            raw_path: path.to_string(),
+            size: 1,
+            is_dir: false,
+            modified: None,
+        };
+        let single = [entry("only.txt")];
+        assert!(top_level_filters(&[&single[0]]).is_none());
+        let multiple = [entry("a/one.txt"), entry("b/two.txt"), entry("a/three.txt")];
+        let refs: Vec<&ListedEntry> = multiple.iter().collect();
+        assert_eq!(
+            top_level_filters(&refs),
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
+    }
+
+    /// 顶层过滤应匹配自身和其子路径，不匹配同名前缀。
+    #[test]
+    fn filter_membership_handles_prefixes() {
+        assert!(belongs_to_filter("dir", "dir"));
+        assert!(belongs_to_filter("dir/a.txt", "dir"));
+        assert!(!belongs_to_filter("dir2/a.txt", "dir"));
+        assert!(!belongs_to_filter("other", "dir"));
+    }
 
     /// 父目录选择应覆盖子项，重复项只保留一次。
     #[test]

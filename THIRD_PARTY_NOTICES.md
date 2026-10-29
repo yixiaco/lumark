@@ -6,7 +6,13 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **GPUI / gpui-pre** — Apache-2.0 — https://github.com/zed-industries/zed
 - **zip** — MIT — https://github.com/zip-rs/zip2
 - **sevenz-rust2** — Apache-2.0 — https://github.com/hasenbanck/sevenz-rust2
-- **GeeZipX** — MIT — https://github.com/GEELINX-LTD/geezipx
+- **GeeZipX** — MIT — https://github.com/GEELINX-LTD/geezipx — `crates/lumark-legacy` 的裁剪来源
+- **lumark-legacy（本地适配层）** — MIT — 仅保留 ACE/ARC/ARJ/ASAR/CAB/CPIO/DEB/ISO/LZH/UDF 读取器和共享 trait
+- **reqwest** — MIT OR Apache-2.0 — https://github.com/seanmonstar/reqwest — OAuth2 刷新令牌请求
+- **enc_file** — MIT OR Apache-2.0 — https://github.com/ArdentEmpiricist/enc_file — AES 加密容器解密
+- **wim-format** — LGPL-2.1-or-later OR GPL-3.0-or-later — https://github.com/CaddyGlow/wim-rs — WIM LZMS/SWM 只读解析；按 LGPL 方式静态链接，源码可从上游或本项目获取
+- **ms-compress** — LGPL-2.1-only AND LGPL-2.1-or-later AND Zlib AND Apache-2.0 AND MIT — https://github.com/CaddyGlow/ms-compress — wim-format 的 XPRESS/LZX/LZMS 解码后端
+- **wim** — LGPL-2.1-or-later OR GPL-3.0-or-later — https://github.com/CaddyGlow/wim-rs — WIM LZX 压缩创建
 - **Brotli** — MIT — https://github.com/dropbox/rust-brotli
 - **lz4_flex** — MIT — https://github.com/pseitz/lz4_flex
 - **winreg** — MIT — https://github.com/gentoo90/winreg-rs
@@ -15,7 +21,8 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **image** — MIT OR Apache-2.0 — https://github.com/image-rs/image — Windows 系统文件图标 PNG 编码
 - **embed-resource** — MIT — https://github.com/nabijaczleweli/rust-embed-resource — Windows 图标资源编译（构建期）
 - **unrar / unrar_sys** — UnRAR freeware license (RARLAB) — https://www.rarlab.com/rar/unrarsrc-7.2.1.tar.gz
-- **zpaq_rs** — CC0-1.0 — https://github.com/turtle261/zpaq-rs — 内嵌 libzpaq/zpaq.cpp 的 Rust 绑定；构建期需要 C++17 编译器
+- **zpaq_rs（vendor/zpaq_rs 本地 fork）** — CC0-1.0 — https://github.com/turtle261/zpaq-rs — 内嵌 libzpaq/zpaq.cpp 的 Rust 绑定；新增流式归档写入器，构建期需要 C++17 编译器
+- **oxiarc-lzhuf** — Apache-2.0 — https://github.com/cool-japan/oxiarc — LZH LZSS 匹配与块编码逻辑；流式编码器改编自其 0.3.6 版本
 - **libzpaq / zpaq.cpp** — public domain（其中 libdivsufsort-lite 部分为 MIT）— https://github.com/zpaq/zpaq
 - **unarc-rs** — MIT OR Apache-2.0 — https://github.com/mkrueger/unarc-rs — 传统格式（ZOO/HA/HYP/SQ/SQZ/UC2/ICE/PACKICE/TAR.Z）只读适配
 - **unalz** — MIT — https://github.com/alkegi/unalz — ALZ 只读解压

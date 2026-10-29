@@ -24,10 +24,9 @@ pub(crate) fn open_legacy_reader(
     path: &Path,
     format: ArchiveFormat,
 ) -> Result<Box<dyn LegacyReader>, ArchiveError> {
-    use geezipx_core::archive::{
+    use lumark_legacy::archive::{
         ace::AceReader, arc::ArcReader, arj::ArjReader, asar::AsarReader, cab::CabReader,
         cpio::CpioReader, deb::DebReader, iso::IsoReader, lzh::LzhReader, udf::UdfReader,
-        wim::WimReader,
     };
 
     let reader: Box<dyn LegacyReader> = match format {
@@ -44,7 +43,8 @@ pub(crate) fn open_legacy_reader(
             UdfReader::new(path).map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
         ),
         ArchiveFormat::Wim => Box::new(
-            WimReader::open(path).map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
+            crate::wim::WimArchiveReader::open(path)
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
         ),
         other => {
             return Err(ArchiveError::UnsupportedFormat(other.label().to_string()));

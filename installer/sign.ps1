@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     使用 Windows SDK 的 signtool 为 Lumark 可执行文件签名或校验签名。
 

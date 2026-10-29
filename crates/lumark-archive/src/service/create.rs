@@ -571,10 +571,11 @@ impl ArchiveService {
         Ok(report)
     }
 
-    /// 创建未压缩 WIM 归档。
+    /// 创建 LZX 压缩 WIM 归档。
     ///
-    /// 上游写入器只支持 Store，文件内容会整体读入内存；因此这里按文件
-    /// 读取、写入并上报进度，不支持密码和分卷。
+    /// 使用 LGPL `wim` 后端捕获暂存目录，避免继续依赖只支持 Store 的旧
+    /// 写入器；暂存目录只包含源文件副本，完成后立即删除。WIM 仍不支持
+    /// 密码和分卷。
     pub(crate) fn create_wim<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -584,43 +585,65 @@ impl ArchiveService {
     where
         F: FnMut(CreateProgress),
     {
-        use geezipx_core::archive::ArchiveWriter as LegacyArchiveWriter;
-        use geezipx_core::archive::wim::WimWriter;
-
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
         }
         let plan = build_source_plan(sources, options)?;
         let entries_total = plan.files.len();
         let bytes_total = plan.total_bytes;
-        let mut report = CreateReport {
-            output: output.to_path_buf(),
-            ..Default::default()
-        };
-        let mut writer = WimWriter::new(File::create(output)?);
-        for (relative, source, file_bytes) in plan.files {
+        let parent = output.parent().unwrap_or_else(|| Path::new("."));
+        let staging = tempfile::Builder::new()
+            .prefix(".lumark-wim-input-")
+            .tempdir_in(parent)?;
+        let mut done = 0u64;
+        for (files, (relative, source, file_bytes)) in plan.files.iter().enumerate() {
             ensure_not_cancelled(&options.cancel)?;
-            let mut input = File::open(&source)?;
-            writer
-                .add_entry_from_reader(Path::new(&relative), &mut input)
-                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
-            report.files += 1;
-            report.bytes = report.bytes.saturating_add(file_bytes);
+            let target = staging.path().join(relative);
+            if let Some(directory) = target.parent() {
+                fs::create_dir_all(directory)?;
+            }
+            fs::copy(source, &target)?;
+            done = done.saturating_add(*file_bytes);
             progress(CreateProgress {
-                current: relative,
-                bytes_done: report.bytes,
+                current: relative.clone(),
+                bytes_done: done,
                 bytes_total,
-                current_bytes_done: file_bytes,
-                current_bytes_total: file_bytes,
-                output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
-                entries_done: report.files,
+                current_bytes_done: *file_bytes,
+                current_bytes_total: *file_bytes,
+                output_bytes: 0,
+                entries_done: files + 1,
                 entries_total,
             });
         }
-        let _written = Box::new(writer)
-            .finish()
-            .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
-        Ok(report)
+        let mut image = wim::Wim::new(wim::Compression::Lzx)
+            .map_err(|error| ArchiveError::Corrupt(format!("初始化 WIM 失败：{error}")))?;
+        image
+            .capture_image(staging.path())
+            .map_err(|error| ArchiveError::Corrupt(format!("捕获 WIM 文件失败：{error}")))?;
+        let cancel = options.cancel.clone();
+        image
+            .write_with_cancel(output, move || {
+                cancel
+                    .as_ref()
+                    .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+            })
+            .map_err(|error| ArchiveError::Corrupt(format!("写入 WIM 失败：{error}")))?;
+        progress(CreateProgress {
+            current: "WIM 写入完成".to_string(),
+            bytes_done: bytes_total,
+            bytes_total,
+            current_bytes_done: bytes_total,
+            current_bytes_total: bytes_total,
+            output_bytes: fs::metadata(output).map(|meta| meta.len()).unwrap_or(0),
+            entries_done: entries_total,
+            entries_total,
+        });
+        Ok(CreateReport {
+            files: entries_total,
+            bytes: bytes_total,
+            output: output.to_path_buf(),
+            cleanup_errors: Vec::new(),
+        })
     }
 
     /// 创建 LZH/LHA 归档。
@@ -668,6 +691,60 @@ impl ArchiveService {
             &options.cancel,
             progress,
         )
+    }
+
+    /// 把 ZPAQ 归档直接写入任意流，供伪装单遍写入复用。
+    ///
+    /// 使用 fork 后的 `zpaq_rs::ArchiveWriter` 逐条目写入标准 ZPAQ 流；
+    /// 有密码时由写入器生成盐并用 AES-CTR 流式加密，不再先落完整内层归档。
+    pub(crate) fn create_zpaq_to<W, F>(
+        destination: W,
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        W: Write + Send,
+        F: FnMut(CreateProgress),
+    {
+        let plan = build_source_plan(sources, options)?;
+        let entries_total = plan.files.len();
+        let bytes_total = plan.total_bytes;
+        let mut report = CreateReport {
+            output: output.to_path_buf(),
+            ..Default::default()
+        };
+        let method = options.zpaq_compression.method();
+        let mut writer = match options.password.as_deref() {
+            Some(password) => zpaq_rs::ArchiveWriter::new_encrypted(destination, method, password),
+            None => zpaq_rs::ArchiveWriter::new(destination, method),
+        }
+        .map_err(|error| ArchiveError::Corrupt(format!("ZPAQ 流式写入失败：{error}")))?;
+        for (relative, source, bytes) in &plan.files {
+            ensure_not_cancelled(&options.cancel)?;
+            let entry_path = crate::path::ArchivePath::parse(relative)?.display();
+            let input = File::open(source)?;
+            writer
+                .add_entry(&entry_path, None, input)
+                .map_err(|error| ArchiveError::Corrupt(format!("ZPAQ 流式写入失败：{error}")))?;
+            report.files += 1;
+            report.bytes = report.bytes.saturating_add(*bytes);
+            progress(CreateProgress {
+                current: relative.clone(),
+                bytes_done: report.bytes,
+                bytes_total,
+                current_bytes_done: *bytes,
+                current_bytes_total: *bytes,
+                output_bytes: 0,
+                entries_done: report.files,
+                entries_total,
+            });
+        }
+        writer
+            .finish()
+            .map_err(|error| ArchiveError::Corrupt(format!("ZPAQ 流式结束失败：{error}")))?;
+        Ok(report)
     }
 
     /// 创建 GZ/BZ2/XZ/ZST/Brotli/LZ4 单文件流。

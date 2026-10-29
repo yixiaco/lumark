@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "Lumark compatibility shim backed by lzma-rust2"
 
 [dependencies]
-lzma-rust2 = { version = "0.22", default-features = false, features = ["std", "encoder", "lzip"] }
+lzma-rust2 = { version = "0.22", default-features = false, features = ["std", "encoder", "lzip", "xz"] }
 
 [features]
 static = []

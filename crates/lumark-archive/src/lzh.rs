@@ -1,9 +1,9 @@
 //! LZH 流式写入器。
 //!
-//! Store（lh0）条目按 1 MiB 分块读取并直接写出，单个超大文件不需要整块
-//! 读入内存；lh4/lh5/lh7 仍依赖上游编码器一次性接收完整数据，因此保留
-//! 512 MiB 内存上限。头部先写占位值，数据写完后再回填大小和 CRC-16，
-//! 并在回填时同步更新头部校验和。
+//! Store（lh0）条目按 1 MiB 分块读取并直接写出；lh4/lh5/lh7 使用可续写的
+//! 块编码器，跨分块保留历史窗口和位写入状态，因此单个超大文件也不需要
+//! 整块读入内存。头部先写占位值，数据写完后再回填大小和 CRC-16，并在回填
+//! 时同步更新头部校验和。
 
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -11,10 +11,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use oxiarc_lzhuf::{LzhEncoder, LzhMethod};
+use oxiarc_lzhuf::LzhMethod;
 
 use crate::error::ArchiveError;
 use crate::format::CreateReport;
+use crate::lzh_stream::LzhStreamEncoder;
 use crate::service::{CreateProgress, SourcePlan, ensure_not_cancelled};
 
 /// LZH level-0 固定头部长度：方法 5 + 压缩大小 4 + 原始大小 4 + 时间 4 +
@@ -26,9 +27,6 @@ const LZH_MAX_PATH_BYTES: usize = u8::MAX as usize - LZH_FIXED_HEADER_LEN;
 
 /// Store 条目的流式分块大小。
 const LZH_CHUNK_BYTES: usize = 1024 * 1024;
-
-/// 非 Store 方法仍需要整块编码，超过该上限时提前拒绝，避免 OOM。
-const LZH_COMPRESSED_MAX_BYTES: u64 = 512 * 1024 * 1024;
 
 /// 把源计划写成 LZH 归档。
 pub(crate) fn create<F>(
@@ -86,28 +84,15 @@ where
                 source.display()
             )));
         }
-        if !method.is_stored() && *file_bytes > LZH_COMPRESSED_MAX_BYTES {
-            return Err(ArchiveError::InvalidRequest(format!(
-                "LZH 压缩方法仍需要把单个文件读入内存，暂不支持超过 {} MiB 的条目；请选择 Store 方法：{}",
-                LZH_COMPRESSED_MAX_BYTES / (1024 * 1024),
-                source.display()
-            )));
-        }
-
         let header_offset = writer.stream_position()?;
-        let (crc, compressed) = if method.is_stored() {
-            let header = build_header(
-                relative.as_bytes(),
-                method,
-                *file_bytes as u32,
-                *file_bytes as u32,
-                0,
-            );
-            write_header(&mut writer, &header)?;
-            let mut input = File::open(source)?;
-            let mut buffer = vec![0u8; LZH_CHUNK_BYTES];
-            let mut crc = 0u16;
-            let mut file_done = 0u64;
+        let placeholder = build_header(relative.as_bytes(), method, 0, *file_bytes as u32, 0);
+        write_header(&mut writer, &placeholder)?;
+        let data_start = writer.stream_position()?;
+        let mut input = File::open(source)?;
+        let mut buffer = vec![0u8; LZH_CHUNK_BYTES];
+        let mut crc = 0u16;
+        let mut file_done = 0u64;
+        if method.is_stored() {
             loop {
                 ensure_not_cancelled(cancel)?;
                 let read = input.read(&mut buffer)?;
@@ -129,62 +114,49 @@ where
                     entries_total,
                 });
             }
-            (crc, *file_bytes)
         } else {
-            // 非 Store 方法一次性编码，避免上游编码器跨调用产生无效流。
-            let data = fs::read(source)?;
-            let crc = crc16(&data);
-            let mut encoder = LzhEncoder::new(method);
-            let mut compressed = Vec::new();
-            encoder
-                .encode(&data, &mut compressed, true)
-                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
-            let header = build_header(
-                relative.as_bytes(),
-                method,
-                compressed.len() as u32,
-                *file_bytes as u32,
-                crc,
-            );
-            write_header(&mut writer, &header)?;
-            writer.write_all(&compressed)?;
-            source_done = source_done.saturating_add(data.len() as u64);
-            progress(CreateProgress {
-                current: relative.clone(),
-                bytes_done: source_done,
-                bytes_total: plan.total_bytes,
-                current_bytes_done: *file_bytes,
-                current_bytes_total: *file_bytes,
-                output_bytes: writer.stream_position()?,
-                entries_done: report.files,
-                entries_total,
-            });
-            (crc, compressed.len() as u64)
-        };
-
-        // Store 分支的头部先写了 0 CRC/占位压缩大小，这里回填并更新校验和。
-        if method.is_stored() {
-            let end = writer.stream_position()?;
-            let mut final_header = build_header(
-                relative.as_bytes(),
-                method,
-                compressed as u32,
-                *file_bytes as u32,
-                crc,
-            );
-            // 以写入时的头部长度为准重建，防止路径字节在回填时变化。
-            final_header[5..9].copy_from_slice(&(compressed as u32).to_le_bytes());
-            final_header[9..13].copy_from_slice(&(*file_bytes as u32).to_le_bytes());
-            let crc_offset = final_header.len() - 2;
-            final_header[crc_offset..].copy_from_slice(&crc.to_le_bytes());
-            let checksum = final_header
-                .iter()
-                .fold(0u8, |acc, byte| acc.wrapping_add(*byte));
-            writer.seek(SeekFrom::Start(header_offset + 1))?;
-            writer.write_all(&[checksum])?;
-            writer.write_all(&final_header)?;
-            writer.seek(SeekFrom::Start(end))?;
+            let mut encoder = LzhStreamEncoder::new(&mut writer, method);
+            loop {
+                ensure_not_cancelled(cancel)?;
+                let read = input.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                crc = update_crc16(crc, &buffer[..read]);
+                encoder.write_chunk(&buffer[..read])?;
+                file_done = file_done.saturating_add(read as u64);
+                source_done = source_done.saturating_add(read as u64);
+                progress(CreateProgress {
+                    current: relative.clone(),
+                    bytes_done: source_done,
+                    bytes_total: plan.total_bytes,
+                    current_bytes_done: file_done,
+                    current_bytes_total: *file_bytes,
+                    output_bytes: data_start.saturating_add(encoder.output_bytes()),
+                    entries_done: report.files,
+                    entries_total,
+                });
+            }
+            encoder.finish()?;
         }
+        let end = writer.stream_position()?;
+        let compressed = end.saturating_sub(data_start);
+        if compressed > u32::MAX as u64 {
+            return Err(ArchiveError::InvalidRequest(format!(
+                "LZH 压缩数据超过 4 GiB 头字段上限：{}",
+                source.display()
+            )));
+        }
+        let final_header = build_header(
+            relative.as_bytes(),
+            method,
+            compressed as u32,
+            *file_bytes as u32,
+            crc,
+        );
+        writer.seek(SeekFrom::Start(header_offset))?;
+        write_header(&mut writer, &final_header)?;
+        writer.seek(SeekFrom::Start(end))?;
 
         report.files += 1;
         report.bytes = source_done;
@@ -231,11 +203,6 @@ fn write_header<W: Write>(writer: &mut W, header: &[u8]) -> io::Result<()> {
     let checksum = header.iter().fold(0u8, |acc, byte| acc.wrapping_add(*byte));
     writer.write_all(&[header.len() as u8, checksum])?;
     writer.write_all(header)
-}
-
-/// 计算 LZH 使用的 CRC-16/ARC。
-fn crc16(data: &[u8]) -> u16 {
-    update_crc16(0, data)
 }
 
 /// 增量更新 LZH CRC-16/ARC。

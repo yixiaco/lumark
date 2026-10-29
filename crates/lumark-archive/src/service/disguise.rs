@@ -95,7 +95,7 @@ impl ArchiveService {
         path: &Path,
     ) -> Result<Box<dyn LegacyReader>, ArchiveError> {
         let view = crate::disguise::open_payload(path)?;
-        Ok(Box::new(geezipx_core::archive::lzh::LzhReader::new(view)))
+        Ok(Box::new(lumark_legacy::archive::lzh::LzhReader::new(view)))
     }
 
     /// 探测伪装包内层归档的加密状态。
@@ -370,7 +370,8 @@ impl ArchiveService {
         let direct_zip = options.format == ArchiveFormat::Zip;
         let direct_seven = options.format == ArchiveFormat::SevenZip;
         let direct_lzh = options.format == ArchiveFormat::Lzh;
-        if direct_tar || direct_stream || direct_zip || direct_seven || direct_lzh {
+        let direct_zpaq = options.format == ArchiveFormat::Zpaq;
+        if direct_tar || direct_stream || direct_zip || direct_seven || direct_lzh || direct_zpaq {
             ensure_not_cancelled(&options.cancel)?;
             let mut inner_options = options.clone();
             inner_options.disguise = None;
@@ -422,6 +423,14 @@ impl ArchiveService {
                     )?
                 } else if direct_lzh {
                     Self::create_lzh_to(
+                        &mut writer,
+                        &staged,
+                        sources,
+                        &inner_options,
+                        &mut progress,
+                    )?
+                } else if direct_zpaq {
+                    Self::create_zpaq_to(
                         &mut writer,
                         &staged,
                         sources,

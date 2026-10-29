@@ -401,9 +401,15 @@ pub(crate) fn decrypt_encrypted_container(
 ) -> Result<Zeroizing<Vec<u8>>, ArchiveError> {
     let mut input = File::open(path)?;
     let mut data = Zeroizing::new(Vec::new());
-    geezipx_core::archive::aes::aes_decrypt(&mut input, &mut *data, password)
-        .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
-    Ok(data)
+    input.read_to_end(&mut data)?;
+    let decrypted = enc_file::decrypt_bytes(
+        &data,
+        secrecy::SecretString::new(password.to_string().into()),
+    )
+    .map_err(|error| {
+        ArchiveError::Corrupt(format!("AES 容器解密失败（密码错误或数据损坏）：{error}"))
+    })?;
+    Ok(Zeroizing::new(decrypted))
 }
 
 /// 从加密容器路径推导输出文件名。

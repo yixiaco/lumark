@@ -15,7 +15,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - ZIP、7Z、LZH、TAR、TAR.GZ/BZ2/XZ/ZST/BR/LZ4/LZ/LZMA；GZ、BZ2、XZ、ZSTD、Brotli、LZ4；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode 只读解压。LZH 创建底层支持 lh0、lh4–lh7，界面预设使用 lh4/lh5/lh7；lh0 条目已分块流式写入，lh4/lh5/lh7 仍需要整块输入，超过 512 MiB 会提前拒绝。
 - ZPAQ 读写（内嵌 libzpaq/JIDAC 引擎）：创建标准归档、AES-256 密码、列表、完整测试、预算解压、分卷和密码库联动；压缩级别 1–5 可选，轻巧模式的“体积小”对应 5 级，默认保留源文件原始时间，≥32 MiB 的单文件批次交给可杀死的隐藏工作进程执行，压缩中可直接取消；解压和完整测试也通过该工作进程执行，任务取消时终止子进程并清理暂存区；普通小文件批次按 32 MiB / 64 文件分批上报进度。创建时会跳过符号链接和 Windows 目录联接，避免归档条目与源计划不一致；输出同名旧压缩包在任务成功后原子替换。PAQ8/LPAQ 系列暂无许可兼容的成熟后端，不在支持范围。
 - RAR 只读列表、密码验证、解压和完整性测试（UnRAR 后端，保留许可声明）；Unix `.Z`、AES `.enc`、ALZ（Store/Deflate/ALZ 改造 Bzip2，支持 ZipCrypto 和 `.a00` 分卷）只读解压。
-- ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像，XPRESS/LZX）、ASAR、DEB、XAR/PKG、RPM、MSI、CHM、SquashFS、NSIS、DMG、EGG、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ、SQZ、UC2、ICE、PACKICE 等 40+ 只读格式适配；WIM 支持未压缩 Store 创建，LZMS 压缩和 SWM 分卷暂不支持。
+- ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（第一映像，XPRESS/LZX/LZMS，支持 SWM 分卷）、ASAR、DEB、XAR/PKG、RPM、MSI、CHM、SquashFS、NSIS、DMG、EGG、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ、SQZ、UC2、ICE、PACKICE 等 40+ 只读格式适配；WIM 支持 LZX 压缩创建。
 - ZIP/7Z 归档内浏览、选择性解压、删除/重命名/添加文件，7Z 重命名和整块删除直接复用原始压缩块，无法复用时才全量重建，最后原子替换；把文件或文件夹拖入归档时可选择“替换同名文件”“只更新较新的文件”“仅刷新已有条目”或“同步文件夹内容”，同步会删除归档中磁盘已不存在的条目，结果消息会给出跳过和删除数量；可选 `.lumark.bak`。
 - `.001` 原始分卷创建、列表和解压；失败时保留旧卷并清理半成品。
 - 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、记录时间、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI（计算机绑定）、可选主密码、Windows 会话锁定时自动锁定、加密导入导出和明文 CSV 导出；导出位置通过文件夹选择器指定，锁定时需先解锁，操作结果通过官方 Notification 提示；独立设置窗口可查看密码库位置并迁移到自定义文件夹。
@@ -25,7 +25,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 解压加密 ZIP/7Z/RAR 时从密码库生成候选密码并在后台逐个验证；主密码锁定时提供解锁入口，校验较慢时可从进度卡片或状态栏停止并改为手动输入。
 - 后台任务：固定工作线程池按提交顺序排队执行归档加载、压缩、解压、测试、编辑和记录密码验证，排队中的任务可直接取消；支持进度、暂停/继续、取消、状态栏和独立进度窗口，任务中心同时显示运行中/排队中/已完成数量和跨任务合并进度。
 - 压缩后可测试归档并在成功时删除源文件。
-- 压缩完成邮件通知：设置窗口“通知”页配置 SMTP 主机、端口、账号、DPAPI 加密密码、发件人和收件人，支持隐式 TLS/STARTTLS/无 TLS 及测试发送；压缩任务成功后自动发送纯文本通知。
+- 压缩完成邮件通知：设置窗口“通知”页配置 SMTP 主机、端口、1–300 秒超时、账号、DPAPI 加密密码/XOAUTH2 访问令牌/客户端密钥/刷新令牌、发件人和收件人，支持隐式 TLS/STARTTLS/无 TLS 及测试发送；瞬时网络/4xx 错误最多退避重试 3 次，保留最近 8 条发送结果，并把失败通知持久化到待重试队列；配置刷新令牌后通过 `reqwest` 从令牌端点自动获取访问令牌。
 - 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z，可带密码，不支持分卷），生成的可执行文件内置 `lumark-sfx` 运行时；双击后可在窗口中选择解压目录、输入密码，密码错误可重试，也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。
 - 伪装压缩（全格式）：压缩窗口可勾选“伪装为媒体文件”，把 ZIP、7Z、LZH、ZPAQ、TAR 系列、GZ/BZ2/XZ/ZST/Brotli/LZ4 的输出包装成可正常播放/查看的 MP4/JPG 外观；ZIP、7Z、LZH、TAR 系列和单文件流边生成边写入伪装容器，不再额外保留完整内层文件；内层归档格式保持不变，载荷按 128 KiB 分块用 BLAKE3 密钥流混淆，尾部 512 字节记录载荷偏移/长度、原文件名、混淆盐和载荷类型。内置视频/图片面具，也可选择自定义媒体文件；伪装不提供加密。
 - 一键打开与一键还原：Lumark 文件表双击伪装归档、或资源管理器“用 Lumark 打开”，直接浏览/选择性解压/测试内层归档；ZIP/7Z/TAR 系列/单文件流/LZH 使用读取视图不复制载荷，ZPAQ/RAR/ALZ/传统只读格式物化到临时目录并做进程内缓存。右键“还原伪装文件”或资源管理器“Lumark 一键还原”把真身写回伪装文件旁，同名文件自动追加序号；伪装 ZIP/7Z 还支持原地重命名、删除和添加，自动复用原面具重新包装。
@@ -42,10 +42,10 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 
 ### 格式支持矩阵
 
-- **读写**：ZIP（AES/传统加密、Deflate/Bzip2/LZMA 写入）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4。
-- **只读解压**：RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像和 XPRESS/LZX）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
+- **读写**：ZIP（AES/传统加密、Deflate/Bzip2/LZMA 写入）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、WIM（LZX 创建）、TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4。
+- **只读解压**：RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像，XPRESS/LZX/LZMS，支持 SWM）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
 - **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
-- **暂不支持**：PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取并还原目录层级，写入未实现；WIM 的 LZMS/SWM 压缩/分卷、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
+- **暂不支持**：PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取并还原目录层级，写入未实现；WIM 的 LZMS/SWM 写入、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
 
 ## 运行
 
@@ -58,47 +58,27 @@ cargo run -p lumark-app
 生成安装包或自解压功能需要同时构建运行时模块：
 
 ```powershell
-cargo build --release -p lumark-app -p lumark-sfx
-./installer/install.ps1
+cargo build --release --locked -p lumark-app -p lumark-sfx
 ```
 
-安装时直接签名：
+Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup：
 
 ```powershell
-./installer/install.ps1 -SignThumbprint <SHA1指纹>
-./installer/install.ps1 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
+./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
-也可以单独在安装前运行：
+需要签名时传入证书参数；脚本会先签名暂存二进制，再签名最终安装器：
 
 ```powershell
-# 当前用户证书存储中的指纹
-./installer/sign.ps1 -Thumbprint <SHA1指纹>
+./installer/pack-installer.ps1 -Version 0.1.0 -SignThumbprint <SHA1指纹>
+./installer/pack-installer.ps1 -Version 0.1.0 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
+```
 
-# 或 PFX 文件
-./installer/sign.ps1 -PfxPath .\codesign.pfx -PfxPassword <密码>
+也可以单独校验已有签名：
 
-# 只校验已有签名
+```powershell
 ./installer/sign.ps1 -VerifyOnly
 ```
-
-生成全信任 MSIX（未签名）：
-
-```powershell
-./installer/pack-msix.ps1
-```
-
-产物默认位于 `target\release\Lumark.msix`；可追加 `-SignThumbprint`/`-SignPfxPath` 在打包后签名，也可用企业证书或 `signtool` 单独签名。安装已签名包：
-
-```powershell
-./installer/install-msix.ps1 -CertificatePath .\codesign.cer -TrustCertificate
-# 开发阶段安装未签名包
-./installer/install-msix.ps1 -AllowUnsigned
-# 卸载
-./installer/install-msix.ps1 -Uninstall
-```
-
-Windows 11 稀疏 MSIX 上下文菜单已提供骨架：`lumark-shell-command` COM DLL、稀疏包清单和打包/安装脚本；实际安装需要受信任证书。
 
 ## 测试
 
@@ -245,39 +225,44 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 - ALZ 使用 MIT 的 `unalz` 库做只读解压，支持 Store、Deflate、ALZ 改造 Bzip2、ZipCrypto 和 `.a00` 分卷；ALZ 路径接口是 UTF-8 字符串，非 UTF-8 路径会明确报错，`.egg` 属于另一种格式，不在支持范围。
 - ZOO/HA/HYP/SQ/SQZ/UC2/ICE/PACKICE/TAR.Z 通过现有 `unarc-rs` 统一读取接口接入；这些格式按整条目缓冲读取，因此没有条目内逐块进度和中途取消，预算以“读取前声明大小 + 读取后实际长度”双重检查为准，不把它们描述为对大归档零风险。
 - ZIP 旧方法（Deflate64/Shrink/Reduce/Implode）只读：启用 `zip` 的 `deflate64` 与 `legacy-zip` 特性，不提供这些方法的写入入口。
-- ZPAQ 使用 `zpaq_rs` 内嵌的 libzpaq/JIDAC 参考实现，而不是只读适配层或整包缓冲的写入器：压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），暂不支持。
+- ZPAQ 使用本地 fork 的 `zpaq_rs` 内嵌 libzpaq/JIDAC 参考实现：普通压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；新增的 `ArchiveWriter` 可把无密码或 AES-CTR 加密归档逐条目写入任意流，伪装创建因此不再落完整内层文件。解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此普通压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），暂不支持。
 - 自解压包使用自有运行时模块，支持 ZIP/7Z 和密码、不支持分卷；解压路径的包含性、符号链接和覆盖行为复用归档层的安全校验，不自研第二套路径检查。自定义图标通过 Win32 资源 API 在追加载荷前替换，避免重写已拼接的数据段。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规。
-- XZ 编解码统一使用纯 Rust `lzma-rust2`（RPM/XAR 解码、TAR/单文件流创建），不再直接依赖 `xz2`；本地 `vendor/xz2` 适配层把 `geezipx-core` 的 XZ/LZMA 调用转到 `lzma-rust2`，SquashFS 的 XZ 后端起用 `liblzma`。
+- XZ 编解码统一使用纯 Rust `lzma-rust2`（RPM/XAR 解码、TAR/单文件流创建），不再直接依赖 `xz2`；本地 `vendor/xz2` 适配层把本地 `lumark-legacy` 的 XZ/LZMA 调用转到 `lzma-rust2`，SquashFS 的 XZ 后端起用 `liblzma`。`lumark-legacy` 从 GeeZipX 0.7.4 裁剪，只保留实际使用的传统格式读取器，外部 `geezipx-core` 及其重复 ZIP 2/7z 0.21 依赖已移除；WIM 和 AES 容器使用自有标准后端。
 - 伪装容器使用自有格式，不与 Apate 做二进制互通：Apate 为 GPL-3.0，读取或生成其格式需要研究并受其许可约束；Lumark 只借鉴“伪装/一键还原”的功能形态，容器、实现和内置面具均为独立实现。容器固定为“面具 + 混淆载荷 + 512 字节尾部”，尾部保存载荷边界、原文件名、混淆盐和载荷类型，因此还原不依赖面具内容。
-- ZIP/7Z/LZH/TAR 系列/单文件流边生成边写入伪装容器；ZPAQ 仍先写内层归档再流式包装，峰值磁盘约等于压缩包的两倍。
-- 伪装归档的打开策略分两类：ZIP/7Z/TAR 系列/单文件流/LZH 直接读取解密视图，不复制载荷；ZPAQ、RAR、ALZ 和 `geezipx-core`/`unarc-rs` 传统格式只接受路径，物化到 `%TEMP%\Lumark\disguise-*` 并按（路径、长度、修改时间、盐）缓存，最多 4 项 / 16 GiB，启动时清理 24 小时前的残留。
+- ZIP/7Z/LZH/TAR 系列/单文件流以及 ZPAQ（含密码）边生成边写入伪装容器；ZPAQ 密码流由写入器生成盐并用 AES-CTR 加密，不再落完整内层归档。
+- 伪装归档的打开策略分两类：ZIP/7Z/TAR 系列/单文件流/LZH 直接读取解密视图，不复制载荷；ZPAQ、RAR、ALZ 和 `lumark-legacy`/`unarc-rs` 传统格式只接受路径，物化到 `%TEMP%\Lumark\disguise-*` 并按（路径、长度、修改时间、盐）缓存，最多 4 项 / 16 GiB，启动时清理 24 小时前的残留。
 - 伪装只混淆载荷和文件名，不提供加密：盐随文件保存，能读取文件的人都能还原；真正的机密性仍依赖 ZIP/7Z 密码。尾部信息是还原的唯一入口，文件被截断或追加后无法还原，原文件名上限为 240 字节。
 - CPU 限制采用进程优先级而不是百分比硬限速：硬限速会把界面线程一起限流，暂停、取消和进度刷新都会变迟钝；需要更精细控制时使用压缩线程数选项。
 - 7Z 后端继续使用 `sevenz-rust2`：`zesven` 的解压进度、流式和编辑 API 更全，但更年轻（2026 年首版、下载量约为前者 1/27、七个月跨了三个大版本），整体迁移要重写 list/extract/create/edit/probe/verify 并重跑 7-Zip 互操作矩阵；现阶段用读取器包装和编码块完成量补进度（加密归档退回读取进度），等需要“7Z 编辑避免全量重压缩”等能力时再做 spike 评估。
-- LZH 创建复用 `geezipx-core` 的 `LzhWriter`，按预设映射到 lh4/lh5/lh7；该写入器需要把单个文件整块读入内存，因此项目对单条目限制 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
+- LZH 创建复用 `oxiarc-lzhuf` 的 LZSS 匹配器和本地可续写块编码器，按预设映射到 lh4/lh5/lh7；跨 1 MiB 读取块保持历史窗口和位写入状态，不再限制单条目 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
 - ISO 挂载不引入第三方驱动，直接调用系统 `Mount-DiskImage`/`Dismount-DiskImage`；挂载状态在 Lumark 退出后仍由 Windows 保留，卸载入口在 Lumark 文件列表和资源管理器右键菜单。资源管理器入口注册在 `SystemFileAssociations\.iso\shell`，不依赖 `.iso` 当前绑定的 ProgID，因此第三方软件占用文件关联也不影响。
-- Windows 11 稀疏 MSIX 上下文菜单已提供 COM DLL、稀疏包清单和打包/安装脚本；实际 Explorer 验收仍需受信任证书。会话锁定、Authenticode 签名脚本和 UI 自动化已覆盖。
+- Windows 分发使用 Inno Setup 安装器；安装/卸载时调用应用自身的经典右键菜单注册命令。会话锁定、Authenticode 签名脚本和 UI 自动化已覆盖。
 - 视频、图片、PDF 压缩按规划暂不实现。
 
 ## 许可与来源
 
-本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)；伪装压缩和“一键还原”的功能形态参考 GPL-3.0 的 [rippod/apate](https://github.com/rippod/apate)，未复用其代码或文件格式。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；ZPAQ 后端使用 CC0-1.0 的 [zpaq_rs](https://github.com/turtle261/zpaq-rs)，其内置的 libzpaq/zpaq.cpp 为公有领域软件；ALZ 后端使用 MIT 的 [unalz](https://github.com/alkegi/unalz)；LZIP/LZMA 编码使用 Apache-2.0 的 [lzma-rust2](https://github.com/hasenbanck/lzma-rust2)；传统格式适配使用 MIT OR Apache-2.0 的 [unarc-rs](https://github.com/mkrueger/unarc-rs)；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。
+本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)；伪装压缩和“一键还原”的功能形态参考 GPL-3.0 的 [rippod/apate](https://github.com/rippod/apate)，未复用其代码或文件格式。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；ZPAQ 后端使用 CC0-1.0 的 [zpaq_rs](https://github.com/turtle261/zpaq-rs) 本地 fork，其内置的 libzpaq/zpaq.cpp 为公有领域软件；WIM 使用 LGPL-2.1-or-later 的 [wim](https://github.com/CaddyGlow/wim-rs)、[wim-format](https://github.com/CaddyGlow/wim-rs) 和 [ms-compress](https://github.com/CaddyGlow/ms-compress)；ALZ 后端使用 MIT 的 [unalz](https://github.com/alkegi/unalz)；LZIP/LZMA 编码使用 Apache-2.0 的 [lzma-rust2](https://github.com/hasenbanck/lzma-rust2)；传统格式适配使用 MIT OR Apache-2.0 的 [unarc-rs](https://github.com/mkrueger/unarc-rs)；裁剪的 `lumark-legacy` 源自 MIT 许可的 GeeZipX 0.7.4；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。
 
 ## 本地化
 
 主界面使用 gpui-kit 0.8.1 的组件 locale 与 `rust-i18n 4.2`。应用文案放在 `crates/lumark-ui/locales/ui.yml`，当前覆盖动作带和设置窗口；通过设置“综合 → 界面语言”切换 `zh-CN`/`en`，同时同步 gpui-kit 组件语言。
 
-## Windows 11 稀疏 MSIX 上下文菜单
+## Windows 安装程序（Inno Setup，推荐）
 
-`crates/lumark-shell-command` 提供 `IExplorerCommand` COM DLL，`installer/msix/AppxSparseManifest.xml` 把它注册为 Windows 11 资源管理器上下文菜单。应用二进制仍由普通安装程序放在 `C:\Program Files\Lumark`：
+按 [GPUI Kit 桌面应用打包与分发](https://gpui-kit.com/zh-CN/docs/packaging/) 的 Windows 流程，发布给普通用户时使用 Inno Setup 安装器，而不是只分发 ZIP 或开发脚本。先构建 release 产物，再生成暂存目录、安装器和 SHA-256：
 
 ```powershell
-cargo build --release -p lumark-shell-command
-./installer/pack-msix.ps1 -Sparse -InputDir target/release `
-  -OutputPath target/release/LumarkShell.msix `
-  -Publisher "CN=Lumark" -Version 1.0.0.0
-./installer/install-msix.ps1 -PackagePath target/release/LumarkShell.msix `
-  -ExternalLocation "C:\Program Files\Lumark" -PackageName Lumark.Shell
+cargo build --release --locked -p lumark-app -p lumark-sfx
+./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
-稀疏包必须使用受信任证书签名；开发阶段可先导入证书，或在允许未签名包的系统中使用 `-AllowUnsigned`。注册后重启资源管理器，右键文件/文件夹即可看到“用 Lumark 压缩”/“Compress with Lumark”，点击后启动 `Lumark.exe --compress` 并传入选中路径。
+脚本需要 Inno Setup 6（`ISCC.exe`），会：
+
+- 校验并暂存 `Lumark.exe`、`lumark-sfx.exe` 和许可文本到 `dist\windows`；
+- 调用 `installer/lumark.iss` 生成 `dist\Lumark-Setup-<版本>.exe`；
+- 写出对应的 `.sha256` 校验文件；
+- 传入 `-SignThumbprint` 或 `-SignPfxPath` 时，先签名暂存二进制，再签名最终安装器。
+
+安装器使用稳定的 `AppId`，按 `{autopf}` 安装（普通用户目录或 Program Files，取决于权限），创建开始菜单入口和可选桌面图标，并在安装/卸载时调用 `--register-shell` / `--unregister-shell`。正式发布前应在干净的 Windows 机器上验证安装、升级、卸载和签名；Inno Setup 内嵌卸载器的签名需要在 Inno 的 `SignTool` 配置中完成，不能只给安装器外层签名。
+
+安装器使用官方文档描述的暂存目录和 Inno Setup 流程。Windows 右键菜单使用应用已有的当前用户经典 Shell 注册（`--register-shell` / `--unregister-shell`），由 Inno Setup 的安装/卸载步骤调用。

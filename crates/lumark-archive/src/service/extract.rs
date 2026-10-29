@@ -557,15 +557,15 @@ impl ArchiveService {
         let result = match format {
             ArchiveFormat::Isz => {
                 let mut input = BufReader::new(File::open(path)?);
-                geezipx_core::archive::isz::isz_decompress(&mut input, &mut output)
+                lumark_legacy::archive::isz::isz_decompress(&mut input, &mut output)
             }
             ArchiveFormat::Img => {
                 let mut input = BufReader::new(File::open(path)?);
-                geezipx_core::archive::img::img_decompress(&mut input, &mut output)
+                lumark_legacy::archive::img::img_decompress(&mut input, &mut output)
             }
             ArchiveFormat::Bin => {
                 let mut input = BufReader::new(File::open(path)?);
-                geezipx_core::archive::bin::bin_decompress(&mut input, &mut output)
+                lumark_legacy::archive::bin::bin_decompress(&mut input, &mut output)
             }
             ArchiveFormat::Lzip => {
                 let mut input = BufReader::new(File::open(path)?);
@@ -574,9 +574,9 @@ impl ArchiveService {
                     .and_then(|value| value.to_str())
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("lzma"))
                 {
-                    geezipx_core::archive::xz::lzma_decompress(&mut input, &mut output)
+                    lumark_legacy::archive::xz::lzma_decompress(&mut input, &mut output)
                 } else {
-                    geezipx_core::archive::lz::lz_decompress(&mut input, &mut output)
+                    lumark_legacy::archive::lz::lz_decompress(&mut input, &mut output)
                 }
             }
             ArchiveFormat::Uu => {
@@ -585,9 +585,9 @@ impl ArchiveService {
                     .and_then(|value| value.to_str())
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("xxe"))
                 {
-                    geezipx_core::archive::xxe::xxe_decode_to_writer(path, &mut output)
+                    lumark_legacy::archive::xxe::xxe_decode_to_writer(path, &mut output)
                 } else {
-                    geezipx_core::archive::uu::uu_decode_to_writer(path, &mut output)
+                    lumark_legacy::archive::uu::uu_decode_to_writer(path, &mut output)
                 }
             }
             _ => unreachable!(),

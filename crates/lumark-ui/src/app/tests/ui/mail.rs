@@ -22,6 +22,7 @@ fn mail_settings_protect_password_and_build_config(cx: &mut gpui_kit::TestAppCon
             notify: true,
             host: "smtp.example.com".to_string(),
             port: "465".to_string(),
+            timeout_secs: "30".to_string(),
             username: "user".to_string(),
             password: "smtp-pass".to_string(),
             clear_password: false,
@@ -29,6 +30,11 @@ fn mail_settings_protect_password_and_build_config(cx: &mut gpui_kit::TestAppCon
             to: "user@example.com".to_string(),
             implicit_tls: true,
             starttls: false,
+            xoauth2: false,
+            oauth2_token_url: String::new(),
+            oauth2_client_id: String::new(),
+            oauth2_client_secret: String::new(),
+            oauth2_refresh_token: String::new(),
         })
         .unwrap();
         let settings = app.settings.get();
@@ -38,12 +44,29 @@ fn mail_settings_protect_password_and_build_config(cx: &mut gpui_kit::TestAppCon
         let config = app.mail_config().unwrap().unwrap();
         assert_eq!(config.host, "smtp.example.com");
         assert_eq!(config.password, "smtp-pass");
+        assert_eq!(config.timeout_secs, 30);
         assert!(config.implicit_tls);
+        assert!(!config.xoauth2);
+
+        app.record_mail_history("test", &Ok(()));
+        app.record_mail_history("failed", &Err("smtp down".to_string()));
+        let history = app.settings.get().mail_history;
+        assert_eq!(history.len(), 2);
+        assert!(!history[0].success);
+        assert_eq!(history[0].error.as_deref(), Some("smtp down"));
+        assert!(history[1].success);
+
+        app.queue_failed_mail("queued subject", "queued body", "smtp down");
+        let outbox = app.settings.get().mail_outbox;
+        assert_eq!(outbox.len(), 1);
+        assert_eq!(outbox[0].attempts, 1);
+        assert_eq!(outbox[0].last_error.as_deref(), Some("smtp down"));
 
         app.save_mail_settings(MailSettingsDraft {
             notify: false,
             host: "smtp.example.com".to_string(),
             port: "465".to_string(),
+            timeout_secs: "30".to_string(),
             username: "user".to_string(),
             password: String::new(),
             clear_password: true,
@@ -51,6 +74,11 @@ fn mail_settings_protect_password_and_build_config(cx: &mut gpui_kit::TestAppCon
             to: "user@example.com".to_string(),
             implicit_tls: true,
             starttls: false,
+            xoauth2: false,
+            oauth2_token_url: String::new(),
+            oauth2_client_id: String::new(),
+            oauth2_client_secret: String::new(),
+            oauth2_refresh_token: String::new(),
         })
         .unwrap();
         assert!(app.settings.get().smtp_password.is_none());

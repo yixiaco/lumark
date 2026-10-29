@@ -60,7 +60,11 @@ impl LumarkApp {
                 archive: archive.clone(),
             };
             self.request_archive_password(archive, action, window, cx);
-            self.status = "压缩包已加密，请输入密码".to_string();
+            self.status = tr(
+                "压缩包已加密，请输入密码",
+                "The archive is encrypted; enter the password",
+            )
+            .to_string();
             cx.notify();
             return;
         }

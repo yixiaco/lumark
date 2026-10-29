@@ -10,11 +10,11 @@
 - [x] ZIP/7Z 创建、读取、解压、AES 密码、7Z 固实压缩、条目级加密探测。
 - [x] ZIP 默认使用 AES-256；可在密码页启用带警告的 ZipCrypto 兼容写入，并有往返测试。
 - [x] TAR、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA；GZ、BZ2、XZ、ZST、Brotli、LZ4 单文件流。ZIPX/旧 ZIP 通过 `zip` 的 `deflate64`、`legacy-zip` 特性只读支持 Deflate64、Shrink、Reduce、Implode。
-- [x] LZH 创建：使用 `geezipx-core` 的 `LzhWriter`，按预设映射 lh4/lh5/lh7（显式 level 0 时 lh0/store），支持列表、解压、测试和 `test_after`；单条目超过 512 MiB 提前拒绝，避免整块缓冲导致 OOM。
+- [x] LZH 创建：使用 `oxiarc-lzhuf` 的 LZSS 匹配器加本地可续写块编码器，按预设映射 lh4/lh5/lh7（显式 level 0 时 lh0/store），跨 1 MiB 读取块保持历史窗口和半字节状态，支持列表、解压、测试和 `test_after`；lh4/lh5/lh7 不再受 512 MiB 单条目内存上限限制，新增 6 MiB 多块回归。
 - [x] 压缩窗口按源类型过滤格式：多文件或文件夹源隐藏 GZ/BZ2/XZ/ZST/Brotli/LZ4 单流格式，设置中的单流默认格式自动改用对应 TAR 变体；核心创建接口对多源单流请求返回可操作的“无法继续”错误，而不是“归档损坏”。
 - [x] ZPAQ 读写：使用 `zpaq_rs` 内嵌的 libzpaq/JIDAC 参考引擎创建标准归档，支持 1–5 级压缩级别（轻巧模式“体积小”对应 5 级）、AES-256 密码、列表、完整测试、密码校验、选择性解压、覆盖策略、资源预算、分卷和删除源文件；普通批次按 32 MiB / 64 文件分批上报进度并检查取消，含 ≥32 MiB 单文件的批次交给隐藏的 `--zpaq-worker` 子进程执行，取消时直接终止子进程；创建后重新列表校验路径集合；解压先落暂存区再按策略移动，失败不留半成品。源计划跳过符号链接和 Windows 目录联接，避免 zpaq 跳过后条目数不一致；ZPAQ 默认保留原始时间，需要“当前/最近”时间时复制源文件并处理只读属性。同名旧归档在任务成功后原子替换。首次调用前把无控制台 release 进程的无效 stdio 句柄绑定到 NUL，保证引擎输出捕获可用。PAQ8/LPAQ 无许可兼容的成熟后端，不列入支持范围。
 - [x] RAR 只读列表、普通/加密密码验证、完整测试和解压（UnRAR 后端，保留许可声明）；损坏 RAR 不再误报为加密；解压按条目声明大小接入资源预算。
-- [x] 只读适配 40+ 格式：ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（仅第一映像，XPRESS/LZX）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE 等（传统格式通过 `unarc-rs` 适配层）；WIM 的 LZMS 压缩和 SWM 分卷暂不支持。
+- [x] 只读适配 40+ 格式：ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（第一映像，XPRESS/LZX/LZMS，支持 SWM 分卷自动发现）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE 等（传统格式通过 `unarc-rs` 适配层）；LGPL `wim-format` 负责 WIM 资源解码，LZMS/SWM 有 256 KiB LZMS 与多分卷回归测试。
 - [x] ALZ 只读列表、密码探测/校验、完整测试和解压：支持 Store、Deflate、ALZ 改造 Bzip2、ZipCrypto、`.alz`/`.a00` 分卷；解压按路径安全、覆盖策略、资源预算和 CRC 校验处理，失败不留半成品。
 - [x] ZIP/7Z 原子编辑：删除、重命名、添加文件；失败不替换原归档；可选 `.lumark.bak`。
 - [x] 归档内同名添加按替换处理，不再生成重复条目。
@@ -82,12 +82,12 @@
 - [x] 自解压图标真实模块测试：以当前测试 EXE 作为运行时模块，替换图标后读取页脚并解压载荷，覆盖 PE 资源改写和偏移重算。
 - [x] 自解压自定义图标：压缩窗口可选择 `.ico`，生成时在追加载荷前用 Win32 资源 API 替换运行时模块的 RT_ICON/RT_GROUP_ICON，页脚偏移按替换后的实际大小计算。
 - [x] CHM 只读格式：使用 `libchm` 解析 ITSF/ITSP、PMGL 目录和 LZX 数据，支持普通命名空间文件/目录列表、选择性解压、预算/取消和完整性测试；已加入 `.chm` Shell 关联。
-- [x] 全信任 MSIX 打包：`installer/pack-msix.ps1` 从 release 二进制生成 AppxManifest 和 Store/开始菜单 PNG，调用 Windows SDK `makeappx.exe` 生成 `.msix`；已用占位二进制实际打包验证；支持打包后通过同证书参数签名；`install-msix.ps1` 提供证书信任导入、安装和卸载。Windows 11 稀疏包和 `IExplorerCommand` 新菜单仍未实现。
-- [x] Authenticode 代码签名脚本：`installer/sign.ps1` 支持证书存储指纹或 PFX、SHA-256 时间戳、签名后自动 `signtool verify /pa`，以及 `-VerifyOnly` 校验；`install.ps1` 可通过 `-SignThumbprint`/`-SignPfxPath` 在复制到安装目录后签名，没有证书时脚本明确失败。
+- [x] Windows 正式安装器：按 GPUI Kit 官方打包文档新增 `installer/lumark.iss` 和 `installer/pack-installer.ps1`，暂存 app/SFX/许可文本，生成 Inno Setup 安装器和 SHA-256；安装/卸载时注册/移除当前用户经典右键菜单，并支持先签名暂存二进制和最终安装器。已用 Inno Setup 6.7.3 实际编译出 `dist/Lumark-Setup-0.1.0.exe` 并生成校验文件；未签名安装器的静默安装会被 SmartScreen 拦截，正式发布前需签名。
+- [x] Authenticode 代码签名脚本：`installer/sign.ps1` 支持证书存储指纹或 PFX、SHA-256 时间戳、签名后自动 `signtool verify /pa`，以及 `-VerifyOnly` 校验；`pack-installer.ps1` 可先签名暂存二进制和最终安装器，没有证书时明确失败。
 - [x] EGG 只读格式：使用 MIT `unegg` 读取 Store/Deflate/Bzip2/LZMA 条目，支持列表、选择性解压、覆盖策略、预算/取消、完整性测试和自动发现 EGG 分卷（含双卷回归测试）；AZO 条目因缺少可用解码器明确报不支持，使用本地 `libazo` 占位依赖并有回归测试。已加入 `.egg` Shell 关联。
 - [x] DMG（UDIF）只读格式：使用 MIT `dpp` 自动识别 HFS+/APFS 卷，支持遍历、列表、选择性解压、覆盖策略、预算/取消和完整性测试；按 `.dmg` 扩展名或末尾 `koly` 识别，跳过符号链接。测试用 `hfsplus`/`udif` 合成原始 HFS+ DMG。
 - [x] NSIS 安装包只读格式：使用 Apache-2.0 `nsis` 解析 PE overlay、压缩头和 `EW_EXTRACTFILE` 条目，支持列表、选择性解压、覆盖策略、预算/取消、完整性测试和自动发现 EGG 分卷（含双卷回归测试）；按内容识别，不注册 `.exe` 默认关联，避免劫持普通可执行文件。测试夹具来自 nsis-rs 并保留 NOTICE。
-- [x] XZ 编解码依赖收敛：RPM/XAR 解码和 TAR/单文件流创建改用纯 Rust `lzma-rust2`，移除直接 `xz2` 依赖；新增 MIT/Apache 兼容的本地 `xz2` 适配层，把 `geezipx-core` 的 XZ/LZMA 调用转到 `lzma-rust2`，并用 `liblzma` 为 `backhand` 提供 SquashFS XZ 后端，已通过 XZ/LZMA 往返和 XZ SquashFS 测试。
+- [x] XZ 编解码依赖收敛：RPM/XAR 解码和 TAR/单文件流创建改用纯 Rust `lzma-rust2`，移除直接 `xz2` 依赖；新增 MIT/Apache 兼容的本地 `xz2` 适配层，把本地 `lumark-legacy` 的 XZ/LZMA 调用转到 `lzma-rust2`，并用 `liblzma` 为 `backhand` 提供 SquashFS XZ 后端，已通过 XZ/LZMA 往返和 XZ SquashFS 测试。
 - [x] SquashFS 只读格式：使用 `backhand` 解析 v4 镜像，支持目录/文件列表、选择性解压、覆盖策略、预算和取消；启用 gzip/zstd/lz4/xz 压缩。已加入 `.squashfs`/`.sqfs` Shell 关联。
 - [x] ZPAQ 解压和完整测试改走可杀死工作进程：取消时终止子进程并清理暂存区；解压仍由引擎一次性完成，移动阶段继续逐条上报进度。
 - [x] 伪装归档原地编辑：ZIP/7Z 内层恢复、编辑、复用原面具重新包装后原子替换，保留原文件名和可选 `.lumark.bak`；其他内层格式仍要求先还原。
@@ -96,12 +96,12 @@
 - [x] 文件表列宽支持拖动表头分隔线逐列调整，松手后写入设置；设置页保留三档预设和“重置列宽”，自定义宽度优先于预设。
 - [x] 10 万项目录性能验收：`bench_100k` 实测目录加载约 167 ms、全量搜索约 75 ms；基准位于 `crates/lumark-browser/examples/bench_100k.rs`。
 - [x] Shell 多选转发：一次请求包含多个归档时，第一个在当前窗口打开，其余各开独立窗口；压缩/伪装仍合并批次。
-- [x] 伪装单遍写入（ZIP、7Z、LZH、TAR 系列和 GZ/BZ2/XZ/ZST/Brotli/LZ4）：直接写入伪装容器，仅保留一份输出；ZPAQ 仍走两遍但共享同一原子提交路径。
+- [x] 伪装单遍写入（ZIP、7Z、LZH、ZPAQ、TAR 系列和 GZ/BZ2/XZ/ZST/Brotli/LZ4）：ZPAQ 使用 fork 的 `zpaq_rs::ArchiveWriter` 逐条目写入标准流，有密码时由写入器生成盐并做 AES-CTR 流式加密，直接写入伪装容器。
 - [x] 7Z/LZH 伪装单遍写入：写入器通过可 Seek 的伪装适配器直接写入 `DisguiseWriter`，7Z 的 32 字节签名头和 LZH 条目头都在数据写完后按载荷位置混淆回填；不再先落完整内层文件；新增 LZH 多条目 2 MiB 大文件回填测试。
-- [x] ZIP 伪装单遍写入：`ZipWriter::new_stream` 直接写入伪装容器，支持 AES/ZipCrypto、进度和取消；剩余 ZPAQ 仍走两遍。
+- [x] ZIP 伪装单遍写入：`ZipWriter::new_stream` 直接写入伪装容器，支持 AES/ZipCrypto、进度和取消。
 - [x] 媒体扩展名 `.mp4`/`.jpg` 注册 `Lumark.Media` 到 `OpenWithProgids`，只加入“打开方式”候选，不修改系统默认关联。
 - [x] Windows 会话锁定：每 2 秒查询一次会话标志，检测到锁定且密码库需要主密码时自动锁定并清空选中记录；DPAPI-only 密码库保持可用。
-- [x] 卸载数据保留选项：`installer/uninstall.ps1` 默认保留设置和密码库，新增 `-RemoveUserData` 显式删除并输出对应提示。
+- [x] 卸载数据保留：Inno Setup 卸载只移除安装目录，用户设置和密码库继续保留；需要彻底清理时由用户手动删除应用数据目录。
 - [x] 邮件通知基础：新增 `lumark-mail` SMTP 发送器（隐式 TLS/STARTTLS/无 TLS、多收件人、配置校验）和 `lumark-mail` 单元测试；SMTP 密码使用 Windows DPAPI 保护，设置模型已加入邮件字段。
 - [x] 邮件通知完整接入：设置窗口新增“通知”页，可保存 SMTP 主机/端口/账号/密码/发件人/收件人和 TLS 模式，支持测试发送；压缩任务成功后自动发送通知，密码用 DPAPI 加密保存。
 - [x] XAR/PKG 只读格式：解析 28 字节头、zlib 目录和逐文件 zlib/BZip2/XZ/Store 数据，支持列表、选择性解压、符号链接跳过、预算/取消和完整性测试；`.xar`/`.pkg` 已加入 Shell 关联。
@@ -109,7 +109,7 @@
 - [x] MSI 只读格式：读取 OLE 复合文档中的 File/Media 表，打开内嵌或同目录外部 CAB 并列表、选择性解压和完整性测试；按 File/Component/Directory 表还原目录层级，MSI 写入仍不支持。
 - [x] 命名管道单实例请求：首个进程启动管道服务，后续进程优先通过命名管道转发参数，失败时回退现有请求目录；参数带长度前缀，不落盘。
 - [x] 归档头部确定性变异测试：对 ZIP/7Z/TAR/GZIP 各做 64 次单字节篡改，对 NSIS/SquashFS/DMG/EGG 各做 32 次单字节篡改，并对 ZIP 做多组截断；列表、测试和解压只返回错误，不 panic。
-- [x] WIM 创建（未压缩 Store）：复用 `WimWriter` 生成可被 Lumark 只读 WIM 后端打开的归档，支持多文件和目录；LZMS 压缩、SWM 分卷和压缩 WIM 写入仍不支持。
+- [x] WIM 创建：使用 LGPL `wim` 后端捕获暂存目录并生成 LZX 压缩归档，支持多文件和目录；LGPL `wim-format`/`ms-compress` 只读后端支持 XPRESS/LZX/LZMS 和 SWM 分卷。暂存目录在完成后删除，WIM 仍不支持密码和分卷写入。
 - [x] cargo-fuzz 持续目标：新增 `fuzz/fuzz_targets/archive_list.rs`，把输入写成临时 ZIP 后调用列表和完整测试，可直接用 `cargo +nightly fuzz run archive_list` 运行；工作区外独立 lockfile。
 - [x] 设置窗口通知页 UI 测试：打开真实设置窗口、切到“通知”页并验证 SMTP 主机、端口和密码控件可见。
 - [x] 自动解压提示 UI 测试：锁定密码库且启用自动解压时，打开加密包会进入解锁提示并保存待处理归档，不直接打开密码框。
@@ -124,22 +124,23 @@
 ## 下一步（按优先级）
 
 - [x] SFX 支持 `LUMARK_SFX_PASSWORD` 环境变量；`/P=` 保留兼容，文档建议优先交互输入或环境变量，减少命令行历史泄漏。
-- [ ] 仅 ZPAQ 的伪装创建仍先写内层归档再包装，峰值磁盘约两倍；ZIP/7Z/LZH/TAR 系列和单文件流已单遍写入；媒体扩展名的 `OpenWithProgids` 已注册。与 Apate 的二进制互通仍未实现（Apate 为 GPL-3.0 且格式未公开，不复制其代码）。
-- [ ] ZPAQ 解压仍由引擎一次性阻塞完成，只有任务级取消和移动阶段逐条进度，没有引擎内部逐文件进度；后续可评估按条目分块调用引擎。PAQ8/LPAQ 系列暂无许可兼容的成熟 Rust 后端，待生态出现可用实现后再评估。
-- [ ] 邮件通知只做纯文本；没有连接超时配置、发送历史、重试队列和 OAuth2/XOAUTH2。
-- [x] Windows 11 稀疏 MSIX 上下文菜单骨架：新增 `lumark-shell-command` COM DLL（`IExplorerCommand` + 类工厂测试）、`AppxSparseManifest.xml`、`pack-msix.ps1 -Sparse` 和 `install-msix.ps1 -ExternalLocation`；已验证 MakeAppx 打包和 COM 类工厂创建。实际安装/Explorer 验收仍需受信任证书。
-- [ ] PAQ8/LPAQ 仍未支持；MSI 已支持内嵌 CAB 只读打开。XAR/PKG 已支持只读打开。WIM 的 LZMS 压缩和 SWM 多分卷仍未实现；未压缩 WIM 创建已完成，Unix `.Z` 和部分传统格式需要更完整的真实样本矩阵回归。
-- [ ] LZH 的 lh4/lh5/lh7 创建仍受单条目 512 MiB 内存上限限制；Store（lh0）已支持分块流式写入。上游 lh4-lh7 编码器尚无可安全跨块续写的接口，后续可评估自研流式编码器或分块归档策略。
-- [ ] 传统格式的实际写入上限仍取决于上游适配器；完整键盘/高对比度验收和原生 OS 拖出目标窗口行为仍待完成；主界面文案迁移已覆盖主要页面，压缩格式错误提示已使用本地化格式名称，剩余少量状态文案。
-- [ ] 将 `geezipx-core` 所需适配器复制进项目并移除整体直接依赖，减少重复 ZIP/7z 依赖。
+- [x] ZPAQ 伪装单遍写入：fork 的 `ArchiveWriter` 支持无密码标准流和有密码 AES-CTR 流；ZIP/7Z/LZH/TAR 系列/单文件流也均为单遍。媒体扩展名的 `OpenWithProgids` 已注册。
+- [x] 与 Apate 的二进制互通：按用户决定不实现；Apate 为 GPL-3.0 且格式未公开，不复制其代码。
+- [x] ZPAQ 选择性和可分组全量解压按顶层过滤组分段调用引擎，可在多个顶层条目之间上报进度并响应取消；单个超大条目仍由上游引擎一次阻塞完成。PAQ8/LPAQ 系列按用户决定不支持。
+- [x] 邮件通知只做纯文本；支持 1–300 秒 SMTP 连接/命令超时、瞬时网络/4xx 错误最多 3 次的进程内退避重试、最近 8 条发送记录、持久化待重试队列（跨进程保留、手动重试）、XOAUTH2 访问令牌，以及通过 `reqwest` 使用刷新令牌从 OAuth2 令牌端点获取新访问令牌。
+- [x] PAQ8/LPAQ 按用户决定不支持；MSI 已支持内嵌 CAB 只读打开，XAR/PKG 已支持只读打开；WIM 的 LZX 创建、LZMS 读取和 SWM 多分卷已完成；Unix `.Z` 已有真实样本和检测回归。
+- [x] LZH 的 lh4/lh5/lh7 已支持跨块流式编码，不再受 512 MiB 单条目内存上限限制；Store（lh0）继续分块直写。
+- [x] 键盘/高对比度验收：按用户决定暂不进行。
+- [x] 主界面状态文案已完成中英文迁移，压缩格式错误提示使用本地化格式名称。
+- [x] 传统格式写入上限按上游适配器能力记录并在文档说明；Windows 原生拖出已通过 `IShellItemArray` + `SHDoDragDrop` 实现，目标应用的投放行为由系统拖放循环负责。
+- [x] 依赖收敛：从 GeeZipX 0.7.4 裁剪出本地 `lumark-legacy`，只保留实际使用的 ACE/ARC/ARJ/ASAR/CAB/CPIO/DEB/ISO/LZH/UDF 和单流辅助模块；删除外部 `geezipx-core` 依赖及其 ZIP 2/7z 0.21 重复依赖，WIM/AES 改用标准后端，错误映射和路径安全逻辑保持不变。
 
 ## 外部依赖/架构限制
 
-- ZPAQ 单遍伪装需要可流式写入的 ZPAQ 归档写入器；当前 `zpaq_rs` 只提供“条目转 Vec”或原始压缩流，不能安全生成可浏览归档。
-- WIM LZMS/SWM 需要许可兼容的 LZMS 后端或完整的 WIMGAPI/`wimlib` 集成；当前只使用纯 Rust WIM 读取器。
-- PAQ8/LPAQ 没有许可兼容的成熟 Rust 后端。
-- LZH lh4/lh5/lh7 的上游编码器没有跨块续写接口，当前仍受 512 MiB 单条目内存上限。
-- Windows 11 稀疏 MSIX 的 COM DLL、清单和打包脚本已完成；真实安装验证依赖受信任证书和 Explorer 会话。
+- ZPAQ 伪装单遍写入已通过 fork 的 `zpaq_rs::ArchiveWriter` 实现；无密码走标准流，有密码先写 32 字节盐再用 AES-CTR 加密，均由官方 `zpaq` 读取验证。
+- WIM 创建使用 LGPL-2.1+ 的 `wim` 后端生成 LZX 压缩归档；LZMS/SWM 读取使用 `wim-format`/`ms-compress`。
+- PAQ8/LPAQ 没有许可兼容的成熟 Rust 后端，按用户决定暂不支持。
+- LZH lh4/lh5/lh7 不再受整块内存限制；编码块实现改编自 Apache-2.0 的 `oxiarc-lzhuf`。
 
 ## 验证命令
 

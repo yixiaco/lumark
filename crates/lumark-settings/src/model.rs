@@ -119,9 +119,39 @@ impl ColumnKind {
     }
 }
 
+/// 一次邮件发送结果，用于设置页的最近发送记录。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MailHistoryEntry {
+    /// 本地时间，格式为 `MM-DD HH:MM`。
+    pub time: String,
+    /// 邮件主题。
+    pub subject: String,
+    /// 是否发送成功。
+    pub success: bool,
+    /// 失败时的错误文本。
+    pub error: Option<String>,
+}
+
+/// 一封等待重试的邮件。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MailQueueEntry {
+    /// 稳定 ID，用于重试完成后移除对应记录。
+    pub id: String,
+    /// 创建时间，格式为 `MM-DD HH:MM`。
+    pub created_at: String,
+    /// 邮件主题。
+    pub subject: String,
+    /// 邮件正文。
+    pub body: String,
+    /// 已失败的发送次数。
+    pub attempts: u32,
+    /// 最近一次错误。
+    pub last_error: Option<String>,
+}
+
+/// Lumark 的用户设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-/// Lumark 的用户设置。
 pub struct Settings {
     /// 设置文件版本。
     pub version: u32,
@@ -177,6 +207,8 @@ pub struct Settings {
     pub smtp_host: String,
     /// SMTP 端口。
     pub smtp_port: u16,
+    /// SMTP 连接和命令超时秒数。
+    pub smtp_timeout_secs: u64,
     /// SMTP 登录用户名。
     pub smtp_username: String,
     /// DPAPI 保护的 SMTP 密码；`None` 表示未设置。
@@ -189,6 +221,20 @@ pub struct Settings {
     pub smtp_implicit_tls: bool,
     /// 使用 STARTTLS（常见端口 587）。
     pub smtp_starttls: bool,
+    /// 使用 XOAUTH2；没有刷新令牌时 SMTP 密码字段保存访问令牌。
+    pub smtp_xoauth2: bool,
+    /// OAuth2 令牌端点。
+    pub smtp_oauth2_token_url: String,
+    /// OAuth2 客户端 ID。
+    pub smtp_oauth2_client_id: String,
+    /// DPAPI 保护的 OAuth2 客户端密钥。
+    pub smtp_oauth2_client_secret: Option<String>,
+    /// DPAPI 保护的 OAuth2 刷新令牌。
+    pub smtp_oauth2_refresh_token: Option<String>,
+    /// 最近发送记录，最新在前。
+    pub mail_history: Vec<MailHistoryEntry>,
+    /// 等待重试的压缩完成通知。
+    pub mail_outbox: Vec<MailQueueEntry>,
     /// 新建压缩窗口默认是否勾选伪装输出。
     pub disguise_enabled: bool,
     /// 默认面具类型。
@@ -228,12 +274,20 @@ impl Default for Settings {
             email_notify: false,
             smtp_host: String::new(),
             smtp_port: 465,
+            smtp_timeout_secs: 30,
             smtp_username: String::new(),
             smtp_password: None,
             smtp_from: String::new(),
             smtp_to: String::new(),
             smtp_implicit_tls: true,
             smtp_starttls: false,
+            smtp_xoauth2: false,
+            smtp_oauth2_token_url: String::new(),
+            smtp_oauth2_client_id: String::new(),
+            smtp_oauth2_client_secret: None,
+            smtp_oauth2_refresh_token: None,
+            mail_history: Vec::new(),
+            mail_outbox: Vec::new(),
             disguise_enabled: false,
             disguise_mask: DisguiseMaskPreference::Video,
             disguise_custom_mask: None,
@@ -311,9 +365,15 @@ mod tests {
         let settings: Settings = serde_json::from_str("{}").expect("empty settings");
         assert!(!settings.email_notify);
         assert_eq!(settings.smtp_port, 465);
+        assert_eq!(settings.smtp_timeout_secs, 30);
         assert!(settings.smtp_implicit_tls);
         assert!(!settings.smtp_starttls);
+        assert!(!settings.smtp_xoauth2);
+        assert!(settings.smtp_oauth2_client_secret.is_none());
+        assert!(settings.smtp_oauth2_refresh_token.is_none());
         assert!(settings.smtp_password.is_none());
+        assert!(settings.mail_history.is_empty());
+        assert!(settings.mail_outbox.is_empty());
     }
 
     /// 验证逐列宽度按预设初始化，并被限制在可读范围内。

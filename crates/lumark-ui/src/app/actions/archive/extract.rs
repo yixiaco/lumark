@@ -52,7 +52,11 @@ impl LumarkApp {
             self.archive_password = Some(zeroize::Zeroizing::new(
                 password.unwrap_or_default().to_string(),
             ));
-            self.status = "已应用可用密码，正在准备解压".to_string();
+            self.status = tr(
+                "已应用可用密码，正在准备解压",
+                "Available password applied; preparing extraction",
+            )
+            .to_string();
             return;
         }
         if !auto_resolve {
@@ -111,7 +115,11 @@ impl LumarkApp {
                             self.pending_unlock_archive = Some(archive);
                             self.show_unlock_for_extract = true;
                             self.unlock_for_browse = false;
-                            self.status = "密码库已锁定，解锁后将自动尝试记录密码".to_string();
+                            self.status = tr(
+                                "密码库已锁定，解锁后将自动尝试记录密码",
+                                "Vault is locked; unlock it to try saved passwords",
+                            )
+                            .to_string();
                         }
                         VaultState::Uninitialized => {
                             let action = PendingPasswordAction::OpenArchive {

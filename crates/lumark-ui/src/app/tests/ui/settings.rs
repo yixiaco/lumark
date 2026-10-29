@@ -33,6 +33,7 @@ fn notification_tab_renders_smtp_fields(cx: &mut gpui_kit::TestAppContext) {
         window.draw(cx).clear(cx);
         assert!(window.find("settings-smtp-host").visible());
         assert!(window.find("settings-smtp-port").visible());
+        assert!(window.find("settings-smtp-timeout").visible());
         assert!(window.find("settings-smtp-password").visible());
     });
     let _ = app;

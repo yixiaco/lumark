@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
-use geezipx_core::archive::ArchiveReader as LegacyReader;
+use lumark_legacy::archive::ArchiveReader as LegacyReader;
 use lzma_rust2::{LzipOptions, LzipWriter, LzmaOptions, LzmaWriter};
 use sevenz_rust2::encoder_options::{
     Bzip2Options, Lzma2Options, LzmaOptions as SevenZLzmaOptions, PpmdOptions,

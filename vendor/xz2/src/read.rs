@@ -44,8 +44,8 @@ impl<R: Read> XzDecoder<R> {
                 let props = header[0];
                 let dict_size = u32::from_le_bytes([header[1], header[2], header[3], header[4]]);
                 let size = u64::from_le_bytes([
-                    header[5], header[6], header[7], header[8],
-                    header[9], header[10], header[11], header[12],
+                    header[5], header[6], header[7], header[8], header[9], header[10], header[11],
+                    header[12],
                 ]);
                 match LzmaReader::new_with_props(reader, size, props, dict_size, None) {
                     Ok(decoder) => DecoderInner::Lzma(decoder),

@@ -11,6 +11,7 @@ pub struct XzEncoder<W: Write> {
     inner: EncoderInner<W>,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum EncoderInner<W: Write> {
     Xz(XzWriter<W>),
     Lzma(LzmaWriter<W>),

@@ -1,0 +1,29 @@
+[package]
+name = "lumark-legacy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "从 GeeZipX 裁剪的传统格式只读适配层"
+
+[dependencies]
+ar = "0.9"
+asar = "0.3"
+bzip2.workspace = true
+cab.workspace = true
+cpio-archive = "0.10"
+crc32fast.workspace = true
+delharc = "0.6"
+flate2.workspace = true
+hadris-iso = { version = "1.1", features = ["joliet"] }
+hadris-udf = { version = "1.2", features = ["read", "write", "std"], default-features = false }
+isomage = "2.1"
+lzma-rust2.workspace = true
+oxiarc-lzhuf.workspace = true
+tar.workspace = true
+thiserror.workspace = true
+unarc-rs.workspace = true
+xz2 = { path = "../../vendor/xz2" }
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

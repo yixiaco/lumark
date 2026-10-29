@@ -1,7 +1,7 @@
 //! 只读格式兼容性测试：ALZ、ZIP 旧方法、unarc 传统格式和 TAR.Z 检测。
 
 use std::fs;
-use std::io::{Cursor, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use lumark_archive::{
@@ -505,27 +505,27 @@ fn tar_z_detection_wins_over_unix_compress_magic() {
     assert_eq!(ArchiveService::detect(&unix_z), ArchiveFormat::UnixCompress);
 }
 
-/// 验证 WIM 读取路径：用 geezipx 的无压缩写入器生成小镜像后列表、解压和测试。
+/// 验证 WIM 读取路径：用标准 LZX 写入器生成小镜像后列表、解压和测试。
 #[test]
 fn wim_read_roundtrip_from_writer() {
-    use geezipx_core::archive::ArchiveWriter;
-    use geezipx_core::archive::wim::WimWriter;
+    use wim::{Compression, Wim};
 
     let dir = tempdir().unwrap();
+    let source = dir.path().join("source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("hello.txt"), b"hello wim").unwrap();
     let archive = dir.path().join("sample.wim");
-    let file = fs::File::create(&archive).unwrap();
-    let mut writer: Box<dyn ArchiveWriter> = Box::new(WimWriter::new(file));
-    writer
-        .add_entry_from_reader(
-            Path::new("hello.txt"),
-            &mut Cursor::new(b"hello wim".to_vec()),
-        )
-        .unwrap();
-    writer.finish().unwrap();
+    let mut image = Wim::new(Compression::Lzx).unwrap();
+    image.capture_image(&source).unwrap();
+    image.write(&archive).unwrap();
 
     let info = ArchiveService::list(&archive, None).unwrap();
     assert_eq!(info.format, Some(ArchiveFormat::Wim));
-    assert!(info.entries.iter().any(|entry| entry.path == "hello.txt"));
+    assert!(
+        info.entries
+            .iter()
+            .any(|entry| entry.path.ends_with("hello.txt"))
+    );
 
     let output = dir.path().join("out");
     let report = ArchiveService::extract(&archive, &extract_options(&output), |_| {}).unwrap();

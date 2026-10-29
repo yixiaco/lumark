@@ -5,6 +5,7 @@
 //! 框报告无效输入，避免留下不可见的后台进程。
 
 use super::super::*;
+use crate::i18n::tr;
 
 impl LumarkApp {
     /// 为当前选择打开独立伪装窗口。
@@ -30,7 +31,11 @@ impl LumarkApp {
             .filter(|path| seen.insert(path.clone()))
             .collect();
         if files.is_empty() {
-            self.status = "请选择要伪装的普通文件；文件夹请使用「伪装压缩」".to_string();
+            self.status = tr(
+                "请选择要伪装的普通文件；文件夹请使用「伪装压缩」",
+                "Select a regular file to disguise; use Disguise Compress for folders",
+            )
+            .to_string();
             cx.notify();
             return;
         }
@@ -110,7 +115,7 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         let Some(entry) = self.selected_entry().filter(|entry| !entry.is_dir) else {
-            self.status = "请选择一个伪装文件".to_string();
+            self.status = tr("请选择一个伪装文件", "Select a disguised file").to_string();
             cx.notify();
             return;
         };

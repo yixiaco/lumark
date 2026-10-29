@@ -32,6 +32,16 @@ pub(crate) struct SettingsWindowView {
     pub(super) smtp_host: Entity<InputState>,
     /// SMTP 端口输入框。
     pub(super) smtp_port: Entity<InputState>,
+    /// SMTP 超时输入框。
+    pub(super) smtp_timeout: Entity<InputState>,
+    /// OAuth2 令牌端点输入框。
+    pub(super) smtp_oauth2_token_url: Entity<InputState>,
+    /// OAuth2 客户端 ID 输入框。
+    pub(super) smtp_oauth2_client_id: Entity<InputState>,
+    /// OAuth2 客户端密钥输入框。
+    pub(super) smtp_oauth2_client_secret: Entity<InputState>,
+    /// OAuth2 刷新令牌输入框。
+    pub(super) smtp_oauth2_refresh_token: Entity<InputState>,
     /// SMTP 用户名输入框。
     pub(super) smtp_username: Entity<InputState>,
     /// SMTP 密码输入框；留空保留已保存密码。
@@ -141,6 +151,15 @@ impl SettingsWindowView {
         });
         let smtp_host = cx.new(|cx| InputState::new(window, cx).placeholder("smtp.example.com"));
         let smtp_port = cx.new(|cx| InputState::new(window, cx).placeholder("465"));
+        let smtp_timeout = cx.new(|cx| InputState::new(window, cx).placeholder("30"));
+        let smtp_oauth2_token_url =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://…/token"));
+        let smtp_oauth2_client_id =
+            cx.new(|cx| InputState::new(window, cx).placeholder("client id"));
+        let smtp_oauth2_client_secret =
+            cx.new(|cx| InputState::new(window, cx).placeholder("client secret"));
+        let smtp_oauth2_refresh_token =
+            cx.new(|cx| InputState::new(window, cx).placeholder("refresh token"));
         let smtp_username =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr("登录用户名", "Username")));
         let smtp_password = cx.new(|cx| {
@@ -161,6 +180,24 @@ impl SettingsWindowView {
             window,
             cx,
         );
+        set_input(
+            &smtp_timeout,
+            &snapshot.settings.smtp_timeout_secs.to_string(),
+            window,
+            cx,
+        );
+        set_input(
+            &smtp_oauth2_token_url,
+            &snapshot.settings.smtp_oauth2_token_url,
+            window,
+            cx,
+        );
+        set_input(
+            &smtp_oauth2_client_id,
+            &snapshot.settings.smtp_oauth2_client_id,
+            window,
+            cx,
+        );
         set_input(&smtp_username, &snapshot.settings.smtp_username, window, cx);
         set_input(&smtp_from, &snapshot.settings.smtp_from, window, cx);
         set_input(&smtp_to, &snapshot.settings.smtp_to, window, cx);
@@ -175,6 +212,11 @@ impl SettingsWindowView {
             vault_location_input,
             smtp_host,
             smtp_port,
+            smtp_timeout,
+            smtp_oauth2_token_url,
+            smtp_oauth2_client_id,
+            smtp_oauth2_client_secret,
+            smtp_oauth2_refresh_token,
             smtp_username,
             smtp_password,
             smtp_from,

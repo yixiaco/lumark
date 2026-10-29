@@ -45,10 +45,14 @@ impl LumarkApp {
                     self.show_archive_password_prompt = false;
                     self.archive_password_action = None;
                 } else {
-                    self.status = "密码库中没有匹配密码，请手动输入".to_string();
+                    self.status = tr(
+                        "密码库中没有匹配密码，请手动输入",
+                        "No matching password in the vault; enter it manually",
+                    )
+                    .to_string();
                 }
             } else {
-                self.status = "请输入压缩包密码".to_string();
+                self.status = tr("请输入压缩包密码", "Enter the archive password").to_string();
             }
             cx.notify();
             return;
@@ -254,7 +258,9 @@ impl LumarkApp {
                     attempt.archive.display()
                 );
             }
-            None => self.status = "密码验证已经结束".to_string(),
+            None => {
+                self.status = tr("密码验证已经结束", "Password verification has ended").to_string()
+            }
         }
         cx.notify();
     }
@@ -340,7 +346,8 @@ impl LumarkApp {
         };
         if self.vault.state() != VaultState::Unlocked {
             self.apply_password_failure(extra.action, window, cx);
-            self.status = "密码库已锁定，请先解锁".to_string();
+            self.status =
+                tr("密码库已锁定，请先解锁", "Vault is locked; unlock it first").to_string();
             return;
         }
         if !self.submit_password_candidates(
@@ -502,7 +509,11 @@ impl LumarkApp {
             }
             match self.vault.update_entry(entry) {
                 Ok(()) => {
-                    self.status = "密码已存在，已将当前压缩包关联到该条目".to_string();
+                    self.status = tr(
+                        "密码已存在，已将当前压缩包关联到该条目",
+                        "Password already exists; linked this archive to the entry",
+                    )
+                    .to_string();
                     self.show_save_prompt = false;
                 }
                 Err(error) => self.status = error.to_string(),

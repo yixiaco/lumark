@@ -4,7 +4,7 @@ pub mod model;
 pub mod store;
 
 pub use model::{
-    ColumnKind, ColumnWidths, CompressionPreset, DisguiseMaskPreference, OverwritePolicy, Settings,
-    ThemePreference,
+    ColumnKind, ColumnWidths, CompressionPreset, DisguiseMaskPreference, MailHistoryEntry,
+    MailQueueEntry, OverwritePolicy, Settings, ThemePreference,
 };
 pub use store::SettingsStore;

@@ -53,9 +53,89 @@ impl SettingsWindowView {
                     })),
             ))
             .child(self.mail_input_row(tr("SMTP 主机", "SMTP host"), "settings-smtp-host", &self.smtp_host))
-            .child(self.mail_input_row(tr("SMTP 端口", "SMTP port"), "settings-smtp-port", &self.smtp_port))
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(self.mail_input_row(
+                                tr("SMTP 端口", "SMTP port"),
+                                "settings-smtp-port",
+                                &self.smtp_port,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(self.mail_input_row(
+                                tr("SMTP 超时（秒）", "SMTP timeout (seconds)"),
+                                "settings-smtp-timeout",
+                                &self.smtp_timeout,
+                            )),
+                    ),
+            )
             .child(self.mail_input_row(tr("登录用户名", "Username"), "settings-smtp-user", &self.smtp_username))
-            .child(self.mail_input_row(tr("登录密码", "Password"), "settings-smtp-password", &self.smtp_password))
+            .child(self.mail_input_row(
+                if self.settings.smtp_xoauth2 {
+                    tr("OAuth2 访问令牌", "OAuth2 access token")
+                } else {
+                    tr("登录密码", "Password")
+                },
+                "settings-smtp-password",
+                &self.smtp_password,
+            ))
+            .child(settings_row(
+                cx,
+                tr("使用 XOAUTH2", "Use XOAUTH2"),
+                tr(
+                    "启用后密码字段保存 OAuth2 访问令牌，适用于 Gmail/Outlook 等支持 XOAUTH2 的服务器。",
+                    "When enabled, the password field stores an OAuth2 access token for servers supporting XOAUTH2.",
+                ),
+                button("settings-smtp-xoauth2")
+                    .label(if self.settings.smtp_xoauth2 {
+                        tr("已启用", "Enabled")
+                    } else {
+                        tr("未启用", "Disabled")
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let next = !this.settings.smtp_xoauth2;
+                        this.app.update(cx, |app, cx| {
+                            let _ = app.settings.update(|settings| settings.smtp_xoauth2 = next);
+                            app.status = if next {
+                                tr("已启用 XOAUTH2", "XOAUTH2 enabled").to_string()
+                            } else {
+                                tr("已停用 XOAUTH2", "XOAUTH2 disabled").to_string()
+                            };
+                            cx.notify();
+                        });
+                        this.settings.smtp_xoauth2 = next;
+                        cx.notify();
+                    })),
+            ))
+            .when(self.settings.smtp_xoauth2, |this| {
+                this.child(self.mail_input_row(
+                    tr("OAuth2 令牌端点", "OAuth2 token endpoint"),
+                    "settings-smtp-oauth2-token-url",
+                    &self.smtp_oauth2_token_url,
+                ))
+                .child(self.mail_input_row(
+                    tr("OAuth2 客户端 ID", "OAuth2 client ID"),
+                    "settings-smtp-oauth2-client-id",
+                    &self.smtp_oauth2_client_id,
+                ))
+                .child(self.mail_input_row(
+                    tr("OAuth2 客户端密钥", "OAuth2 client secret"),
+                    "settings-smtp-oauth2-client-secret",
+                    &self.smtp_oauth2_client_secret,
+                ))
+                .child(self.mail_input_row(
+                    tr("OAuth2 刷新令牌", "OAuth2 refresh token"),
+                    "settings-smtp-oauth2-refresh-token",
+                    &self.smtp_oauth2_refresh_token,
+                ))
+            })
             .child(settings_row(
                 cx,
                 tr("清除已保存密码", "Clear saved password"),
@@ -121,6 +201,90 @@ impl SettingsWindowView {
                             })),
                     ),
             )
+            .when(!self.settings.mail_outbox.is_empty(), |this| {
+                this.child(settings_section(
+                    cx,
+                    AppIcon::Time,
+                    tr("待重试通知", "Pending notifications"),
+                    Some(
+                        tr(
+                            "压缩完成通知发送失败时会持久化到这里；修复 SMTP 后可手动重试。",
+                            "Failed compression notifications are persisted here; retry after fixing SMTP.",
+                        )
+                        .to_string(),
+                    ),
+                ))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .justify_between()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!(
+                                    "{} {}",
+                                    self.settings.mail_outbox.len(),
+                                    tr("封待发送", "pending")
+                                )),
+                        )
+                        .child(button("settings-mail-retry").label(tr("重试全部", "Retry all")).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.app.update(cx, |app, cx| app.retry_mail_outbox(cx));
+                            }),
+                        )),
+                )
+            })
+            .when(!self.settings.mail_history.is_empty(), |this| {
+                this.child(settings_section(
+                    cx,
+                    AppIcon::Time,
+                    tr("最近发送", "Recent deliveries"),
+                    Some(
+                        tr(
+                            "只保存最近 8 次测试或压缩通知的结果，便于排查 SMTP 配置。",
+                            "The last 8 test or compression notification results are kept for SMTP troubleshooting.",
+                        )
+                        .to_string(),
+                    ),
+                ))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_1()
+                        .children(self.settings.mail_history.iter().take(5).map(|entry| {
+                            let status = if entry.success {
+                                tr("成功", "sent")
+                            } else {
+                                tr("失败", "failed")
+                            };
+                            let detail = entry
+                                .error
+                                .as_deref()
+                                .unwrap_or_default();
+                            v_flex()
+                                .w_full()
+                                .gap_0p5()
+                                .child(
+                                    div().w_full().text_xs().overflow_hidden().child(format!(
+                                        "{}  {}  {}",
+                                        entry.time, status, entry.subject
+                                    )),
+                                )
+                                .when(!detail.is_empty(), |this| {
+                                    this.child(
+                                        div()
+                                            .w_full()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .overflow_hidden()
+                                            .child(detail.to_string()),
+                                    )
+                                })
+                        })),
+                )
+            })
     }
 
     /// 渲染带标题的邮件输入行。
@@ -147,6 +311,7 @@ impl SettingsWindowView {
             notify: self.settings.email_notify,
             host: input_value(&self.smtp_host, cx),
             port: input_value(&self.smtp_port, cx),
+            timeout_secs: input_value(&self.smtp_timeout, cx),
             username: input_value(&self.smtp_username, cx),
             password: input_value(&self.smtp_password, cx),
             clear_password: self.smtp_clear_password,
@@ -154,6 +319,11 @@ impl SettingsWindowView {
             to: input_value(&self.smtp_to, cx),
             implicit_tls: self.settings.smtp_implicit_tls,
             starttls: self.settings.smtp_starttls,
+            xoauth2: self.settings.smtp_xoauth2,
+            oauth2_token_url: input_value(&self.smtp_oauth2_token_url, cx),
+            oauth2_client_id: input_value(&self.smtp_oauth2_client_id, cx),
+            oauth2_client_secret: input_value(&self.smtp_oauth2_client_secret, cx),
+            oauth2_refresh_token: input_value(&self.smtp_oauth2_refresh_token, cx),
         };
         let result = self.app.update(cx, |app, _| app.save_mail_settings(draft));
         match &result {

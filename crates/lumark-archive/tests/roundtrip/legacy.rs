@@ -69,9 +69,16 @@ fn malformed_unix_compress_is_reported_as_corrupt() {
 fn aes_encrypted_container_lists_verifies_and_extracts() {
     let dir = tempdir().unwrap();
     let archive = dir.path().join("secret.txt.enc");
-    let mut input = std::io::Cursor::new(b"encrypted container payload");
-    let mut encrypted = Vec::new();
-    geezipx_core::archive::aes::aes_encrypt(&mut input, &mut encrypted, "container-pass").unwrap();
+    let options = enc_file::EncryptOptions {
+        alg: enc_file::AeadAlg::Aes256GcmSiv,
+        ..Default::default()
+    };
+    let encrypted = enc_file::encrypt_bytes(
+        b"encrypted container payload",
+        secrecy::SecretString::new("container-pass".to_string().into()),
+        &options,
+    )
+    .unwrap();
     fs::write(&archive, encrypted).unwrap();
 
     let info = ArchiveService::list(&archive, Some("container-pass")).unwrap();
