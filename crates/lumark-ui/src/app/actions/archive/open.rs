@@ -346,6 +346,7 @@ impl LumarkApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.marquee = None;
         let result = if let Some(info) = archive_info {
             self.browser.open_archive_info(archive.clone(), info)
         } else {

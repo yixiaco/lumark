@@ -1,5 +1,6 @@
 //! 按扩展名和文件头魔数识别归档格式。
 
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use super::ArchiveFormat;
@@ -44,10 +45,14 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     if name.ends_with(".zipx") {
         return ArchiveFormat::Zipx;
     }
+    if name.ends_with(".apk") {
+        return ArchiveFormat::Apk;
+    }
+    if name.ends_with(".jar") {
+        return ArchiveFormat::Jar;
+    }
     if name.ends_with(".zip")
-        || name.ends_with(".jar")
         || name.ends_with(".war")
-        || name.ends_with(".apk")
         || name.ends_with(".ipa")
         || name.ends_with(".xpi")
     {
@@ -58,6 +63,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     }
     if name.ends_with(".tar") {
         return ArchiveFormat::Tar;
+    }
+    if name.ends_with(".pax") {
+        return ArchiveFormat::Pax;
     }
     if name.ends_with(".gz") || name.ends_with(".gzip") {
         return ArchiveFormat::Gzip;
@@ -103,6 +111,9 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     }
     if name.ends_with(".arc") || name.ends_with(".pak") {
         return ArchiveFormat::Arc;
+    }
+    if name.ends_with(".utoc") {
+        return ArchiveFormat::IoStore;
     }
     if name.ends_with(".alz") {
         return ArchiveFormat::Alz;
@@ -196,8 +207,157 @@ pub fn detect_format(path: &Path) -> ArchiveFormat {
     ArchiveFormat::Unknown
 }
 
-/// 检查 Windows PE 签名：`MZ`、`e_lfanew` 和 `PE\0\0`。
+/// 识别 `.pak` 家族：Quake PACK、Chromium 数据包、Unreal PAK、经典 ARC。
 ///
+/// 只在扩展名 `.pak`（或无法按扩展名识别）时调用；`head` 是文件前 512 字节，
+/// Unreal 的 footer 需要额外读取文件末尾。
+pub(crate) fn detect_pak_family(path: &Path, head: &[u8]) -> Option<ArchiveFormat> {
+    if head.starts_with(b"PACK") {
+        return Some(ArchiveFormat::QuakePak);
+    }
+    let length = std::fs::metadata(path).ok()?.len();
+    if chromium_pak_valid(head, length) {
+        return Some(ArchiveFormat::ChromiumPak);
+    }
+    if unreal_pak_valid(path, length) {
+        return Some(ArchiveFormat::UnrealPak);
+    }
+    if head.first() == Some(&0x1A) && head.get(1).is_some_and(|method| (1..=9).contains(method)) {
+        return Some(ArchiveFormat::Arc);
+    }
+    None
+}
+
+/// 校验 Chromium data pack v4/v5 的头部、资源表和别名表边界。
+fn chromium_pak_valid(head: &[u8], length: u64) -> bool {
+    if head.len() < 9 {
+        return false;
+    }
+    let version = u32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+    let (header_len, resource_count, alias_count, encoding) = match version {
+        4 => {
+            let count = u32::from_le_bytes([head[4], head[5], head[6], head[7]]) as u64;
+            (9u64, count, 0u64, head[8])
+        }
+        5 => {
+            if head.len() < 12 {
+                return false;
+            }
+            let count = u16::from_le_bytes([head[8], head[9]]) as u64;
+            let aliases = u16::from_le_bytes([head[10], head[11]]) as u64;
+            (12u64, count, aliases, head[4])
+        }
+        _ => return false,
+    };
+    if encoding > 2 {
+        return false;
+    }
+    let table_end = header_len
+        .saturating_add((resource_count + 1).saturating_mul(6))
+        .saturating_add(alias_count.saturating_mul(4));
+    if table_end > length {
+        return false;
+    }
+    // 只校验头部实际覆盖到的表项；完整表由读取器再次逐项检查。
+    let available = (head.len() as u64).saturating_sub(header_len) / 6;
+    let checked = (resource_count + 1).min(available);
+    let mut previous = table_end;
+    for index in 0..checked {
+        let offset_position = header_len + index * 6 + 2;
+        let Some(bytes) = head.get(offset_position as usize..offset_position as usize + 4) else {
+            return false;
+        };
+        let offset = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as u64;
+        if offset < previous || offset > length {
+            return false;
+        }
+        previous = offset;
+    }
+    let alias_start = header_len + (resource_count + 1) * 6;
+    let available_aliases = (head.len() as u64).saturating_sub(alias_start) / 4;
+    for index in 0..alias_count.min(available_aliases) {
+        let position = alias_start + index * 4;
+        let Some(bytes) = head.get(position as usize..position as usize + 4) else {
+            return false;
+        };
+        let target = u16::from_le_bytes([bytes[2], bytes[3]]) as u64;
+        if target >= resource_count {
+            return false;
+        }
+    }
+    true
+}
+
+/// 从文件末尾扫描 Unreal PAK 的 footer 魔数并校验版本/索引边界。
+fn unreal_pak_valid(path: &Path, length: u64) -> bool {
+    if length < 64 {
+        return false;
+    }
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let window = length.min(256);
+    if file.seek(SeekFrom::End(-(window as i64))).is_err() {
+        return false;
+    }
+    let mut tail = vec![0u8; window as usize];
+    if file.read_exact(&mut tail).is_err() {
+        return false;
+    }
+    let tail_start = length - window;
+    const MAGIC: [u8; 4] = [0xE1, 0x12, 0x6F, 0x5A];
+    for index in 0..tail.len().saturating_sub(24) {
+        if tail[index..index + 4] != MAGIC {
+            continue;
+        }
+        let version = u32::from_le_bytes([
+            tail[index + 4],
+            tail[index + 5],
+            tail[index + 6],
+            tail[index + 7],
+        ]);
+        if !(1..=11).contains(&version) {
+            continue;
+        }
+        let magic = tail_start + index as u64;
+        let prefix: u64 = if version >= 4 { 1 } else { 0 } + if version >= 7 { 16 } else { 0 };
+        if magic < prefix {
+            continue;
+        }
+        let index_offset =
+            u64::from_le_bytes(tail[index + 8..index + 16].try_into().unwrap_or_default());
+        let index_size =
+            u64::from_le_bytes(tail[index + 16..index + 24].try_into().unwrap_or_default());
+        if index_offset
+            .checked_add(index_size)
+            .is_none_or(|end| end > length)
+        {
+            continue;
+        }
+        let mut footer_end = magic + 44;
+        if version == 9 {
+            footer_end += 1;
+        }
+        if footer_end > length {
+            continue;
+        }
+        let names = length - footer_end;
+        let valid_names = if version >= 9 {
+            names == 160
+        } else if version == 8 {
+            names == 128 || names == 160
+        } else {
+            names == 0
+        };
+        if valid_names {
+            return true;
+        }
+    }
+    false
+}
+
+/// 检查 Windows PE 签名：`MZ`、`e_lfanew` 和 `PE\0\0`。///
 /// `bytes` 只需要覆盖 DOS 头和 `e_lfanew` 指向的 PE 签名字节。
 pub fn is_pe_image(bytes: &[u8]) -> bool {
     if bytes.len() < 0x40 || &bytes[..2] != b"MZ" {
@@ -211,6 +371,10 @@ pub fn is_pe_image(bytes: &[u8]) -> bool {
 
 /// 按文件头魔数识别归档格式。
 pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
+    // Quake/idTech PAK 的 PACK 头足够强，任意扩展名都直接识别。
+    if bytes.starts_with(b"PACK") {
+        return ArchiveFormat::QuakePak;
+    }
     if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06") {
         return ArchiveFormat::Zip;
     }
@@ -229,6 +393,14 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
     if bytes.starts_with(&0x4147_4745u32.to_le_bytes()) {
         return ArchiveFormat::Egg;
     }
+    // ASAR 没有魔数，只能依靠头部 4 个长度字段和 JSON 根键识别；这段检查
+    // 同时覆盖 Electron 官方 asar 与 Lumark 写出的归档。
+    if bytes.len() >= 25
+        && u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) == 4
+        && &bytes[16..25] == b"{\"files\":"
+    {
+        return ArchiveFormat::Asar;
+    }
     if bytes.starts_with(b"\xed\xab\xee\xdb") {
         return ArchiveFormat::Rpm;
     }
@@ -242,6 +414,9 @@ pub fn detect_magic(bytes: &[u8]) -> ArchiveFormat {
         || (bytes.starts_with(b"zPQ") && bytes.get(3).is_some_and(|version| *version >= 1))
     {
         return ArchiveFormat::Zpaq;
+    }
+    if bytes.starts_with(b"-==--==--==--==-") {
+        return ArchiveFormat::IoStore;
     }
     if bytes.starts_with(b"Rar!\x1a\x07") {
         return ArchiveFormat::Rar;

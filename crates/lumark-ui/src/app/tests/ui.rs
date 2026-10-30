@@ -8,6 +8,7 @@ use tempfile::tempdir;
 mod browser;
 mod compress;
 mod files;
+mod game_assets;
 mod mail;
 mod password;
 mod settings;

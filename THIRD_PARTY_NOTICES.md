@@ -18,6 +18,7 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **winreg** — MIT — https://github.com/gentoo90/winreg-rs
 - **windows-sys / windows / windows-core** — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - **raw-window-handle** — MIT OR Apache-2.0 — https://github.com/rust-windowing/raw-window-handle
+- **url** — MIT OR Apache-2.0 — https://github.com/servo/rust-url — 资源管理器 `file:` URL 转为本地路径
 - **image** — MIT OR Apache-2.0 — https://github.com/image-rs/image — Windows 系统文件图标 PNG 编码
 - **embed-resource** — MIT — https://github.com/nabijaczleweli/rust-embed-resource — Windows 图标资源编译（构建期）
 - **unrar / unrar_sys** — UnRAR freeware license (RARLAB) — https://www.rarlab.com/rar/unrarsrc-7.2.1.tar.gz
@@ -47,11 +48,22 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **IconPark** — Apache-2.0 — https://iconpark.oceanengine.com/official — selected SVG assets are stored under `crates/lumark-ui/assets/icons/iconpark/` with the upstream license.
 - **内置伪装面具媒体** — `crates/lumark-archive/assets/disguise/cover.mp4` 和 `cover.jpg` 由本项目使用本地 ffmpeg 生成（渐变画面，无第三方素材），以 CC0 方式随项目分发；ffmpeg 仅用于生成资源，不随安装包分发。
 - **rippod/apate** — GPL-3.0 — https://github.com/rippod/apate — 仅作为“文件伪装/一键还原”功能形态的参考，未复用其代码、二进制或容器格式。
+- **trumank/repak** — MIT OR Apache-2.0 — https://github.com/trumank/repak — Unreal PAK 版本/索引/加密/压缩行为参考，测试样本位于 `crates/lumark-archive/tests/fixtures/unreal/`（含 NOTICE），未直接链接其代码。
+- **trumank/retoc** — MIT — https://github.com/trumank/retoc — IoStore TOC/目录索引/chunk 布局与 UE5 Zen 包格式参考；Lumark 独立实现，未直接链接其代码。
+- **CUE4Parse** — Apache-2.0 — https://github.com/FabianFG/CUE4Parse — UE5 Zen/无版本属性/unversioned header/纹理平台数据行为参考；Lumark 按其公开格式独立实现，测试用 UE5.8 fixture 仅本地验证。
+- **unrealfs** — MIT — https://github.com/lmmtrr/unrealfs — `.usmap` 文件格式和属性 schema 解析参考。
+- **texture2ddecoder** — MIT OR Apache-2.0 — https://github.com/UniversalGameExtraction/texture2ddecoder — BC1/BC3/BC4/BC5/BC7 软件解码。
+- **yuhkix/aesdumpster-rs** — MIT — https://github.com/yuhkix/aesdumpster-rs — `C7` AES 密钥签名模式、误报表与熵排序参考；Lumark 独立实现并增加真实容器校验。
+- **GHFear/AESDumpster** — 参考项目 — https://github.com/GHFear/AESDumpster — AES 密钥提取算法来源，未复用其代码或二进制。
+- **4sval/FModel** — GPL-3.0 — https://github.com/4sval/FModel — 仅作为游戏资产浏览、目录选择、容器/包/查看器功能语义的参考；未复制其代码、界面或资源，Lumark 的 UI 与实现独立完成。
+- **Oodle（可选）** — Oodle 数据压缩由用户自行提供的 Oodle 动态库（如游戏目录的 `oo2core*.dll` 或 `oodle-data-shared.dll`）提供，Lumark 不捆绑、不再分发；相关许可由用户与 Epic Games/RAD Game Tools 另行约定。
 
 RAR support is read-only. The embedded UnRAR source and its license must be included in release artifacts; no RAR creation is implemented.
 
 `crates/lumark-archive/tests/fixtures/` contains small read-only test samples copied from the MIT-licensed
 [zip-rs/zip2](https://github.com/zip-rs/zip2), the MIT OR Apache-2.0 licensed
 [unarc-rs](https://github.com/mkrueger/unarc-rs) test corpora, and the MIT OR Apache-2.0 licensed
-[muja/unrar.rs](https://github.com/muja/unrar.rs) RAR5 corpus (`tests/fixtures/rar5/NOTICE.txt`). They are used only by tests and are not part of
+[muja/unrar.rs](https://github.com/muja/unrar.rs) RAR5 corpus (`tests/fixtures/rar5/NOTICE.txt`) and the
+MIT OR Apache-2.0 licensed trumank/repak Unreal PAK corpus
+(`crates/lumark-archive/tests/fixtures/unreal/NOTICE.txt`). They are used only by tests and are not part of
 release binaries.

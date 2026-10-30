@@ -120,6 +120,7 @@ impl LumarkApp {
                                         .child(entry.name.clone()),
                                 ),
                         )
+                        .child(render_details_preview(self, &entry, cx))
                         .child(detail_row(cx, tr("类型", "Type"), &kind_text))
                         .child(detail_row(cx, tr("大小", "Size"), &size_text))
                         .when_some(entry.modified, |this, modified| {
@@ -230,6 +231,198 @@ impl LumarkApp {
                         ))
                     }),
             )
+    }
+}
+
+/// 渲染详情检查器中的图片预览槽，包括加载、错误和不可用状态。
+fn render_details_preview(
+    app: &LumarkApp,
+    entry: &BrowserEntry,
+    cx: &mut Context<LumarkApp>,
+) -> gpui_kit::AnyElement {
+    let Some(preview) = app.details_preview.as_ref() else {
+        return div().into_any_element();
+    };
+    if !is_image_name(&entry.name) && !is_ue_package_name(&entry.name) {
+        return div().into_any_element();
+    }
+    match preview {
+        DetailsPreview::Loading { .. } => h_flex()
+            .id("details-preview")
+            .w_full()
+            .h(px(84.))
+            .gap_2()
+            .items_center()
+            .justify_center()
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().muted)
+            .child(gpui_kit::component::spinner::Spinner::new())
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(tr("正在准备预览…", "Preparing preview...")),
+            )
+            .into_any_element(),
+        DetailsPreview::Ready {
+            path,
+            name,
+            subtitle,
+            ..
+        } => {
+            let path = path.clone();
+            let name = name.clone();
+            let subtitle = subtitle.clone();
+            v_flex()
+                .id("details-preview")
+                .w_full()
+                .gap_1()
+                .child(
+                    div()
+                        .id("details-preview-image")
+                        .w_full()
+                        .h(px(146.))
+                        .overflow_hidden()
+                        .rounded(cx.theme().radius)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().muted)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            gpui_kit::img(path.clone())
+                                .w_full()
+                                .max_h(px(140.))
+                                .object_fit(gpui_kit::ObjectFit::Contain),
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if let Some(mesh) = this.details_mesh.clone() {
+                                this.open_asset_viewer(
+                                    crate::app::view::ViewerScene::Mesh(mesh),
+                                    name.clone(),
+                                    window,
+                                    cx,
+                                );
+                            } else if let Some(skeleton) = this.details_skeleton.clone() {
+                                this.open_asset_viewer(
+                                    crate::app::view::ViewerScene::Skeleton(skeleton),
+                                    name.clone(),
+                                    window,
+                                    cx,
+                                );
+                            } else {
+                                this.open_image_viewer(path.clone(), name.clone(), window, cx);
+                            }
+                            cx.notify();
+                        })),
+                )
+                .when_some(subtitle, |this, subtitle| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(subtitle),
+                    )
+                })
+                .into_any_element()
+        }
+        DetailsPreview::Metadata {
+            title,
+            subtitle,
+            rows,
+            timeline_seconds,
+            ..
+        } => v_flex()
+            .w_full()
+            .gap_1()
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().muted)
+            .p_2()
+            .child(div().text_sm().font_semibold().child(title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(subtitle.clone()),
+            )
+            .children(rows.iter().map(|(label, value)| {
+                h_flex()
+                    .gap_2()
+                    .text_xs()
+                    .child(
+                        div()
+                            .w(px(72.))
+                            .flex_shrink_0()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(label.clone()),
+                    )
+                    .child(div().flex_1().min_w_0().child(value.clone()))
+            }))
+            .when_some(*timeline_seconds, |this, seconds| {
+                this.child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .w_full()
+                                .h(px(6.))
+                                .rounded_full()
+                                .bg(cx.theme().border)
+                                .child(
+                                    div()
+                                        .size(px(6.))
+                                        .rounded_full()
+                                        .bg(cx.theme().button_primary),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("0.000 s / {seconds:.3} s")),
+                        ),
+                )
+            })
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(if timeline_seconds.is_some() {
+                        tr(
+                            "动画时间轴（只读预览）",
+                            "Animation timeline (read-only preview)",
+                        )
+                    } else {
+                        tr(
+                            "3D 模型/骨骼查看器可点击缩略图打开",
+                            "Click the thumbnail to open the 3D model/skeleton viewer",
+                        )
+                    }),
+            )
+            .into_any_element(),
+        DetailsPreview::Error { message, .. } => h_flex()
+            .w_full()
+            .gap_2()
+            .items_start()
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().danger.opacity(0.08))
+            .p_2()
+            .text_xs()
+            .text_color(StatusTone::Danger.color(cx))
+            .child(message.clone())
+            .into_any_element(),
+        DetailsPreview::Unavailable { message, .. } => h_flex()
+            .w_full()
+            .gap_2()
+            .items_start()
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().muted)
+            .p_2()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(message.clone())
+            .into_any_element(),
     }
 }
 

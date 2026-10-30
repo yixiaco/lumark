@@ -19,6 +19,7 @@ mod title_bar;
 impl Render for LumarkApp {
     /// 组合标题栏、动作带、导航行、侧栏、当前页面、状态栏和模态层。
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_details_preview(cx);
         if self.last_size_save.elapsed() >= std::time::Duration::from_secs(2) {
             let size = window.inner_window_bounds().get_bounds().size;
             let current = (size.width.as_f32(), size.height.as_f32());
@@ -34,10 +35,14 @@ impl Render for LumarkApp {
             self.last_size_save = std::time::Instant::now();
         }
 
-        let content = match self.screen {
-            Screen::Browser => self.render_browser(window, cx).into_any_element(),
-            Screen::Passwords => self.render_passwords(window, cx).into_any_element(),
-            Screen::Tasks => self.render_task_center(cx).into_any_element(),
+        let content = if self.game_setup.is_some() {
+            self.render_game_setup(window, cx)
+        } else {
+            match self.screen {
+                Screen::Browser => self.render_browser(window, cx).into_any_element(),
+                Screen::Passwords => self.render_passwords(window, cx).into_any_element(),
+                Screen::Tasks => self.render_task_center(cx).into_any_element(),
+            }
         };
         // 密码库的整页滚动条向窗口内侧留出空间，避免与 Windows 窗口
         // 缩放边框重叠而无法拖动。
@@ -52,7 +57,8 @@ impl Render for LumarkApp {
         } else {
             content
         };
-        let browser = self.screen == Screen::Browser;
+        let browser = self.screen == Screen::Browser && self.game_setup.is_none();
+        let game = self.game_session.is_some();
 
         v_flex()
             .size_full()
@@ -71,7 +77,11 @@ impl Render for LumarkApp {
                     .min_w_0()
                     .items_stretch()
                     .when(browser && self.sidebar_visible, |this| {
-                        this.child(self.render_sidebar(window, cx))
+                        if game {
+                            this.child(self.render_game_sidebar(window, cx))
+                        } else {
+                            this.child(self.render_sidebar(window, cx).into_any_element())
+                        }
                     })
                     .child(
                         v_flex()

@@ -13,12 +13,29 @@ use lumark_archive::{ArchiveEntry, ArchiveFormat, ArchiveInfo, ArchiveService};
 use crate::selection::SelectionModel;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// 浏览器当前所在位置：真实文件系统目录或归档内部路径。
+/// 浏览器当前所在位置：真实文件系统目录、归档内部路径或游戏归档列表。
 pub enum BrowserLocation {
     /// 真实文件系统目录。
     FileSystem(PathBuf),
     /// 归档内部路径。
     Archive { archive: PathBuf, inner: String },
+    /// 游戏资产的归档列表；标题为游戏名，容器行由模型单独保存。
+    GameArchives { title: String },
+}
+
+/// 游戏资产归档列表中的一行。
+#[derive(Debug, Clone)]
+pub struct GameArchiveRow {
+    /// 容器显示名称。
+    pub name: String,
+    /// `.pak` 或 `.utoc` 路径。
+    pub path: PathBuf,
+    /// 容器类型文本，例如 `IoStore`。
+    pub kind: String,
+    /// 容器文件大小。
+    pub size: u64,
+    /// 是否加密。
+    pub encrypted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +127,7 @@ pub enum BrowserError {
 }
 
 /// 文件系统与归档共享的目录导航和搜索状态。
+#[derive(Clone)]
 pub struct BrowserModel {
     /// 当前位置。
     pub location: BrowserLocation,
@@ -120,6 +138,7 @@ pub struct BrowserModel {
     archive_entries: Vec<ArchiveEntry>,
     archive_format: Option<ArchiveFormat>,
     archive_encrypted: bool,
+    game_archives: Vec<GameArchiveRow>,
     back_stack: Vec<BrowserLocation>,
     forward_stack: Vec<BrowserLocation>,
 }
@@ -135,11 +154,19 @@ impl BrowserModel {
             archive_entries: Vec::new(),
             archive_format: None,
             archive_encrypted: false,
+            game_archives: Vec::new(),
             back_stack: Vec::new(),
             forward_stack: Vec::new(),
         };
         model.refresh()?;
         Ok(model)
+    }
+
+    /// 返回当前归档的完整条目列表；文件系统位置返回空切片。
+    ///
+    /// 拖出归档目录时需要展开其子项，不能只依赖当前目录的 `entries`。
+    pub fn archive_entries(&self) -> &[ArchiveEntry] {
+        &self.archive_entries
     }
 
     /// 重新加载当前位置并保留可恢复的历史。
@@ -149,6 +176,7 @@ impl BrowserModel {
             BrowserLocation::Archive { archive, inner } => {
                 self.load_archive_entries(archive.clone(), inner.clone())
             }
+            BrowserLocation::GameArchives { .. } => self.load_game_archives(),
         }
     }
 
@@ -197,8 +225,25 @@ impl BrowserModel {
         )
     }
 
+    /// 显示当前游戏的容器列表。
+    ///
+    /// 容器行是普通文件行，双击由应用层异步加载归档；这里只负责位置、
+    /// 行数据和历史栈，避免浏览模型依赖任务调度。
+    pub fn show_game_archives(&mut self, title: impl Into<String>, rows: Vec<GameArchiveRow>) {
+        self.game_archives = rows;
+        let next = BrowserLocation::GameArchives {
+            title: title.into(),
+        };
+        self.record_navigation(next);
+        self.selection.clear();
+        let _ = self.load_game_archives();
+    }
+
     /// 进入选中目录或归档条目。
     pub fn enter_entry(&mut self, id: &str) -> Result<(), BrowserError> {
+        if matches!(&self.location, BrowserLocation::GameArchives { .. }) {
+            return Ok(());
+        }
         let Some(entry) = self.entries.iter().find(|entry| entry.id == id).cloned() else {
             return Ok(());
         };
@@ -225,6 +270,7 @@ impl BrowserModel {
                 self.selection.clear();
                 self.load_archive_entries(archive, next_inner)
             }
+            BrowserLocation::GameArchives { .. } => Ok(()),
         }
     }
 
@@ -269,6 +315,7 @@ impl BrowserModel {
                     self.load_archive_entries(archive, next_inner)
                 }
             }
+            BrowserLocation::GameArchives { .. } => Ok(()),
         }
     }
 
@@ -352,6 +399,15 @@ impl BrowserModel {
                     }
                 })
                 .collect(),
+            BrowserLocation::GameArchives { .. } => self
+                .game_archives
+                .iter()
+                .filter(|row| {
+                    matcher.matches(&row.name)
+                        && filters_match(query, &row.name, row.size, false, None)
+                })
+                .map(game_archive_entry)
+                .collect(),
         }
     }
 
@@ -376,6 +432,7 @@ impl BrowserModel {
                     format!("{} > {}", archive.display(), inner)
                 }
             }
+            BrowserLocation::GameArchives { title } => title.clone(),
         }
     }
 
@@ -418,6 +475,7 @@ impl BrowserModel {
             BrowserLocation::Archive { archive, inner } => {
                 self.load_archive_entries(archive.clone(), inner.clone())
             }
+            BrowserLocation::GameArchives { .. } => self.load_game_archives(),
         }
     }
 
@@ -429,6 +487,12 @@ impl BrowserModel {
         self.back_stack.push(self.location.clone());
         self.forward_stack.clear();
         self.location = next;
+    }
+
+    /// 加载游戏归档列表行。
+    fn load_game_archives(&mut self) -> Result<(), BrowserError> {
+        self.entries = self.game_archives.iter().map(game_archive_entry).collect();
+        Ok(())
     }
 
     /// 加载真实目录条目并按当前排序排列。
@@ -537,6 +601,21 @@ impl BrowserModel {
     }
 }
 
+/// 把游戏容器行转换为浏览器条目。
+fn game_archive_entry(row: &GameArchiveRow) -> BrowserEntry {
+    BrowserEntry {
+        id: format!("game-container:{}", row.path.display()),
+        name: row.name.clone(),
+        path: row.path.clone(),
+        is_dir: false,
+        size: row.size,
+        modified: None,
+        kind: row.kind.clone(),
+        archive_entry: None,
+        encrypted: row.encrypted,
+    }
+}
+
 /// 判断浏览位置是否存在可导航的上一级。
 ///
 /// 归档内部总是能回到上一层的归档目录；归档根目录则取决于压缩包所在的
@@ -547,6 +626,7 @@ fn has_parent(location: &BrowserLocation) -> bool {
         BrowserLocation::Archive { archive, inner } => {
             !inner.is_empty() || navigable_parent(archive).is_some()
         }
+        BrowserLocation::GameArchives { .. } => false,
     }
 }
 

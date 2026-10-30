@@ -3,6 +3,7 @@
 mod archive;
 mod disguise;
 mod files;
+mod games;
 mod iso;
 mod passwords;
 mod settings;

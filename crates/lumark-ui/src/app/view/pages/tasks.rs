@@ -186,6 +186,7 @@ impl LumarkApp {
             TaskKind::Compress => AppIcon::Compression,
             TaskKind::Extract => AppIcon::Zip,
             TaskKind::Test => AppIcon::Shield,
+            TaskKind::Repair => AppIcon::Shield,
             TaskKind::Edit => AppIcon::Edit,
             TaskKind::LoadArchive => AppIcon::FileZip,
             TaskKind::PasswordResolve => AppIcon::Key,

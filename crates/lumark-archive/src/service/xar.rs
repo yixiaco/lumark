@@ -78,6 +78,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for entry in archive.entries() {
             ensure_not_cancelled(&options.cancel)?;
@@ -129,6 +132,9 @@ impl ArchiveService {
                     bytes_total,
                     entries_done: report.files,
                     entries_total,
+
+                    current_file_done: 0,
+                    current_file_total: 0,
                 });
             }
             let _ = file_bytes;
@@ -161,6 +167,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for entry in archive.entries() {
             if entry.is_dir || entry.is_symlink {
@@ -176,6 +185,9 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)

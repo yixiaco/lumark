@@ -14,6 +14,9 @@ fn bzip3_block_size(options: &CompressionOptions) -> bzip3_rs::BlockSize {
 
 impl ArchiveService {
     /// 创建 ZIP 归档，按分块响应取消并上报进度。
+    ///
+    /// 普通文件输出使用可回填的 `ZipWriter::new`，因此归档注释、ZIP64 头部
+    /// 修正都能写入；伪装等流式输出仍走 `new_stream`，不写注释。
     pub(crate) fn create_zip<F>(
         output: &Path,
         sources: &[PathBuf],
@@ -26,10 +29,18 @@ impl ArchiveService {
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
         }
-        Self::create_zip_to(File::create(output)?, output, sources, options, progress)
+        let mut writer = ZipWriter::new(File::create(output)?);
+        if let Some(comment) = &options.comment {
+            writer.set_comment(comment.as_str())?;
+        }
+        let report = Self::write_zip_entries(&mut writer, output, sources, options, progress)?;
+        writer.finish()?;
+        Ok(report)
     }
 
-    /// 把 ZIP 写入任意写入器，供伪装单遍写入复用。
+    /// 把 ZIP 写入任意流式写入器，供伪装单遍写入复用。
+    ///
+    /// 流式写入器无法回填注释和本地头大小，`options.comment` 在此路径被忽略。
     pub(crate) fn create_zip_to<W, F>(
         destination: W,
         output: &Path,
@@ -38,13 +49,27 @@ impl ArchiveService {
         progress: &mut F,
     ) -> Result<CreateReport, ArchiveError>
     where
-        W: Write,
+        W: Write + std::io::Seek,
         F: FnMut(CreateProgress),
     {
         let mut writer = ZipWriter::new_stream(destination);
-        if let Some(comment) = &options.comment {
-            writer.set_comment(comment.as_str())?;
-        }
+        let report = Self::write_zip_entries(&mut writer, output, sources, options, progress)?;
+        writer.finish()?;
+        Ok(report)
+    }
+
+    /// 逐条目写入 ZIP；由可回填和流式两个入口共用。
+    fn write_zip_entries<W, F>(
+        writer: &mut ZipWriter<W>,
+        output: &Path,
+        sources: &[PathBuf],
+        options: &CompressionOptions,
+        progress: &mut F,
+    ) -> Result<CreateReport, ArchiveError>
+    where
+        W: Write + std::io::Seek,
+        F: FnMut(CreateProgress),
+    {
         let plan = build_source_plan(sources, options)?;
         let bytes_total = plan.total_bytes;
         let entries_total = plan.files.len();
@@ -133,7 +158,6 @@ impl ArchiveService {
                 entries_total,
             });
         }
-        writer.finish()?;
         Ok(report)
     }
 
@@ -496,23 +520,30 @@ impl ArchiveService {
             ..Default::default()
         };
         match options.format {
-            ArchiveFormat::Tar => {
+            ArchiveFormat::Tar | ArchiveFormat::Pax => {
                 let mut builder = tar::Builder::new(destination);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(
+                    &mut builder,
+                    sources,
+                    options,
+                    progress,
+                    &mut report,
+                    options.format == ArchiveFormat::Pax,
+                )?;
                 builder.finish()?;
             }
             ArchiveFormat::TarGz => {
                 let encoder =
                     flate2::write::GzEncoder::new(destination, flate2::Compression::new(level));
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarBz2 => {
                 let encoder =
                     bzip2::write::BzEncoder::new(destination, bzip2::Compression::new(level));
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarXz => {
@@ -521,13 +552,13 @@ impl ArchiveService {
                     lzma_rust2::XzOptions::with_preset(level),
                 )?;
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarZst => {
                 let encoder = zstd::stream::write::Encoder::new(destination, level as i32)?;
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder.into_inner()?.finish()?;
             }
             ArchiveFormat::TarBr => {
@@ -535,13 +566,13 @@ impl ArchiveService {
                 let quality = options.level.unwrap_or(6).clamp(0, 11) as u32;
                 let encoder = brotli::CompressorWriter::new(destination, 64 * 1024, quality, 22);
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder.into_inner()?.into_inner();
             }
             ArchiveFormat::TarLz4 => {
                 let encoder = lz4_flex::frame::FrameEncoder::new(destination);
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder
                     .into_inner()?
                     .finish()
@@ -551,7 +582,7 @@ impl ArchiveService {
                 let preset = options.level.unwrap_or(6).clamp(0, 9) as u32;
                 let encoder = LzipWriter::new(destination, LzipOptions::with_preset(preset));
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder
                     .into_inner()?
                     .finish()
@@ -566,7 +597,7 @@ impl ArchiveService {
                 )
                 .map_err(|error| ArchiveError::Corrupt(error.to_string()))?;
                 let mut builder = tar::Builder::new(encoder);
-                append_tar_sources(&mut builder, sources, options, progress, &mut report)?;
+                append_tar_sources(&mut builder, sources, options, progress, &mut report, false)?;
                 builder
                     .into_inner()?
                     .finish()

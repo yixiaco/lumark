@@ -56,6 +56,16 @@ impl LumarkApp {
                                 BannerTone::Success,
                                 |this, window, cx| this.open_extract_dialog(window, cx),
                             ))
+                            .when(GAME_ASSETS_SUPPORTED, |this| {
+                                this.child(banner_action(
+                                    cx,
+                                    "game-assets",
+                                    AppIcon::Game,
+                                    crate::i18n::tr_key("app.game_assets"),
+                                    BannerTone::Neutral,
+                                    |this, window, cx| this.open_game_assets(window, cx),
+                                ))
+                            })
                             .child(banner_action(
                                 cx,
                                 "browser-delete",

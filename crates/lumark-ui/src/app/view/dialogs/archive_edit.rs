@@ -19,7 +19,9 @@ impl LumarkApp {
                     .and_then(|value| value.to_str())
                     .unwrap_or(tr("当前归档", "Current archive"))
                     .to_string(),
-                BrowserLocation::FileSystem(_) => tr("当前归档", "Current archive").to_string(),
+                BrowserLocation::FileSystem(_) | BrowserLocation::GameArchives { .. } => {
+                    tr("当前归档", "Current archive").to_string()
+                }
             };
             let summary = match (file_count, folder_count) {
                 (0, folders) => format!(

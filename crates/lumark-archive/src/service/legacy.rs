@@ -23,6 +23,7 @@ pub(crate) fn map_rar_error(error: unrar::error::UnrarError) -> ArchiveError {
 pub(crate) fn open_legacy_reader(
     path: &Path,
     format: ArchiveFormat,
+    password: Option<&str>,
 ) -> Result<Box<dyn LegacyReader>, ArchiveError> {
     use lumark_legacy::archive::{
         ace::AceReader, arc::ArcReader, arj::ArjReader, asar::AsarReader, cab::CabReader,
@@ -34,6 +35,30 @@ pub(crate) fn open_legacy_reader(
         ArchiveFormat::Arc => Box::new(ArcReader::new(path)),
         ArchiveFormat::Arj => Box::new(ArjReader::new(path)),
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
+        ArchiveFormat::QuakePak => Box::new(
+            crate::pak::quake::QuakePakReader::new(path)
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
+        ),
+        ArchiveFormat::ChromiumPak => Box::new(
+            crate::pak::chromium::ChromiumPakReader::new(path)
+                .map_err(|error| ArchiveError::Corrupt(error.to_string()))?,
+        ),
+        ArchiveFormat::UnrealPak => {
+            let (encrypted, _) =
+                crate::pak::unreal::probe_encryption(path).map_err(ArchiveError::Corrupt)?;
+            if encrypted && password.is_none() {
+                return Err(ArchiveError::PasswordRequired);
+            }
+            Box::new(
+                crate::pak::unreal::UnrealPakReader::new(path, password).map_err(|error| {
+                    if password.is_some() {
+                        ArchiveError::WrongPassword
+                    } else {
+                        ArchiveError::Corrupt(error.to_string())
+                    }
+                })?,
+            )
+        }
         ArchiveFormat::Cab => Box::new(CabReader::new(path)),
         ArchiveFormat::Cpio => Box::new(CpioReader::new(path)),
         ArchiveFormat::Deb => Box::new(DebReader::new(BufReader::new(File::open(path)?))),
@@ -51,6 +76,49 @@ pub(crate) fn open_legacy_reader(
         }
     };
     Ok(reader)
+}
+
+/// 解压过程中按块上报单个条目进度的写入器。
+struct EntryProgressWriter<'a, F> {
+    inner: File,
+    done: u64,
+    total: u64,
+    name: String,
+    base_bytes: u64,
+    bytes_total: u64,
+    entries_done: usize,
+    entries_total: usize,
+    last_report: std::time::Instant,
+    progress: &'a mut F,
+}
+
+impl<F> std::io::Write for EntryProgressWriter<'_, F>
+where
+    F: FnMut(ExtractProgress),
+{
+    /// 写入数据并按 100 毫秒节流上报当前条目进度。
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(buffer)?;
+        self.done = self.done.saturating_add(written as u64);
+        if self.last_report.elapsed() >= std::time::Duration::from_millis(100) {
+            self.last_report = std::time::Instant::now();
+            (self.progress)(ExtractProgress {
+                current: self.name.clone(),
+                bytes_done: self.base_bytes.saturating_add(self.done),
+                bytes_total: self.bytes_total,
+                entries_done: self.entries_done,
+                entries_total: self.entries_total,
+                current_file_done: self.done,
+                current_file_total: self.total,
+            });
+        }
+        Ok(written)
+    }
+
+    /// 刷新底层文件。
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 impl ArchiveService {
@@ -99,7 +167,11 @@ impl ArchiveService {
     where
         F: FnMut(ExtractProgress),
     {
-        let reader = open_legacy_reader(path, format)?;
+        let reader = open_legacy_reader(
+            path,
+            format,
+            options.password.as_ref().map(|value| value.as_str()),
+        )?;
         Self::extract_legacy_with(reader, options, progress)
     }
 
@@ -119,6 +191,7 @@ impl ArchiveService {
         let total_bytes: u64 = entries.iter().map(|entry| entry.size).sum();
         fs::create_dir_all(&options.output_dir)?;
         let mut report = ExtractReport::default();
+        let mut skipped_bytes = 0u64;
         for entry in entries {
             ensure_not_cancelled(&options.cancel)?;
             if !selected(&entry.path, &options.selected_paths) {
@@ -137,10 +210,32 @@ impl ArchiveService {
                     }
                     crate::format::OverwritePolicy::Skip => {
                         report.skipped += 1;
+                        skipped_bytes = skipped_bytes.saturating_add(entry.size);
+                        progress(ExtractProgress {
+                            current: entry.path,
+                            bytes_done: report.bytes.saturating_add(skipped_bytes),
+                            bytes_total: total_bytes,
+                            entries_done: report.files.saturating_add(report.skipped),
+                            entries_total: total,
+
+                            current_file_done: 0,
+                            current_file_total: 0,
+                        });
                         continue;
                     }
                     crate::format::OverwritePolicy::Ask if !options.overwrite => {
                         report.skipped += 1;
+                        skipped_bytes = skipped_bytes.saturating_add(entry.size);
+                        progress(ExtractProgress {
+                            current: entry.path,
+                            bytes_done: report.bytes.saturating_add(skipped_bytes),
+                            bytes_total: total_bytes,
+                            entries_done: report.files.saturating_add(report.skipped),
+                            entries_total: total,
+
+                            current_file_done: 0,
+                            current_file_total: 0,
+                        });
                         continue;
                     }
                     _ => {}
@@ -152,9 +247,23 @@ impl ArchiveService {
             // 传统只读适配器只能按条目声明大小做预算预检；真正的写入量仍由
             // 上游解码器决定，因此这里不做 `copy_cancellable_limited` 的兜底。
             ensure_budget(options, &report, entry.size)?;
-            let mut output = File::create(&destination)?;
-            if let Err(error) = reader.extract(&entry, &mut output) {
-                drop(output);
+            let mut writer = EntryProgressWriter {
+                inner: File::create(&destination)?,
+                done: 0,
+                total: entry.size,
+                name: entry.path.clone(),
+                base_bytes: report.bytes,
+                bytes_total: total_bytes,
+                entries_done: report.files,
+                entries_total: total,
+                last_report: std::time::Instant::now()
+                    .checked_sub(std::time::Duration::from_secs(1))
+                    .unwrap_or_else(std::time::Instant::now),
+                progress,
+            };
+            let extract_result = reader.extract(&entry, &mut writer);
+            drop(writer);
+            if let Err(error) = extract_result {
                 let _ = fs::remove_file(&destination);
                 return Err(ArchiveError::Corrupt(error.to_string()));
             }
@@ -166,6 +275,8 @@ impl ArchiveService {
                 bytes_total: total_bytes,
                 entries_done: report.files,
                 entries_total: total,
+                current_file_done: entry.size,
+                current_file_total: entry.size,
             });
         }
         Ok(report)
@@ -273,6 +384,9 @@ impl ArchiveService {
                 bytes_total: report.bytes,
                 entries_done: report.files,
                 entries_total: 0,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)
@@ -328,6 +442,9 @@ impl ArchiveService {
                 bytes_total: report.bytes,
                 entries_done: report.files,
                 entries_total: 0,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)
@@ -340,12 +457,13 @@ impl ArchiveService {
     pub(crate) fn test_legacy<F>(
         path: &Path,
         format: ArchiveFormat,
+        password: Option<&str>,
         progress: &mut F,
     ) -> Result<ExtractReport, ArchiveError>
     where
         F: FnMut(ExtractProgress),
     {
-        let reader = open_legacy_reader(path, format)?;
+        let reader = open_legacy_reader(path, format, password)?;
         Self::test_legacy_with(reader, progress)
     }
 
@@ -395,6 +513,9 @@ impl ArchiveService {
                 bytes_total: total_bytes,
                 entries_done: report.files,
                 entries_total: total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)

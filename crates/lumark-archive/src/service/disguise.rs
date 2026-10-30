@@ -108,7 +108,7 @@ impl ArchiveService {
                 Ok(info)
             }
             DisguisedInput::View(reader) => match format {
-                ArchiveFormat::Zip | ArchiveFormat::Zipx => Ok(EncryptionInfo {
+                format if format.is_zip_family() => Ok(EncryptionInfo {
                     encrypted: Self::probe_zip(reader)?,
                     header_encrypted: false,
                     format: Some(ArchiveFormat::Disguised),
@@ -140,7 +140,7 @@ impl ArchiveService {
             DisguisedInput::Materialized(temp) => Self::list_direct(&temp, password),
             DisguisedInput::View(reader) => {
                 let mut archive = match format {
-                    ArchiveFormat::Zip | ArchiveFormat::Zipx => Self::list_zip(reader)?,
+                    format if format.is_zip_family() => Self::list_zip(reader, format)?,
                     ArchiveFormat::SevenZip => {
                         let header_encrypted = ArchiveReader::new(
                             crate::disguise::open_payload(path)?,
@@ -161,7 +161,8 @@ impl ArchiveService {
                     | ArchiveFormat::TarBr
                     | ArchiveFormat::TarLz4
                     | ArchiveFormat::TarLz
-                    | ArchiveFormat::TarLzma => Self::list_tar(Box::new(reader), format)?,
+                    | ArchiveFormat::TarLzma
+                    | ArchiveFormat::Pax => Self::list_tar(Box::new(reader), format)?,
                     ArchiveFormat::Gzip
                     | ArchiveFormat::Bzip2
                     | ArchiveFormat::Xz
@@ -198,7 +199,7 @@ impl ArchiveService {
         match input {
             DisguisedInput::Materialized(temp) => Self::extract_direct(&temp, options, progress),
             DisguisedInput::View(reader) => match format {
-                ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+                format if format.is_zip_family() => {
                     Self::extract_zip(reader, options, &mut progress)
                 }
                 ArchiveFormat::SevenZip => Self::extract_seven_zip(reader, options, &mut progress),
@@ -210,7 +211,8 @@ impl ArchiveService {
                 | ArchiveFormat::TarBr
                 | ArchiveFormat::TarLz4
                 | ArchiveFormat::TarLz
-                | ArchiveFormat::TarLzma => {
+                | ArchiveFormat::TarLzma
+                | ArchiveFormat::Pax => {
                     Self::extract_tar(Box::new(reader), format, options, &mut progress)
                 }
                 ArchiveFormat::Gzip
@@ -248,9 +250,7 @@ impl ArchiveService {
         match input {
             DisguisedInput::Materialized(temp) => Self::test(&temp, password, progress),
             DisguisedInput::View(reader) => match format {
-                ArchiveFormat::Zip | ArchiveFormat::Zipx => {
-                    Self::test_zip(reader, password, &mut progress)
-                }
+                format if format.is_zip_family() => Self::test_zip(reader, password, &mut progress),
                 ArchiveFormat::SevenZip => Self::test_seven_zip(reader, password, &mut progress),
                 ArchiveFormat::Tar
                 | ArchiveFormat::TarGz
@@ -260,7 +260,8 @@ impl ArchiveService {
                 | ArchiveFormat::TarBr
                 | ArchiveFormat::TarLz4
                 | ArchiveFormat::TarLz
-                | ArchiveFormat::TarLzma => Self::test_tar(Box::new(reader), format, &mut progress),
+                | ArchiveFormat::TarLzma
+                | ArchiveFormat::Pax => Self::test_tar(Box::new(reader), format, &mut progress),
                 ArchiveFormat::Gzip
                 | ArchiveFormat::Bzip2
                 | ArchiveFormat::Xz
@@ -286,7 +287,7 @@ impl ArchiveService {
         match input {
             DisguisedInput::Materialized(temp) => Self::verify_password_direct(&temp, password),
             DisguisedInput::View(reader) => match format {
-                ArchiveFormat::Zip | ArchiveFormat::Zipx => Self::verify_zip(reader, password),
+                format if format.is_zip_family() => Self::verify_zip(reader, password),
                 ArchiveFormat::SevenZip => Self::verify_seven_zip(reader, password),
                 _ => Ok(true),
             },
@@ -361,6 +362,7 @@ impl ArchiveService {
                 | ArchiveFormat::TarLz4
                 | ArchiveFormat::TarLz
                 | ArchiveFormat::TarLzma
+                | ArchiveFormat::Pax
         );
         let direct_stream = matches!(
             options.format,
@@ -371,7 +373,7 @@ impl ArchiveService {
                 | ArchiveFormat::Brotli
                 | ArchiveFormat::Lz4
         );
-        let direct_zip = matches!(options.format, ArchiveFormat::Zip | ArchiveFormat::Zipx);
+        let direct_zip = options.format.is_zip_family();
         let direct_seven = options.format == ArchiveFormat::SevenZip;
         let direct_lzh = options.format == ArchiveFormat::Lzh;
         let direct_zpaq = options.format == ArchiveFormat::Zpaq;
@@ -696,6 +698,9 @@ impl ArchiveService {
                 bytes_total: total,
                 entries_done: 0,
                 entries_total: 1,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         })
     }

@@ -50,6 +50,8 @@ pub(super) enum AppIcon {
     FolderOpen,
     /// FolderPlus 图标。
     FolderPlus,
+    /// Game 图标。
+    Game,
     /// Grid 图标。
     Grid,
     /// Home 图标。
@@ -116,6 +118,7 @@ impl AppIcon {
             Self::Folder => include_bytes!("../../../assets/icons/iconpark/folder.svg"),
             Self::FolderOpen => include_bytes!("../../../assets/icons/iconpark/folder-open.svg"),
             Self::FolderPlus => include_bytes!("../../../assets/icons/iconpark/folder-plus.svg"),
+            Self::Game => include_bytes!("../../../assets/icons/iconpark/game.svg"),
             Self::Grid => include_bytes!("../../../assets/icons/iconpark/grid-four.svg"),
             Self::Home => include_bytes!("../../../assets/icons/iconpark/home.svg"),
             Self::Key => include_bytes!("../../../assets/icons/iconpark/key.svg"),

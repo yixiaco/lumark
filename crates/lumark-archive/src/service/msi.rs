@@ -71,6 +71,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for entry in archive.entries().to_vec() {
             ensure_not_cancelled(&options.cancel)?;
@@ -112,6 +115,9 @@ impl ArchiveService {
                     bytes_total,
                     entries_done: report.files,
                     entries_total,
+
+                    current_file_done: 0,
+                    current_file_total: 0,
                 });
             }
             report.files += 1;
@@ -138,6 +144,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for entry in archive.entries().to_vec() {
             let mut input = archive.open_entry(&entry)?;
@@ -150,6 +159,9 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)

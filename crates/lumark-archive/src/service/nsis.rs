@@ -130,6 +130,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for (file, path_string) in selected_files {
             ensure_not_cancelled(&options.cancel)?;
@@ -163,6 +166,9 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)
@@ -201,6 +207,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for file in installer.files() {
             let file =
@@ -221,6 +230,9 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)

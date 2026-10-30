@@ -201,6 +201,10 @@ pub(crate) fn format_from_settings(settings: &Settings) -> ArchiveFormat {
         "lz4" => ArchiveFormat::Lz4,
         "sz" | "snappy" => ArchiveFormat::Snappy,
         "bz3" | "bzip3" => ArchiveFormat::Bz3,
+        "asar" => ArchiveFormat::Asar,
+        "apk" => ArchiveFormat::Apk,
+        "jar" => ArchiveFormat::Jar,
+        "pax" => ArchiveFormat::Pax,
         _ => ArchiveFormat::Zip,
     }
 }
@@ -295,7 +299,7 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
 /// 主名不会被误伤。
 fn strip_output_extension(name: &str) -> &str {
     /// 路径剥壳时需要识别的归档、面具和自解压后缀。
-    const SUFFIXES: [&str; 46] = [
+    const SUFFIXES: [&str; 50] = [
         ".tar.lzma",
         ".tar.lz4",
         ".tar.zst",
@@ -317,12 +321,16 @@ fn strip_output_extension(name: &str) -> &str {
         ".lzh",
         ".lha",
         ".tar",
+        ".pax",
         ".gz",
         ".bz2",
         ".xz",
         ".zst",
         ".br",
         ".lz4",
+        ".asar",
+        ".apk",
+        ".jar",
         ".exe",
         ".mp4",
         ".m4v",
@@ -683,9 +691,16 @@ pub(crate) fn app_select_row(
             .select_range(&ordered, target_id, true);
     } else if event.modifiers.control {
         app.browser.selection.toggle(target_id);
-    } else {
+    } else if !app.browser.selection.is_selected(target_id) {
+        // 已选中的行在按下时保留多选，拖动才能带走整组选择；点击未选中
+        // 的行仍然立即切换为单选。
         app.browser.selection.select_only(target_id);
     }
+}
+
+/// 创建统一使用指针手的按钮。
+pub(crate) fn button(id: impl Into<gpui_kit::ElementId>) -> Button {
+    Button::new(id).cursor(gpui_kit::CursorStyle::PointingHand)
 }
 
 #[cfg(test)]
@@ -766,6 +781,10 @@ mod tests {
             ("tar.lzma", ArchiveFormat::TarLzma),
             ("br", ArchiveFormat::Brotli),
             ("lz4", ArchiveFormat::Lz4),
+            ("asar", ArchiveFormat::Asar),
+            ("apk", ArchiveFormat::Apk),
+            ("jar", ArchiveFormat::Jar),
+            ("pax", ArchiveFormat::Pax),
         ] {
             let settings = Settings {
                 default_format: extension.to_string(),

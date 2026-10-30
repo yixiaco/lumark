@@ -1,6 +1,7 @@
 //! 归档格式适配器和安全解压基础能力。
 
 mod alz;
+mod asar;
 pub mod disguise;
 pub mod edit;
 pub mod error;
@@ -8,7 +9,9 @@ pub mod format;
 mod lzh;
 mod lzh_stream;
 mod msi;
+mod pak;
 pub mod path;
+pub mod repair;
 mod rpm;
 pub mod service;
 mod unarc;
@@ -29,6 +32,8 @@ pub use format::{
     ExtractionOptions, FileTimeFilter, OverwritePolicy, PathMode, SevenZCompression, UpdateMode,
     ZipCompression, ZipEncryption, ZpaqCompression,
 };
+pub use pak::iostore::{IoStoreContainer, IoStoreFile};
+pub use pak::oodle::configure_oodle_library;
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
 pub use service::{
     ArchiveService, CreateProgress, ExtractProgress, SFX_FOOTER_LEN, SFX_MAGIC, SFX_MAGIC_V2,

@@ -51,6 +51,9 @@ where
         bytes_total: total_bytes,
         entries_done: 0,
         entries_total: total_files,
+
+        current_file_done: 0,
+        current_file_total: 0,
     });
 
     let staging = tempfile::Builder::new()
@@ -65,6 +68,9 @@ where
         bytes_total: total_bytes,
         entries_done: 0,
         entries_total: total_files,
+
+        current_file_done: 0,
+        current_file_total: 0,
     });
     if let Some(filters) = &grouped_filters
         && filters.len() <= 16
@@ -106,6 +112,9 @@ where
                 bytes_total: total_bytes,
                 entries_done: done_files,
                 entries_total: total_files,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
     } else {
@@ -189,6 +198,9 @@ where
             bytes_total: actual.bytes,
             entries_done: processed,
             entries_total: total_files,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
     }
     Ok(report)

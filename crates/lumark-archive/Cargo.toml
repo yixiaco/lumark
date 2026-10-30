@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 chrono.workspace = true
 blake3.workspace = true
+aes.workspace = true
+base64.workspace = true
 crc32fast.workspace = true
 rand.workspace = true
 bzip2.workspace = true
@@ -35,6 +37,7 @@ serde.workspace = true
 secrecy.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
+sha2.workspace = true
 wim.workspace = true
 wim-format.workspace = true
 sevenz-rust2.workspace = true
@@ -55,7 +58,7 @@ zeroize.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
-
+asar = "0.3"
 [target.'cfg(windows)'.dev-dependencies]
 lumark-platform-windows = { path = "../lumark-platform-windows" }
 hfsplus = { workspace = true, features = ["testutil"] }

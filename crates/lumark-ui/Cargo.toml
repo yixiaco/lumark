@@ -18,10 +18,12 @@ lumark-browser = { path = "../lumark-browser" }
  lumark-platform-windows = { path = "../lumark-platform-windows" }
 lumark-settings = { path = "../lumark-settings" }
 lumark-tasks = { path = "../lumark-tasks" }
+lumark-unreal = { path = "../lumark-unreal" }
 lumark-viewer = { path = "../lumark-viewer" }
 lumark-vault = { path = "../lumark-vault" }
 raw-window-handle = "0.6.2"
 serde.workspace = true
+tempfile.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 

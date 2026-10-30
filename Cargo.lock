@@ -5181,7 +5181,10 @@ dependencies = [
 name = "lumark-archive"
 version = "0.1.0"
 dependencies = [
+ "aes 0.8.4",
+ "asar",
  "backhand",
+ "base64 0.22.1",
  "blake3",
  "brotli",
  "bzip2",
@@ -5214,6 +5217,7 @@ dependencies = [
  "serde_json",
  "sevenz-rust2 0.24.1",
  "sha1 0.10.7",
+ "sha2 0.10.9",
  "snap",
  "tar",
  "tempfile",
@@ -5291,6 +5295,8 @@ dependencies = [
  "image",
  "tempfile",
  "thiserror 2.0.21",
+ "url",
+ "windows 0.57.0",
  "windows 0.61.3",
  "windows-core 0.61.2",
  "windows-sys 0.59.0",
@@ -5360,6 +5366,7 @@ dependencies = [
  "lumark-platform-windows",
  "lumark-settings",
  "lumark-tasks",
+ "lumark-unreal",
  "lumark-vault",
  "lumark-viewer",
  "quick-xml 0.41.0",
@@ -5369,6 +5376,26 @@ dependencies = [
  "tempfile",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "lumark-unreal"
+version = "0.1.0"
+dependencies = [
+ "aes 0.8.4",
+ "base64 0.22.1",
+ "brotli",
+ "image",
+ "lumark-archive",
+ "memchr",
+ "memmap2",
+ "rayon",
+ "serde",
+ "tempfile",
+ "texture2ddecoder",
+ "thiserror 2.0.21",
+ "zeroize",
+ "zstd 0.14.3",
 ]
 
 [[package]]
@@ -8854,6 +8881,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "texture2ddecoder"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "427ae8ec7f2f0fdd3146b77cfa44bea880caf066f7e55398a8467afe2645c832"
+dependencies = [
+ "paste",
 ]
 
 [[package]]

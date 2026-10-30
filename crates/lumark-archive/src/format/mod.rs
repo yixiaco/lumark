@@ -68,6 +68,14 @@ pub enum ArchiveFormat {
     Ace,
     /// ARC/PAK 归档。
     Arc,
+    /// Quake/idTech PACK 归档。
+    QuakePak,
+    /// Unreal Engine 4/5 PAK 归档。
+    UnrealPak,
+    /// Unreal Engine IoStore 容器（`.utoc` + `.ucas`）。
+    IoStore,
+    /// Chromium/Electron 数据包资源。
+    ChromiumPak,
     /// ALZ 归档。
     Alz,
     /// ZOO 归档。
@@ -116,6 +124,12 @@ pub enum ArchiveFormat {
     Deb,
     /// Electron ASAR。
     Asar,
+    /// Android APK 安装包（ZIP 容器，仅容器级读写）。
+    Apk,
+    /// Java JAR 归档（ZIP 容器，仅容器级读写）。
+    Jar,
+    /// POSIX pax 格式的 TAR 归档。
+    Pax,
     /// ZPAQ 归档。
     Zpaq,
     /// UU 编码文件。
@@ -173,6 +187,10 @@ impl ArchiveFormat {
         Self::Arj,
         Self::Ace,
         Self::Arc,
+        Self::QuakePak,
+        Self::UnrealPak,
+        Self::IoStore,
+        Self::ChromiumPak,
         Self::Alz,
         Self::Zoo,
         Self::Ha,
@@ -189,6 +207,9 @@ impl ArchiveFormat {
         Self::Isz,
         Self::Deb,
         Self::Asar,
+        Self::Apk,
+        Self::Jar,
+        Self::Pax,
         Self::Zpaq,
         Self::Uu,
         Self::Img,
@@ -228,7 +249,11 @@ impl ArchiveFormat {
             Self::Cab => "CAB 压缩文件",
             Self::Arj => "ARJ 压缩文件",
             Self::Ace => "ACE 压缩文件",
-            Self::Arc => "ARC 压缩文件",
+            Self::Arc => "ARC/PAK 归档",
+            Self::QuakePak => "Quake PAK 归档",
+            Self::UnrealPak => "Unreal PAK 归档",
+            Self::IoStore => "UE IoStore 容器",
+            Self::ChromiumPak => "Chromium PAK 资源包",
             Self::Alz => "ALZ 压缩文件",
             Self::Zoo => "ZOO 压缩文件",
             Self::Ha => "HA 压缩文件",
@@ -253,6 +278,9 @@ impl ArchiveFormat {
             Self::Egg => "EGG 归档",
             Self::Deb => "DEB 包",
             Self::Asar => "ASAR 归档",
+            Self::Apk => "APK 安装包",
+            Self::Jar => "JAR 归档",
+            Self::Pax => "PAX 归档",
             Self::Zpaq => "ZPAQ 压缩文件",
             Self::Uu => "UU 编码文件",
             Self::Img => "IMG 镜像",
@@ -292,6 +320,35 @@ impl ArchiveFormat {
                 | Self::Lzh
                 | Self::Wim
                 | Self::Zpaq
+                | Self::Asar
+                | Self::Apk
+                | Self::Jar
+                | Self::Pax
+        )
+    }
+    /// 判断是否为 ZIP 容器格式。
+    ///
+    /// APK 和 JAR 只是 ZIP 的使用场景，读写仍复用 ZIP 后端，不实现签名、
+    /// zipalign 或 JAR 清单语义。
+    pub fn is_zip_family(self) -> bool {
+        matches!(self, Self::Zip | Self::Zipx | Self::Apk | Self::Jar)
+    }
+
+    /// 判断是否为 TAR 容器格式（含压缩变体与 pax）。
+    pub fn is_tar_family(self) -> bool {
+        matches!(
+            self,
+            Self::Tar
+                | Self::TarGz
+                | Self::TarBz2
+                | Self::TarXz
+                | Self::TarZst
+                | Self::TarBr
+                | Self::TarLz4
+                | Self::TarLz
+                | Self::TarLzma
+                | Self::TarZ
+                | Self::Pax
         )
     }
 
@@ -336,17 +393,24 @@ impl ArchiveFormat {
             self,
             Self::Zip
                 | Self::Zipx
+                | Self::Apk
+                | Self::Jar
                 | Self::SevenZip
                 | Self::Rar
                 | Self::Zpaq
                 | Self::Alz
                 | Self::Enc
+                | Self::UnrealPak
+                | Self::IoStore
         )
     }
 
     /// 判断该格式是否支持写入注释。
     pub fn supports_comment(self) -> bool {
-        matches!(self, Self::Zip | Self::Zipx | Self::SevenZip)
+        matches!(
+            self,
+            Self::Zip | Self::Zipx | Self::Apk | Self::Jar | Self::SevenZip
+        )
     }
 
     /// 返回该格式的默认扩展名。
@@ -380,6 +444,8 @@ impl ArchiveFormat {
             Self::Arj => "arj",
             Self::Ace => "ace",
             Self::Arc => "arc",
+            Self::QuakePak | Self::UnrealPak | Self::ChromiumPak => "pak",
+            Self::IoStore => "utoc",
             Self::Alz => "alz",
             Self::Zoo => "zoo",
             Self::Ha => "ha",
@@ -404,6 +470,9 @@ impl ArchiveFormat {
             Self::Egg => "egg",
             Self::Deb => "deb",
             Self::Asar => "asar",
+            Self::Apk => "apk",
+            Self::Jar => "jar",
+            Self::Pax => "pax",
             Self::Zpaq => "zpaq",
             Self::Uu => "uu",
             Self::Img => "img",
@@ -803,5 +872,6 @@ pub struct EncryptionInfo {
 }
 
 mod detect;
+pub(crate) use detect::detect_pak_family;
 pub use detect::is_pe_image;
 pub use detect::{detect_format, detect_magic};

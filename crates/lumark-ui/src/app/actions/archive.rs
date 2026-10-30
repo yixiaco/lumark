@@ -6,6 +6,7 @@ mod compress;
 mod extract;
 mod open;
 mod password;
+mod repair;
 mod test;
 mod util;
 use util::*;

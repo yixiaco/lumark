@@ -98,6 +98,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for node in filesystem.files() {
             ensure_not_cancelled(&options.cancel)?;
@@ -143,6 +146,9 @@ impl ArchiveService {
                             bytes_total,
                             entries_done: report.files,
                             entries_total,
+
+                            current_file_done: 0,
+                            current_file_total: 0,
                         });
                     }
                     report.files += 1;
@@ -180,6 +186,9 @@ impl ArchiveService {
             bytes_total,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         for node in filesystem.files() {
             let InnerNode::File(file) = &node.inner else {
@@ -195,6 +204,9 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)

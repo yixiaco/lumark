@@ -39,7 +39,13 @@ impl ArchiveService {
         }
         if !matches!(
             info.format,
-            Some(ArchiveFormat::Zip | ArchiveFormat::Zipx | ArchiveFormat::SevenZip)
+            Some(
+                ArchiveFormat::Zip
+                    | ArchiveFormat::Zipx
+                    | ArchiveFormat::Apk
+                    | ArchiveFormat::Jar
+                    | ArchiveFormat::SevenZip
+            )
         ) {
             return Err(ArchiveError::UnsupportedFormat(
                 info.format

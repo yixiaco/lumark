@@ -145,6 +145,9 @@ where
         bytes_total,
         entries_done: 0,
         entries_total,
+
+        current_file_done: 0,
+        current_file_total: 0,
     });
     for entry in entries {
         ensure_not_cancelled(&options.cancel)?;
@@ -197,6 +200,9 @@ where
             bytes_total,
             entries_done: report.files,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
     }
     Ok(report)

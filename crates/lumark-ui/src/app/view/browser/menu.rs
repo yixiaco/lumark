@@ -10,6 +10,8 @@ pub(super) enum FileMenuKind {
     ArchiveFolder,
     /// 归档内的文件。
     ArchiveFile,
+    /// 游戏资产列表中的容器。
+    GameContainer,
     /// 文件系统中的文件夹。
     Folder,
     /// 文件系统中的压缩包。
@@ -33,6 +35,7 @@ pub(super) fn file_menu_kind(location: &BrowserLocation, entry: &BrowserEntry) -
                 FileMenuKind::ArchiveFile
             }
         }
+        BrowserLocation::GameArchives { .. } => FileMenuKind::GameContainer,
         BrowserLocation::FileSystem(_) => {
             if entry.is_dir {
                 FileMenuKind::Folder
@@ -143,6 +146,21 @@ pub(super) fn file_context_menu(
                     |app, window, cx| app.request_delete(window, cx),
                 ))
             }
+            FileMenuKind::GameContainer => menu
+                .item(popup_action(
+                    tr("打开容器", "Open container"),
+                    AppIcon::FolderOpen,
+                    &app,
+                    window,
+                    |app, window, cx| app.open_selected(window, cx),
+                ))
+                .item(popup_action(
+                    tr("复制路径", "Copy path"),
+                    AppIcon::Copy,
+                    &app,
+                    window,
+                    |app, _, cx| app.copy_selected_path(cx),
+                )),
             FileMenuKind::Folder => menu
                 .item(popup_action(
                     tr("打开", "Open"),
@@ -232,7 +250,19 @@ pub(super) fn file_context_menu(
                         &app,
                         window,
                         |app, window, cx| app.open_extract_dialog(window, cx),
+                    ));
+                let menu = if lumark_archive::repair::supports_repair(&entry.path) {
+                    menu.item(popup_action(
+                        tr("修复压缩包", "Repair archive"),
+                        AppIcon::Shield,
+                        &app,
+                        window,
+                        |app, window, cx| app.repair_selected_archive(window, cx),
                     ))
+                } else {
+                    menu
+                };
+                let menu = menu
                     .item(popup_action(
                         tr("伪装为媒体文件…", "Disguise as media file..."),
                         AppIcon::Video,

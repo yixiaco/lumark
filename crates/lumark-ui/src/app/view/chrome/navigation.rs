@@ -1,5 +1,6 @@
 //! 页面标签和路径/搜索导航行。
 
+use super::super::{ArchiveDragItem, path_bar_drop_handler};
 use super::*;
 use crate::i18n::tr;
 
@@ -250,6 +251,7 @@ impl LumarkApp {
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.tile_view = !this.tile_view;
+                            this.marquee = None;
                             cx.notify();
                         })),
                     )
@@ -266,32 +268,41 @@ impl LumarkApp {
                     ),
             )
             .child(
-                InputGroup::new("location-group")
+                div()
                     .flex_1()
                     .min_w(px(150.))
-                    .input(
-                        InputGroupInput::new(&self.location_input)
-                            .id("location-input")
-                            .aria_label(tr("当前路径", "Current path")),
-                    )
-                    .addon(
-                        InputGroupAddon::new("location-icon").child(
-                            div()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(AppIcon::FolderOpen.element(15.)),
-                        ),
-                    )
-                    .addon(
-                        InputGroupAddon::new("location-go")
-                            .align(InputGroupAddonAlignment::InlineEnd)
-                            .child(
-                                InputGroupButton::new("go-location")
-                                    .label(tr("转到", "Go"))
-                                    .tooltip(tr("打开输入的路径", "Open entered path"))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.go_location(window, cx);
-                                        cx.notify();
-                                    })),
+                    .on_drop::<ArchiveDragItem>(path_bar_drop_handler(app.clone()))
+                    .child(
+                        InputGroup::new("location-group")
+                            .w_full()
+                            .input(
+                                InputGroupInput::new(&self.location_input)
+                                    .id("location-input")
+                                    .aria_label(tr("当前路径", "Current path")),
+                            )
+                            .addon(
+                                InputGroupAddon::new("location-icon").child(
+                                    div()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(AppIcon::FolderOpen.element(15.)),
+                                ),
+                            )
+                            .addon(
+                                InputGroupAddon::new("location-go")
+                                    .align(InputGroupAddonAlignment::InlineEnd)
+                                    .child(
+                                        InputGroupButton::new("go-location")
+                                            .cursor(gpui_kit::CursorStyle::PointingHand)
+                                            .label(tr("转到", "Go"))
+                                            .tooltip(tr(
+                                                "打开输入的路径；把归档条目拖到此处可解压到当前文件夹",
+                                                "Open entered path; drop archive entries here to extract into the current folder",
+                                            ))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.go_location(window, cx);
+                                                cx.notify();
+                                            })),
+                                    ),
                             ),
                     ),
             )
@@ -316,6 +327,7 @@ impl LumarkApp {
                             .align(InputGroupAddonAlignment::InlineEnd)
                             .child(
                                 InputGroupButton::new("search-run")
+                                    .cursor(gpui_kit::CursorStyle::PointingHand)
                                     .label(tr("搜索", "Search"))
                                     .tooltip(tr("在当前目录搜索", "Search current folder"))
                                     .on_click(cx.listener(|this, _, _, cx| {

@@ -9,6 +9,7 @@ members = [
     "crates/lumark-sfx",
     "crates/lumark-tasks",
     "crates/lumark-ui",
+    "crates/lumark-unreal",
     "crates/lumark-viewer",
     "crates/lumark-vault",
     "crates/lumark-app",
@@ -23,6 +24,7 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.96"
 
 [workspace.dependencies]
+aes = "0.8"
 aes-gcm = "0.10.3"
 anyhow = "1"
 argon2 = "0.5.3"
@@ -45,6 +47,7 @@ globset = "0.4"
 gpui-kit = "=0.8.1"
 rust-i18n = "4.2"
 lumark-legacy = { path = "crates/lumark-legacy" }
+lumark-unreal = { path = "crates/lumark-unreal" }
 image = { version = "0.25.10", default-features = false, features = [
     "png",
     "jpeg",
@@ -92,7 +95,9 @@ sysinfo = "0.33"
 tar = "0.4"
 tempfile = "3"
 thiserror = "2"
+texture2ddecoder = "0.1.2"
 uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
 unrar = "0.5.8"
 unarc-rs = "0.6.3"
 unalz = "0.2.1"

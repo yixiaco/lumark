@@ -1,6 +1,7 @@
 //! 解压窗口、加密探测和任务提交。
 
 use super::*;
+use crate::app::view::ArchiveDragItem;
 use crate::i18n::tr;
 
 impl LumarkApp {
@@ -220,5 +221,77 @@ impl LumarkApp {
             archive.display()
         );
         Ok(())
+    }
+
+    /// 把归档条目从路径栏释放为真实文件夹中的文件。
+    ///
+    /// 路径栏当前显示归档内部路径时没有可写目标，直接忽略；目标目录与归档
+    /// 同目录且条目名会覆盖归档自身时也拒绝，避免拖放破坏正在浏览的归档。
+    pub(crate) fn handle_archive_drop_on_path_bar(
+        &mut self,
+        item: ArchiveDragItem,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let BrowserLocation::FileSystem(target) = &self.browser.location else {
+            self.status = tr(
+                "已忽略：归档内部路径不能作为解压目标",
+                "Ignored: an archive-internal path cannot be an extraction target",
+            )
+            .to_string();
+            return;
+        };
+        let target = target.clone();
+        if item.selected.is_empty() {
+            return;
+        }
+        let archive_name = item.archive.file_name().and_then(|value| value.to_str());
+        let archive_parent = item
+            .archive
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        if target == archive_parent
+            && archive_name.is_some_and(|name| {
+                item.selected
+                    .iter()
+                    .any(|(path, _)| path.split('/').next() == Some(name))
+            })
+        {
+            self.status = tr(
+                "已忽略：解压目标会覆盖归档自身",
+                "Ignored: extraction would overwrite the archive itself",
+            )
+            .to_string();
+            return;
+        }
+
+        let policy = match self.settings.get().overwrite_policy {
+            lumark_settings::OverwritePolicy::Overwrite => ArchiveOverwritePolicy::Overwrite,
+            lumark_settings::OverwritePolicy::Skip => ArchiveOverwritePolicy::Skip,
+            lumark_settings::OverwritePolicy::Rename => ArchiveOverwritePolicy::Rename,
+            // 拖放没有额外的确认窗口，按“跳过”处理同名文件，避免静默覆盖。
+            lumark_settings::OverwritePolicy::Ask => ArchiveOverwritePolicy::Skip,
+        };
+        let options = ExtractionOptions {
+            output_dir: target.clone(),
+            selected_paths: item.selected.iter().map(|(path, _)| path.clone()).collect(),
+            overwrite: policy != ArchiveOverwritePolicy::Skip,
+            overwrite_policy: policy,
+            password: item.password,
+            ..Default::default()
+        };
+        let id = self.tasks.submit(lumark_tasks::TaskRequest::Extract {
+            archive: item.archive,
+            options,
+        });
+        self.active_task = Some(id);
+        self.task_progress = None;
+        self.status = format!(
+            "{}{}",
+            tr("正在解压到：", "Extracting to: "),
+            target.display()
+        );
+        cx.notify();
     }
 }

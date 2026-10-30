@@ -55,7 +55,6 @@ pub(super) fn render_tile_row(
     tile_columns: usize,
     row_height: gpui_kit::Pixels,
 ) -> impl IntoElement {
-    let app_entity = cx.entity();
     let parent_offset = usize::from(shows_parent_row(app));
     let row_count = app.displayed_count() + parent_offset;
     let start = virtual_index * tile_columns;
@@ -75,7 +74,6 @@ pub(super) fn render_tile_row(
             let mouse_id = id.clone();
             let double_id = id.clone();
             let context_id = id.clone();
-            let drag_app = app_entity.clone();
             let selected = app.browser.selection.is_selected(&id);
             let icon_color = entry_icon_color(cx, &entry);
             let tile_icon = if entry.is_dir {
@@ -153,18 +151,23 @@ pub(super) fn render_tile_row(
                         }),
                     )
                     .when_some(drag_item, |this, item| {
-                        this.on_drag(item, move |item: &ArchiveDragItem, _, window, cx| {
-                            drag_app.update(cx, |app, cx| {
-                                app.start_archive_drag_extract(item.clone(), window, cx);
-                            });
-                            let preview = cx.new(|_| ArchiveDragPreview {
-                                label: item.label.clone(),
-                            });
-                            window.defer(cx, |window, cx| {
-                                cx.stop_active_drag(window);
-                            });
-                            preview
+                        let move_item = item.clone();
+                        this.on_drag(item, move |_item: &ArchiveDragItem, _, _, cx| {
+                            cx.new(|_| ArchiveDragPreview)
                         })
+                        .on_drag_move(cx.listener(
+                            move |this,
+                                  event: &gpui_kit::DragMoveEvent<ArchiveDragItem>,
+                                  window,
+                                  cx| {
+                                this.handle_archive_drag_move(
+                                    &move_item,
+                                    event.event.position,
+                                    window,
+                                    cx,
+                                );
+                            },
+                        ))
                     })
                     .context_menu(file_context_menu(
                         cx.entity(),

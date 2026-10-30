@@ -148,6 +148,9 @@ where
         bytes_total: info.total_size,
         entries_done: 0,
         entries_total: info.entries.iter().filter(|entry| !entry.is_dir).count(),
+
+        current_file_done: 0,
+        current_file_total: 0,
     });
     worker::run_command(&args, encrypted, &cancel)?;
     let files = info.entries.iter().filter(|entry| !entry.is_dir).count();
@@ -162,6 +165,9 @@ where
         bytes_total: report.bytes,
         entries_done: report.files,
         entries_total: report.files,
+
+        current_file_done: 0,
+        current_file_total: 0,
     });
     Ok(report)
 }

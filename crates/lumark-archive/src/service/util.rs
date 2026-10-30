@@ -290,12 +290,16 @@ pub(crate) fn tar_reader(
 }
 
 /// 把源计划中的文件追加到 TAR 构建器。
+///
+/// `pax` 为真时先写一条 pax 扩展头（`path` 与小秒 `mtime`），再写 ustar
+/// 文件头；读取端按 pax 记录覆盖 ustar 字段，长路径和中文名因此可以安全往返。
 pub(crate) fn append_tar_sources<F>(
     builder: &mut tar::Builder<impl Write>,
     sources: &[PathBuf],
     options: &CompressionOptions,
     progress: &mut F,
     report: &mut CreateReport,
+    pax: bool,
 ) -> Result<(), ArchiveError>
 where
     F: FnMut(CreateProgress),
@@ -305,6 +309,17 @@ where
     let mut done = 0;
     for (relative, source, _) in plan.files {
         ensure_not_cancelled(&options.cancel)?;
+        if pax {
+            let mut records: Vec<(&str, Vec<u8>)> = vec![("path", relative.as_bytes().to_vec())];
+            if let Ok(metadata) = fs::metadata(&source)
+                && let Ok(modified) = metadata.modified()
+            {
+                records.push(("mtime", pax_mtime(modified).into_bytes()));
+            }
+            builder.append_pax_extensions(
+                records.iter().map(|(key, value)| (*key, value.as_slice())),
+            )?;
+        }
         builder.append_path_with_name(&source, &relative)?;
         let file_bytes = fs::metadata(&source)?.len();
         done += file_bytes;
@@ -322,6 +337,17 @@ where
         });
     }
     Ok(())
+}
+
+/// 把修改时间格式化为 pax 的“秒.纳秒”文本。
+fn pax_mtime(time: SystemTime) -> String {
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => format!("{}.{:09}", duration.as_secs(), duration.subsec_nanos()),
+        Err(error) => {
+            let duration = error.duration();
+            format!("-{}.{:09}", duration.as_secs(), duration.subsec_nanos())
+        }
+    }
 }
 
 /// 分块复制单文件并按节流上报进度。
@@ -497,5 +523,8 @@ pub(crate) fn is_legacy_archive(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Asar
             | ArchiveFormat::Lzh
             | ArchiveFormat::Deb
+            | ArchiveFormat::QuakePak
+            | ArchiveFormat::UnrealPak
+            | ArchiveFormat::ChromiumPak
     )
 }

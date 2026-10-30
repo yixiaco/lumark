@@ -116,6 +116,8 @@ pub enum TaskRequest {
         archive: PathBuf,
         password: Option<String>,
     },
+    /// ZIP 家族结构修复请求。
+    Repair { archive: PathBuf, output: PathBuf },
     /// 密码候选验证请求。
     ResolvePassword {
         archive: PathBuf,
@@ -152,6 +154,7 @@ impl TaskRequest {
             Self::Compress { .. }
                 | Self::Extract { .. }
                 | Self::Test { .. }
+                | Self::Repair { .. }
                 | Self::Edit { .. }
                 | Self::Disguise { .. }
                 | Self::Restore { .. }
@@ -334,6 +337,9 @@ impl TaskManager {
             }
             TaskRequest::Test { archive, .. } => {
                 (TaskKind::Test, format!("测试 {}", archive.display()))
+            }
+            TaskRequest::Repair { archive, .. } => {
+                (TaskKind::Repair, format!("修复 {}", archive.display()))
             }
             TaskRequest::ResolvePassword {
                 archive,
@@ -553,8 +559,8 @@ fn run_job(
                         current: progress.current,
                         bytes_done: progress.bytes_done,
                         bytes_total: progress.bytes_total,
-                        current_file_done: 0,
-                        current_file_total: 0,
+                        current_file_done: progress.current_file_done,
+                        current_file_total: progress.current_file_total,
                         output_bytes: 0,
                         entries_done: progress.entries_done,
                         entries_total: progress.entries_total,
@@ -567,7 +573,13 @@ fn run_job(
                     },
                 });
             })
-            .map(|report| format!("已解压 {} 个文件", report.files))
+            .map(|report| {
+                if report.skipped > 0 {
+                    format!("已解压 {} 个文件，跳过 {} 个", report.files, report.skipped)
+                } else {
+                    format!("已解压 {} 个文件", report.files)
+                }
+            })
         }
         TaskRequest::Test { archive, password } => ArchiveService::test_cancellable(
             &archive,
@@ -600,6 +612,18 @@ fn run_job(
             },
         )
         .map(|report| format!("测试通过，共 {} 个文件", report.files)),
+        TaskRequest::Repair { archive, output } => {
+            let report = lumark_archive::repair::repair_zip(&archive, &output)?;
+            let mut message = format!(
+                "已修复 {} 个条目，输出 {}",
+                report.entries,
+                output.display()
+            );
+            if !report.skipped.is_empty() {
+                message.push_str(&format!("；跳过 {} 个条目", report.skipped.len()));
+            }
+            Ok(message)
+        }
         TaskRequest::ResolvePassword {
             archive,
             candidates,

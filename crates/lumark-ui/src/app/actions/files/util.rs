@@ -73,6 +73,8 @@ mod tests {
             bytes_total: 100,
             entries_done: 0,
             entries_total: 1,
+            current_file_done: 0,
+            current_file_total: 0,
         };
         assert!((extract_progress_percent(&progress) - 50.0).abs() < f32::EPSILON);
     }

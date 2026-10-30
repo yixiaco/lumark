@@ -117,7 +117,6 @@ pub(super) fn render_file_row(
     columns: ArchiveColumns,
     inside_archive: bool,
 ) -> impl IntoElement {
-    let app_entity = cx.entity();
     let parent_offset = usize::from(shows_parent_row(app));
     if parent_offset == 1 && virtual_index == 0 {
         return render_parent_row(cx, row_height, widths, columns, inside_archive)
@@ -293,18 +292,15 @@ pub(super) fn render_file_row(
             }),
         )
         .when_some(drag_item, |this, item| {
-            this.on_drag(item, move |item: &ArchiveDragItem, _, window, cx| {
-                app_entity.update(cx, |app, cx| {
-                    app.start_archive_drag_extract(item.clone(), window, cx);
-                });
-                let preview = cx.new(|_| ArchiveDragPreview {
-                    label: item.label.clone(),
-                });
-                window.defer(cx, |window, cx| {
-                    cx.stop_active_drag(window);
-                });
-                preview
+            let move_item = item.clone();
+            this.on_drag(item, move |_item: &ArchiveDragItem, _, _, cx| {
+                cx.new(|_| ArchiveDragPreview)
             })
+            .on_drag_move(cx.listener(
+                move |this, event: &gpui_kit::DragMoveEvent<ArchiveDragItem>, window, cx| {
+                    this.handle_archive_drag_move(&move_item, event.event.position, window, cx);
+                },
+            ))
         })
         .context_menu(file_context_menu(
             cx.entity(),

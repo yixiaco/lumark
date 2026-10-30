@@ -31,6 +31,7 @@ use crate::format::is_pe_image;
 use crate::format::{
     ArchiveEntry, ArchiveFormat, ArchiveInfo, CompressionOptions, CreateReport, EncryptionInfo,
     ExtractReport, ExtractionBudget, ExtractionOptions, ZipEncryption, detect_format, detect_magic,
+    detect_pak_family,
 };
 use crate::path::{ensure_no_symlink_components, safe_join};
 
@@ -56,6 +57,10 @@ pub struct ExtractProgress {
     pub entries_done: usize,
     /// 计划处理的总条目数。
     pub entries_total: usize,
+    /// 当前条目已处理字节数。
+    pub current_file_done: u64,
+    /// 当前条目总字节数；未知时为 0。
+    pub current_file_total: u64,
 }
 
 /// 一次创建任务的进度快照。
@@ -96,9 +101,12 @@ impl ArchiveService {
         let base = strip_volume_suffix(path);
         let extension_format = detect_format(&base);
         // ZIPX 与 ZIP 共用 ZIP 魔数，扩展名必须优先保留，否则用户创建的
-        // `.zipx` 会在重新打开时被标成普通 ZIP。
-        if extension_format == ArchiveFormat::Zipx {
-            return ArchiveFormat::Zipx;
+        // `.zipx` 会在重新打开时被标成普通 ZIP。APK/JAR 同理。
+        if matches!(
+            extension_format,
+            ArchiveFormat::Zipx | ArchiveFormat::Apk | ArchiveFormat::Jar
+        ) {
+            return extension_format;
         }
         if matches!(
             extension_format,
@@ -112,6 +120,7 @@ impl ArchiveService {
                 | ArchiveFormat::TarLz
                 | ArchiveFormat::TarLzma
                 | ArchiveFormat::TarZ
+                | ArchiveFormat::Pax
         ) {
             return extension_format;
         }
@@ -119,6 +128,15 @@ impl ArchiveService {
         if let Ok(mut file) = File::open(&base)
             && let Ok(read) = file.read(&mut header)
         {
+            // `.pak` 家族共享扩展名，必须先按二进制头区分 Quake/Chromium/
+            // Unreal/经典 ARC，再进入通用魔数识别。
+            let is_pak = base
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pak"));
+            if is_pak && let Some(format) = detect_pak_family(&base, &header[..read]) {
+                return format;
+            }
             let magic = detect_magic(&header[..read]);
             if magic != ArchiveFormat::Unknown {
                 return magic;
@@ -175,7 +193,7 @@ impl ArchiveService {
     fn probe_encryption_direct(path: &Path) -> Result<EncryptionInfo, ArchiveError> {
         let format = Self::detect(path);
         match format {
-            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+            format if format.is_zip_family() => {
                 let encrypted = Self::probe_zip(File::open(path)?)?;
                 Ok(EncryptionInfo {
                     encrypted,
@@ -192,6 +210,23 @@ impl ArchiveService {
                 })
             }
             ArchiveFormat::Disguised => Self::probe_encryption_disguised(path),
+            ArchiveFormat::UnrealPak => {
+                let (encrypted, header_encrypted) =
+                    crate::pak::unreal::probe_encryption(path).map_err(ArchiveError::Corrupt)?;
+                Ok(EncryptionInfo {
+                    encrypted,
+                    header_encrypted,
+                    format: Some(format),
+                })
+            }
+            ArchiveFormat::IoStore => {
+                let (encrypted, header_encrypted) = crate::pak::iostore::probe_encryption(path)?;
+                Ok(EncryptionInfo {
+                    encrypted,
+                    header_encrypted,
+                    format: Some(format),
+                })
+            }
             ArchiveFormat::Rar => Self::probe_rar(path),
             ArchiveFormat::Zpaq => crate::zpaq::probe_encryption(path),
             ArchiveFormat::Alz => crate::alz::probe_encryption(path),
@@ -241,28 +276,28 @@ impl ArchiveService {
     /// ZIP/7Z 需要随机访问，TAR/单文件流只要顺序读取，LZH 读取器本身
     /// 接受任意 `Read + Seek + Send`；其余后端只接受路径，需要走物化。
     fn view_capable(format: ArchiveFormat) -> bool {
-        matches!(
-            format,
-            ArchiveFormat::Zip
-                | ArchiveFormat::Zipx
-                | ArchiveFormat::SevenZip
-                | ArchiveFormat::Tar
-                | ArchiveFormat::TarGz
-                | ArchiveFormat::TarBz2
-                | ArchiveFormat::TarXz
-                | ArchiveFormat::TarZst
-                | ArchiveFormat::TarBr
-                | ArchiveFormat::TarLz4
-                | ArchiveFormat::TarLz
-                | ArchiveFormat::TarLzma
-                | ArchiveFormat::Gzip
-                | ArchiveFormat::Bzip2
-                | ArchiveFormat::Xz
-                | ArchiveFormat::Zstd
-                | ArchiveFormat::Brotli
-                | ArchiveFormat::Lz4
-                | ArchiveFormat::Lzh
-        )
+        format.is_zip_family()
+            || matches!(
+                format,
+                ArchiveFormat::SevenZip
+                    | ArchiveFormat::Tar
+                    | ArchiveFormat::TarGz
+                    | ArchiveFormat::TarBz2
+                    | ArchiveFormat::TarXz
+                    | ArchiveFormat::TarZst
+                    | ArchiveFormat::TarBr
+                    | ArchiveFormat::TarLz4
+                    | ArchiveFormat::TarLz
+                    | ArchiveFormat::TarLzma
+                    | ArchiveFormat::Pax
+                    | ArchiveFormat::Gzip
+                    | ArchiveFormat::Bzip2
+                    | ArchiveFormat::Xz
+                    | ArchiveFormat::Zstd
+                    | ArchiveFormat::Brotli
+                    | ArchiveFormat::Lz4
+                    | ArchiveFormat::Lzh
+            )
     }
 
     /// 列出归档条目，伪装包先解析尾部信息。
@@ -276,12 +311,7 @@ impl ArchiveService {
         let format = Self::detect(path);
         match format {
             ArchiveFormat::Disguised => Self::list_disguised(path, password),
-            ArchiveFormat::Zip => Self::list_zip(File::open(path)?),
-            ArchiveFormat::Zipx => {
-                let mut info = Self::list_zip(File::open(path)?)?;
-                info.format = Some(ArchiveFormat::Zipx);
-                Ok(info)
-            }
+            format if format.is_zip_family() => Self::list_zip(File::open(path)?, format),
             ArchiveFormat::SevenZip => {
                 let header_encrypted = ArchiveReader::open(path, Password::empty()).is_err();
                 Self::list_seven_zip(
@@ -300,9 +330,10 @@ impl ArchiveService {
             ArchiveFormat::Dmg => Self::list_dmg(path),
             ArchiveFormat::Egg => Self::list_egg(path),
             ArchiveFormat::Rar => Self::list_rar(path, password),
+            ArchiveFormat::IoStore => crate::pak::iostore::list(path, password),
             ArchiveFormat::Zpaq => crate::zpaq::list(path, password),
             ArchiveFormat::Alz => crate::alz::list(path),
-            format if is_legacy_archive(format) => Self::list_legacy(path, format),
+            format if is_legacy_archive(format) => Self::list_legacy(path, format, password),
             format if crate::unarc::is_supported(format) => crate::unarc::list(path, format),
             ArchiveFormat::Tar
             | ArchiveFormat::TarGz
@@ -312,7 +343,8 @@ impl ArchiveService {
             | ArchiveFormat::TarBr
             | ArchiveFormat::TarLz4
             | ArchiveFormat::TarLz
-            | ArchiveFormat::TarLzma => Self::list_tar(Box::new(File::open(path)?), format),
+            | ArchiveFormat::TarLzma
+            | ArchiveFormat::Pax => Self::list_tar(Box::new(File::open(path)?), format),
             ArchiveFormat::Gzip
             | ArchiveFormat::Bzip2
             | ArchiveFormat::Xz
@@ -343,10 +375,12 @@ impl ArchiveService {
         let format = Self::detect(path);
         match format {
             ArchiveFormat::Disguised => Self::verify_password_disguised(path, password),
-            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
-                Self::verify_zip(File::open(path)?, password)
-            }
+            format if format.is_zip_family() => Self::verify_zip(File::open(path)?, password),
             ArchiveFormat::SevenZip => Self::verify_seven_zip(File::open(path)?, password),
+            ArchiveFormat::UnrealPak => {
+                crate::pak::unreal::verify_password(path, password).map_err(ArchiveError::Corrupt)
+            }
+            ArchiveFormat::IoStore => crate::pak::iostore::verify_password(path, password),
             ArchiveFormat::Rar => match Self::verify_rar(path, password) {
                 Ok(verified) => Ok(verified),
                 Err(_) => Ok(false),
@@ -434,7 +468,7 @@ impl ArchiveService {
             ArchiveFormat::Zpaq => {
                 crate::zpaq::test_cancellable(&input, password, cancel, progress)
             }
-            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+            format if format.is_zip_family() => {
                 Self::test_zip(File::open(&input)?, password, &mut progress)
             }
             ArchiveFormat::SevenZip => {
@@ -448,7 +482,8 @@ impl ArchiveService {
             | ArchiveFormat::TarBr
             | ArchiveFormat::TarLz4
             | ArchiveFormat::TarLz
-            | ArchiveFormat::TarLzma => {
+            | ArchiveFormat::TarLzma
+            | ArchiveFormat::Pax => {
                 Self::test_tar(Box::new(File::open(&input)?), format, &mut progress)
             }
             ArchiveFormat::Alz => crate::alz::test(&input, password, progress),
@@ -465,7 +500,9 @@ impl ArchiveService {
             format if crate::unarc::is_supported(format) => {
                 crate::unarc::test(&input, format, &mut progress)
             }
-            format if is_legacy_archive(format) => Self::test_legacy(&input, format, &mut progress),
+            format if is_legacy_archive(format) => {
+                Self::test_legacy(&input, format, password, &mut progress)
+            }
             ArchiveFormat::UnixCompress => {
                 let (mut archive, entry) = open_unix_compress(&input)?;
                 let bytes = archive
@@ -489,6 +526,9 @@ impl ArchiveService {
                     skipped: 0,
                 })
             }
+            ArchiveFormat::IoStore => Err(ArchiveError::InvalidRequest(
+                "IoStore 容器当前只支持浏览与查看，暂不支持完整测试".to_string(),
+            )),
             _ => Self::test_single_stream(Box::new(File::open(&input)?), format, &mut progress),
         }
     }
@@ -531,6 +571,9 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total: total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)
@@ -570,6 +613,9 @@ impl ArchiveService {
                     bytes_total,
                     entries_done: report.files,
                     entries_total: total,
+
+                    current_file_done: 0,
+                    current_file_total: 0,
                 });
                 Ok(true)
             })
@@ -604,6 +650,9 @@ impl ArchiveService {
                 bytes_total: report.bytes,
                 entries_done: report.files,
                 entries_total: total,
+
+                current_file_done: 0,
+                current_file_total: 0,
             });
         }
         Ok(report)
@@ -649,7 +698,7 @@ impl ArchiveService {
         let format = Self::detect(path);
         match format {
             ArchiveFormat::Disguised => Self::extract_disguised(path, options, progress),
-            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+            format if format.is_zip_family() => {
                 Self::extract_zip(File::open(path)?, options, &mut progress)
             }
             ArchiveFormat::SevenZip => {
@@ -663,7 +712,8 @@ impl ArchiveService {
             | ArchiveFormat::TarBr
             | ArchiveFormat::TarLz4
             | ArchiveFormat::TarLz
-            | ArchiveFormat::TarLzma => {
+            | ArchiveFormat::TarLzma
+            | ArchiveFormat::Pax => {
                 Self::extract_tar(Box::new(File::open(path)?), format, options, &mut progress)
             }
             ArchiveFormat::Gzip
@@ -716,6 +766,9 @@ impl ArchiveService {
             format if is_legacy_archive(format) => {
                 Self::extract_legacy(path, format, options, &mut progress)
             }
+            ArchiveFormat::IoStore => Err(ArchiveError::InvalidRequest(
+                "IoStore 容器当前只支持浏览与查看，暂不支持解压".to_string(),
+            )),
             _ => Err(ArchiveError::UnsupportedFormat(format.label().to_string())),
         }
     }
@@ -908,9 +961,10 @@ impl ArchiveService {
         F: FnMut(CreateProgress),
     {
         match options.format {
-            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+            format if format.is_zip_family() => {
                 Self::create_zip(output, sources, options, &mut progress)
             }
+            ArchiveFormat::Asar => crate::asar::create(output, sources, options, &mut progress),
             ArchiveFormat::SevenZip => {
                 Self::create_seven_zip(output, sources, options, &mut progress)
             }
@@ -922,7 +976,8 @@ impl ArchiveService {
             | ArchiveFormat::TarBr
             | ArchiveFormat::TarLz4
             | ArchiveFormat::TarLz
-            | ArchiveFormat::TarLzma => Self::create_tar(output, sources, options, &mut progress),
+            | ArchiveFormat::TarLzma
+            | ArchiveFormat::Pax => Self::create_tar(output, sources, options, &mut progress),
             ArchiveFormat::Gzip
             | ArchiveFormat::Bzip2
             | ArchiveFormat::Xz

@@ -149,6 +149,47 @@ pub struct MailQueueEntry {
     pub last_error: Option<String>,
 }
 
+/// AES 密钥来源。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AesKeySource {
+    /// 尚未设置。
+    #[default]
+    None,
+    /// 从 Shipping.exe 自动提取。
+    Extracted,
+    /// 用户手动输入。
+    Manual,
+}
+
+/// 游戏资产库中的一条游戏记录。
+///
+/// `aes_key` 只保存 Windows DPAPI 加密后的 blob，不保存明文密钥；
+/// UI 在本次会话内解密后仅保留在内存中。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GameLibraryEntry {
+    /// 稳定 ID（UUID）。
+    pub id: String,
+    /// 界面展示名称。
+    pub name: String,
+    /// 用户选择的游戏安装根目录。
+    pub root: PathBuf,
+    /// 引擎版本文本，例如 `5.6`。
+    pub engine: String,
+    /// 引擎版本是否由用户手动指定。
+    pub engine_manual: bool,
+    /// DPAPI 保护的 AES 密钥 blob。
+    pub aes_key: Option<String>,
+    /// 密钥来源。
+    pub key_source: AesKeySource,
+    /// 用户选择的 Oodle 动态库路径。
+    pub oodle_dll: Option<PathBuf>,
+    /// 用户选择的 `.usmap` 映射文件，用于无版本属性。
+    pub mappings: Option<PathBuf>,
+    /// 最近打开时间的 RFC3339 文本。
+    pub last_opened: Option<String>,
+}
+
 /// Lumark 的用户设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -241,6 +282,12 @@ pub struct Settings {
     pub disguise_mask: DisguiseMaskPreference,
     /// 自定义面具文件路径；仅 `disguise_mask == Custom` 时使用。
     pub disguise_custom_mask: Option<PathBuf>,
+    /// 游戏资产库。
+    pub games: Vec<GameLibraryEntry>,
+    /// 当前游戏资产库选中的游戏 ID。
+    pub active_game: Option<String>,
+    /// 上次打开的游戏 ID 列表；下次进入游戏资产时尝试恢复。
+    pub open_games: Vec<String>,
 }
 
 impl Default for Settings {
@@ -291,6 +338,9 @@ impl Default for Settings {
             disguise_enabled: false,
             disguise_mask: DisguiseMaskPreference::Video,
             disguise_custom_mask: None,
+            games: Vec::new(),
+            active_game: None,
+            open_games: Vec::new(),
         }
     }
 }
@@ -387,5 +437,38 @@ mod tests {
         let clamped = widths.clamp_column(ColumnKind::Size, 999.0);
         assert_eq!(clamped, 180.0);
         assert_eq!(widths.width(ColumnKind::Size), 180.0);
+    }
+
+    /// 旧设置文件没有游戏库字段时回落到空列表，且游戏记录可往返序列化。
+    #[test]
+    fn game_library_defaults_and_roundtrip() {
+        let settings: Settings = serde_json::from_str("{}").expect("empty settings");
+        assert!(settings.games.is_empty());
+        assert!(settings.active_game.is_none());
+        assert!(settings.open_games.is_empty());
+        let entry = GameLibraryEntry {
+            id: "game-1".to_string(),
+            name: "BNB".to_string(),
+            root: PathBuf::from(r"D:\Games\BNB"),
+            engine: "5.6".to_string(),
+            engine_manual: false,
+            aes_key: Some("dpapi-blob".to_string()),
+            key_source: AesKeySource::Extracted,
+            oodle_dll: Some(PathBuf::from(
+                r"D:\Games\FModel\Output\.data\oodle-data-shared.dll",
+            )),
+            mappings: Some(PathBuf::from(r"D:\Games\FModel\BNB.usmap")),
+            last_opened: None,
+        };
+        let encoded = serde_json::to_string(&entry).unwrap();
+        assert!(!encoded.contains("59321AC6"), "设置中不得出现明文密钥");
+        let decoded: GameLibraryEntry = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.id, "game-1");
+        assert_eq!(decoded.root, PathBuf::from(r"D:\Games\BNB"));
+        assert_eq!(decoded.key_source, AesKeySource::Extracted);
+        assert_eq!(
+            decoded.mappings,
+            Some(PathBuf::from(r"D:\Games\FModel\BNB.usmap"))
+        );
     }
 }

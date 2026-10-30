@@ -16,6 +16,46 @@
 - [x] 主题改用官方 `ThemeColor::light()/dark()` 基线和 `Theme::update` 整体 palette；删除视图层裸 `hsla`、按钮指针手、自绘进度条、空状态和标题栏徽标，统一官方 `Progress`/`Empty`/`Tag`/`Scrollable`。
 - [x] 新增 `docs/lgpl-compliance.md`、`licenses/LGPL-3.0-only.txt` 和第三方通知；BZip3 使用 `bzip3-rs`（LGPL-3.0-only AND Apache-2.0）。
 
+## 2026-10-30 本轮升级
+
+- [x] ASAR 创建与读取：`lumark-archive` 先把载荷流式写入匿名临时文件并计算 SHA-256/4 MiB 分块哈希，再写 header 和载荷；表头字段与 Electron 工具链一致（`offset` 字符串、`blockSize`），支持空文件、大于 4 MiB 的多块文件和无扩展名内容识别。`lumark-legacy` 读取器改为只读 header 后按偏移 seek，不再把整包读入内存；保留 `.asar.unpacked` 和 symlink 安全路径校验。
+- [x] APK/JAR/PAX：APK/JAR 复用 ZIP 容器（密码、注释、AES/ZipCrypto、压缩方法），PAX 复用 TAR 并在每个条目写入 `path`/`mtime` pax 扩展头；三种格式已接入创建/列表/测试/解压/伪装、压缩窗口、设置默认格式和 Shell 关联，并有密码 ZIP、注释 JAR、中文长路径 PAX 回归测试。
+- [x] `.pak` 家族：按二进制头区分 Quake PACK（`PACK`）、Chromium 数据包（v4/v5，gzip 外壳）和 Unreal Engine 4/5 PAK（版本 1–11、v8a/v8b、v10+ 完整目录与编码条目、AES-256-ECB、Store/Zlib/Gzip/LZ4/Zstd）。Unreal 样本来自 trumank/repak（MIT OR Apache-2.0），加密索引/条目和压缩条目均有回归；加密错误区分 `PasswordRequired`/`WrongPassword`。
+- [x] Oodle：`OodleLZ_Decompress` 通过用户提供的 `oo2core*.dll` 加载，只接受 `LUMARK_OODLE_DLL` 或程序目录，不扫描 PAK 所在目录；未提供 DLL 时返回可操作的错误，不静默跳过。
+- [x] 文件表框选：明细列表和平铺视图都支持拖拽框选，Ctrl/Shift 追加、边缘自动滚动、空白点击清空，框选矩形和命中计算有单元测试。
+- [x] 拖拽语义：拖出条目时使用 Windows 原生拖拽手势，但只把它当作“选择目标”的动作；释放后由 Lumark 软件层识别桌面/资源管理器路径，提交带进度窗口的解压任务，资源管理器不再读取虚拟文件流。目标已有同名文件时弹出覆盖/跳过/重命名/取消；拖回原归档/原路径忽略；路径栏作为应用内拖放目标，在释放时解压到目标目录；拖入归档自身会被过滤。
+- [x] ZIP 家族修复：扫描本地文件头、保留原始压缩数据/加密 extra/CRC 并重建中央目录，输出新文件且拒绝覆盖原归档；支持带数据描述符和 AES 加密的归档，无法确定边界的条目跳过并报告；接入右键菜单和后台任务。
+
+## 2026-10-30 游戏资产（进行中）
+
+- [x] IoStore：`.utoc/.ucas` v1–8 只读解析，v8 头部/块表/压缩方法/目录索引、AES-256-ECB 目录索引与块解密、None/Zlib/Gzip/LZ4/Zstd/Oodle 解压；目录索引在列包阶段只需 AES 密钥，Oodle 只在读取资产数据时需要。`ArchiveService` 已接入格式识别、加密探测、密钥校验和列表；解压/测试/编辑明确返回“仅支持浏览与查看”。
+- [x] 真实 BNB 验证：`pakchunk2-Windows.utoc` 列出 1537 个包、`pakchunk0-Windows.utoc` 可解析 9.8 万级包路径，压缩方法为 Oodle。
+- [x] BNB 完整实机验收：自动发现 `5.6.1-.../Mappings/*.usmap`（12749 结构/2386 枚举）；`T_ChickenA_BaseColor` 解码 2048×2048 PF_DXT5/12 mip，StaticMesh `Cube` 24 顶点/12 三角形，SkeletalMesh `SK_Chicken` 42 骨骼/2860 顶点/3844 三角形，Skeleton `SK_Chicken_Skeleton` 42 骨骼，AnimSequence `ANIM_Chicken_Idle1` 时长 4.000s；`tools/verify_game_assets.ps1` 真实 BNB 纹理链路通过。
+- [x] 真实 FF7 Remake 验证：项目目录 `End`，无 `*-Win64-Shipping.exe` 时回退到最大 exe `ff7remake_.exe`；提取的密钥通过 `pakchunk0-WindowsNoEditor.pak` 校验，PAK 可列出 18896 个条目；修正 UE4 旧版 PAK（version < 8）压缩槽位映射后，可成功提取 `.uasset/.uexp/.ubulk`，Oodle 候选已发现。新增 `inspect_legacy` 诊断与 `parse_legacy_summary`：旧式包详情可显示包名/主导出类/导出名称等元数据；FF7R 包为 unversioned（`PKG_UnversionedProperties`），字段级资产预览需要该游戏 `.usmap`。
+- [x] Oodle 加载器：支持 `LUMARK_OODLE_DLL`、显式配置路径（游戏目录自动发现）、程序目录内 `oo2core*`/`oodle*` DLL；新增非 Windows 平台的可读错误桩。
+- [x] 新 crate `lumark-unreal`：游戏目录扫描（安装根/项目根、Shipping.exe、容器、Oodle 候选）、UE 4.27/5.0–5.6 版本字符串探测（ASCII/UTF-16）、AESDumpster 签名 + 容器校验的 AES 密钥提取、手动密钥校验；真实 BNB 已提取并通过校验（密钥不入库/不入日志）。
+- [x] 设置新增游戏库条目（DPAPI 保护的密钥 blob、密钥来源、Oodle 路径、最近打开时间）与 `active_game`，旧设置文件向后兼容。
+- [x] 主界面动作带新增【游戏资产】按钮（Windows）；新增游戏设置页、已保存游戏列表、目录扫描与后台密钥提取、Oodle 选择、游戏侧栏/上下文条。
+- [x] 文件夹式浏览：`BrowserLocation::GameArchives`，容器列表沿用现有搜索/排序/平铺/框选；进入容器后使用现有文件夹浏览，游戏容器隐藏 `.uexp/.ubulk/.uptnl` 伴随文件；返回/退出恢复文件系统位置。
+- [x] 详情面板图片预览：文件系统、普通 ZIP/7Z/PAK、IoStore 项共用的异步预览状态，缓存限制、加密提示、过期结果丢弃，点击打开图片查看器。
+- [x] 平台门控：游戏资产入口在非 Windows 隐藏，Oodle 在非 Windows 返回可读错误。
+- [x] M4 纹理链路：UE5 Zen 摘要/名称表/导入导出表/导出数据范围、全局 ScriptObjects 类名解析、`.usmap`（v1–v4、未压缩/ZStandard/Brotli）与无版本属性读取、纹理 `FTexturePlatformData`/bulk data map/内联与 `.ubulk` mip 读取。
+- [x] UTexture2D 解码：BC1/BC3/BC4/BC5/BC7、BGRA8/RGBA8/G8；详情面板后台生成纹理缩略图，点击打开图片查看器。已用 CUE4Parse UE5.8 unversioned fixture 的 10 种纹理格式和 BNB 真实纹理包（类名/bulk map）验证。
+- [x] 资产元数据：Skeleton 参考骨骼树（名称/父索引/参考姿态）解析；AnimSequence 时长/RateScale/骨架、Skeleton 骨骼数/根骨骼、StaticMesh 材质槽/插槽在详情面板展示。已用 fixture 验证 `SKEL_Fixture` 的 3 根骨骼（Root、Joint_1、Joint_2）和 `AS_Fixture` 的 AnimSequence 元数据。
+- [x] StaticMesh 几何：首个 LOD 的 `FPositionVertexBuffer`、索引缓冲、section 和 `LightingGuid` 布局解析；CPU 光栅器（正交三轴相机、Z-buffer、方向光）在详情面板生成 3D 缩略图。已用 `SM_Fixture` 验证 6 顶点/2 三角形/2 section 和正确坐标。
+- [x] 内置模型查看器窗口：左键拖拽旋转、工具栏缩放/重置、状态栏顶点/三角形统计；详情面板缩略图或双击 `.uasset` 可打开。
+- [x] 骨骼查看器：Skeleton 参考姿态累积为世界空间线条图，支持同一轨道相机窗口旋转/缩放；AnimSequence 元数据新增只读时间轴条。
+- [x] PAK 资产预览：游戏 `.pak` 容器中的 Zen `.uasset/.ubulk` 通过 `ArchiveService` 提取后复用纹理/模型/骨骼/元数据链路，已用 fixture ZIP-as-PAK 验证。
+- [x] 多游戏会话：游戏库可同时打开多个游戏，侧栏“打开的游戏”标签切换；每个会话保存自己的浏览器快照（位置/条目/选择/回退前进历史），从设置页打开另一个游戏不会替换当前会话；设置页取消会返回原游戏。打开/切换游戏会更新 `last_opened`，设置页按最近打开时间排序。打开列表持久化到设置的 `open_games`，下次进入游戏资产自动恢复（最多 8 个，倒序恢复保证上次前台游戏最后激活）。游戏卡片支持只关闭当前游戏并自动切换剩余会话。已用两个假游戏 UI 测试验证。
+- [x] 嵌套无版本属性：修正 `Optional` 的 32 位存在标志，补齐 `FWeightedRandomSampler`、SkeletalMesh Sampling 结构和 SkeletalMesh 属性解析；SkeletalMesh 详情可显示骨架/LOD/插槽元数据，`SK_Fixture` 属性流读取通过。
+- [x] 映射文件选择校验：后台解析 `.usmap` 后才保存路径，消息显示结构/枚举数量；解析失败不覆盖已有路径；扫描游戏目录时自动发现根目录、`Mappings/`、`Content/Paks/` 下的 `.usmap` 并预填。
+- [x] 无映射兜底：未选择 `.usmap` 时详情面板不再直接报错，改为显示包名、导出数量和主类；字段级纹理/模型/骨骼解析仍需要映射。
+- [x] SkeletalMesh 参考骨架与静态几何：解析属性后的 ImportedBounds/SkeletalMaterials 前缀、`FReferenceSkeleton`、首个 LOD 的 section 统计和材质槽，并从 bulk data 的流式数据读取索引和 `FPositionVertexBuffer`；详情面板生成第一个 LOD 的 rest pose 3D 缩略图（section 材质分色）并可打开模型查看器。fixture `SK_Fixture` 验证 6 顶点和非空 section。骨骼蒙皮/动画播放仍待实现。
+- [x] 真实游戏属性兼容：修正 `FPerPlatform*` 的 cooked 标志/默认值/覆盖表布局；新增 `accept_game` 端到端诊断（扫描游戏、提取密钥、读映射、渲染纹理/网格，不打印密钥）。
+- [x] 验收脚本：新增 `tools/verify_game_assets.ps1`，默认运行 IoStore、UE 解析和游戏资产 UI 测试；配置游戏根目录/映射/Oodle/容器/资产/输出后调用 `accept_game` 做真实游戏验收。
+- [x] `accept_game` 支持纹理、StaticMesh、Skeleton 和 SkeletalMesh 参考骨骼四类资产；没有纹理/网格时仍可生成骨骼预览图。
+- [ ] 待完成：SkeletalMesh 几何/蒙皮与骨骼网格查看器；多 LOD/材质查看器；UE4.27 旧式 uasset/uexp 读取器；BNB 验收等待正确的 BNB `.usmap`（当前 Downloads 中的映射已确认不是 BNB 的）。
+
 ### 已完成与已接受限制
 
 - [x] 删除确认、打开归档可执行文件确认、清除密码库确认、删除密码记录确认已迁移到官方 `WindowExt::open_alert_dialog`，取消/焦点/Escape 由 Root 处理。
@@ -38,7 +78,7 @@
 - [x] 压缩窗口按源类型过滤格式：多文件或文件夹源隐藏 GZ/BZ2/XZ/ZST/Brotli/LZ4 单流格式，设置中的单流默认格式自动改用对应 TAR 变体；核心创建接口对多源单流请求返回可操作的“无法继续”错误，而不是“归档损坏”。
 - [x] ZPAQ 读写：使用 `zpaq_rs` 内嵌的 libzpaq/JIDAC 参考引擎创建标准归档，支持 1–5 级压缩级别（轻巧模式“体积小”对应 5 级）、AES-256 密码、列表、完整测试、密码校验、选择性解压、覆盖策略、资源预算、分卷和删除源文件；普通批次按 32 MiB / 64 文件分批上报进度并检查取消，含 ≥32 MiB 单文件的批次交给隐藏的 `--zpaq-worker` 子进程执行，取消时直接终止子进程；创建后重新列表校验路径集合；解压先落暂存区再按策略移动，失败不留半成品。源计划跳过符号链接和 Windows 目录联接，避免 zpaq 跳过后条目数不一致；ZPAQ 默认保留原始时间，需要“当前/最近”时间时复制源文件并处理只读属性。同名旧归档在任务成功后原子替换。首次调用前把无控制台 release 进程的无效 stdio 句柄绑定到 NUL，保证引擎输出捕获可用。PAQ8/LPAQ 无许可兼容的成熟后端，不列入支持范围。
 - [x] RAR 只读列表、普通/加密密码验证、完整测试和解压（UnRAR 后端，保留许可声明）；损坏 RAR 不再误报为加密；解压按条目声明大小接入资源预算。
-- [x] 只读适配 40+ 格式：ISO/UDF、CAB、ARJ、ACE、ARC/PAK、CPIO、WIM（第一映像，XPRESS/LZX/LZMS，支持 SWM 分卷自动发现）、ASAR、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE 等（传统格式通过 `unarc-rs` 适配层）；LGPL `wim-format` 负责 WIM 资源解码，LZMS/SWM 有 256 KiB LZMS 与多分卷回归测试。
+- [x] 只读适配 40+ 格式：ISO/UDF、CAB、ARJ、ACE、ARC/PAK、Quake PAK、Chromium PAK、Unreal PAK、CPIO、WIM（第一映像，XPRESS/LZX/LZMS，支持 SWM 分卷自动发现）、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE 等（传统格式通过 `unarc-rs` 适配层）；LGPL `wim-format` 负责 WIM 资源解码，LZMS/SWM 有 256 KiB LZMS 与多分卷回归测试。
 - [x] ALZ 只读列表、密码探测/校验、完整测试和解压：支持 Store、Deflate、ALZ 改造 Bzip2、ZipCrypto、`.alz`/`.a00` 分卷；解压按路径安全、覆盖策略、资源预算和 CRC 校验处理，失败不留半成品。
 - [x] ZIP/7Z 原子编辑：删除、重命名、添加文件；失败不替换原归档；可选 `.lumark.bak`。
 - [x] 归档内同名添加按替换处理，不再生成重复条目。
@@ -79,7 +119,7 @@
 - [x] ISO 虚拟光驱：Lumark 文件列表和资源管理器 `SystemFileAssociations\.iso\shell` 菜单都提供加载/卸载入口，调用系统 `Mount-DiskImage`/`Dismount-DiskImage`，挂载后自动打开盘符；使用隐藏 PowerShell 子进程、30 秒超时和 `--mount-iso`/`--unmount-iso` 单实例转发，客户端普通用户通常无需管理员。
 - [x] 单实例多窗口：Shell 请求按文件打开独立窗口并级联错开，窗口共享设置与密码库、各自独立任务中心，关闭全部窗口后进程退出。
 - [x] 内置只读文本查看器：右键菜单直接在内置窗口查看文本文件，归档条目解压后展示，打开条目的解压进度窗口完成后自动关闭。
-- [x] 从归档拖出：条目先解压到受控临时目录再交给系统拖放，拖出和复制期间显示临时解压进度，失败时清理临时文件。
+- [x] 从归档拖出：使用原生拖拽手势解析桌面/资源管理器目标，释放后把选中条目解压到目标文件夹；解压走后台任务和进度窗口，取消拖拽不会产生文件，失败会清理半成品。
 - [x] Windows 系统托盘：后台压缩或解压任务没有可见窗口时显示托盘图标，点击后恢复对应进度窗口或主窗口，任务结束自动移除。
 - [x] 记录密码校验的可中断体验：多候选校验持续超过 400 毫秒后弹出进度卡片，显示第几条候选并提供“停止自动尝试/后台继续”，状态栏同时保留停止入口；停止会取消当前校验任务，并在取消事件里直接回退到手动密码输入。
 - [x] 自动匹配失败后的新增密码引导：密码弹窗提示记录密码均不正确，默认勾选“保存到密码库”，确认后先在工作线程校验手动密码，命中才写入密码库（名称取归档名、匹配规则取完整路径），输错则重新弹出密码框；相同密码不会重复写入。
@@ -159,7 +199,7 @@
 - [x] LZH 的 lh4/lh5/lh7 已支持跨块流式编码，不再受 512 MiB 单条目内存上限限制；Store（lh0）继续分块直写。
 - [x] 键盘/高对比度验收：按用户决定暂不进行。
 - [x] 主界面状态文案已完成中英文迁移，压缩格式错误提示使用本地化格式名称。
-- [x] 传统格式写入上限按上游适配器能力记录并在文档说明；Windows 原生拖出已通过 `IShellItemArray` + `SHDoDragDrop` 实现，目标应用的投放行为由系统拖放循环负责。
+- [x] 传统格式写入上限按上游适配器能力记录并在文档说明；Windows 原生拖出手势通过 `SHDoDragDrop` 提供系统光标，实际投放目录由 `IShellWindows`/桌面路径解析，解压由 Lumark 任务执行。
 - [x] 依赖收敛：从 GeeZipX 0.7.4 裁剪出本地 `lumark-legacy`，只保留实际使用的 ACE/ARC/ARJ/ASAR/CAB/CPIO/DEB/ISO/LZH/UDF 和单流辅助模块；删除外部 `geezipx-core` 依赖及其 ZIP 2/7z 0.21 重复依赖，WIM/AES 改用标准后端，错误映射和路径安全逻辑保持不变。
 
 ## 外部依赖/架构限制

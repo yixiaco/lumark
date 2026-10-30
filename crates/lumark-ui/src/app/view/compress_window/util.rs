@@ -7,6 +7,9 @@ use crate::i18n::tr;
 pub(super) const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::Zip, "ZIP"),
     (ArchiveFormat::Zipx, "ZIPX"),
+    (ArchiveFormat::Asar, "ASAR"),
+    (ArchiveFormat::Apk, "APK"),
+    (ArchiveFormat::Jar, "JAR"),
     (ArchiveFormat::SevenZip, "7Z"),
     (ArchiveFormat::Zpaq, "ZPAQ"),
     (ArchiveFormat::Lzh, "LZH"),
@@ -20,6 +23,7 @@ pub(super) const WRITABLE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::TarLz4, "TAR.LZ4"),
     (ArchiveFormat::TarLz, "TAR.LZ"),
     (ArchiveFormat::TarLzma, "TAR.LZMA"),
+    (ArchiveFormat::Pax, "PAX"),
     (ArchiveFormat::Gzip, "GZ"),
     (ArchiveFormat::Bzip2, "BZ2"),
     (ArchiveFormat::Xz, "XZ"),

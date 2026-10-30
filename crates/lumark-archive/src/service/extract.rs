@@ -78,6 +78,9 @@ impl ArchiveService {
             bytes_total: bytes,
             entries_done: 1,
             entries_total: 1,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         Ok(ExtractReport {
             files: 1,
@@ -150,6 +153,9 @@ impl ArchiveService {
             bytes_total: bytes,
             entries_done: 1,
             entries_total: 1,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         Ok(ExtractReport {
             files: 1,
@@ -173,6 +179,7 @@ impl ArchiveService {
             .filter_map(|index| archive.by_index_raw(index).ok().map(|entry| entry.size()))
             .sum();
         let mut report = ExtractReport::default();
+        let mut skipped_bytes = 0u64;
         fs::create_dir_all(&options.output_dir)?;
         for index in 0..archive.len() {
             let (name, size, is_dir) = {
@@ -202,10 +209,32 @@ impl ArchiveService {
                     }
                     crate::format::OverwritePolicy::Skip => {
                         report.skipped += 1;
+                        skipped_bytes = skipped_bytes.saturating_add(size);
+                        progress(ExtractProgress {
+                            current: name,
+                            bytes_done: report.bytes.saturating_add(skipped_bytes),
+                            bytes_total,
+                            entries_done: report.files.saturating_add(report.skipped),
+                            entries_total,
+
+                            current_file_done: 0,
+                            current_file_total: 0,
+                        });
                         continue;
                     }
                     crate::format::OverwritePolicy::Ask if !options.overwrite => {
                         report.skipped += 1;
+                        skipped_bytes = skipped_bytes.saturating_add(size);
+                        progress(ExtractProgress {
+                            current: name,
+                            bytes_done: report.bytes.saturating_add(skipped_bytes),
+                            bytes_total,
+                            entries_done: report.files.saturating_add(report.skipped),
+                            entries_total,
+
+                            current_file_done: 0,
+                            current_file_total: 0,
+                        });
                         continue;
                     }
                     _ => {}
@@ -220,11 +249,24 @@ impl ArchiveService {
                 None => archive.by_index(index)?,
             };
             let mut output = File::create(&destination)?;
-            let copied = match copy_cancellable_limited(
+            let base = report.bytes;
+            let current = name.clone();
+            let copied = match copy_entry_with_progress(
                 &mut entry,
                 &mut output,
                 &options.cancel,
                 options.budget.max_bytes.saturating_sub(report.bytes),
+                |done| {
+                    progress(ExtractProgress {
+                        current: current.clone(),
+                        bytes_done: base.saturating_add(done),
+                        bytes_total,
+                        entries_done: report.files,
+                        entries_total,
+                        current_file_done: done,
+                        current_file_total: size,
+                    });
+                },
             ) {
                 Ok(copied) => copied,
                 Err(error) => {
@@ -241,6 +283,8 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total,
+                current_file_done: copied,
+                current_file_total: size,
             });
         }
         Ok(report)
@@ -321,6 +365,7 @@ impl ArchiveService {
                     *budget_error.borrow_mut() = Some(error.to_string());
                     return Err(sevenz_rust2::Error::Other(error.to_string().into()));
                 }
+                let entry_size = entry.size();
                 let mut output = CancelWriter {
                     inner: File::create(&destination)?,
                     cancel: &options.cancel,
@@ -341,6 +386,8 @@ impl ArchiveService {
                             bytes_total,
                             entries_done: report.files,
                             entries_total,
+                            current_file_done: done,
+                            current_file_total: entry_size,
                         });
                     },
                 ) {
@@ -362,6 +409,8 @@ impl ArchiveService {
                     bytes_total,
                     entries_done: report.files,
                     entries_total,
+                    current_file_done: entry_bytes,
+                    current_file_total: entry_size,
                 });
                 Ok(true)
             })
@@ -420,12 +469,26 @@ impl ArchiveService {
                 fs::create_dir_all(parent)?;
             }
             ensure_budget(options, &report, entry.size())?;
+            let entry_size = entry.size();
             let mut output = File::create(&destination)?;
-            let copied = match copy_cancellable_limited(
+            let base = report.bytes;
+            let current = path_string.clone();
+            let copied = match copy_entry_with_progress(
                 &mut entry,
                 &mut output,
                 &options.cancel,
                 options.budget.max_bytes.saturating_sub(report.bytes),
+                |done| {
+                    progress(ExtractProgress {
+                        current: current.clone(),
+                        bytes_done: base.saturating_add(done),
+                        bytes_total,
+                        entries_done: report.files,
+                        entries_total,
+                        current_file_done: done,
+                        current_file_total: entry_size,
+                    });
+                },
             ) {
                 Ok(copied) => copied,
                 Err(error) => {
@@ -442,6 +505,8 @@ impl ArchiveService {
                 bytes_total,
                 entries_done: report.files,
                 entries_total,
+                current_file_done: copied,
+                current_file_total: entry_size,
             });
         }
         Ok(report)
@@ -502,6 +567,9 @@ impl ArchiveService {
             bytes_total: bytes,
             entries_done: 1,
             entries_total: 1,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         Ok(ExtractReport {
             files: 1,
@@ -606,6 +674,9 @@ impl ArchiveService {
             bytes_total: bytes,
             entries_done: 1,
             entries_total: 1,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         Ok(ExtractReport {
             files: 1,

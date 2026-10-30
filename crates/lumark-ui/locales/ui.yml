@@ -15,6 +15,9 @@ app:
   tasks:
     zh-CN: 任务
     en: Tasks
+  game_assets:
+    zh-CN: 游戏资产
+    en: Game assets
   settings:
     zh-CN: 设置
     en: Settings

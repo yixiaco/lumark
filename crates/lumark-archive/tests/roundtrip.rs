@@ -11,12 +11,16 @@ use lumark_archive::{
 };
 use tempfile::tempdir;
 
+#[path = "roundtrip/asar.rs"]
+mod asar;
 #[path = "roundtrip/common.rs"]
 mod common;
 #[path = "roundtrip/legacy.rs"]
 mod legacy;
 #[path = "roundtrip/misc.rs"]
 mod misc;
+#[path = "roundtrip/package_formats.rs"]
+mod package_formats;
 #[path = "roundtrip/seven_zip.rs"]
 mod seven_zip;
 #[path = "roundtrip/tar_stream.rs"]

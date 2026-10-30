@@ -40,6 +40,16 @@ description: 维护 Lumark 项目的注释、模块边界和界面资源约定�
 - 只有本身为圆形的元素可以使用全圆角，例如状态圆点、头像和圆形图标底座；进度条按 gpui-kit Progress 规范使用高度一半的胶囊圆角。
 - 新增或重构界面前先查看 gpui-kit 对应组件的默认圆角，沿用组件样式，不自行放大。
 
+## 交互反馈
+
+- 按钮必须有指针手 `.cursor_pointer()`：本项目按产品决定执行，有意覆盖官方「按钮使用默认箭头」的默认值。
+- 链接，以及行为等同链接的内容（打开 URL、外部文档、邮件地址）同样使用手型。
+- 复选框、菜单项、标签页等其余原生控件仍按官方约定使用默认箭头；要改判先确认，不要顺手统一。
+- 官方 `Button` 在 `render` 里强制 `.cursor_default()`，会覆盖调用处的 `.cursor_pointer()`，只在调用点加链式方法无效；落地方式见下一条。
+- 实现按钮手型只有两条路：给 `vendor/gpui-component` 打一行补丁，让可交互按钮走手型（推荐）；或改用在 `link` / `text` 变体。禁止为此复制组件的视觉实现。
+- 需要其它光标时按语义选择：可选中文字 `.cursor_text()`、拖拽 `.cursor_grab()` / `.cursor_grabbing()`、不可用 `.cursor_not_allowed()`、缩放 `.cursor_ew_resize()` / `.cursor_ns_resize()`。
+- 出处：`gpui-kit-design-guides` 的「Pointer conventions」；按钮一项是本仓库有意偏离官方默认。
+
 ## 提交
 
 - 提交消息保持简短，一句中文概括改动即可，不写长段落或逐项清单。

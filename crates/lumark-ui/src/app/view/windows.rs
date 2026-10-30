@@ -73,6 +73,7 @@ impl Render for ProgressWindowView {
             TaskKind::Compress => tr("压缩文件", "Compressing"),
             TaskKind::Extract => tr("解压文件", "Extracting"),
             TaskKind::Test => tr("测试压缩文件", "Testing archive"),
+            TaskKind::Repair => tr("修复压缩文件", "Repairing archive"),
             TaskKind::Disguise => tr("伪装文件", "Disguising"),
             TaskKind::Restore => tr("还原伪装文件", "Restoring disguise"),
             _ => tr("后台任务", "Background task"),

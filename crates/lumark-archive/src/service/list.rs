@@ -12,11 +12,14 @@ fn rar_is_version5(path: &Path) -> bool {
 }
 
 impl ArchiveService {
-    /// 列出 ZIP 条目和加密状态。
-    pub(crate) fn list_zip<R: Read + Seek>(reader: R) -> Result<ArchiveInfo, ArchiveError> {
+    /// 列出 ZIP 容器条目和加密状态；APK/JAR/ZIPX 复用同一后端。
+    pub(crate) fn list_zip<R: Read + Seek>(
+        reader: R,
+        format: ArchiveFormat,
+    ) -> Result<ArchiveInfo, ArchiveError> {
         let mut archive = ZipArchive::new(reader)?;
         let mut info = ArchiveInfo {
-            format: Some(ArchiveFormat::Zip),
+            format: Some(format),
             comment: Some(String::from_utf8_lossy(archive.comment()).into_owned()),
             ..Default::default()
         };
@@ -92,8 +95,9 @@ impl ArchiveService {
     pub(crate) fn list_legacy(
         path: &Path,
         format: ArchiveFormat,
+        password: Option<&str>,
     ) -> Result<ArchiveInfo, ArchiveError> {
-        Self::list_legacy_with(open_legacy_reader(path, format)?, format)
+        Self::list_legacy_with(open_legacy_reader(path, format, password)?, format)
     }
 
     /// 用已打开的读取器列出传统归档。

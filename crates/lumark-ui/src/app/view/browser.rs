@@ -17,9 +17,16 @@ use tiles::*;
 mod columns;
 mod details;
 mod drag;
+mod marquee;
 mod menu;
+mod preview;
+mod preview_ue;
 mod rows;
 mod tiles;
+
+pub(crate) use drag::{ArchiveDragItem, path_bar_drop_handler};
+use marquee::*;
+pub(crate) use preview::DetailsPreview;
 
 impl LumarkApp {
     /// 渲染主文件表，并在搜索结果激活时显示一条结果摘要。
@@ -53,7 +60,9 @@ impl LumarkApp {
         };
         let tile_view = self.tile_view;
         let tile_columns = if tile_view {
-            ((main_width - 24.0) / 132.0).floor().max(1.0) as usize
+            ((main_width - 24.0) / (TILE_WIDTH + TILE_GAP))
+                .floor()
+                .max(1.0) as usize
         } else {
             1
         };
@@ -72,6 +81,14 @@ impl LumarkApp {
             .iter()
             .map(|entry| entry.size)
             .sum::<u64>();
+        let marquee_rect = self.marquee.as_ref().and_then(|state| {
+            self.current_marquee_layout(window).and_then(|layout| {
+                layout.overlay_rect(
+                    (state.start.x.as_f32(), state.start.y.as_f32()),
+                    (state.current.x.as_f32(), state.current.y.as_f32()),
+                )
+            })
+        });
 
         v_flex()
             .id("browser-page")
@@ -120,9 +137,24 @@ impl LumarkApp {
                     cx.notify();
                 }),
             )
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, event: &gpui_kit::MouseDownEvent, window, cx| {
+                    if this.start_marquee(event.position, event.modifiers, window) {
+                        cx.notify();
+                    }
+                }),
+            )
             .on_mouse_move(
-                cx.listener(|this, event: &gpui_kit::MouseMoveEvent, _, cx| {
+                cx.listener(|this, event: &gpui_kit::MouseMoveEvent, window, cx| {
                     this.update_column_resize(event);
+                    if this.marquee.is_some() {
+                        if event.pressed_button == Some(gpui_kit::MouseButton::Left) {
+                            this.update_marquee(event.position, window);
+                        } else {
+                            this.finish_marquee();
+                        }
+                    }
                     cx.notify();
                 }),
             )
@@ -130,10 +162,14 @@ impl LumarkApp {
                 gpui_kit::MouseButton::Left,
                 cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| {
                     this.finish_column_resize();
+                    this.finish_marquee();
                     cx.notify();
                 }),
             )
             .flex_1()
+            .when(self.game_session.is_some(), |this| {
+                this.child(self.render_game_context_bar(cx))
+            })
             .when(search_active, |this| {
                 this.child(
                     h_flex()
@@ -305,6 +341,20 @@ impl LumarkApp {
                             )
                             .track_scroll(&scroll),
                         )
+                        .when_some(marquee_rect, |this, (left, top, width, height)| {
+                            this.child(
+                                div()
+                                    .absolute()
+                                    .left(px(left))
+                                    .top(px(top))
+                                    .w(px(width))
+                                    .h(px(height))
+                                    .rounded(px(2.))
+                                    .border_1()
+                                    .border_color(cx.theme().primary)
+                                    .bg(cx.theme().primary.opacity(0.08)),
+                            )
+                        })
                         .vertical_scrollbar(&scroll),
                 )
             })
@@ -312,6 +362,127 @@ impl LumarkApp {
 }
 
 impl LumarkApp {
+    /// 按当前窗口、滚动位置和视图模式生成框选布局。
+    fn current_marquee_layout(&self, window: &Window) -> Option<MarqueeLayout> {
+        let bounds = self.file_list_scroll.bounds();
+        if bounds.size.width <= px(0.) || bounds.size.height <= px(0.) {
+            return None;
+        }
+        let parent_row = shows_parent_row(self);
+        let tile = self.tile_view;
+        let row_count = self.displayed_count() + usize::from(parent_row);
+        let row_height = if tile {
+            TILE_ROW_HEIGHT
+        } else {
+            LIST_ROW_HEIGHT
+        };
+        let tile_columns = if tile {
+            let window_width = window
+                .inner_window_bounds()
+                .get_bounds()
+                .size
+                .width
+                .as_f32();
+            let sidebar_width = if self.sidebar_visible { 252. } else { 0. };
+            let main_width = (window_width - sidebar_width - 24.).max(420.);
+            ((main_width - 24.0) / (TILE_WIDTH + TILE_GAP))
+                .floor()
+                .max(1.0) as usize
+        } else {
+            1
+        };
+        Some(MarqueeLayout {
+            left: bounds.origin.x.as_f32(),
+            top: bounds.origin.y.as_f32(),
+            width: bounds.size.width.as_f32(),
+            height: bounds.size.height.as_f32(),
+            scroll_y: self.file_list_scroll.offset().y.as_f32(),
+            row_height,
+            parent_row,
+            row_count,
+            tile_columns,
+            tile,
+        })
+    }
+
+    /// 在文件表空白区域开始框选；命中行/卡片时返回 `false`。
+    pub(crate) fn start_marquee(
+        &mut self,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+        modifiers: gpui_kit::Modifiers,
+        window: &Window,
+    ) -> bool {
+        let Some(layout) = self.current_marquee_layout(window) else {
+            return false;
+        };
+        if !layout.starts_blank(position.x.as_f32(), position.y.as_f32()) {
+            return false;
+        }
+        let additive = modifiers.control || modifiers.shift;
+        let base_ids = if additive {
+            self.browser.selection.selected_ids()
+        } else {
+            self.browser.selection.clear();
+            Vec::new()
+        };
+        self.marquee = Some(MarqueeState {
+            start: position,
+            current: position,
+            base_ids,
+        });
+        true
+    }
+
+    /// 更新框选矩形并同步选择；没有进行中的框选时返回 `false`。
+    pub(crate) fn update_marquee(
+        &mut self,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &Window,
+    ) -> bool {
+        let Some(state) = self.marquee.as_ref() else {
+            return false;
+        };
+        let start = (state.start.x.as_f32(), state.start.y.as_f32());
+        let base_ids = state.base_ids.clone();
+        let Some(layout) = self.current_marquee_layout(window) else {
+            return false;
+        };
+        let direction = layout.autoscroll_direction(position.y.as_f32());
+        if direction != 0 {
+            self.scroll_marquee(direction, layout.row_height);
+        }
+        let layout = self.current_marquee_layout(window).unwrap_or(layout);
+        let entries = self.displayed_entries();
+        let mut ids = base_ids;
+        ids.extend(
+            layout
+                .selected_entries(start, (position.x.as_f32(), position.y.as_f32()))
+                .into_iter()
+                .filter_map(|index| entries.get(index).map(|entry| entry.id.clone())),
+        );
+        ids.sort();
+        ids.dedup();
+        self.browser.selection.select_ids(ids, false);
+        if let Some(state) = self.marquee.as_mut() {
+            state.current = position;
+        }
+        true
+    }
+
+    /// 结束框选；返回是否确实结束了进行中的框选。
+    pub(crate) fn finish_marquee(&mut self) -> bool {
+        self.marquee.take().is_some()
+    }
+
+    /// 框选期间按行调整滚动位置，并限制在可滚动范围内。
+    fn scroll_marquee(&mut self, direction: i32, row_height: f32) {
+        let max = self.file_list_scroll.max_offset().y;
+        let mut offset = self.file_list_scroll.offset();
+        let next = (offset.y.as_f32() + direction as f32 * row_height).clamp(-max.as_f32(), 0.0);
+        offset.y = px(next);
+        self.file_list_scroll.set_offset(offset);
+    }
+
     /// 根据鼠标移动更新正在拖动的列宽。
     pub(super) fn update_column_resize(&mut self, event: &gpui_kit::MouseMoveEvent) {
         let Some(resize) = self.column_resize else {

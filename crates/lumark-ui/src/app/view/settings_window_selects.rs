@@ -12,7 +12,7 @@ use lumark_settings::OverwritePolicy;
 pub(super) type CompressionSelect = Entity<SelectState<SearchableVec<&'static str>>>;
 
 /// 默认格式下拉项：第一项写入设置，第二项显示给用户。
-const FORMAT_OPTIONS: [(&str, &str); 22] = [
+const FORMAT_OPTIONS: [(&str, &str); 26] = [
     ("zip", "ZIP"),
     ("zipx", "ZIPX"),
     ("7z", "7Z"),
@@ -35,6 +35,10 @@ const FORMAT_OPTIONS: [(&str, &str); 22] = [
     ("lz4", "LZ4"),
     ("sz", "SNAPPY"),
     ("bz3", "BZIP3"),
+    ("asar", "ASAR"),
+    ("apk", "APK"),
+    ("jar", "JAR"),
+    ("pax", "PAX"),
 ];
 
 /// 压缩预设下拉项，顺序与设置枚举保持一致。
@@ -239,6 +243,10 @@ mod tests {
         assert_eq!(format_index("lz4"), 19);
         assert_eq!(format_index("sz"), 20);
         assert_eq!(format_index("bz3"), 21);
+        assert_eq!(format_index("asar"), 22);
+        assert_eq!(format_index("apk"), 23);
+        assert_eq!(format_index("jar"), 24);
+        assert_eq!(format_index("pax"), 25);
         assert_eq!(format_index("unknown-format"), 0);
         assert_eq!(preset_index(SettingsPreset::Balanced), 1);
         assert_eq!(overwrite_index(OverwritePolicy::Rename), 3);

@@ -9,6 +9,7 @@ use crate::i18n::tr;
 
 /// 临时解压的用途：复制到剪贴板或准备原生拖出。
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub(crate) enum TempExtractMode {
     /// 复制到剪贴板。
     Copy,
@@ -30,28 +31,46 @@ fn open_path_external(path: &Path) {
 }
 
 impl LumarkApp {
+    /// 判断游戏容器内的伴随文件是否应隐藏。
+    ///
+    /// 游戏资产以包为单位浏览；`.uexp/.ubulk/.uptnl` 只是包的伴随数据，
+    /// 在普通压缩包浏览中仍然保留，避免影响现有归档操作。
+    fn hide_game_sidecar(&self, entry: &BrowserEntry) -> bool {
+        self.game_session.is_some()
+            && matches!(&self.browser.location, BrowserLocation::Archive { .. })
+            && [".uexp", ".ubulk", ".uptnl"]
+                .iter()
+                .any(|extension| entry.name.to_ascii_lowercase().ends_with(extension))
+    }
+
+    /// 返回当前显示条目；游戏容器内隐藏包的伴随文件。
     pub(crate) fn displayed_entries(&self) -> Vec<BrowserEntry> {
         self.search_results
             .clone()
             .unwrap_or_else(|| self.browser.entries.clone())
+            .into_iter()
+            .filter(|entry| !self.hide_game_sidecar(entry))
+            .collect()
     }
 
     /// 返回虚拟列表当前可见的行数。
     pub(crate) fn displayed_count(&self) -> usize {
         self.search_results
             .as_ref()
-            .map(Vec::len)
-            .unwrap_or(self.browser.entries.len())
+            .unwrap_or(&self.browser.entries)
+            .iter()
+            .filter(|entry| !self.hide_game_sidecar(entry))
+            .count()
     }
 
     /// 为稳定的虚拟行索引返回克隆后的显示条目。
     pub(crate) fn displayed_entry_at(&self, index: usize) -> Option<BrowserEntry> {
         self.search_results
             .as_ref()
-            .map_or_else(
-                || self.browser.entries.get(index),
-                |entries| entries.get(index),
-            )
+            .unwrap_or(&self.browser.entries)
+            .iter()
+            .filter(|entry| !self.hide_game_sidecar(entry))
+            .nth(index)
             .cloned()
     }
 
@@ -61,6 +80,7 @@ impl LumarkApp {
             .as_ref()
             .unwrap_or(&self.browser.entries)
             .iter()
+            .filter(|entry| !self.hide_game_sidecar(entry))
             .map(|entry| entry.id.clone())
             .collect()
     }
@@ -192,6 +212,17 @@ impl LumarkApp {
         if paths.is_empty() {
             return;
         }
+        // 把当前位置本身拖回文件表不产生操作，避免重复导航或误开压缩窗口。
+        if let BrowserLocation::FileSystem(current) = &self.browser.location
+            && paths.iter().all(|path| path == current)
+        {
+            self.status = tr(
+                "已忽略：目标与当前位置相同",
+                "Ignored: the target is the current location",
+            )
+            .to_string();
+            return;
+        }
         if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
             self.add_files_to_current_archive(paths, window, cx);
             return;
@@ -226,9 +257,26 @@ impl LumarkApp {
         if !matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
             return;
         }
+        // 拖入归档自身的路径没有意义，也会让重建任务覆盖正在读取的归档；
+        // 在进入更新模式确认前直接过滤，全部被过滤时只提示忽略。
+        let BrowserLocation::Archive { archive, .. } = &self.browser.location else {
+            return;
+        };
+        let filtered: Vec<&PathBuf> = paths
+            .iter()
+            .filter(|path| path.as_path() != archive.as_path())
+            .collect();
+        if filtered.is_empty() {
+            self.status = tr(
+                "已忽略：不能把归档添加到自身",
+                "Ignored: an archive cannot be added to itself",
+            )
+            .to_string();
+            return;
+        }
         let mut additions = Vec::new();
         let mut roots = Vec::new();
-        for path in paths {
+        for path in filtered {
             if path.is_file() {
                 if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
                     additions.push((name.to_string(), path.clone()));
@@ -319,7 +367,9 @@ impl LumarkApp {
             PendingEditJob {
                 archive: match &self.browser.location {
                     BrowserLocation::Archive { archive, .. } => archive.clone(),
-                    BrowserLocation::FileSystem(_) => unreachable!(),
+                    BrowserLocation::FileSystem(_) | BrowserLocation::GameArchives { .. } => {
+                        unreachable!()
+                    }
                 },
                 action,
             },
@@ -697,6 +747,14 @@ impl LumarkApp {
                 .map(|entry| entry.path)
                 .unwrap_or_else(|| directory.clone()),
             BrowserLocation::Archive { archive, .. } => archive.clone(),
+            BrowserLocation::GameArchives { .. } => {
+                self.status = tr(
+                    "游戏资产列表中不能定位到资源管理器",
+                    "Game archive list cannot be revealed in Explorer",
+                )
+                .to_string();
+                return;
+            }
         };
         match platform::reveal(&path) {
             Ok(()) => self.status = tr("已在资源管理器中定位", "Located in Explorer").to_string(),
@@ -708,7 +766,7 @@ impl LumarkApp {
     pub(crate) fn current_directory(&self) -> Option<PathBuf> {
         match &self.browser.location {
             BrowserLocation::FileSystem(path) => Some(path.clone()),
-            BrowserLocation::Archive { .. } => None,
+            BrowserLocation::Archive { .. } | BrowserLocation::GameArchives { .. } => None,
         }
     }
 
@@ -723,6 +781,9 @@ impl LumarkApp {
 
     /// 导航到父目录或归档根目录。
     pub(crate) fn go_parent(&mut self) {
+        if self.leave_game_container_to_archives() {
+            return;
+        }
         if let Err(error) = self.browser.go_parent() {
             self.status = error.to_string();
         } else if matches!(&self.browser.location, BrowserLocation::FileSystem(_)) {
@@ -735,6 +796,7 @@ impl LumarkApp {
     /// 工具栏的“上一级”按钮和文件表最上方的“..”行共用这个入口，
     /// 保证两个位置对归档根目录的处理保持一致。
     pub(crate) fn navigate_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.marquee = None;
         self.go_parent();
         set_input(
             &self.location_input,
@@ -750,7 +812,12 @@ impl LumarkApp {
             self.status = tr("请先选择一个项目", "Select an item first").to_string();
             return;
         };
+        if matches!(&self.browser.location, BrowserLocation::GameArchives { .. }) {
+            self.open_game_container(entry, window, cx);
+            return;
+        }
         if entry.is_dir {
+            self.marquee = None;
             if let Err(error) = self.browser.enter_entry(&entry.id) {
                 self.status = error.to_string();
             } else {
@@ -765,6 +832,40 @@ impl LumarkApp {
             return;
         }
         if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
+            if self.game_session.is_some() && is_ue_package_name(&entry.name) {
+                if let Some(mesh) = self.details_mesh.clone() {
+                    self.open_asset_viewer(
+                        crate::app::view::ViewerScene::Mesh(mesh),
+                        entry.name.clone(),
+                        window,
+                        cx,
+                    );
+                    return;
+                }
+                if let Some(skeleton) = self.details_skeleton.clone() {
+                    self.open_asset_viewer(
+                        crate::app::view::ViewerScene::Skeleton(skeleton),
+                        entry.name.clone(),
+                        window,
+                        cx,
+                    );
+                    return;
+                }
+                if let Some(crate::app::view::DetailsPreview::Ready { path, name, .. }) =
+                    self.details_preview.as_ref()
+                {
+                    let path = path.clone();
+                    let name = name.clone();
+                    self.open_image_viewer(path, name, window, cx);
+                    return;
+                }
+                self.status = tr(
+                    "正在解析 UE 资产；纹理/模型可在详情面板预览",
+                    "Parsing the UE asset; textures/models preview in the details panel",
+                )
+                .to_string();
+                return;
+            }
             if is_nested_archive_name(&entry.name) {
                 self.open_nested_archive_entry(entry, window, cx);
             } else {

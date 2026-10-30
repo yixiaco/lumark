@@ -40,6 +40,19 @@ pub(crate) fn is_nested_archive_name(name: &str) -> bool {
     lumark_archive::format::detect_format(Path::new(name)) != ArchiveFormat::Unknown
 }
 
+/// 判断名称是否为 UE 资产包。
+pub(crate) fn is_ue_package_name(name: &str) -> bool {
+    let Some(extension) = std::path::Path::new(name)
+        .extension()
+        .and_then(|value| value.to_str())
+    else {
+        return false;
+    };
+    ["uasset", "umap"]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+}
+
 /// 判断名称是否为内置图片查看器支持的图片格式。
 ///
 /// 使用 GPUI `Img` 的扩展名清单，避免维护一份会与解码能力漂移的副本。

@@ -71,6 +71,9 @@ impl ArchiveService {
             bytes_total: info.total_size,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         let archive = RpmArchive::open(path)?;
         let mut payload = archive.open_payload()?;
@@ -135,6 +138,9 @@ impl ArchiveService {
                     bytes_total: info.total_size,
                     entries_done: report.files,
                     entries_total,
+
+                    current_file_done: 0,
+                    current_file_total: 0,
                 });
             }
             skip_cpio_padding(&mut payload, entry.size)?;
@@ -157,6 +163,9 @@ impl ArchiveService {
             bytes_total: info.total_size,
             entries_done: 0,
             entries_total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
         let archive = RpmArchive::open(path)?;
         let mut payload = archive.open_payload()?;
@@ -172,6 +181,9 @@ impl ArchiveService {
                     bytes_total: info.total_size,
                     entries_done: report.files,
                     entries_total,
+
+                    current_file_done: 0,
+                    current_file_total: 0,
                 });
             }
         }

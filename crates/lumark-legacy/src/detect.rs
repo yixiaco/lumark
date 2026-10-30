@@ -73,6 +73,12 @@ pub enum ArchiveFormat {
     Ace,
     /// ARC/PAK archive (extension-based 鈥?`.arc`, `.pak`; no stable magic header).
     Arc,
+    /// Quake/idTech PACK archive.
+    QuakePak,
+    /// Unreal Engine PAK archive.
+    UnrealPak,
+    /// Chromium/Electron data pack.
+    ChromiumPak,
     /// Unix compress stream (`.Z`) 鈥?LZW compression (extension-based; no stable magic header).
     /// ALZ archive (extension-based 鈥?`.alz`; no stable magic header).
     Alz,
@@ -130,6 +136,9 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Arj => write!(f, "arj"),
             ArchiveFormat::Ace => write!(f, "ace"),
             ArchiveFormat::Arc => write!(f, "arc"),
+            ArchiveFormat::QuakePak => write!(f, "quake-pak"),
+            ArchiveFormat::UnrealPak => write!(f, "unreal-pak"),
+            ArchiveFormat::ChromiumPak => write!(f, "chromium-pak"),
             ArchiveFormat::Z => write!(f, "z"),
             ArchiveFormat::Alz => write!(f, "alz"),
             ArchiveFormat::Uu => write!(f, "uu"),

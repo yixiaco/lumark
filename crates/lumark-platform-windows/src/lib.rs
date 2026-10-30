@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub mod clipboard;
 pub mod drag;
+pub mod external_drop;
 pub mod icon;
 pub mod icons;
 pub mod ipc;
@@ -15,6 +16,7 @@ pub mod secret;
 pub mod session;
 pub mod shell;
 pub mod tray;
+pub mod virtual_drag;
 
 #[derive(Debug, thiserror::Error)]
 /// Windows 平台集成错误。

@@ -83,6 +83,28 @@ impl SelectionModel {
         self.anchor = ordered_ids.first().cloned();
     }
 
+    /// 用一组条目 ID 替换或追加选择。
+    ///
+    /// 框选会一次性产生一组 ID，因此不能继续用逐条 `toggle`；这里保持
+    /// “锚点=首个新条目、焦点=最后新条目”的约定，空集合在替换模式下
+    /// 清空选择并重置锚点。
+    pub fn select_ids(&mut self, ids: impl IntoIterator<Item = String>, additive: bool) {
+        let ids: Vec<String> = ids.into_iter().collect();
+        if !additive {
+            self.selected.clear();
+            self.anchor = None;
+            self.focus = None;
+        }
+        if ids.is_empty() {
+            return;
+        }
+        if !additive {
+            self.anchor = ids.first().cloned();
+        }
+        self.focus = ids.last().cloned();
+        self.selected.extend(ids);
+    }
+
     /// 记录键盘焦点条目和选择锚点。
     pub fn focus(&self) -> Option<&str> {
         self.focus.as_deref()
@@ -114,5 +136,28 @@ mod tests {
         assert_eq!(selection.count(), 2);
         selection.toggle("a");
         assert_eq!(selection.count(), 1);
+    }
+
+    /// 验证框选替换、追加和空集合清空三种语义。
+    #[test]
+    fn select_ids_replaces_or_appends() {
+        let mut selection = SelectionModel::default();
+        selection.select_ids(vec!["a".into(), "b".into()], false);
+        assert_eq!(
+            selection.selected_ids(),
+            vec!["a".to_string(), "b".to_string()]
+        );
+        assert_eq!(selection.focus(), Some("b"));
+
+        selection.select_ids(vec!["c".into()], true);
+        assert_eq!(
+            selection.selected_ids(),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+        assert_eq!(selection.focus(), Some("c"));
+
+        selection.select_ids(Vec::new(), false);
+        assert_eq!(selection.count(), 0);
+        assert!(selection.focus().is_none());
     }
 }

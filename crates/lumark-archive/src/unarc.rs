@@ -250,6 +250,9 @@ where
             bytes_total: total_bytes,
             entries_done: report.files,
             entries_total: total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
     }
     Ok(report)
@@ -307,6 +310,9 @@ where
             bytes_total: total_bytes,
             entries_done: report.files,
             entries_total: total,
+
+            current_file_done: 0,
+            current_file_total: 0,
         });
     }
     Ok(report)

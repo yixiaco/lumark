@@ -122,7 +122,11 @@ impl ArchiveService {
         }
         if !matches!(
             format,
-            ArchiveFormat::Zip | ArchiveFormat::Zipx | ArchiveFormat::SevenZip
+            ArchiveFormat::Zip
+                | ArchiveFormat::Zipx
+                | ArchiveFormat::Apk
+                | ArchiveFormat::Jar
+                | ArchiveFormat::SevenZip
         ) {
             return Err(ArchiveError::UnsupportedFormat(format.label().to_string()));
         }
@@ -160,7 +164,7 @@ impl ArchiveService {
         ));
 
         let result = match format {
-            ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+            ArchiveFormat::Zip | ArchiveFormat::Zipx | ArchiveFormat::Apk | ArchiveFormat::Jar => {
                 write_zip(path, &temp, &options, progress)?;
                 0
             }
@@ -225,7 +229,11 @@ impl ArchiveService {
         };
         if !matches!(
             format,
-            ArchiveFormat::Zip | ArchiveFormat::Zipx | ArchiveFormat::SevenZip
+            ArchiveFormat::Zip
+                | ArchiveFormat::Zipx
+                | ArchiveFormat::Apk
+                | ArchiveFormat::Jar
+                | ArchiveFormat::SevenZip
         ) {
             return Err(ArchiveError::UnsupportedFormat(format!(
                 "伪装内层 {} 暂不支持原地编辑，请先还原",

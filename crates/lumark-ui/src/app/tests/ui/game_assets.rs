@@ -1,0 +1,359 @@
+//! 游戏资产工作区和详情图片预览的真实窗口测试。
+
+use super::*;
+
+/// 游戏资产入口只在 Windows 编译时展示。
+#[test]
+fn game_assets_gate_matches_platform() {
+    assert_eq!(GAME_ASSETS_SUPPORTED, cfg!(target_os = "windows"));
+}
+
+/// 验证扫描并保存未加密游戏后进入归档列表，容器打开动作已排队。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn saved_game_shows_archive_list(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let project = directory.path().join("TogetherBNB");
+    let paks = project.join("Content/Paks");
+    std::fs::create_dir_all(&paks).unwrap();
+    // 扩展名为 `.pak` 的 ZIP 用于在没有真实 UE 打包器时覆盖 UI 路由。
+    let payload = directory.path().join("readme.txt");
+    std::fs::write(&payload, b"hello game").unwrap();
+    lumark_archive::ArchiveService::create(
+        &paks.join("pakchunk0-Windows.pak"),
+        &[payload],
+        &lumark_archive::CompressionOptions {
+            format: lumark_archive::ArchiveFormat::Zip,
+            path_mode: lumark_archive::PathMode::NoRoot,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.scan_game_directory(project.clone(), window, cx);
+            app.save_game_setup(window, cx);
+            assert!(app.game_session.is_some(), "保存后应进入游戏会话");
+            assert!(
+                matches!(
+                    app.browser.location,
+                    lumark_browser::BrowserLocation::GameArchives { .. }
+                ),
+                "应进入归档列表"
+            );
+            assert_eq!(app.displayed_count(), 1);
+            let entry = app
+                .displayed_entries()
+                .into_iter()
+                .next()
+                .expect("应有容器行");
+            assert!(entry.name.ends_with(".pak"));
+            app.open_game_container(entry, window, cx);
+            assert!(
+                app.status.contains("正在读取归档目录"),
+                "应排队打开容器，实际：{}",
+                app.status
+            );
+        });
+        window.draw(cx).clear(cx);
+        assert!(window.find("game-sidebar-edit").visible());
+        assert!(window.find("game-context-exit").visible());
+    });
+    let _ = app;
+}
+
+/// 验证动作带入口打开游戏设置页，并渲染目录和保存按钮。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn game_assets_button_opens_setup_page(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("game-assets").visible(),
+            "动作带应显示游戏资产按钮"
+        );
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            assert!(app.game_setup.is_some(), "应打开游戏设置页");
+        });
+        window.draw(cx).clear(cx);
+        assert!(window.find("game-directory").visible());
+        assert!(window.find("game-setup-save").visible());
+        assert!(window.find("game-setup-close").visible());
+    });
+    let _ = app;
+}
+
+/// 创建用于扫描的最小 UE 项目目录。
+#[cfg(windows)]
+fn fake_game_project(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let project = root.join(name);
+    let paks = project.join("Content/Paks");
+    std::fs::create_dir_all(&paks).unwrap();
+    std::fs::write(paks.join("pakchunk0-Windows.utoc"), b"not a real utoc").unwrap();
+    project
+}
+
+/// 两个游戏可以同时保持打开，切换时各自浏览位置独立。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn multiple_games_stay_open(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let first = fake_game_project(directory.path(), "GameOne");
+    let second = fake_game_project(directory.path(), "GameTwo");
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    let mut tab_ids = Vec::new();
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.start_game_setup(None, window, cx);
+            app.scan_game_directory(first.clone(), window, cx);
+            app.save_game_setup(window, cx);
+            assert_eq!(app.open_game_entries().len(), 1);
+
+            app.start_game_setup(None, window, cx);
+            app.scan_game_directory(second.clone(), window, cx);
+            app.save_game_setup(window, cx);
+            assert_eq!(app.open_game_entries().len(), 2);
+            assert_eq!(
+                app.settings.get().open_games.len(),
+                2,
+                "打开的游戏列表应持久化到设置"
+            );
+            tab_ids = app
+                .open_game_entries()
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect();
+            let entries = app.open_game_entries();
+            assert!(entries[0].2, "第二个游戏应处于前台");
+            assert!(!entries[1].2, "第一个游戏应保留在后台");
+
+            let first_id = entries[1].0.clone();
+            app.switch_game_session(&first_id, window, cx);
+            assert_eq!(
+                app.game_session
+                    .as_ref()
+                    .map(|session| session.game.name.as_str()),
+                Some("GameOne")
+            );
+            assert!(
+                app.open_game_entries()
+                    .iter()
+                    .any(|(_, name, active)| name == "GameTwo" && !active)
+            );
+
+            let second_id = app
+                .open_game_entries()
+                .into_iter()
+                .find(|(_, name, _)| name == "GameTwo")
+                .map(|(id, _, _)| id)
+                .expect("第二个游戏");
+            app.switch_game_session(&second_id, window, cx);
+            assert_eq!(
+                app.game_session
+                    .as_ref()
+                    .map(|session| session.game.name.as_str()),
+                Some("GameTwo")
+            );
+        });
+        window.draw(cx).clear(cx);
+        for game_id in &tab_ids {
+            assert!(
+                window.find(format!("game-tab-{game_id}")).visible(),
+                "侧栏应显示已打开游戏切换标签"
+            );
+        }
+        app.update(cx, |app, cx| {
+            // 关闭当前游戏后应自动切回仍打开的另一个游戏。
+            app.close_current_game(window, cx);
+            assert_eq!(app.open_game_entries().len(), 1);
+            assert_eq!(
+                app.game_session
+                    .as_ref()
+                    .map(|session| session.game.name.as_str()),
+                Some("GameOne")
+            );
+        });
+    });
+    let _ = app;
+}
+
+/// 验证扫描游戏目录后设置页显示识别结果，且保存按钮可用。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn game_setup_scan_fills_detection(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let project = directory.path().join("TogetherBNB");
+    let paks = project.join("Content/Paks");
+    std::fs::create_dir_all(&paks).unwrap();
+    std::fs::write(paks.join("pakchunk0-Windows.utoc"), b"not a real utoc").unwrap();
+    std::fs::create_dir_all(project.join("Mappings")).unwrap();
+    std::fs::write(project.join("Mappings/Game.usmap"), b"not a real mapping").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.scan_game_directory(project.clone(), window, cx);
+            let setup = app.game_setup.as_ref().expect("设置页");
+            assert!(setup.scanned.is_some(), "应完成目录扫描");
+            assert_eq!(setup.engine(), lumark_unreal::UnrealEngine::Unknown);
+            assert!(setup.mappings.is_some(), "应自动发现映射文件");
+            assert!(setup.ready(), "扫描完成后应可保存");
+        });
+        window.draw(cx).clear(cx);
+        assert!(window.find("game-setup-save").visible());
+    });
+    let _ = app;
+}
+
+/// 验证文件系统图片在详情面板显示预览。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn details_preview_shows_filesystem_image(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([20, 120, 220, 255]))
+        .save(directory.path().join("photo.png"))
+        .unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            let entry = app
+                .displayed_entries()
+                .into_iter()
+                .find(|entry| entry.name == "photo.png")
+                .expect("应包含 photo.png");
+            app.browser.selection.select_only(&entry.id);
+            app.sync_details_preview(cx);
+            assert!(matches!(
+                app.details_preview,
+                Some(crate::app::view::DetailsPreview::Ready { .. })
+            ));
+        });
+        window.draw(cx).clear(cx);
+        app.update(cx, |app, _| {
+            assert!(app.selected_entry().is_some(), "选择应保持");
+            assert!(matches!(
+                app.details_preview,
+                Some(crate::app::view::DetailsPreview::Ready { .. })
+            ));
+        });
+    });
+    let _ = app;
+}
+
+/// 验证普通 ZIP 内图片可以解压到预览缓存并显示。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn details_preview_extracts_archive_image(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let image_path = directory.path().join("inside.png");
+    image::RgbaImage::from_pixel(3, 3, image::Rgba([10, 20, 30, 255]))
+        .save(&image_path)
+        .unwrap();
+    let archive = directory.path().join("images.zip");
+    lumark_archive::ArchiveService::create(
+        &archive,
+        &[image_path],
+        &lumark_archive::CompressionOptions {
+            format: lumark_archive::ArchiveFormat::Zip,
+            path_mode: lumark_archive::PathMode::NoRoot,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|_window, cx| {
+        app.update(cx, |app, cx| {
+            app.browser.open_archive(&archive, None).unwrap();
+            let entry = app
+                .displayed_entries()
+                .into_iter()
+                .find(|entry| entry.name == "inside.png")
+                .expect("归档应包含 inside.png");
+            app.browser.selection.select_only(&entry.id);
+            app.sync_details_preview(cx);
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        app.update(cx, |app, _| {
+            assert!(
+                matches!(
+                    app.details_preview,
+                    Some(crate::app::view::DetailsPreview::Ready { .. })
+                ),
+                "归档图片应完成解压预览"
+            );
+        });
+        window.draw(cx).clear(cx);
+        app.update(cx, |app, _| {
+            assert!(app.selected_entry().is_some(), "选择应保持");
+            assert!(matches!(
+                app.details_preview,
+                Some(crate::app::view::DetailsPreview::Ready { .. })
+            ));
+        });
+    });
+    let _ = app;
+}

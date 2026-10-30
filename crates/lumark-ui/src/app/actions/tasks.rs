@@ -345,6 +345,7 @@ impl LumarkApp {
                                         TaskKind::Compress
                                             | TaskKind::Extract
                                             | TaskKind::Test
+                                            | TaskKind::Repair
                                             | TaskKind::Disguise
                                             | TaskKind::Restore
                                     ) {
@@ -513,7 +514,8 @@ impl LumarkApp {
                                         BrowserLocation::Archive { archive, .. } => {
                                             Some(archive.clone())
                                         }
-                                        BrowserLocation::FileSystem(_) => None,
+                                        BrowserLocation::FileSystem(_)
+                                        | BrowserLocation::GameArchives { .. } => None,
                                     };
                                     if current_archive.as_ref() == Some(&edit.archive) {
                                         let password =
@@ -625,6 +627,7 @@ impl LumarkApp {
                                             TaskKind::Compress
                                                 | TaskKind::Extract
                                                 | TaskKind::Test
+                                                | TaskKind::Repair
                                                 | TaskKind::Edit
                                                 | TaskKind::Disguise
                                                 | TaskKind::Restore

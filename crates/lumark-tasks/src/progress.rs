@@ -13,6 +13,8 @@ pub enum TaskKind {
     Extract,
     /// 完整测试任务。
     Test,
+    /// ZIP 家族结构修复任务。
+    Repair,
     /// 归档编辑任务。
     Edit,
     /// 后台加载归档。
@@ -36,6 +38,7 @@ impl TaskKind {
             Self::Compress
                 | Self::Extract
                 | Self::Test
+                | Self::Repair
                 | Self::Edit
                 | Self::Disguise
                 | Self::Restore
@@ -212,6 +215,7 @@ mod tests {
         assert!(TaskKind::Compress.prevents_sleep());
         assert!(TaskKind::Extract.prevents_sleep());
         assert!(TaskKind::Test.prevents_sleep());
+        assert!(TaskKind::Repair.prevents_sleep());
         assert!(TaskKind::Edit.prevents_sleep());
         assert!(TaskKind::Disguise.prevents_sleep());
         assert!(TaskKind::Restore.prevents_sleep());

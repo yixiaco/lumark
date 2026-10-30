@@ -95,6 +95,7 @@ impl LumarkApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.marquee = None;
         self.archive_password = None;
         match self.browser.navigate(path) {
             Ok(()) => {

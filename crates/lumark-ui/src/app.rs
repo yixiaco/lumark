@@ -43,6 +43,8 @@ use lumark_vault::{PasswordEntry, VaultState, VaultStore};
 mod format_text;
 mod startup;
 pub(crate) use startup::*;
+mod game;
+pub(crate) use game::*;
 mod stores;
 pub(crate) use stores::*;
 
@@ -222,6 +224,20 @@ pub(crate) struct ColumnResize {
     pub(crate) start_width: f32,
 }
 
+/// 文件表框选状态。
+///
+/// 框选只在文件表空白区域开始，记录按下/当前位置和框选开始时的选择快照；
+/// Ctrl/Shift 按下时在快照上追加，否则替换选择。
+#[derive(Clone, Debug)]
+pub(crate) struct MarqueeState {
+    /// 按下鼠标时的窗口坐标。
+    pub(crate) start: gpui_kit::Point<gpui_kit::Pixels>,
+    /// 当前鼠标的窗口坐标。
+    pub(crate) current: gpui_kit::Point<gpui_kit::Pixels>,
+    /// 开始框选前已选中的条目 ID。
+    pub(crate) base_ids: Vec<String>,
+}
+
 /// Lumark 主应用状态。
 pub struct LumarkApp {
     browser: BrowserModel,
@@ -229,6 +245,10 @@ pub struct LumarkApp {
     column_widths: ColumnWidths,
     /// 正在拖动的列；`None` 表示没有列宽拖动。
     column_resize: Option<ColumnResize>,
+    /// 当前文件表框选；`None` 表示没有进行中的框选。
+    marquee: Option<MarqueeState>,
+    /// 是否已经把手势交给 Windows 虚拟文件拖放，避免重复触发。
+    virtual_drag_active: bool,
     settings: Arc<SettingsStore>,
     vault: Arc<VaultStore>,
     tasks: Arc<TaskManager>,
@@ -377,6 +397,18 @@ pub struct LumarkApp {
     pending_shell_compress: Vec<PathBuf>,
     shell_compress_deadline: Option<std::time::Instant>,
     settings_window: Option<gpui_kit::AnyWindowHandle>,
+    /// 游戏资产设置页；`None` 表示没有打开设置流程。
+    game_setup: Option<GameSetup>,
+    /// 当前打开的游戏资产会话及后台打开的游戏会话。
+    game_session: Option<GameSession>,
+    inactive_games: Vec<InactiveGame>,
+    /// 进入游戏资产前所在的文件系统目录，退出时恢复。
+    game_previous_dir: Option<PathBuf>,
+    /// 详情面板图片预览状态。
+    details_preview: Option<view::DetailsPreview>,
+    /// 详情面板当前 StaticMesh/Skeleton，供独立查看器复用。
+    details_mesh: Option<lumark_unreal::MeshLod>,
+    details_skeleton: Option<lumark_unreal::Skeleton>,
 }
 
 impl Drop for LumarkApp {
@@ -524,6 +556,8 @@ impl LumarkApp {
                 .column_widths
                 .unwrap_or_else(|| ColumnWidths::from_layout(settings_snapshot.column_layout)),
             column_resize: None,
+            marquee: None,
+            virtual_drag_active: false,
             settings,
             vault,
             tasks: Arc::new(TaskManager::new()),
@@ -653,6 +687,13 @@ impl LumarkApp {
             pending_shell_compress: Vec::new(),
             shell_compress_deadline: None,
             settings_window: None,
+            game_setup: None,
+            game_session: None,
+            inactive_games: Vec::new(),
+            game_previous_dir: None,
+            details_preview: None,
+            details_mesh: None,
+            details_skeleton: None,
         };
         set_input(
             &app.location_input,
@@ -797,13 +838,6 @@ mod view;
 mod viewer_support;
 
 /// 创建官方按钮。
-///
-/// 指针手只保留给链接；按钮、菜单和列表行使用桌面默认箭头，点击反馈由
-/// 官方 Button 的 hover/pressed/focus 状态负责。
-pub(crate) fn button(id: impl Into<gpui_kit::ElementId>) -> Button {
-    Button::new(id)
-}
-
 impl LumarkApp {
     /// 通过官方 Notification 组件提示操作结果，并同步状态栏文本。
     ///
