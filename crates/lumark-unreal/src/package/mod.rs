@@ -205,6 +205,15 @@ impl UnrealPackage {
         skeleton::read_skeletal_mesh_preview(self, index, mappings, ubulk)
     }
 
+    /// 读取 AnimSequence 的 PerTrackCompression 数据。
+    pub fn read_anim_sequence(
+        &self,
+        index: usize,
+        mappings: &Mappings,
+    ) -> Result<animation::AnimSequenceData, PackageError> {
+        animation::read_anim_sequence(self, index, mappings)
+    }
+
     /// 读取资产元数据。
     pub fn read_asset_metadata(
         &self,
@@ -255,6 +264,7 @@ pub(crate) fn invalid(message: impl Into<String>) -> PackageError {
     PackageError::Invalid(message.into())
 }
 
+mod animation;
 mod asset;
 pub mod legacy;
 mod mappings;
@@ -266,11 +276,18 @@ mod texture;
 mod unversioned;
 mod zen;
 
+pub use animation::{AnimSequenceData, TrackPose, read_anim_sequence};
 pub use asset::{AssetMetadata, read_asset_metadata};
+pub use legacy::{
+    LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader,
+    read_legacy_property_header, read_legacy_texture,
+};
 pub use mappings::{Mappings, PropSchema, PropType, StructSchema};
 pub use mesh::{MeshLod, MeshSection, StaticMesh, read_static_mesh};
 pub use script_objects::{ScriptObject, ZenScriptObjects};
-pub use skeleton::{Bone, SkeletalMeshPreview, Skeleton, read_skeleton};
+pub use skeleton::{
+    Bone, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, read_skeleton,
+};
 pub use texture::{Texture2D, TextureMip, read_texture2d};
 pub use unversioned::{PropValue, UnversionedProperties};
 pub use zen::parse_package;

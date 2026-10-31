@@ -42,6 +42,10 @@ pub struct StaticMesh {
     pub name: String,
     /// 首个 LOD。
     pub lod: MeshLod,
+    /// 资产声明的 LOD 数量。
+    pub lod_count: usize,
+    /// 成功解析的 LOD 列表（通常至少包含 LOD0）。
+    pub lods: Vec<MeshLod>,
 }
 
 /// 从包中读取指定导出的 StaticMesh（仅首个 LOD）。
@@ -104,10 +108,16 @@ pub fn read_static_mesh(
             let _ = reader.i32()?;
         }
         match read_lod_array(&mut reader) {
-            Ok(lod) => {
+            Ok((lods, lod_count)) => {
+                let Some(lod) = lods.first().cloned() else {
+                    last_error = Some(invalid("StaticMesh 没有可解析的 LOD"));
+                    continue;
+                };
                 return Ok(StaticMesh {
                     name: export.name.clone(),
                     lod,
+                    lod_count,
+                    lods,
                 });
             }
             Err(error) => last_error = Some(error),
@@ -116,20 +126,32 @@ pub fn read_static_mesh(
     Err(last_error.unwrap_or_else(|| invalid("无法解析 StaticMesh 的 render data 布局")))
 }
 
-/// 读取 LOD 数组并解析首个 LOD。
-fn read_lod_array(reader: &mut MeshReader<'_>) -> Result<MeshLod, PackageError> {
+/// 读取 LOD 数组并解析尽可能多的 LOD。
+fn read_lod_array(reader: &mut MeshReader<'_>) -> Result<(Vec<MeshLod>, usize), PackageError> {
     let lod_count = reader.count(4, 16)?;
     if lod_count == 0 {
         return Err(invalid("StaticMesh 没有 LOD"));
     }
-    read_lod(reader, 0)
+    let mut lods = Vec::with_capacity(lod_count);
+    for index in 0..lod_count {
+        match read_lod(reader, index) {
+            Ok(lod) => lods.push(lod),
+            Err(error) => {
+                if lods.is_empty() {
+                    return Err(error);
+                }
+                break;
+            }
+        }
+    }
+    Ok((lods, lod_count))
 }
 
 /// 读取一个 LOD。
 fn read_lod(reader: &mut MeshReader<'_>, index: usize) -> Result<MeshLod, PackageError> {
     // FStaticMeshLODResources
-    let _strip_global = reader.u8()?;
-    let _strip_class = reader.u8()?;
+    let strip_global = reader.u8()?;
+    let strip_class = reader.u8()?;
     let section_count = reader.count(40, 64)?;
     let mut sections = Vec::with_capacity(section_count);
     for _ in 0..section_count {
@@ -164,17 +186,21 @@ fn read_lod(reader: &mut MeshReader<'_>, index: usize) -> Result<MeshLod, Packag
             "StaticMesh 顶点数据在 bulk data 中，当前只支持内联 LOD".to_string(),
         ));
     }
-    read_inline_buffers(reader, sections)
+    let lod = read_inline_buffers(reader, sections, strip_global, strip_class)?;
+    // FStaticMeshBuffersSize：SerializedBuffersSize/DepthOnlyIBSize/ReversedIBsSize。
+    reader.skip(12)?;
+    Ok(lod)
 }
 
 /// 读取内联顶点/索引缓冲。
 fn read_inline_buffers(
     reader: &mut MeshReader<'_>,
     sections: Vec<MeshSection>,
+    lod_strip_global: u8,
+    lod_strip_class: u8,
 ) -> Result<MeshLod, PackageError> {
     // SerializeBuffers 的 FStripDataFlags。
-    let _strip_global = reader.u8()?;
-    let _strip_class = reader.u8()?;
+    let _ = reader.bytes(2)?;
     // FPositionVertexBuffer：stride, count, bulk array<FVector>。
     let position_stride = reader.i32()?;
     let position_count = reader.count(1, 10_000_000)?;
@@ -269,17 +295,83 @@ fn read_inline_buffers(
             indices.push(reader.u16()? as u32);
         }
     }
+    // RawIndexBuffer.HasShouldExpandTo32Bit。
+    let _ = reader.bool32()?;
     if indices
         .iter()
         .any(|index| *index as usize >= positions.len())
     {
         return Err(invalid("索引引用越界顶点"));
     }
+    // 末尾附加索引/采样器仅用于继续解析后续 LOD；失败时保留已解析 LOD。
+    let _ = skip_lod_trailing(reader, sections.len(), lod_strip_global, lod_strip_class);
     Ok(MeshLod {
         positions,
         indices,
         sections,
     })
+}
+
+/// 跳过 UE5.6 SerializeBuffers 末尾的索引缓冲、RT 数据和采样器。
+fn skip_lod_trailing(
+    reader: &mut MeshReader<'_>,
+    section_count: usize,
+    strip_global: u8,
+    strip_class: u8,
+) -> Result<(), PackageError> {
+    // ReversedIndexBuffer。
+    if strip_class & 4 == 0 {
+        skip_raw_index_buffer(reader)?;
+    }
+    // DepthOnlyIndexBuffer。
+    skip_raw_index_buffer(reader)?;
+    // ReversedDepthOnlyIndexBuffer。
+    if strip_class & 4 == 0 {
+        skip_raw_index_buffer(reader)?;
+    }
+    // WireframeIndexBuffer（编辑器数据）。
+    if strip_global & 1 == 0 {
+        skip_raw_index_buffer(reader)?;
+    }
+    // UE5.5+ RayTracingGeometry：RawDataHeader(24) + bulk array。
+    if strip_class & 8 == 0 {
+        reader.skip(24)?;
+        let element_size = reader.i32()?;
+        let count = reader.count(1, 100_000_000)?;
+        let bytes = (element_size.max(0) as usize)
+            .checked_mul(count)
+            .ok_or_else(|| invalid("RT 几何长度溢出"))?;
+        reader.skip(bytes)?;
+    }
+    // areaWeightedSectionSamplers + areaWeightedSampler。
+    for _ in 0..section_count {
+        skip_weighted_sampler(reader)?;
+    }
+    skip_weighted_sampler(reader)
+}
+
+/// 跳过 FRawStaticIndexBuffer。
+fn skip_raw_index_buffer(reader: &mut MeshReader<'_>) -> Result<(), PackageError> {
+    let _is_32bit = reader.bool32()?;
+    let element_size = reader.i32()?;
+    let count = reader.count(1, 100_000_000)?;
+    let bytes = (element_size.max(0) as usize)
+        .checked_mul(count)
+        .ok_or_else(|| invalid("索引缓冲长度溢出"))?;
+    reader.skip(bytes)?;
+    // UE5 RawIndexBuffer.HasShouldExpandTo32Bit。
+    let _ = reader.bool32()?;
+    Ok(())
+}
+
+/// 跳过 FWeightedRandomSampler。
+fn skip_weighted_sampler(reader: &mut MeshReader<'_>) -> Result<(), PackageError> {
+    let float_count = reader.count(4, 100_000_000)?;
+    reader.skip(float_count * 4)?;
+    let int_count = reader.count(4, 100_000_000)?;
+    reader.skip(int_count * 4)?;
+    reader.skip(4)?;
+    Ok(())
 }
 
 /// 网格数据读取器。

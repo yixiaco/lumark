@@ -833,22 +833,8 @@ impl LumarkApp {
         }
         if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
             if self.game_session.is_some() && is_ue_package_name(&entry.name) {
-                if let Some(mesh) = self.details_mesh.clone() {
-                    self.open_asset_viewer(
-                        crate::app::view::ViewerScene::Mesh(mesh),
-                        entry.name.clone(),
-                        window,
-                        cx,
-                    );
-                    return;
-                }
-                if let Some(skeleton) = self.details_skeleton.clone() {
-                    self.open_asset_viewer(
-                        crate::app::view::ViewerScene::Skeleton(skeleton),
-                        entry.name.clone(),
-                        window,
-                        cx,
-                    );
+                if let Some(scene) = self.details_viewer_scene() {
+                    self.open_asset_viewer(scene, entry.name.clone(), window, cx);
                     return;
                 }
                 if let Some(crate::app::view::DetailsPreview::Ready { path, name, .. }) =

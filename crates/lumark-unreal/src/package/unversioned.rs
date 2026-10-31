@@ -55,6 +55,29 @@ pub fn read_properties(
     mappings: &Mappings,
     class_name: &str,
 ) -> Result<UnversionedProperties, PackageError> {
+    read_properties_with(data, names, mappings, class_name, true)
+}
+
+/// 从旧式 UE4 导出数据起点读取无版本属性。
+///
+/// UE4 的 `Vector`/`Vector4` 使用 32 位浮点；UE5 使用 64 位 LWC。
+pub fn read_properties_legacy(
+    data: &[u8],
+    names: &[String],
+    mappings: &Mappings,
+    class_name: &str,
+) -> Result<UnversionedProperties, PackageError> {
+    read_properties_with(data, names, mappings, class_name, false)
+}
+
+/// 按标量精度读取无版本属性。
+fn read_properties_with(
+    data: &[u8],
+    names: &[String],
+    mappings: &Mappings,
+    class_name: &str,
+    wide_scalars: bool,
+) -> Result<UnversionedProperties, PackageError> {
     if mappings.find(class_name).is_none() {
         return Err(PackageError::Unsupported(format!(
             "{class_name} 不在 .usmap 映射中"
@@ -65,6 +88,7 @@ pub fn read_properties(
         position: 0,
         names,
         mappings,
+        wide_scalars,
     };
     let properties = reader.read_unversioned_struct(class_name)?;
     Ok(UnversionedProperties {
@@ -92,6 +116,8 @@ struct PropertyReader<'a> {
     position: usize,
     names: &'a [String],
     mappings: &'a Mappings,
+    /// UE5 LWC 标量（Vector 等使用 64 位浮点）。
+    wide_scalars: bool,
 }
 
 impl<'a> PropertyReader<'a> {
@@ -317,13 +343,7 @@ impl<'a> PropertyReader<'a> {
     fn read_value(&mut self, ty: &PropType) -> Result<PropValue, PackageError> {
         Ok(match ty {
             PropType::Byte => PropValue::Int(self.u8()? as i64),
-            PropType::Bool => match self.u8()? {
-                0 => PropValue::Bool(false),
-                1 => PropValue::Bool(true),
-                value => {
-                    return Err(PackageError::Invalid(format!("非法布尔值 {value}")));
-                }
-            },
+            PropType::Bool => PropValue::Bool(self.u8()? != 0),
             PropType::Int8 => PropValue::Int(self.u8()? as i8 as i64),
             PropType::Int16 => PropValue::Int(self.i16()? as i64),
             PropType::Int => PropValue::Int(self.i32()? as i64),
@@ -457,11 +477,20 @@ impl<'a> PropertyReader<'a> {
                 }
                 Ok(PropValue::Bool(default))
             }
-            "Vector" => Ok(PropValue::Struct(vec![
-                ("X".to_string(), PropValue::Float(self.f64()?)),
-                ("Y".to_string(), PropValue::Float(self.f64()?)),
-                ("Z".to_string(), PropValue::Float(self.f64()?)),
-            ])),
+            "Vector" => {
+                let read = |reader: &mut Self| {
+                    if reader.wide_scalars {
+                        reader.f64()
+                    } else {
+                        Ok(reader.f32()? as f64)
+                    }
+                };
+                Ok(PropValue::Struct(vec![
+                    ("X".to_string(), PropValue::Float(read(self)?)),
+                    ("Y".to_string(), PropValue::Float(read(self)?)),
+                    ("Z".to_string(), PropValue::Float(read(self)?)),
+                ]))
+            }
             "Vector3f" => Ok(PropValue::Struct(vec![
                 ("X".to_string(), PropValue::Float(self.f32()? as f64)),
                 ("Y".to_string(), PropValue::Float(self.f32()? as f64)),
@@ -483,14 +512,31 @@ impl<'a> PropertyReader<'a> {
                         self.f32()? as f64,
                         self.f32()? as f64,
                     ]
-                } else {
+                } else if self.wide_scalars {
                     vec![self.f64()?, self.f64()?, self.f64()?, self.f64()?]
+                } else {
+                    vec![
+                        self.f32()? as f64,
+                        self.f32()? as f64,
+                        self.f32()? as f64,
+                        self.f32()? as f64,
+                    ]
                 };
                 Ok(PropValue::Struct(vec![
                     ("X".to_string(), PropValue::Float(values[0])),
                     ("Y".to_string(), PropValue::Float(values[1])),
                     ("Z".to_string(), PropValue::Float(values[2])),
                     ("W".to_string(), PropValue::Float(values[3])),
+                ]))
+            }
+            "BoxSphereBounds" if !self.wide_scalars => {
+                let origin = self.read_struct("Vector")?;
+                let extent = self.read_struct("Vector")?;
+                let radius = self.f32()? as f64;
+                Ok(PropValue::Struct(vec![
+                    ("Origin".to_string(), origin),
+                    ("BoxExtent".to_string(), extent),
+                    ("SphereRadius".to_string(), PropValue::Float(radius)),
                 ]))
             }
             "SkeletalMeshSamplingLODBuiltData" => {

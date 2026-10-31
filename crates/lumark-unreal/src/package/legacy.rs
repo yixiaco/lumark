@@ -3,7 +3,9 @@
 //! FF7 Remake 等 UE4.27 游戏的 cooked 包使用无版本属性；完整资产预览需要
 //! `.usmap`，但摘要、名称表、导入/导出表不需要映射，可先展示包级元数据。
 
-use super::PackageError;
+use super::texture::{Texture2D, TextureMip};
+use super::unversioned;
+use super::{Mappings, PackageError};
 
 /// 旧式包摘要（只包含详情面板可展示的字段）。
 #[derive(Debug, Clone)]
@@ -247,9 +249,367 @@ fn invalid(message: impl Into<String>) -> PackageError {
     PackageError::Invalid(message.into())
 }
 
+/// 一个旧式包导出。
+#[derive(Debug, Clone)]
+pub struct LegacyExport {
+    /// 对象名。
+    pub name: String,
+    /// 类名。
+    pub class_name: String,
+    /// 在 `.uasset` 中的序列化偏移。
+    pub serial_offset: usize,
+    /// 序列化字节数。
+    pub serial_size: usize,
+}
+
+/// 一个已解析的旧式包。
+#[derive(Debug, Clone)]
+pub struct LegacyPackage {
+    /// 包摘要。
+    pub summary: LegacyPackageSummary,
+    /// 名称表。
+    names: Vec<String>,
+    /// 导入表。
+    imports: Vec<(String, String, String)>,
+    /// 导出表。
+    exports: Vec<LegacyExport>,
+    /// `.uexp` 数据（导出数据起点为 0）。
+    uexp: Vec<u8>,
+}
+
+impl LegacyPackage {
+    /// 解析旧式 `uasset`/`uexp`。
+    pub fn parse(asset: &[u8], uexp: &[u8]) -> Result<Self, PackageError> {
+        let mut reader = Reader {
+            data: asset,
+            pos: 0,
+        };
+        let magic = reader.u32()?;
+        if magic != 0x9E2A_83C1 {
+            return Err(invalid("不是 UE4 旧式包"));
+        }
+        let legacy = reader.i32()?;
+        if legacy >= 0 {
+            return Err(PackageError::Unsupported(
+                "旧式包使用非负文件版本，暂不支持".to_string(),
+            ));
+        }
+        let ue3 = reader.i32()?;
+        let ue4 = reader.i32()?;
+        let licensee = reader.i32()?;
+        if ue3 != 0 || ue4 != 0 || licensee != 0 {
+            return Err(PackageError::Unsupported(
+                "旧式包带有显式引擎版本，暂不支持".to_string(),
+            ));
+        }
+        let custom_count = reader.i32()?;
+        if !(0..=1024).contains(&custom_count) {
+            return Err(invalid("旧式包自定义版本数量非法"));
+        }
+        let _ = reader.bytes(custom_count as usize * 20)?;
+        let total_header_size = reader.i32()?;
+        let package_name = reader.fstring()?;
+        let _flags = reader.u32()?;
+        let name_count = reader.count(8, 1_000_000)?;
+        let name_offset = reader.offset(asset.len())?;
+        let _gatherable_count = reader.i32()?;
+        let _gatherable_offset = reader.i32()?;
+        let export_count = reader.count(8, 1_000_000)?;
+        let export_offset = reader.offset(asset.len())?;
+        let import_count = reader.count(8, 1_000_000)?;
+        let import_offset = reader.offset(asset.len())?;
+
+        let mut names = Vec::with_capacity(name_count);
+        reader.pos = name_offset;
+        for _ in 0..name_count {
+            names.push(reader.fstring()?);
+            let _hash = reader.u32()?;
+        }
+        let mut imports = Vec::with_capacity(import_count);
+        reader.pos = import_offset;
+        for _ in 0..import_count {
+            let class_package = reader.fname(&names)?;
+            let class_name = reader.fname(&names)?;
+            let _outer = reader.i32()?;
+            let object_name = reader.fname(&names)?;
+            imports.push((class_package, class_name, object_name));
+        }
+        let mut exports = Vec::with_capacity(export_count);
+        reader.pos = export_offset;
+        for _ in 0..export_count {
+            let class_index = reader.i32()?;
+            let _super_index = reader.i32()?;
+            let _template_index = reader.i32()?;
+            let _outer = reader.i32()?;
+            let object_name = reader.fname(&names)?;
+            let _object_flags = reader.u32()?;
+            let serial_size = reader.i64()?;
+            let serial_offset = reader.i64()?;
+            let _forced = reader.i32()?;
+            let _not_client = reader.i32()?;
+            let _not_server = reader.i32()?;
+            let _package_guid = reader.bytes(16)?;
+            let _package_flags = reader.u32()?;
+            let _not_always = reader.i32()?;
+            let _is_asset = reader.i32()?;
+            let _dependencies = [
+                reader.i32()?,
+                reader.i32()?,
+                reader.i32()?,
+                reader.i32()?,
+                reader.i32()?,
+            ];
+            let serial_size = usize::try_from(serial_size.max(0)).unwrap_or(0);
+            let serial_offset = usize::try_from(serial_offset.max(0)).unwrap_or(0);
+            exports.push(LegacyExport {
+                name: object_name,
+                class_name: resolve_class(class_index, &imports),
+                serial_offset,
+                serial_size,
+            });
+        }
+        let summary = LegacyPackageSummary {
+            package_name,
+            class_name: exports
+                .first()
+                .map(|export| export.class_name.clone())
+                .unwrap_or_else(|| "Unknown".to_string()),
+            export_name: exports
+                .first()
+                .map(|export| export.name.clone())
+                .unwrap_or_default(),
+            export_count,
+            import_count,
+            name_count,
+            total_header_size,
+        };
+        Ok(Self {
+            summary,
+            names,
+            imports,
+            exports,
+            uexp: uexp.to_vec(),
+        })
+    }
+
+    /// 名称表。
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// 导入表。
+    pub fn imports(&self) -> &[(String, String, String)] {
+        &self.imports
+    }
+
+    /// 导出表。
+    pub fn exports(&self) -> &[LegacyExport] {
+        &self.exports
+    }
+
+    /// 返回指定导出的 `.uexp` 数据。
+    pub fn export_data(&self, index: usize) -> Option<&[u8]> {
+        let export = self.exports.get(index)?;
+        let header = usize::try_from(self.summary.total_header_size.max(0)).unwrap_or(0);
+        let start = export.serial_offset.checked_sub(header)?;
+        let end = start.checked_add(export.serial_size)?;
+        self.uexp.get(start..end)
+    }
+
+    /// 读取指定导出的无版本属性；需要 `.usmap`。
+    pub fn read_export_properties(
+        &self,
+        index: usize,
+        mappings: &Mappings,
+    ) -> Result<unversioned::UnversionedProperties, PackageError> {
+        let export = self
+            .exports
+            .get(index)
+            .ok_or_else(|| invalid("旧式导出索引越界"))?;
+        let data = self
+            .export_data(index)
+            .ok_or_else(|| invalid("旧式导出数据越界"))?;
+        unversioned::read_properties_legacy(data, &self.names, mappings, &export.class_name)
+    }
+
+    /// 从指定偏移尝试读取属性（仅诊断用）。
+    pub fn read_export_properties_at(
+        &self,
+        index: usize,
+        mappings: &Mappings,
+        skip: usize,
+    ) -> Result<unversioned::UnversionedProperties, PackageError> {
+        let export = self
+            .exports
+            .get(index)
+            .ok_or_else(|| invalid("旧式导出索引越界"))?;
+        let data = self
+            .export_data(index)
+            .and_then(|data| data.get(skip..))
+            .ok_or_else(|| invalid("旧式导出偏移越界"))?;
+        unversioned::read_properties_legacy(data, &self.names, mappings, &export.class_name)
+    }
+}
+
+/// 旧式属性头统计。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LegacyPropertyHeader {
+    /// 属性值数量。
+    pub property_values: usize,
+    /// 属性头字节数。
+    pub header_bytes: usize,
+    /// 是否带零值位图。
+    pub has_zero_mask: bool,
+}
+
+/// 读取 `.uexp` 开头的 unversioned 属性头。
+pub fn read_legacy_property_header(data: &[u8]) -> Option<LegacyPropertyHeader> {
+    let mut pos = 0usize;
+    let mut property_values = 0usize;
+    let mut zero_mask_bits = 0usize;
+    let mut has_zero_mask = false;
+    loop {
+        let packed = u16::from_le_bytes(data.get(pos..pos + 2)?.try_into().ok()?);
+        pos += 2;
+        let zeros = packed & 0x80 != 0;
+        let values = (packed >> 9) as usize;
+        let is_last = packed & 0x100 != 0;
+        property_values += values;
+        if zeros {
+            has_zero_mask = true;
+            zero_mask_bits += values;
+        }
+        if is_last {
+            break;
+        }
+        if pos > 4096 {
+            return None;
+        }
+    }
+    if zero_mask_bits > 0 {
+        let bytes = if zero_mask_bits <= 8 {
+            1
+        } else if zero_mask_bits <= 16 {
+            2
+        } else {
+            zero_mask_bits.div_ceil(32) * 4
+        };
+        let _ = data.get(pos..pos + bytes)?;
+        pos += bytes;
+    }
+    Some(LegacyPropertyHeader {
+        property_values,
+        header_bytes: pos,
+        has_zero_mask,
+    })
+}
+
+/// 从旧式 `.uexp` 启发式读取 UTexture2D 基础 mip。
+pub fn read_legacy_texture(
+    asset: &[u8],
+    uexp: &[u8],
+    ubulk: Option<&[u8]>,
+) -> Result<Texture2D, PackageError> {
+    let ubulk =
+        ubulk.ok_or_else(|| PackageError::Unsupported("旧式纹理缺少 .ubulk".to_string()))?;
+    let (width, height, pixel_format) = find_legacy_platform(uexp)?;
+    let size = legacy_mip_size(&pixel_format, width, height)?;
+    let data = ubulk
+        .get(..size)
+        .ok_or_else(|| invalid("旧式纹理基础 mip 超出 .ubulk 长度"))?
+        .to_vec();
+    let name = parse_legacy_summary(asset)
+        .map(|summary| summary.export_name)
+        .unwrap_or_default();
+    Ok(Texture2D {
+        name,
+        width,
+        height,
+        pixel_format,
+        mips: vec![TextureMip {
+            width,
+            height,
+            depth: 1,
+            data,
+        }],
+    })
+}
+
+/// 在旧式导出数据里寻找 `FTexturePlatformData`。
+fn find_legacy_platform(data: &[u8]) -> Result<(i32, i32, String), PackageError> {
+    let mut offset = 0usize;
+    while offset + 16 <= data.len() {
+        let width = i32::from_le_bytes(data[offset..offset + 4].try_into().unwrap_or_default());
+        let height =
+            i32::from_le_bytes(data[offset + 4..offset + 8].try_into().unwrap_or_default());
+        if (1..=16384).contains(&width) && (1..=16384).contains(&height) {
+            let length = i32::from_le_bytes(
+                data[offset + 12..offset + 16]
+                    .try_into()
+                    .unwrap_or_default(),
+            );
+            if (1..=64).contains(&length) {
+                let start = offset + 16;
+                let end = start.saturating_add(length as usize);
+                if let Some(raw) = data.get(start..end) {
+                    let format = String::from_utf8_lossy(raw)
+                        .trim_end_matches('\0')
+                        .to_string();
+                    if format.starts_with("PF_") && legacy_mip_size(&format, width, height).is_ok()
+                    {
+                        return Ok((width, height, format));
+                    }
+                }
+            }
+        }
+        offset += 1;
+    }
+    Err(PackageError::Unsupported(
+        "找不到旧式 FTexturePlatformData".to_string(),
+    ))
+}
+
+/// 基础 mip 的压缩字节数。
+fn legacy_mip_size(pixel_format: &str, width: i32, height: i32) -> Result<usize, PackageError> {
+    let width = usize::try_from(width.max(1)).unwrap_or(1);
+    let height = usize::try_from(height.max(1)).unwrap_or(1);
+    let blocks = width.div_ceil(4).saturating_mul(height.div_ceil(4));
+    let size = match pixel_format.to_ascii_uppercase().as_str() {
+        "PF_DXT1" | "PF_BC1" | "PF_BC4" => blocks.saturating_mul(8),
+        "PF_DXT3" | "PF_BC2" | "PF_DXT5" | "PF_BC3" | "PF_BC5" | "PF_BC6H" | "PF_BC7" => {
+            blocks.saturating_mul(16)
+        }
+        "PF_B8G8R8A8" | "PF_R8G8B8A8" => width.saturating_mul(height).saturating_mul(4),
+        "PF_G8" | "PF_R8" => width.saturating_mul(height),
+        other => {
+            return Err(PackageError::Unsupported(format!(
+                "旧式纹理像素格式 {other} 暂不支持"
+            )));
+        }
+    };
+    Ok(size)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 解析属性头统计。
+    #[test]
+    fn reads_unversioned_property_header() {
+        let data = [0x03, 0x02, 0x0D, 0x02, 0x02, 0x02, 0x06, 0x02, 0x01, 0x03];
+        let header = read_legacy_property_header(&data).expect("属性头");
+        assert_eq!(header.property_values, 5);
+        assert_eq!(header.header_bytes, 10);
+        assert!(!header.has_zero_mask);
+    }
+
+    /// 计算 BC 纹理基础 mip 大小。
+    #[test]
+    fn computes_bc_mip_size() {
+        assert_eq!(legacy_mip_size("PF_BC5", 512, 512).expect("BC5"), 262_144);
+        assert_eq!(legacy_mip_size("PF_DXT1", 4, 4).expect("DXT1"), 8);
+    }
 
     /// 构造一个最小的 FF7 风格 unversioned 旧式包摘要。
     fn synthetic_package() -> Vec<u8> {

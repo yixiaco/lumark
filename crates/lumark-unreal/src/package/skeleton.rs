@@ -64,6 +64,24 @@ pub fn read_skeleton(
     parse_reference_skeleton(&mut reader, export.name.clone())
 }
 
+/// SkeletalMesh 首个 LOD 的蒙皮权重。
+#[derive(Debug, Clone)]
+pub struct SkinWeights {
+    /// 顶点数量。
+    pub vertices: usize,
+    /// 单顶点最大骨骼影响数。
+    pub max_influences: usize,
+    /// 是否使用可变影响数格式。
+    pub variable: bool,
+    /// 每顶点的骨骼索引（最多 12 个，未使用位置为 0）。
+    pub influences: Vec<[u16; 12]>,
+    /// 每顶点的归一化权重（0–65535），与 `influences` 对齐。
+    pub weights: Vec<[u16; 12]>,
+}
+
+/// 兼容旧命名。
+pub type SkinWeightStats = SkinWeights;
+
 /// SkeletalMesh 的参考骨架与轻量 LOD/材质信息。
 #[derive(Debug, Clone)]
 pub struct SkeletalMeshPreview {
@@ -77,12 +95,20 @@ pub struct SkeletalMeshPreview {
     pub lod_sections: usize,
     /// 首个 LOD 的 RequiredBones 数量；解析失败时为 0。
     pub required_bones: usize,
+    /// 首个 LOD 的 RequiredBones → 骨架骨骼索引映射。
+    pub bone_map: Vec<u16>,
     /// 首个 LOD 的顶点数；section 明细解析失败时为 0。
     pub lod_vertices: usize,
     /// 首个 LOD 的三角形数；section 明细解析失败时为 0。
     pub lod_triangles: usize,
     /// 首个 LOD 的可渲染几何；缺少 `.ubulk` 或布局不支持时为 None。
     pub geometry: Option<MeshLod>,
+    /// 已成功解析的 LOD 几何；首个元素与 `geometry` 相同。
+    pub lods: Vec<MeshLod>,
+    /// 每个已解析 LOD 对应的蒙皮权重；长度与 `lods` 一致。
+    pub lod_skins: Vec<Option<SkinWeightStats>>,
+    /// 首个 LOD 的蒙皮权重统计。
+    pub skin: Option<SkinWeightStats>,
 }
 
 /// 从 SkeletalMesh 中读取参考骨架及 LOD/材质数量。
@@ -126,11 +152,70 @@ pub fn read_skeletal_mesh_preview(
     // bCooked 后是 LOD 数量；UE5.8 不再写 minMobileLOD。
     let _ = reader.i32()?;
     let lod_count = reader.count(1, 64)?;
-    let (lod_sections, required_bones, lod_vertices, lod_triangles, section_info, inlined) =
-        read_first_lod_summary(&mut reader).unwrap_or((0, 0, 0, 0, Vec::new(), false));
-    let mut geometry = read_streamed_geometry(package, &mut reader, ubulk, inlined).ok();
+    let (
+        lod_sections,
+        required_bones,
+        bone_map,
+        lod_vertices,
+        lod_triangles,
+        section_info,
+        inlined,
+    ) = read_first_lod_summary(&mut reader).unwrap_or((0, 0, Vec::new(), 0, 0, Vec::new(), false));
+    let mut geometry = None;
+    let mut skin = None;
+    if let Ok((mesh, stats)) = read_streamed_geometry(package, &mut reader, ubulk, inlined) {
+        geometry = Some(mesh);
+        skin = stats;
+    }
     if let Some(mesh) = &mut geometry {
         mesh.sections = section_info;
+    }
+    if let Some(skin) = &mut skin {
+        remap_skin_bones(skin, &bone_map);
+    }
+    let mut lods = geometry.clone().into_iter().collect::<Vec<_>>();
+    let mut lod_skins = if geometry.is_some() {
+        vec![skin.clone()]
+    } else {
+        Vec::new()
+    };
+    if lods.len() < lod_count {
+        // LOD0 之后紧跟 availability info 等可选块；这里在剩余导出数据里
+        // 探测下一个 LOD 头，成功时补出 LOD1+ 几何。
+        let end = reader.data.len();
+        'scan: for offset in reader.position..end {
+            let mut probe = BoneReader {
+                data: reader.data,
+                position: offset,
+                names: reader.names,
+            };
+            let Ok((_, required, bone_map, vertices, triangles, sections, inlined)) =
+                read_first_lod_summary(&mut probe)
+            else {
+                continue;
+            };
+            if required > skeleton.bones.len() || sections.is_empty() || triangles == 0 {
+                continue;
+            }
+            let Ok((mut mesh, lod_skin)) =
+                read_streamed_geometry(package, &mut probe, ubulk, inlined)
+            else {
+                continue;
+            };
+            if mesh.positions.len() != vertices || mesh.indices.is_empty() {
+                continue;
+            }
+            mesh.sections = sections;
+            let mut lod_skin = lod_skin;
+            if let Some(lod_skin) = &mut lod_skin {
+                remap_skin_bones(lod_skin, &bone_map);
+            }
+            lods.push(mesh);
+            lod_skins.push(lod_skin);
+            if lods.len() >= lod_count {
+                break 'scan;
+            }
+        }
     }
     Ok(SkeletalMeshPreview {
         skeleton,
@@ -138,14 +223,18 @@ pub fn read_skeletal_mesh_preview(
         lod_count,
         lod_sections,
         required_bones,
+        bone_map,
         lod_vertices,
         lod_triangles,
         geometry,
+        lods,
+        lod_skins,
+        skin,
     })
 }
 
 /// 首个 LOD 的 section/RequiredBones 概况。
-type LodSummary = (usize, usize, usize, usize, Vec<MeshSection>, bool);
+type LodSummary = (usize, usize, Vec<u16>, usize, usize, Vec<MeshSection>, bool);
 
 /// 读取首个 LOD 的 section/RequiredBones 概况；失败时返回错误。
 fn read_first_lod_summary(reader: &mut BoneReader<'_>) -> Result<LodSummary, PackageError> {
@@ -154,18 +243,39 @@ fn read_first_lod_summary(reader: &mut BoneReader<'_>) -> Result<LodSummary, Pac
     let _ = reader.i32()?;
     let inlined = reader.i32()? != 0;
     let required_bones = reader.count(2, 65535)?;
-    let _ = reader.bytes(required_bones * 2)?;
+    let bone_bytes = reader.bytes(required_bones * 2)?;
+    let bone_map = bone_bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect::<Vec<_>>();
     let sections = reader.count(1, 4096)?;
     let (vertices, triangles, section_info) =
         read_section_totals(reader, sections).unwrap_or((0, 0, Vec::new()));
     Ok((
         sections,
         required_bones,
+        bone_map,
         vertices,
         triangles,
         section_info,
         inlined,
     ))
+}
+
+/// 把 RequiredBones 顺序的蒙皮骨骼索引映射到骨架骨骼索引。
+fn remap_skin_bones(skin: &mut SkinWeights, bone_map: &[u16]) {
+    if bone_map.is_empty() {
+        return;
+    }
+    for influences in &mut skin.influences {
+        for influence in influences {
+            if let Some(mapped) = bone_map.get(usize::from(*influence)) {
+                *influence = *mapped;
+            }
+        }
+    }
 }
 
 /// 统计 UE5 cooked section 的顶点/三角形总数；布局不符时失败并回退。
@@ -214,7 +324,7 @@ fn read_streamed_geometry(
     reader: &mut BoneReader<'_>,
     ubulk: Option<&[u8]>,
     inlined: bool,
-) -> Result<MeshLod, PackageError> {
+) -> Result<(MeshLod, Option<SkinWeightStats>), PackageError> {
     let active_bones = reader.count(2, 65535)?;
     let _ = reader.bytes(active_bones * 2)?;
     let _ = reader.i32()?; // buffersSize
@@ -245,7 +355,7 @@ fn read_streamed_geometry(
 }
 
 /// 解析 bulk data 中的 LOD 流式数据。
-fn parse_streamed_lod(data: &[u8]) -> Result<MeshLod, PackageError> {
+fn parse_streamed_lod(data: &[u8]) -> Result<(MeshLod, Option<SkinWeightStats>), PackageError> {
     let mut reader = BoneReader {
         data,
         position: 0,
@@ -290,11 +400,177 @@ fn parse_streamed_lod(data: &[u8]) -> Result<MeshLod, PackageError> {
             "SkeletalMesh 顶点 stride {stride} 暂不支持"
         )));
     }
-    Ok(MeshLod {
-        positions,
-        indices,
-        sections: Vec::new(),
+    let skin = read_skin_weight_stats(&mut reader, positions.len()).ok();
+    Ok((
+        MeshLod {
+            positions,
+            indices,
+            sections: Vec::new(),
+        },
+        skin,
+    ))
+}
+
+/// 跳过 FStaticMeshVertexBuffer，读取皮肤权重统计。
+fn read_skin_weight_stats(
+    reader: &mut BoneReader<'_>,
+    expected_vertices: usize,
+) -> Result<SkinWeights, PackageError> {
+    // FStaticMeshVertexBuffer：strip + metadata + tangent/UV bulk 数组。
+    let _ = reader.bytes(2)?;
+    let _ = reader.i32()?; // NumTexCoords
+    let num_vertices = reader.count(1, 10_000_000)?;
+    let _ = reader.i32()?; // UseFullPrecisionUVs
+    let _ = reader.i32()?; // UseHighPrecisionTangentBasis
+    skip_bulk_array(reader)?; // tangents
+    skip_bulk_array(reader)?; // UVs
+    if num_vertices != expected_vertices {
+        return Err(invalid("蒙皮顶点数与位置顶点数不一致"));
+    }
+
+    // FSkinWeightVertexBuffer 的 data strip flags + 元数据。
+    let _ = reader.bytes(2)?;
+    let variable = reader.i32()? != 0;
+    let max_influences = reader.u32()? as usize;
+    let _ = reader.u32()?; // numBones
+    let weight_vertices = reader.u32()? as usize;
+    let use_16bit_index = reader.i32()? != 0;
+    let use_16bit_weight = reader.i32()? != 0;
+    if weight_vertices != expected_vertices {
+        return Err(invalid("蒙皮缓冲区顶点数不一致"));
+    }
+    let data = read_bulk_array_bytes(reader)?;
+    let _lookup_strip = reader.bytes(2)?;
+    let _lookup_vertices = reader.i32()?;
+    let lookup = read_bulk_array_u32(reader)?;
+    let max_influences = if variable && !lookup.is_empty() {
+        lookup
+            .iter()
+            .map(|value| (*value & 0xff) as usize)
+            .max()
+            .unwrap_or(max_influences)
+    } else {
+        max_influences
+    };
+    let mut influences = vec![[0u16; 12]; weight_vertices];
+    let mut weights = vec![[0u16; 12]; weight_vertices];
+    if variable && !lookup.is_empty() {
+        for (vertex, entry) in lookup.iter().enumerate().take(weight_vertices) {
+            let count = (*entry & 0xff) as usize;
+            let offset = (*entry >> 8) as usize;
+            decode_vertex_weights(
+                &data,
+                offset,
+                count,
+                use_16bit_index,
+                use_16bit_weight,
+                &mut influences[vertex],
+                &mut weights[vertex],
+            )?;
+        }
+    } else {
+        let record_size = max_influences.saturating_mul(
+            if use_16bit_index { 2 } else { 1 } + if use_16bit_weight { 2 } else { 1 },
+        );
+        for vertex in 0..weight_vertices {
+            decode_vertex_weights(
+                &data,
+                vertex.saturating_mul(record_size),
+                max_influences,
+                use_16bit_index,
+                use_16bit_weight,
+                &mut influences[vertex],
+                &mut weights[vertex],
+            )?;
+        }
+    }
+    Ok(SkinWeights {
+        vertices: weight_vertices,
+        max_influences,
+        variable,
+        influences,
+        weights,
     })
+}
+
+/// 解码一个顶点的骨骼索引和权重。
+fn decode_vertex_weights(
+    data: &[u8],
+    offset: usize,
+    count: usize,
+    use_16bit_index: bool,
+    use_16bit_weight: bool,
+    influences: &mut [u16; 12],
+    weights: &mut [u16; 12],
+) -> Result<(), PackageError> {
+    let index_size = if use_16bit_index { 2 } else { 1 };
+    let weight_size = if use_16bit_weight { 2 } else { 1 };
+    let count = count.min(12);
+    let read_u16 = |position: usize| -> Result<u16, PackageError> {
+        data.get(position..position + 2)
+            .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+            .ok_or_else(|| invalid("蒙皮权重数据被截断"))
+    };
+    let read_byte = |position: usize| -> Result<u16, PackageError> {
+        data.get(position)
+            .map(|value| u16::from(*value))
+            .ok_or_else(|| invalid("蒙皮权重数据被截断"))
+    };
+    for index in 0..count {
+        let index_position = offset
+            .checked_add(index * index_size)
+            .ok_or_else(|| invalid("蒙皮索引偏移溢出"))?;
+        let weight_position = offset
+            .checked_add(count * index_size + index * weight_size)
+            .ok_or_else(|| invalid("蒙皮权重偏移溢出"))?;
+        influences[index] = if use_16bit_index {
+            read_u16(index_position)?
+        } else {
+            read_byte(index_position)?
+        };
+        weights[index] = if use_16bit_weight {
+            read_u16(weight_position)?
+        } else {
+            read_byte(weight_position)?
+        };
+    }
+    Ok(())
+}
+
+/// 跳过 `ReadBulkArray<T>`。
+fn skip_bulk_array(reader: &mut BoneReader<'_>) -> Result<(), PackageError> {
+    let element_size = reader.i32()?;
+    let count = reader.count(1, 10_000_000)?;
+    let bytes = (element_size.max(0) as usize)
+        .checked_mul(count)
+        .ok_or_else(|| invalid("bulk 数组长度溢出"))?;
+    reader.skip(bytes)
+}
+
+/// 读取 `ReadBulkArray<byte>`。
+fn read_bulk_array_bytes(reader: &mut BoneReader<'_>) -> Result<Vec<u8>, PackageError> {
+    let element_size = reader.i32()?;
+    let count = reader.count(1, 100_000_000)?;
+    if element_size != 1 {
+        return Err(invalid("蒙皮字节数组元素大小不是 1"));
+    }
+    Ok(reader.bytes(count)?.to_vec())
+}
+
+/// 读取 `ReadBulkArray<uint32>`。
+fn read_bulk_array_u32(reader: &mut BoneReader<'_>) -> Result<Vec<u32>, PackageError> {
+    let element_size = reader.i32()?;
+    let count = reader.count(4, 100_000_000)?;
+    if element_size != 4 {
+        return Err(invalid("蒙皮 lookup 数组元素大小不是 4"));
+    }
+    let bytes = reader.bytes(count * 4)?;
+    Ok(bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|chunk| u32::from_le_bytes(*chunk))
+        .collect())
 }
 
 /// 读取 SkeletalMesh 的 FByteBulkData 并返回流式数据字节。
@@ -422,6 +698,12 @@ impl<'a> BoneReader<'a> {
         Ok(bytes)
     }
 
+    /// 跳过指定长度。
+    fn skip(&mut self, length: usize) -> Result<(), PackageError> {
+        let _ = self.bytes(length)?;
+        Ok(())
+    }
+
     /// 读取 i32。
     fn i32(&mut self) -> Result<i32, PackageError> {
         Ok(i32::from_le_bytes(
@@ -515,5 +797,18 @@ mod tests {
             },
         ];
         assert!(bones[1].parent_index >= 1);
+    }
+
+    /// 顶点权重按“先全部骨骼索引，再全部权重”布局解码。
+    #[test]
+    fn decodes_skin_weight_vertex_layout() {
+        let data = vec![3, 1, 2, 0, 64, 64, 64, 63];
+        let mut influences = [0u16; 12];
+        let mut weights = [0u16; 12];
+        decode_vertex_weights(&data, 0, 4, false, false, &mut influences, &mut weights)
+            .expect("decode weights");
+        assert_eq!(&influences[..4], &[3, 1, 2, 0]);
+        assert_eq!(&weights[..4], &[64, 64, 64, 63]);
+        assert_eq!(weights[..4].iter().copied().sum::<u16>(), 255);
     }
 }

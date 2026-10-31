@@ -6,16 +6,23 @@ pub mod game;
 pub mod keys;
 pub mod package;
 pub mod raster;
+pub mod skinning;
 
 pub use game::{
     ContainerInfo, ContainerKind, DetectedGame, GameScanError, UnrealEngine, scan_game,
 };
 pub use keys::{KeyExtraction, KeyStage, extract_key, extract_key_for_game, verify_container_key};
-pub use package::legacy::{LegacyPackageSummary, is_legacy_package, parse_legacy_summary};
-pub use package::{
-    AssetKind, AssetMetadata, Bone, BulkDataEntry, Mappings, MeshLod, MeshSection, PackageError,
-    PackageExport, PackageInfo, PropSchema, PropType, PropValue, SkeletalMeshPreview, Skeleton,
-    StaticMesh, StructSchema, Texture2D, TextureMip, UnrealPackage, UnversionedProperties,
-    ZenScriptObjects, parse_package, read_asset_metadata,
+pub use package::legacy::{
+    LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader, is_legacy_package,
+    parse_legacy_summary, read_legacy_property_header, read_legacy_texture,
 };
-pub use raster::{render_skeleton_orbit, render_static_mesh, render_static_mesh_orbit};
+pub use package::{
+    AnimSequenceData, AssetKind, AssetMetadata, Bone, BulkDataEntry, Mappings, MeshLod,
+    MeshSection, PackageError, PackageExport, PackageInfo, PropSchema, PropType, PropValue,
+    SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, StaticMesh, StructSchema,
+    Texture2D, TextureMip, TrackPose, UnrealPackage, UnversionedProperties, ZenScriptObjects,
+    parse_package, read_anim_sequence, read_asset_metadata,
+};
+pub use raster::{
+    render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh, render_static_mesh_orbit,
+};

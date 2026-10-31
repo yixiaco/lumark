@@ -268,11 +268,13 @@ fn render_details_preview(
             path,
             name,
             subtitle,
+            rows,
             ..
         } => {
             let path = path.clone();
             let name = name.clone();
             let subtitle = subtitle.clone();
+            let rows = rows.clone();
             v_flex()
                 .id("details-preview")
                 .w_full()
@@ -297,20 +299,8 @@ fn render_details_preview(
                                 .object_fit(gpui_kit::ObjectFit::Contain),
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            if let Some(mesh) = this.details_mesh.clone() {
-                                this.open_asset_viewer(
-                                    crate::app::view::ViewerScene::Mesh(mesh),
-                                    name.clone(),
-                                    window,
-                                    cx,
-                                );
-                            } else if let Some(skeleton) = this.details_skeleton.clone() {
-                                this.open_asset_viewer(
-                                    crate::app::view::ViewerScene::Skeleton(skeleton),
-                                    name.clone(),
-                                    window,
-                                    cx,
-                                );
+                            if let Some(scene) = this.details_viewer_scene() {
+                                this.open_asset_viewer(scene, name.clone(), window, cx);
                             } else {
                                 this.open_image_viewer(path.clone(), name.clone(), window, cx);
                             }
@@ -325,6 +315,10 @@ fn render_details_preview(
                             .child(subtitle),
                     )
                 })
+                .children(
+                    rows.into_iter()
+                        .map(|(label, value)| detail_row(cx, &label, &value)),
+                )
                 .into_any_element()
         }
         DetailsPreview::Metadata {

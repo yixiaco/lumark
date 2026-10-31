@@ -3,7 +3,6 @@
 mod browser;
 pub(crate) use browser::{ArchiveDragItem, DetailsPreview, path_bar_drop_handler};
 mod asset_viewer_window;
-pub(crate) use asset_viewer_window::ViewerScene;
 mod chrome;
 mod components;
 mod compress_window;

@@ -23,6 +23,8 @@ pub(crate) enum DetailsPreview {
         name: String,
         /// 附加说明（例如 UE 纹理格式和尺寸）。
         subtitle: Option<String>,
+        /// 图片之外的只读字段行（例如旧式包属性）。
+        rows: Vec<(String, String)>,
     },
     /// 预览失败。
     Error { key: String, message: String },
@@ -90,6 +92,7 @@ impl LumarkApp {
                     path: entry.path.clone(),
                     name: entry.name.clone(),
                     subtitle: None,
+                    rows: Vec::new(),
                 });
             }
             BrowserLocation::Archive { archive, .. } => {
@@ -181,6 +184,7 @@ impl LumarkApp {
                                     path,
                                     name: entry.name.clone(),
                                     subtitle: None,
+                                    rows: Vec::new(),
                                 });
                             }
                             Err(error) => {
@@ -285,11 +289,13 @@ impl LumarkApp {
                         path,
                         name,
                         subtitle,
+                        rows,
                     } => DetailsPreview::Ready {
                         key,
                         path,
                         name,
                         subtitle: Some(subtitle),
+                        rows,
                     },
                     UePreviewResult::Other { name, class_name } => DetailsPreview::Unavailable {
                         key,
@@ -303,13 +309,20 @@ impl LumarkApp {
                         name,
                         subtitle,
                         mesh,
+                        lods,
+                        skeleton,
+                        skins,
                     } => {
                         app.details_mesh = Some(mesh);
+                        app.details_lods = lods;
+                        app.details_skeleton = skeleton;
+                        app.details_skins = skins;
                         DetailsPreview::Ready {
                             key,
                             path,
                             name,
                             subtitle: Some(subtitle),
+                            rows: Vec::new(),
                         }
                     }
                     UePreviewResult::Skeleton {
@@ -324,6 +337,7 @@ impl LumarkApp {
                             path,
                             name,
                             subtitle: Some(subtitle),
+                            rows: Vec::new(),
                         }
                     }
                     UePreviewResult::Metadata {
@@ -331,13 +345,17 @@ impl LumarkApp {
                         class_name,
                         rows,
                         timeline_seconds,
-                    } => DetailsPreview::Metadata {
-                        key,
-                        title: name,
-                        subtitle: class_name,
-                        rows,
-                        timeline_seconds,
-                    },
+                        animation,
+                    } => {
+                        app.details_animation = animation;
+                        DetailsPreview::Metadata {
+                            key,
+                            title: name,
+                            subtitle: class_name,
+                            rows,
+                            timeline_seconds,
+                        }
+                    }
                     UePreviewResult::Unavailable(message) => {
                         DetailsPreview::Unavailable { key, message }
                     }

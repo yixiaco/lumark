@@ -215,6 +215,87 @@ fn bounds(positions: &[[f64; 3]]) -> Option<([f64; 3], [f64; 3])> {
 ///
 /// 骨骼参考姿态是相对父骨骼的局部变换；这里累积世界旋转/平移后，按
 /// 固定三轴相机把根到子骨骼的连线投影成图像。
+/// 渲染 SkeletalMesh rest pose，并叠加参考骨骼线条。
+pub fn render_skeletal_mesh_orbit(
+    mesh: &MeshLod,
+    skeleton: &Skeleton,
+    width: u32,
+    height: u32,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    zoom: f32,
+) -> Vec<u8> {
+    let width = usize::try_from(width.max(16)).unwrap_or(16);
+    let height = usize::try_from(height.max(16)).unwrap_or(16);
+    let mut pixels =
+        render_static_mesh_orbit(mesh, width as u32, height as u32, yaw_deg, pitch_deg, zoom);
+    if skeleton.bones.is_empty() {
+        return pixels;
+    }
+    let Some((min, max)) = bounds(&mesh.positions) else {
+        return pixels;
+    };
+    let center = [
+        (min[0] + max[0]) * 0.5,
+        (min[1] + max[1]) * 0.5,
+        (min[2] + max[2]) * 0.5,
+    ];
+    let extent = (max[0] - min[0])
+        .max(max[1] - min[1])
+        .max(max[2] - min[2])
+        .max(1.0e-5);
+    let (sin_yaw, cos_yaw) = f64::from(yaw_deg.to_radians()).sin_cos();
+    let (sin_pitch, cos_pitch) = f64::from(pitch_deg.to_radians()).sin_cos();
+    let scale = (width.min(height) as f64 * 0.42) / extent * f64::from(zoom.clamp(0.1, 8.0));
+    let screen_center = [width as f64 * 0.5, height as f64 * 0.5];
+    let (bone_positions, _) = world_bones(skeleton);
+    let projected: Vec<[f64; 3]> = bone_positions
+        .iter()
+        .map(|position| {
+            let x = position[0] - center[0];
+            let y = position[1] - center[1];
+            let z = position[2] - center[2];
+            let xr = x * cos_yaw - y * sin_yaw;
+            let yr = x * sin_yaw + y * cos_yaw;
+            let yp = yr * cos_pitch - z * sin_pitch;
+            let zp = yr * sin_pitch + z * cos_pitch;
+            [
+                xr * scale + screen_center[0],
+                -zp * scale + screen_center[1],
+                yp,
+            ]
+        })
+        .collect();
+    let mut depth = vec![f64::INFINITY; width * height];
+    for (index, bone) in skeleton.bones.iter().enumerate() {
+        if bone.parent_index >= 0 {
+            let parent = bone.parent_index as usize;
+            if parent < index {
+                let color = PALETTE[index % PALETTE.len()];
+                draw_segment(
+                    projected[parent],
+                    projected[index],
+                    color,
+                    &mut pixels,
+                    &mut depth,
+                    width,
+                    height,
+                );
+            }
+        }
+        draw_joint(
+            projected[index],
+            PALETTE[index % PALETTE.len()],
+            &mut pixels,
+            &mut depth,
+            width,
+            height,
+        );
+    }
+    pixels
+}
+
+/// 渲染骨架（带轨道相机）。
 pub fn render_skeleton_orbit(
     skeleton: &Skeleton,
     width: u32,

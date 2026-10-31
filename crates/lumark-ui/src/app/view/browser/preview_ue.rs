@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use crate::i18n::tr;
 use lumark_archive::{ArchiveService, ExtractionOptions, IoStoreContainer};
 use lumark_unreal::{
-    AssetKind, AssetMetadata, Mappings, ZenScriptObjects, is_legacy_package, parse_legacy_summary,
-    parse_package, render_skeleton_orbit, render_static_mesh,
+    AssetKind, AssetMetadata, LegacyPackage, Mappings, PropValue, ZenScriptObjects,
+    is_legacy_package, parse_legacy_summary, parse_package, read_legacy_texture,
+    render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
 };
 use uuid::Uuid;
 
@@ -17,6 +18,8 @@ pub(super) enum UePreviewResult {
         path: PathBuf,
         name: String,
         subtitle: String,
+        /// 旧式包无映射/有映射时的只读字段行。
+        rows: Vec<(String, String)>,
     },
     /// 可识别但不是纹理的资产。
     Other { name: String, class_name: String },
@@ -26,6 +29,12 @@ pub(super) enum UePreviewResult {
         name: String,
         subtitle: String,
         mesh: lumark_unreal::MeshLod,
+        /// StaticMesh 的全部可切换 LOD。
+        lods: Vec<lumark_unreal::MeshLod>,
+        /// SkeletalMesh 对应的参考骨骼。
+        skeleton: Option<lumark_unreal::Skeleton>,
+        /// SkeletalMesh 对应的逐 LOD 蒙皮权重。
+        skins: Vec<Option<lumark_unreal::SkinWeights>>,
     },
     /// 已渲染的骨骼线条图。
     Skeleton {
@@ -40,6 +49,8 @@ pub(super) enum UePreviewResult {
         class_name: String,
         rows: Vec<(String, String)>,
         timeline_seconds: Option<f32>,
+        /// 若当前资产是 AnimSequence，携带可播放的压缩动画数据。
+        animation: Option<lumark_unreal::AnimSequenceData>,
     },
     /// 功能/配置尚不具备。
     Unavailable(String),
@@ -60,34 +71,94 @@ pub(super) fn load_ue_asset_preview(
     if let Some(oodle) = oodle {
         let _ = lumark_archive::configure_oodle_library(Some(oodle));
     }
-    let (data, ubulk, scripts) = match read_ue_asset_inputs(archive, global, relative, aes_key) {
-        Ok(input) => input,
-        Err(error) => return UePreviewResult::Error(error),
-    };
-    // UE4 旧式 unversioned 包：先展示摘要/类名，字段级解析需要映射。
-    if is_legacy_package(&data)
-        && let Ok(summary) = parse_legacy_summary(&data)
-    {
-        let rows = vec![
-            ("包".to_string(), summary.package_name),
-            ("导出数".to_string(), summary.export_count.to_string()),
-            ("导入数".to_string(), summary.import_count.to_string()),
-            ("名称数".to_string(), summary.name_count.to_string()),
-            (
-                "说明".to_string(),
-                tr(
-                    "UE4 旧式 unversioned 包；字段级预览需要该游戏的 .usmap",
-                    "UE4 legacy unversioned package; field-level previews need the game .usmap",
-                )
-                .to_string(),
-            ),
-        ];
-        return UePreviewResult::Metadata {
-            name: summary.export_name,
-            class_name: summary.class_name,
-            rows,
-            timeline_seconds: None,
+    let (data, ubulk, uexp, scripts) =
+        match read_ue_asset_inputs(archive, global, relative, aes_key) {
+            Ok(input) => input,
+            Err(error) => return UePreviewResult::Error(error),
         };
+    // UE4 旧式纹理：先用原生平台数据启发式解码基础 mip；失败再展示包级元数据。
+    if is_legacy_package(&data) {
+        if let Some(uexp) = &uexp
+            && let Ok(texture) = read_legacy_texture(&data, uexp, ubulk.as_deref())
+        {
+            let rgba = match texture.decode_mip_rgba(0) {
+                Ok(rgba) => rgba,
+                Err(error) => return UePreviewResult::Error(error.to_string()),
+            };
+            let Some(image) =
+                image::RgbaImage::from_raw(texture.width as u32, texture.height as u32, rgba)
+            else {
+                return UePreviewResult::Error("旧式纹理 RGBA 尺寸不匹配".to_string());
+            };
+            if let Some(parent) = output.parent()
+                && let Err(error) = std::fs::create_dir_all(parent)
+            {
+                return UePreviewResult::Error(error.to_string());
+            }
+            if let Err(error) = image.save(output) {
+                return UePreviewResult::Error(error.to_string());
+            }
+            return UePreviewResult::Texture {
+                path: output.to_path_buf(),
+                name: texture.name,
+                subtitle: {
+                    let fields = lumark_unreal::read_legacy_property_header(uexp)
+                        .map(|header| {
+                            format!(
+                                " · {} 属性/{} 字节",
+                                header.property_values, header.header_bytes
+                            )
+                        })
+                        .unwrap_or_default();
+                    format!(
+                        "{} · {}×{} · legacy{}",
+                        texture.pixel_format, texture.width, texture.height, fields
+                    )
+                },
+                rows: legacy_property_rows(&data, uexp, mappings_path),
+            };
+        }
+        if let Ok(summary) = parse_legacy_summary(&data) {
+            let mut rows = vec![
+                ("包".to_string(), summary.package_name),
+                ("导出数".to_string(), summary.export_count.to_string()),
+                ("导入数".to_string(), summary.import_count.to_string()),
+                ("名称数".to_string(), summary.name_count.to_string()),
+                (
+                    "说明".to_string(),
+                    tr(
+                        "UE4 旧式 unversioned 包；字段名需要该游戏的 .usmap",
+                        "UE4 legacy unversioned package; property names need the game .usmap",
+                    )
+                    .to_string(),
+                ),
+            ];
+            if let Some(uexp) = &uexp {
+                let fields = legacy_property_rows(&data, uexp, mappings_path);
+                if fields.is_empty() {
+                    if mappings_path.is_some() {
+                        rows.push((
+                            "字段".to_string(),
+                            tr(
+                                "当前映射未能解析该资产的属性表",
+                                "The current mapping could not parse this asset's properties",
+                            )
+                            .to_string(),
+                        ));
+                    }
+                } else {
+                    rows.push(("字段".to_string(), format!("{} 项", fields.len())));
+                    rows.extend(fields);
+                }
+            }
+            return UePreviewResult::Metadata {
+                name: summary.export_name,
+                class_name: summary.class_name,
+                rows,
+                timeline_seconds: None,
+                animation: None,
+            };
+        }
     }
     let package = match parse_package(data, scripts.as_ref(), None) {
         Ok(package) => package,
@@ -141,6 +212,7 @@ fn load_ue_asset_from_package(
             class_name: export.class_name.clone(),
             rows,
             timeline_seconds: None,
+            animation: None,
         };
     };
     let mappings = match Mappings::parse_file(mappings_path) {
@@ -186,18 +258,22 @@ fn load_ue_asset_from_package(
                 path: output.to_path_buf(),
                 name: export.name.clone(),
                 subtitle: format!(
-                    "StaticMesh · {} 顶点 · {} 三角形",
+                    "StaticMesh · {} LOD · {} 顶点 · {} 三角形",
+                    mesh.lod_count,
                     mesh.lod.positions.len(),
                     mesh.lod.triangle_count()
                 ),
                 mesh: mesh.lod,
+                lods: mesh.lods,
+                skeleton: None,
+                skins: Vec::new(),
             };
         }
         if matches!(export.class_name.as_str(), "Skeleton" | "SkeletalMesh") {
             let preview = if export.class_name == "Skeleton" {
                 package
                     .read_skeleton(primary, &mappings)
-                    .map(|skeleton| (skeleton, 0, 0, 0, 0, 0, None))
+                    .map(|skeleton| (skeleton, 0, 0, 0, 0, 0, None, None, Vec::new(), Vec::new()))
             } else {
                 package
                     .read_skeletal_mesh_preview(primary, &mappings, ubulk.as_deref())
@@ -210,6 +286,9 @@ fn load_ue_asset_from_package(
                             preview.lod_vertices,
                             preview.lod_triangles,
                             preview.geometry,
+                            preview.skin,
+                            preview.lods,
+                            preview.lod_skins,
                         )
                     })
             };
@@ -221,6 +300,9 @@ fn load_ue_asset_from_package(
                 lod_vertices,
                 lod_triangles,
                 geometry,
+                skin,
+                lods,
+                skins,
             )) = preview
             {
                 let mut subtitle = format!(
@@ -236,9 +318,16 @@ fn load_ue_asset_from_package(
                         subtitle
                             .push_str(&format!(" · {lod_vertices} 顶点 · {lod_triangles} 三角形"));
                     }
+                    if let Some(skin) = &skin {
+                        subtitle.push_str(&format!(
+                            " · 蒙皮 {} 顶点/{} 影响",
+                            skin.vertices, skin.max_influences
+                        ));
+                    }
                 }
                 if let Some(mesh) = geometry {
-                    let rgba = render_static_mesh(&mesh, 480, 360);
+                    let rgba =
+                        render_skeletal_mesh_orbit(&mesh, &skeleton, 480, 360, 35.0, 25.0, 1.0);
                     let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) else {
                         return UePreviewResult::Error("骨骼网格渲染尺寸不匹配".to_string());
                     };
@@ -255,6 +344,9 @@ fn load_ue_asset_from_package(
                         name: export.name.clone(),
                         subtitle,
                         mesh,
+                        lods,
+                        skeleton: Some(skeleton),
+                        skins,
                     };
                 }
                 let rgba = render_skeleton_orbit(&skeleton, 480, 360, 35.0, 25.0, 1.0);
@@ -287,6 +379,11 @@ fn load_ue_asset_from_package(
         let rows = metadata.rows();
         let name = export.name.clone();
         let class_name = export.class_name.clone();
+        let animation = if class_name == "AnimSequence" {
+            package.read_anim_sequence(primary, &mappings).ok()
+        } else {
+            None
+        };
         return if rows.is_empty() {
             UePreviewResult::Other { name, class_name }
         } else {
@@ -295,6 +392,7 @@ fn load_ue_asset_from_package(
                 class_name,
                 rows,
                 timeline_seconds,
+                animation,
             }
         };
     };
@@ -325,11 +423,17 @@ fn load_ue_asset_from_package(
             "{} · {}×{}",
             texture.pixel_format, texture.width, texture.height
         ),
+        rows: Vec::new(),
     }
 }
 
 /// 资产读取结果：包字节、`.ubulk` 侧载和脚本对象。
-type UeAssetInputs = (Vec<u8>, Option<Vec<u8>>, Option<ZenScriptObjects>);
+type UeAssetInputs = (
+    Vec<u8>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<ZenScriptObjects>,
+);
 
 /// 读取资产字节、`.ubulk` 侧载和脚本对象；支持 IoStore 和普通 PAK。
 fn read_ue_asset_inputs(
@@ -350,6 +454,9 @@ fn read_ue_asset_inputs(
     let ubulk_relative = relative
         .strip_suffix(".uasset")
         .map(|stem| format!("{stem}.ubulk"));
+    let uexp_relative = relative
+        .strip_suffix(".uasset")
+        .map(|stem| format!("{stem}.uexp"));
     if extension == "utoc" {
         let container =
             IoStoreContainer::open(archive, aes_key).map_err(|error| error.to_string())?;
@@ -357,7 +464,8 @@ fn read_ue_asset_inputs(
             .read_file(relative)
             .map_err(|error| error.to_string())?;
         let ubulk = ubulk_relative.and_then(|path| container.read_file(&path).ok());
-        return Ok((data, ubulk, scripts));
+        let uexp = uexp_relative.and_then(|path| container.read_file(&path).ok());
+        return Ok((data, ubulk, uexp, scripts));
     }
     if extension == "pak" {
         let temp = std::env::temp_dir().join(format!("lumark-pak-{}", Uuid::new_v4()));
@@ -365,6 +473,9 @@ fn read_ue_asset_inputs(
         let mut selected = vec![relative.to_string()];
         if let Some(ubulk) = &ubulk_relative {
             selected.push(ubulk.clone());
+        }
+        if let Some(uexp) = &uexp_relative {
+            selected.push(uexp.clone());
         }
         let mut options = ExtractionOptions {
             output_dir: temp.clone(),
@@ -383,10 +494,62 @@ fn read_ue_asset_inputs(
         let ubulk = ubulk_relative
             .as_ref()
             .and_then(|path| std::fs::read(temp.join(path)).ok());
+        let uexp = uexp_relative
+            .as_ref()
+            .and_then(|path| std::fs::read(temp.join(path)).ok());
         let _ = std::fs::remove_dir_all(&temp);
-        return data.map(|data| (data, ubulk, scripts));
+        return data.map(|data| (data, ubulk, uexp, scripts));
     }
     Err(format!("资产查看暂不支持该容器类型：{}", archive.display()))
+}
+
+/// 读取旧式包属性并格式化为详情行；无映射或解析失败时返回空。
+fn legacy_property_rows(
+    asset: &[u8],
+    uexp: &[u8],
+    mappings_path: Option<&std::path::Path>,
+) -> Vec<(String, String)> {
+    let Some(mappings_path) = mappings_path else {
+        return Vec::new();
+    };
+    let Ok(mappings) = Mappings::parse_file(mappings_path) else {
+        return Vec::new();
+    };
+    let Ok(package) = LegacyPackage::parse(asset, uexp) else {
+        return Vec::new();
+    };
+    let Ok(properties) = package.read_export_properties(0, &mappings) else {
+        return Vec::new();
+    };
+    let mut rows: Vec<(String, String)> = properties
+        .properties
+        .iter()
+        .map(|(name, value)| (name.clone(), format_prop_value(value)))
+        .collect();
+    if let Some(header) = lumark_unreal::read_legacy_property_header(uexp) {
+        rows.push((
+            "属性头".to_string(),
+            format!("{} 值/{} 字节", header.property_values, header.header_bytes),
+        ));
+    }
+    rows
+}
+
+/// 属性值转成一行可读文本。
+fn format_prop_value(value: &PropValue) -> String {
+    match value {
+        PropValue::Int(value) => value.to_string(),
+        PropValue::UInt(value) => value.to_string(),
+        PropValue::Float(value) => format!("{value:.6}"),
+        PropValue::Bool(value) => value.to_string(),
+        PropValue::Name(value) | PropValue::String(value) => value.clone(),
+        PropValue::Object(index) => format!("Object({index})"),
+        PropValue::Array(values) | PropValue::Set(values) => format!("[{} 项]", values.len()),
+        PropValue::Map(values) => format!("{{{} 项}}", values.len()),
+        PropValue::Struct(fields) => format!("{{{} 字段}}", fields.len()),
+        PropValue::Zero => "0".to_string(),
+        PropValue::Other => "<原始值>".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -428,6 +591,7 @@ mod tests {
                 path,
                 name,
                 subtitle,
+                ..
             } => {
                 assert_eq!(name, "T_BC1");
                 assert!(subtitle.contains("PF_DXT1"));
@@ -574,11 +738,16 @@ mod tests {
                 path,
                 subtitle,
                 mesh,
+                skeleton,
                 ..
             } => {
                 assert_eq!(mesh.positions.len(), 6);
                 assert!(mesh.triangle_count() > 0);
                 assert!(!mesh.sections.is_empty(), "SkeletalMesh section palette");
+                assert!(
+                    skeleton.is_some_and(|skeleton| skeleton.bones.len() == 3),
+                    "SkeletalMesh 参考骨骼应随模型预览返回"
+                );
                 assert!(subtitle.contains("SkeletalMesh"));
                 assert!(subtitle.contains("6 顶点"), "subtitle={subtitle}");
                 assert!(path.is_file());

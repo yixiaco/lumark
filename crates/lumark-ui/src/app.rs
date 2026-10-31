@@ -397,20 +397,17 @@ pub struct LumarkApp {
     pending_shell_compress: Vec<PathBuf>,
     shell_compress_deadline: Option<std::time::Instant>,
     settings_window: Option<gpui_kit::AnyWindowHandle>,
-    /// 游戏资产设置页；`None` 表示没有打开设置流程。
     game_setup: Option<GameSetup>,
-    /// 当前打开的游戏资产会话及后台打开的游戏会话。
     game_session: Option<GameSession>,
     inactive_games: Vec<InactiveGame>,
-    /// 进入游戏资产前所在的文件系统目录，退出时恢复。
     game_previous_dir: Option<PathBuf>,
-    /// 详情面板图片预览状态。
     details_preview: Option<view::DetailsPreview>,
-    /// 详情面板当前 StaticMesh/Skeleton，供独立查看器复用。
     details_mesh: Option<lumark_unreal::MeshLod>,
+    details_lods: Vec<lumark_unreal::MeshLod>,
+    details_skins: Vec<Option<lumark_unreal::SkinWeights>>,
+    details_animation: Option<lumark_unreal::AnimSequenceData>,
     details_skeleton: Option<lumark_unreal::Skeleton>,
 }
-
 impl Drop for LumarkApp {
     /// 关闭单个归档窗口时清理该窗口产生的复制和拖出临时文件。
     fn drop(&mut self) {
@@ -693,6 +690,9 @@ impl LumarkApp {
             game_previous_dir: None,
             details_preview: None,
             details_mesh: None,
+            details_lods: Vec::new(),
+            details_skins: Vec::new(),
+            details_animation: None,
             details_skeleton: None,
         };
         set_input(

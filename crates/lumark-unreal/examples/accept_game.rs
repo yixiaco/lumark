@@ -149,8 +149,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else if let Some(index) = mesh_index {
         let mesh = package.read_static_mesh(index, &mappings)?;
         println!(
-            "mesh={} verts={} tris={}",
+            "mesh={} lods={} parsed_lods={} verts={} tris={}",
             mesh.name,
+            mesh.lod_count,
+            mesh.lods.len(),
             mesh.lod.positions.len(),
             mesh.lod.triangle_count()
         );
@@ -175,16 +177,74 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .and_then(|path| container.read_file(&path).ok());
             let preview = package.read_skeletal_mesh_preview(index, &mappings, ubulk.as_deref())?;
             println!(
-                "skeletal_mesh={} bones={} lods={} sections={} verts={} tris={}",
+                "skeletal_mesh={} bones={} lods={} parsed_lods={} sections={} verts={} tris={} skin={:?}",
                 preview.skeleton.name,
                 preview.skeleton.bones.len(),
                 preview.lod_count,
+                preview.lods.len(),
                 preview.lod_sections,
                 preview.lod_vertices,
-                preview.lod_triangles
+                preview.lod_triangles,
+                preview.skin.as_ref().map(|skin| (
+                    skin.vertices,
+                    skin.max_influences,
+                    skin.variable,
+                    skin.influences.first().copied(),
+                    skin.weights.first().copied()
+                ))
             );
+            for (lod, mesh) in preview.lods.iter().enumerate() {
+                println!(
+                    "lod{lod} verts={} tris={} sections={} skin_vertices={:?}",
+                    mesh.positions.len(),
+                    mesh.triangle_count(),
+                    mesh.sections.len(),
+                    preview
+                        .lod_skins
+                        .get(lod)
+                        .and_then(|skin| skin.as_ref())
+                        .map(|skin| skin.vertices)
+                );
+            }
             if let Some(mesh) = preview.geometry {
-                let rgba = lumark_unreal::render_static_mesh(&mesh, 480, 360);
+                if let Some(path) = std::env::var_os("LUMARK_SKIN_POSE")
+                    && let Some(skin) = &preview.skin
+                    && let Some((bone, name)) =
+                        lumark_unreal::skinning::dominant_skinned_bone(&preview.skeleton, skin)
+                {
+                    let angle = std::f64::consts::PI / 12.0;
+                    let rotation = lumark_unreal::skinning::BoneRotation {
+                        bone,
+                        rotation: [angle.sin(), 0.0, 0.0, angle.cos()],
+                    };
+                    let posed = lumark_unreal::skinning::skin_mesh(
+                        &mesh,
+                        &preview.skeleton,
+                        skin,
+                        &[rotation],
+                    );
+                    let rgba =
+                        lumark_unreal::render_static_mesh_orbit(&posed, 480, 360, 35.0, 25.0, 1.0);
+                    if let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) {
+                        image.save(&path)?;
+                        println!("skin_pose bone={bone} name={name} saved={}", path.display());
+                    }
+                    let rgba =
+                        lumark_unreal::render_static_mesh_orbit(&posed, 480, 360, 35.0, 25.0, 1.0);
+                    if let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) {
+                        image.save(&path)?;
+                        println!("skin_pose bone={bone} name={name} saved={}", path.display());
+                    }
+                }
+                let rgba = lumark_unreal::render_skeletal_mesh_orbit(
+                    &mesh,
+                    &preview.skeleton,
+                    480,
+                    360,
+                    35.0,
+                    25.0,
+                    1.0,
+                );
                 (480, 360, rgba)
             } else {
                 let rgba = lumark_unreal::render_skeleton_orbit(

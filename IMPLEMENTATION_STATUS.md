@@ -31,7 +31,7 @@
 - [x] IoStore：`.utoc/.ucas` v1–8 只读解析，v8 头部/块表/压缩方法/目录索引、AES-256-ECB 目录索引与块解密、None/Zlib/Gzip/LZ4/Zstd/Oodle 解压；目录索引在列包阶段只需 AES 密钥，Oodle 只在读取资产数据时需要。`ArchiveService` 已接入格式识别、加密探测、密钥校验和列表；解压/测试/编辑明确返回“仅支持浏览与查看”。
 - [x] 真实 BNB 验证：`pakchunk2-Windows.utoc` 列出 1537 个包、`pakchunk0-Windows.utoc` 可解析 9.8 万级包路径，压缩方法为 Oodle。
 - [x] BNB 完整实机验收：自动发现 `5.6.1-.../Mappings/*.usmap`（12749 结构/2386 枚举）；`T_ChickenA_BaseColor` 解码 2048×2048 PF_DXT5/12 mip，StaticMesh `Cube` 24 顶点/12 三角形，SkeletalMesh `SK_Chicken` 42 骨骼/2860 顶点/3844 三角形，Skeleton `SK_Chicken_Skeleton` 42 骨骼，AnimSequence `ANIM_Chicken_Idle1` 时长 4.000s；`tools/verify_game_assets.ps1` 真实 BNB 纹理链路通过。
-- [x] 真实 FF7 Remake 验证：项目目录 `End`，无 `*-Win64-Shipping.exe` 时回退到最大 exe `ff7remake_.exe`；提取的密钥通过 `pakchunk0-WindowsNoEditor.pak` 校验，PAK 可列出 18896 个条目；修正 UE4 旧版 PAK（version < 8）压缩槽位映射后，可成功提取 `.uasset/.uexp/.ubulk`，Oodle 候选已发现。新增 `inspect_legacy` 诊断与 `parse_legacy_summary`：旧式包详情可显示包名/主导出类/导出名称等元数据；FF7R 包为 unversioned（`PKG_UnversionedProperties`），字段级资产预览需要该游戏 `.usmap`。
+- [x] 真实 FF7 Remake 验证：项目目录 `End`，无 `*-Win64-Shipping.exe` 时回退到最大 exe `ff7remake_.exe`；提取的密钥通过 `pakchunk0-WindowsNoEditor.pak` 校验，PAK 可列出 18896 个条目；修正 UE4 旧版 PAK（version < 8）压缩槽位映射后，可成功提取 `.uasset/.uexp/.ubulk`，Oodle 候选已发现。新增 `LegacyPackage`（摘要/名称/导入导出表/导出偏移）与 `read_legacy_texture`：不依赖 `.usmap`，通过原生平台数据特征和 `.ubulk` 基础 mip 解码，`UE4Man_Logo_N` 验证 512×512 PF_BC5；并新增无版本属性头摘要。游戏目录提供 FF7 Remake 专用 `Mappings.usmap`（9736 structs/1939 enums，含 `End*` 类，FModel 日志确认可加载）；修正旧式 bool 允许任意非零字节后，`Texture2D` 可读出 `AddressX`/`VirtualTextureStreaming`/`bApplyResidentLODBias`/`CachedCombinedLODBias`/`NeverStream`，`SkeletalMesh` 可读出 `Skeleton`/`MinLOD`/`bUseHighPrecisionTangentBasis`，并在详情显示；FF7R 原生 LOD 几何等数据布局仍需继续对齐。
 - [x] Oodle 加载器：支持 `LUMARK_OODLE_DLL`、显式配置路径（游戏目录自动发现）、程序目录内 `oo2core*`/`oodle*` DLL；新增非 Windows 平台的可读错误桩。
 - [x] 新 crate `lumark-unreal`：游戏目录扫描（安装根/项目根、Shipping.exe、容器、Oodle 候选）、UE 4.27/5.0–5.6 版本字符串探测（ASCII/UTF-16）、AESDumpster 签名 + 容器校验的 AES 密钥提取、手动密钥校验；真实 BNB 已提取并通过校验（密钥不入库/不入日志）。
 - [x] 设置新增游戏库条目（DPAPI 保护的密钥 blob、密钥来源、Oodle 路径、最近打开时间）与 `active_game`，旧设置文件向后兼容。
@@ -41,20 +41,23 @@
 - [x] 平台门控：游戏资产入口在非 Windows 隐藏，Oodle 在非 Windows 返回可读错误。
 - [x] M4 纹理链路：UE5 Zen 摘要/名称表/导入导出表/导出数据范围、全局 ScriptObjects 类名解析、`.usmap`（v1–v4、未压缩/ZStandard/Brotli）与无版本属性读取、纹理 `FTexturePlatformData`/bulk data map/内联与 `.ubulk` mip 读取。
 - [x] UTexture2D 解码：BC1/BC3/BC4/BC5/BC7、BGRA8/RGBA8/G8；详情面板后台生成纹理缩略图，点击打开图片查看器。已用 CUE4Parse UE5.8 unversioned fixture 的 10 种纹理格式和 BNB 真实纹理包（类名/bulk map）验证。
-- [x] 资产元数据：Skeleton 参考骨骼树（名称/父索引/参考姿态）解析；AnimSequence 时长/RateScale/骨架、Skeleton 骨骼数/根骨骼、StaticMesh 材质槽/插槽在详情面板展示。已用 fixture 验证 `SKEL_Fixture` 的 3 根骨骼（Root、Joint_1、Joint_2）和 `AS_Fixture` 的 AnimSequence 元数据。
-- [x] StaticMesh 几何：首个 LOD 的 `FPositionVertexBuffer`、索引缓冲、section 和 `LightingGuid` 布局解析；CPU 光栅器（正交三轴相机、Z-buffer、方向光）在详情面板生成 3D 缩略图。已用 `SM_Fixture` 验证 6 顶点/2 三角形/2 section 和正确坐标。
+- [x] 资产元数据：Skeleton 参考骨骼树（名称/父索引/参考姿态）解析；AnimSequence 时长/RateScale/骨架/压缩轨道数/压缩字节/压缩 codec、Skeleton 骨骼数/根骨骼、StaticMesh 材质槽/插槽在详情面板展示；BNB `ANIM_Chicken_Idle1` 定位到 42 条 `TrackToSkeletonMap`、6144 字节压缩流，codec 为 `AnimCompress_PerTrackCompression_6`（121 帧）。已用 fixture 验证 `SKEL_Fixture` 的 3 根骨骼（Root、Joint_1、Joint_2）和 `AS_Fixture` 的 AnimSequence 元数据。
+- [x] AnimSequence PerTrackCompression 解码：解析 `CompressedTrackOffsets`/scale offsets/关键帧流，支持 Float96NoW、Fixed48NoW、IntervalFixed32NoW 及帧表索引；`anim_play` 示例按时间采样 42 条轨道并调用 `skinning::skin_mesh_pose` 生成 BNB `SK_Chicken` 动画帧。查看器已接入播放/暂停：先选中 AnimSequence，再打开 SkeletalMesh 查看器即可约 20fps 连续播放。
+- [x] StaticMesh 几何与多 LOD：各 LOD 的 `FPositionVertexBuffer`、索引、section 和 `FStaticMeshBuffersSize`/附加索引缓冲尾部布局解析；查看器新增 LOD 切换按钮。已用 `SM_Fixture` 验证 6 顶点/2 三角形/2 section；BNB `sm_StoneBlocks_02_02` 的 4 个 LOD 全部成功解析，详情副标题显示 LOD 数量。
 - [x] 内置模型查看器窗口：左键拖拽旋转、工具栏缩放/重置、状态栏顶点/三角形统计；详情面板缩略图或双击 `.uasset` 可打开。
+- [x] section/材质切换：查看器工具栏按 section/material_index 显示开关，动态过滤三角形并重绘；StaticMesh 与 SkeletalMesh（网格+骨骼）共用。StaticMesh 详情面板额外列出 `StaticMaterials.MaterialSlotName` 材质槽名。
 - [x] 骨骼查看器：Skeleton 参考姿态累积为世界空间线条图，支持同一轨道相机窗口旋转/缩放；AnimSequence 元数据新增只读时间轴条。
 - [x] PAK 资产预览：游戏 `.pak` 容器中的 Zen `.uasset/.ubulk` 通过 `ArchiveService` 提取后复用纹理/模型/骨骼/元数据链路，已用 fixture ZIP-as-PAK 验证。
 - [x] 多游戏会话：游戏库可同时打开多个游戏，侧栏“打开的游戏”标签切换；每个会话保存自己的浏览器快照（位置/条目/选择/回退前进历史），从设置页打开另一个游戏不会替换当前会话；设置页取消会返回原游戏。打开/切换游戏会更新 `last_opened`，设置页按最近打开时间排序。打开列表持久化到设置的 `open_games`，下次进入游戏资产自动恢复（最多 8 个，倒序恢复保证上次前台游戏最后激活）。游戏卡片支持只关闭当前游戏并自动切换剩余会话。已用两个假游戏 UI 测试验证。
 - [x] 嵌套无版本属性：修正 `Optional` 的 32 位存在标志，补齐 `FWeightedRandomSampler`、SkeletalMesh Sampling 结构和 SkeletalMesh 属性解析；SkeletalMesh 详情可显示骨架/LOD/插槽元数据，`SK_Fixture` 属性流读取通过。
 - [x] 映射文件选择校验：后台解析 `.usmap` 后才保存路径，消息显示结构/枚举数量；解析失败不覆盖已有路径；扫描游戏目录时自动发现根目录、`Mappings/`、`Content/Paks/` 下的 `.usmap` 并预填。
 - [x] 无映射兜底：未选择 `.usmap` 时详情面板不再直接报错，改为显示包名、导出数量和主类；字段级纹理/模型/骨骼解析仍需要映射。
-- [x] SkeletalMesh 参考骨架与静态几何：解析属性后的 ImportedBounds/SkeletalMaterials 前缀、`FReferenceSkeleton`、首个 LOD 的 section 统计和材质槽，并从 bulk data 的流式数据读取索引和 `FPositionVertexBuffer`；详情面板生成第一个 LOD 的 rest pose 3D 缩略图（section 材质分色）并可打开模型查看器。fixture `SK_Fixture` 验证 6 顶点和非空 section。骨骼蒙皮/动画播放仍待实现。
+- [x] SkeletalMesh 参考骨架与静态几何：解析属性后的 ImportedBounds/SkeletalMaterials 前缀、`FReferenceSkeleton`、LOD 的 section 统计和材质槽，并从 bulk data/内联流式数据读取索引、`FPositionVertexBuffer` 和完整的 `FSkinWeightVertexBuffer` 索引/权重数组；RequiredBones→骨架骨骼索引映射后实现 linear blend skinning（`skinning::skin_mesh`，支持骨骼局部旋转增量），模型查看器工具栏提供“蒙皮演示”切换，详情面板生成 rest pose 3D 缩略图（section 材质分色 + 参考骨骼叠加）并显示蒙皮顶点数/最大影响数。SkeletalMesh 的 LOD1+ 通过对 LOD0 之后可选块的小范围头部探测补齐，查看器可循环切换 LOD，并为每个 LOD 保存独立蒙皮权重（BNB `SK_Chicken` 验证 LOD0 2860 顶点/3844 三角形、LOD1 1674 顶点/2358 三角形，LOD1 蒙皮顶点 1674）。fixture `SK_Fixture` 验证 6 顶点、非空 section 和 3 根骨骼；真实 BNB `SK_Chicken` 验证 42 骨骼，逐顶点权重解码后权重和归一化（255），并对 `CHICKEN_-R-Thigh` 施加 15° 局部旋转生成变形网格。AnimSequence 播放已实现。
 - [x] 真实游戏属性兼容：修正 `FPerPlatform*` 的 cooked 标志/默认值/覆盖表布局；新增 `accept_game` 端到端诊断（扫描游戏、提取密钥、读映射、渲染纹理/网格，不打印密钥）。
 - [x] 验收脚本：新增 `tools/verify_game_assets.ps1`，默认运行 IoStore、UE 解析和游戏资产 UI 测试；配置游戏根目录/映射/Oodle/容器/资产/输出后调用 `accept_game` 做真实游戏验收。
 - [x] `accept_game` 支持纹理、StaticMesh、Skeleton 和 SkeletalMesh 参考骨骼四类资产；没有纹理/网格时仍可生成骨骼预览图。
-- [ ] 待完成：SkeletalMesh 几何/蒙皮与骨骼网格查看器；多 LOD/材质查看器；UE4.27 旧式 uasset/uexp 读取器；BNB 验收等待正确的 BNB `.usmap`（当前 Downloads 中的映射已确认不是 BNB 的）。
+- [x] FF7R 字段级预览：加载 FF7R `.usmap` 后可显示 Texture2D 的 `AddressX`/`VirtualTextureStreaming`/`bApplyResidentLODBias`/`CachedCombinedLODBias`/`NeverStream`，SkeletalMesh 的 `Skeleton`/`MinLOD`/`bUseHighPrecisionTangentBasis`，以及 Blueprint/EndTextResource 等字段；关键修正是旧式 bool 允许任意非零字节。
+- [ ] 待完成：FF7R 原生 LOD 几何等数据布局（不影响字段级预览）；SkeletalMesh LOD1+ 探测仍属尽力而为，遇到更复杂可选块时可能退化为仅 LOD0。
 
 ### 已完成与已接受限制
 

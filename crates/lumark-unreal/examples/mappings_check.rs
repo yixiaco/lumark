@@ -18,6 +18,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         mappings.enums.len()
     );
     if let Some(filter) = filter {
+        if let Some(pattern) = filter.strip_prefix("enum:") {
+            if let Some(values) = mappings.enums.get(pattern) {
+                for (value, name) in values {
+                    println!("{value} = {name}");
+                }
+            } else {
+                println!("{pattern}: enum not found");
+            }
+            return Ok(());
+        }
         if let Some(pattern) = filter.strip_prefix("grep:") {
             let pattern = pattern.to_ascii_lowercase();
             let mut matches = 0;
