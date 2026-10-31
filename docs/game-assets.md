@@ -19,7 +19,9 @@
   bulk 条目。
 - **无版本属性**：新增 `.usmap` v1–v4 读取（未压缩/ZStandard/Brotli，Oodle 压缩映射返回
   可读错误）与 unversioned header/属性读取；游戏设置选择映射时会先解析并显示结构与枚举
-  数量，解析失败不会保存路径。
+  数量，解析失败不会保存路径。Zen 资产的详情面板会把可序列化属性追加为字段行（最多 40 项，小型
+  struct/数组展开一层，长文本截断到 160 字符），纹理、StaticMesh、SkeletalMesh、Skeleton 缩略图
+  和旧式包共用同一只读字段展示。
 - **纹理**：UTexture2D 平台数据、内联/`.ubulk` mip、BC1/BC3/BC4/BC5/BC7 与
   BGRA8/RGBA8/G8 解码；详情面板后台生成缩略图并支持点击进入图片查看器。
 - **资产元数据**：Skeleton 参考骨骼树（名称/父索引/参考姿态）、AnimSequence 的时长和
@@ -55,11 +57,12 @@
 ## 未实现（M5 剩余）
 
 - **UE4.27 旧式包**：当前优先支持 BNB/UE5.6 的 Zen 包和 PAK 中的 Zen 包；`uasset/uexp`
-  旧式包读取器仍需补齐。
+  旧式包读取器仍需补齐。当前已解析旧式包头部与自定义版本表；FF7R 包自定义版本为 0，按 UE4.18
+  默认版本推断 SkeletalMesh 相关布局。
 - **可交互 3D 查看器**：独立查看器窗口已支持 StaticMesh/SkeletalMesh 轨道旋转/缩放、
   多 LOD 切换和 Skeleton 骨骼线条图；SkeletalMesh 几何/蒙皮/动画播放已接入。当前详情面板
   显示 StaticMesh 静态缩略图、Skeleton 线条图或 AnimSequence 时间轴，点击缩略图或双击
-  `.uasset` 可打开查看器。
+  `.uasset` 可打开查看器。使用步骤见“使用说明”。
 - **文档**：README/用户使用说明在功能完整后补充。
 
 ## 映射文件（`.usmap`）
@@ -87,7 +90,7 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
   （24 顶点/12 三角形）、SkeletalMesh `SK_Chicken`（42 骨骼、2860 顶点、3844 三角形）、
   Skeleton `SK_Chicken_Skeleton`（42 骨骼）和 AnimSequence `ANIM_Chicken_Idle1`（4.000s）
   均通过端到端验收；`tools/verify_game_assets.ps1` 已跑通真实 BNB 纹理链路。
-- **FF7R 实机**：PAK 列表/提取与旧式包摘要已通过；加载 FF7R `.usmap` 后，Texture2D 可显示 `AddressX`/`VirtualTextureStreaming`/`bApplyResidentLODBias`/`CachedCombinedLODBias`/`NeverStream`，SkeletalMesh 可显示 `Skeleton`/`MinLOD`/`bUseHighPrecisionTangentBasis`，Blueprint/EndTextResource 等也可显示字段。
+- **FF7R 实机**：PAK 列表/提取与旧式包摘要已通过；加载 FF7R `.usmap` 后，Texture2D 可显示 `AddressX`/`VirtualTextureStreaming`/`bApplyResidentLODBias`/`CachedCombinedLODBias`/`NeverStream`，SkeletalMesh 可显示 `Skeleton`/`MinLOD`/`bUseHighPrecisionTangentBasis`，Blueprint/EndTextResource 等也可显示字段。旧式 `Skeleton` 读取已实现：`UE4_Mannequin_Skeleton` 解析出 68 根参考骨骼并在骨骼查看器显示，参考姿态使用 UE4 的 f32 `FTransform`；`SK_Mannequin` 的 SkeletalMesh 原生数据会探测内嵌参考骨架（同样 68 根骨骼），并解析首个 LOD 的 section/索引/顶点几何（实测 23297 顶点、41052 三角形、2 section）及逐顶点蒙皮权重（4 影响），可在查看器中显示 rest pose 网格、骨骼叠加和做蒙皮演示；FF7R 旧式 AnimSequence 动画尚未完整解析，但已支持元数据：`ThirdPersonIdle` 可读出 80 帧、68 条骨骼映射和约 2.63 秒时长，详情面板显示字段与时间轴；压缩动画数据/播放仍未实现。
 - **阶段 2（蒙皮动画播放）进行中**：SkeletalMesh 顶点索引/权重数组已读取（BNB 2860
   顶点、8 影响），RequiredBones→骨架索引映射与 linear blend skinning 已完成（示例可将
   大腿骨骼旋转 15° 生成变形网格）；AnimSequence 的 PerTrackCompression 关键帧已解码，
@@ -108,8 +111,8 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
 - 仅支持单分区 IoStore；分片容器返回明确错误。签名只跳过，不验证。
 - 游戏资产入口在非 Windows 平台隐藏；Oodle 也仅在 Windows 可用。
 - SkeletalMesh 的参考骨架（骨骼名/父索引/参考姿态）和各 LOD 的 rest pose 几何已可读取并
-  在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽、LOD、section/顶点/
-  三角形以及蒙皮顶点数/最大影响数。LBS 蒙皮、PerTrack 动画解码、帧采样、查看器连续
+  在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽与其名称、LOD、section/
+  顶点/三角形以及蒙皮顶点数/最大影响数。LBS 蒙皮、PerTrack 动画解码、帧采样、查看器连续
   播放与 SkeletalMesh 多 LOD 切换均已实现（后续 LOD 使用可选块之后的头部探测，并为每个
   LOD 保存独立蒙皮权重，切到 LOD1 播放动画时使用 LOD1 的权重）。
 - 详情面板 UE 加载器拆分为 `browser/preview.rs`（图片预览）与 `browser/preview_ue.rs`
@@ -142,6 +145,25 @@ $env:LUMARK_GAME_OUTPUT = "target\game-acceptance.png"
 
 脚本调用 `accept_game` 示例：扫描游戏、提取并校验密钥、读取映射、渲染纹理或
 StaticMesh 到 PNG。
+
+## 使用说明
+
+1. 在设置页添加游戏目录后，进入主界面“游戏资产”；可同时打开多个游戏，侧栏标签切换，
+   每个会话保留自己的目录位置、选择和前进/后退历史。
+2. 在游戏设置中确认 Oodle 动态库；需要字段级属性的游戏还要选择该游戏的 `.usmap`
+   （扫描目录时会自动发现根目录、`Mappings/`、`Content/Paks/` 下的映射并预填）。
+3. 浏览 IoStore/PAK 内的文件夹；单击资产在详情面板预览：
+   - 纹理：后台解码基础 mip，显示格式/尺寸；无映射的 FF7R 纹理走原生启发式。
+   - StaticMesh/SkeletalMesh：显示 3D 缩略图、LOD/材质/section 和字段行。
+   - Skeleton：显示参考骨骼线条图。
+   - AnimSequence：显示时长/轨道/压缩信息；先选中它再打开 SkeletalMesh 查看器可播放动画。
+4. 双击 `.uasset` 或点击缩略图打开独立查看器：左键拖拽旋转、滚轮/工具栏缩放、LOD
+   按钮切换（StaticMesh 与 SkeletalMesh）、section 按钮切换材质可见性；SkeletalMesh
+   还提供“蒙皮演示”和动画播放/暂停。
+5. 查看器与解析均为只读，不修改游戏目录或原始包。
+
+已知限制：FF7R 的 SkeletalMesh rest pose 几何与蒙皮权重已解析；AnimSequence 可显示元数据和时间轴，但压缩动画数据尚未解析，不能播放；SkeletalMesh
+LOD1+ 探测为尽力而为；UE4 旧式包的部分资产仍需映射才能显示字段名。
 
 ## 参考与许可
 

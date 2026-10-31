@@ -89,6 +89,8 @@ pub struct SkeletalMeshPreview {
     pub skeleton: Skeleton,
     /// 材质槽数量。
     pub material_slots: usize,
+    /// 材质槽名称（若原生数据可读）。
+    pub material_names: Vec<String>,
     /// LOD 数量。
     pub lod_count: usize,
     /// 首个 LOD 的 section 数量；解析失败时为 0。
@@ -147,7 +149,21 @@ pub fn read_skeletal_mesh_preview(
     // 和 SkeletalMaterials 数组。
     let _ = reader.bytes(56)?; // FBoxSphereBounds（UE5 FReal 为 f64）
     let material_count = reader.count(44, 1024)?;
-    let _ = reader.bytes(material_count * 44)?;
+    let material_start = reader.position;
+    let mut material_names = Vec::new();
+    for _ in 0..material_count {
+        let start = reader.position;
+        if reader.i32().is_ok()
+            && let Ok(name) = reader.fname()
+            && !name.is_empty()
+            && name != "None"
+            && !name.starts_with('#')
+        {
+            material_names.push(name);
+        }
+        reader.position = start + 44;
+    }
+    reader.position = material_start + material_count * 44;
     let skeleton = parse_reference_skeleton(&mut reader, export.name.clone())?;
     // bCooked 后是 LOD 数量；UE5.8 不再写 minMobileLOD。
     let _ = reader.i32()?;
@@ -220,6 +236,7 @@ pub fn read_skeletal_mesh_preview(
     Ok(SkeletalMeshPreview {
         skeleton,
         material_slots: material_count,
+        material_names,
         lod_count,
         lod_sections,
         required_bones,

@@ -312,6 +312,7 @@ impl LumarkApp {
                         lods,
                         skeleton,
                         skins,
+                        rows,
                     } => {
                         app.details_mesh = Some(mesh);
                         app.details_lods = lods;
@@ -322,7 +323,7 @@ impl LumarkApp {
                             path,
                             name,
                             subtitle: Some(subtitle),
-                            rows: Vec::new(),
+                            rows,
                         }
                     }
                     UePreviewResult::Skeleton {
@@ -330,6 +331,7 @@ impl LumarkApp {
                         name,
                         subtitle,
                         skeleton,
+                        rows,
                     } => {
                         app.details_skeleton = Some(skeleton);
                         DetailsPreview::Ready {
@@ -337,7 +339,7 @@ impl LumarkApp {
                             path,
                             name,
                             subtitle: Some(subtitle),
-                            rows: Vec::new(),
+                            rows,
                         }
                     }
                     UePreviewResult::Metadata {

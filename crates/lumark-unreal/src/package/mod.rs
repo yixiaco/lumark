@@ -267,6 +267,7 @@ pub(crate) fn invalid(message: impl Into<String>) -> PackageError {
 mod animation;
 mod asset;
 pub mod legacy;
+mod legacy_skeleton;
 mod mappings;
 mod mesh;
 mod name_map;
@@ -281,6 +282,10 @@ pub use asset::{AssetMetadata, read_asset_metadata};
 pub use legacy::{
     LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader,
     read_legacy_property_header, read_legacy_texture,
+};
+pub use legacy_skeleton::{
+    LegacySkeletalMeshGeometry, LegacySkeletalMeshSummary, read_legacy_skeletal_mesh_geometry,
+    read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
 };
 pub use mappings::{Mappings, PropSchema, PropType, StructSchema};
 pub use mesh::{MeshLod, MeshSection, StaticMesh, read_static_mesh};

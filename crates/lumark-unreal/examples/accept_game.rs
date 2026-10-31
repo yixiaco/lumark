@@ -193,6 +193,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     skin.weights.first().copied()
                 ))
             );
+            println!("material_names={:?}", preview.material_names);
             for (lod, mesh) in preview.lods.iter().enumerate() {
                 println!(
                     "lod{lod} verts={} tris={} sections={} skin_vertices={:?}",

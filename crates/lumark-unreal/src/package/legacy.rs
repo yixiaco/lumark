@@ -273,6 +273,8 @@ pub struct LegacyPackage {
     imports: Vec<(String, String, String)>,
     /// 导出表。
     exports: Vec<LegacyExport>,
+    /// 包内自定义版本（GUID + 版本号）。
+    custom_versions: Vec<([u8; 16], i32)>,
     /// `.uexp` 数据（导出数据起点为 0）。
     uexp: Vec<u8>,
 }
@@ -306,7 +308,12 @@ impl LegacyPackage {
         if !(0..=1024).contains(&custom_count) {
             return Err(invalid("旧式包自定义版本数量非法"));
         }
-        let _ = reader.bytes(custom_count as usize * 20)?;
+        let mut custom_versions = Vec::with_capacity(custom_count as usize);
+        for _ in 0..custom_count {
+            let mut guid = [0u8; 16];
+            guid.copy_from_slice(reader.bytes(16)?);
+            custom_versions.push((guid, reader.i32()?));
+        }
         let total_header_size = reader.i32()?;
         let package_name = reader.fstring()?;
         let _flags = reader.u32()?;
@@ -388,8 +395,21 @@ impl LegacyPackage {
             names,
             imports,
             exports,
+            custom_versions,
             uexp: uexp.to_vec(),
         })
+    }
+
+    /// 查询指定 GUID 的自定义版本号。
+    pub fn custom_version(&self, guid: [u8; 16]) -> Option<i32> {
+        self.custom_versions
+            .iter()
+            .find_map(|(candidate, version)| (*candidate == guid).then_some(*version))
+    }
+
+    /// 全部自定义版本。
+    pub fn custom_versions(&self) -> &[([u8; 16], i32)] {
+        &self.custom_versions
     }
 
     /// 名称表。

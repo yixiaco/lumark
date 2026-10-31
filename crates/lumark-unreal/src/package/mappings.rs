@@ -205,6 +205,51 @@ impl Mappings {
             .map(|(_, name)| name.as_str())
     }
 
+    /// 按类层级解析一个属性槽位，并忽略指定名称的属性（用于旧式游戏差异）。
+    pub fn property_at_filtered(
+        &self,
+        struct_name: &str,
+        mut index: usize,
+        skip: &[&str],
+    ) -> Option<(&PropSchema, usize)> {
+        let mut chain = Vec::new();
+        let mut current = Some(struct_name);
+        while let Some(name) = current {
+            let Some(schema) = self.structs.get(name) else {
+                if chain.is_empty() {
+                    return None;
+                }
+                break;
+            };
+            chain.push(schema);
+            current = schema.super_name.as_deref();
+        }
+        for schema in chain {
+            let mut props = schema
+                .props
+                .iter()
+                .filter(|property| !skip.contains(&property.name.as_str()))
+                .collect::<Vec<_>>();
+            props.sort_by_key(|property| property.schema_index);
+            let slots = props
+                .iter()
+                .map(|property| property.array_size.max(1) as usize)
+                .sum::<usize>();
+            if index < slots {
+                let mut remaining = index;
+                for property in props {
+                    let size = property.array_size.max(1) as usize;
+                    if remaining < size {
+                        return Some((property, remaining));
+                    }
+                    remaining -= size;
+                }
+            }
+            index -= slots;
+        }
+        None
+    }
+
     /// 按类层级解析一个属性槽位。
     pub fn property_at(&self, struct_name: &str, mut index: usize) -> Option<(&PropSchema, usize)> {
         let mut chain = Vec::new();

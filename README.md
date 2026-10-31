@@ -54,7 +54,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - ISO 虚拟光驱：Lumark 文件列表和资源管理器右键菜单都提供“加载至虚拟光驱/卸载虚拟光驱”；挂载成功后自动打开盘符，使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`。客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。资源管理器菜单位于 `HKCU\Software\Classes\SystemFileAssociations\.iso\shell`，升级后需要重新运行安装脚本或 `Lumark.exe --register-shell`。
 - 单实例多窗口：首个进程创建命名管道和互斥体，后续进程优先通过命名管道转发参数（失败回退请求目录）；每个文件生成独立窗口，窗口之间共享设置和密码库、各自保留浏览状态，关闭全部窗口后退出进程。
 - 内置查看器：文本/十六进制按内容自动选择，支持编辑器保存和归档条目写回；exe/dll 等 PE 文件默认作为只读归档浏览，按节和 `.rsrc` 资源目录展开，图标资源重建为 `.ico`，可解压节/资源并用内置查看器或图片查看器打开，右键“运行”才交给系统执行；图片查看器支持 PNG/JPEG/GIF/WebP/SVG/BMP/TIFF/ICO 等常见格式（实际解码能力取决于 GPUI `Img` 与 image 特性），支持适应窗口、100%、缩放和滚动平移。归档条目先解压到临时目录再打开，临时文件沿用现有查看器生命周期。
-- 游戏资产：Windows 主界面提供游戏库、游戏目录扫描、AES 密钥提取/手动校验、Oodle 与 `.usmap` 配置；可同时打开多个游戏，侧栏标签切换，每个游戏保留独立浏览位置和历史，打开列表在重启后自动恢复；IoStore/PAK 只读浏览复用现有文件表，支持 UTexture2D（BC1/BC3/BC4/BC5/BC7/BGRA8/RGBA8/G8）、StaticMesh 多 LOD（查看器可切换）、SkeletalMesh 首个 LOD rest pose（含参考骨骼叠加、蒙皮权重、LBS 蒙皮变换与查看器动画播放/暂停）、Skeleton 参考骨骼、AnimSequence 元数据（轨道/压缩流）/PerTrack 解码与时间轴及模型/骨骼查看器窗口。仅 Windows 展示入口；无版本属性需要映射文件，BNB 映射已随游戏目录提供并自动发现，纹理/模型/骨骼/动画已实机验收。实现边界见 [`docs/game-assets.md`](docs/game-assets.md)。
+- 游戏资产：Windows 主界面提供游戏库、游戏目录扫描、AES 密钥提取/手动校验、Oodle 与 `.usmap` 配置；可同时打开多个游戏，侧栏标签切换，每个游戏保留独立浏览位置和历史，打开列表在重启后自动恢复；IoStore/PAK 只读浏览复用现有文件表，支持 UTexture2D（BC1/BC3/BC4/BC5/BC7/BGRA8/RGBA8/G8）、StaticMesh/SkeletalMesh 多 LOD 与查看器切换（含逐 LOD 蒙皮权重、LBS 蒙皮变换、动画播放/暂停、section/材质切换）、Skeleton 参考骨骼（含 FF7R 内嵌骨架探测）、AnimSequence 元数据/PerTrack 解码与时间轴、Zen/FF7R 只读字段行。仅 Windows 展示入口；无版本属性需要映射文件，BNB 映射已随游戏目录提供并自动发现，纹理/模型/骨骼/动画已实机验收。使用说明与实现边界见 [`docs/game-assets.md`](docs/game-assets.md)。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
 
 ### 格式支持矩阵

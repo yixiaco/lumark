@@ -6,7 +6,8 @@ use crate::i18n::tr;
 use lumark_archive::{ArchiveService, ExtractionOptions, IoStoreContainer};
 use lumark_unreal::{
     AssetKind, AssetMetadata, LegacyPackage, Mappings, PropValue, ZenScriptObjects,
-    is_legacy_package, parse_legacy_summary, parse_package, read_legacy_texture,
+    is_legacy_package, parse_legacy_summary, parse_package, read_legacy_skeletal_mesh_geometry,
+    read_legacy_skeletal_mesh_summary, read_legacy_skeleton, read_legacy_texture,
     render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
 };
 use uuid::Uuid;
@@ -35,6 +36,8 @@ pub(super) enum UePreviewResult {
         skeleton: Option<lumark_unreal::Skeleton>,
         /// SkeletalMesh 对应的逐 LOD 蒙皮权重。
         skins: Vec<Option<lumark_unreal::SkinWeights>>,
+        /// 只读字段行（无版本属性）。
+        rows: Vec<(String, String)>,
     },
     /// 已渲染的骨骼线条图。
     Skeleton {
@@ -42,6 +45,8 @@ pub(super) enum UePreviewResult {
         name: String,
         subtitle: String,
         skeleton: lumark_unreal::Skeleton,
+        /// 只读字段行（无版本属性）。
+        rows: Vec<(String, String)>,
     },
     /// 可展示的资产元数据。
     Metadata {
@@ -116,6 +121,134 @@ pub(super) fn load_ue_asset_preview(
                     )
                 },
                 rows: legacy_property_rows(&data, uexp, mappings_path),
+            };
+        }
+        if let (Some(uexp), Some(mappings_path)) = (&uexp, mappings_path)
+            && let Ok(package) = LegacyPackage::parse(&data, uexp)
+            && package
+                .exports()
+                .first()
+                .is_some_and(|export| export.class_name == "Skeleton")
+            && let Ok(mappings) = Mappings::parse_file(mappings_path)
+            && let Ok(skeleton) = read_legacy_skeleton(&package, 0, &mappings)
+        {
+            let rgba = render_skeleton_orbit(&skeleton, 480, 360, 35.0, 25.0, 1.0);
+            if let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) {
+                if let Some(parent) = output.parent()
+                    && let Err(error) = std::fs::create_dir_all(parent)
+                {
+                    return UePreviewResult::Error(error.to_string());
+                }
+                if let Err(error) = image.save(output) {
+                    return UePreviewResult::Error(error.to_string());
+                }
+                return UePreviewResult::Skeleton {
+                    path: output.to_path_buf(),
+                    name: skeleton.name.clone(),
+                    subtitle: format!("Skeleton · {} 根参考骨骼", skeleton.bones.len()),
+                    rows: legacy_property_rows(&data, uexp, Some(mappings_path)),
+                    skeleton,
+                };
+            }
+        }
+        if let (Some(uexp), Some(mappings_path)) = (&uexp, mappings_path)
+            && let Ok(package) = LegacyPackage::parse(&data, uexp)
+            && package
+                .exports()
+                .first()
+                .is_some_and(|export| export.class_name == "SkeletalMesh")
+            && let Ok(mappings) = Mappings::parse_file(mappings_path)
+        {
+            if let Ok(geometry) = read_legacy_skeletal_mesh_geometry(&package, 0, &mappings) {
+                let rgba = render_skeletal_mesh_orbit(
+                    &geometry.mesh,
+                    &geometry.skeleton,
+                    480,
+                    360,
+                    35.0,
+                    25.0,
+                    1.0,
+                );
+                if let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) {
+                    if let Some(parent) = output.parent()
+                        && let Err(error) = std::fs::create_dir_all(parent)
+                    {
+                        return UePreviewResult::Error(error.to_string());
+                    }
+                    if let Err(error) = image.save(output) {
+                        return UePreviewResult::Error(error.to_string());
+                    }
+                    let subtitle = format!(
+                        "SkeletalMesh · {} 根参考骨骼 · {} LOD · {} section · {} 顶点 · {} 三角形",
+                        geometry.skeleton.bones.len(),
+                        geometry.lod_count,
+                        geometry.section_count,
+                        geometry.mesh.positions.len(),
+                        geometry.mesh.triangle_count()
+                    );
+                    return UePreviewResult::Model {
+                        path: output.to_path_buf(),
+                        name: parse_legacy_summary(&data)
+                            .map(|summary| summary.export_name)
+                            .unwrap_or_else(|_| "SkeletalMesh".to_string()),
+                        subtitle,
+                        lods: vec![geometry.mesh.clone()],
+                        mesh: geometry.mesh,
+                        skeleton: Some(geometry.skeleton),
+                        skins: vec![geometry.skin],
+                        rows: legacy_property_rows(&data, uexp, Some(mappings_path)),
+                    };
+                }
+            }
+            if let Ok(summary) = read_legacy_skeletal_mesh_summary(&package, 0, &mappings) {
+                let skeleton = summary.skeleton;
+                let rgba = render_skeleton_orbit(&skeleton, 480, 360, 35.0, 25.0, 1.0);
+                if let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) {
+                    if let Some(parent) = output.parent()
+                        && let Err(error) = std::fs::create_dir_all(parent)
+                    {
+                        return UePreviewResult::Error(error.to_string());
+                    }
+                    if let Err(error) = image.save(output) {
+                        return UePreviewResult::Error(error.to_string());
+                    }
+                    let sections = summary.section_counts.first().copied().unwrap_or_default();
+                    return UePreviewResult::Skeleton {
+                        path: output.to_path_buf(),
+                        name: skeleton.name.clone(),
+                        subtitle: format!(
+                            "SkeletalMesh · {} 根参考骨骼 · {} LOD · {} section",
+                            skeleton.bones.len(),
+                            summary.lod_count,
+                            sections
+                        ),
+                        rows: legacy_property_rows(&data, uexp, Some(mappings_path)),
+                        skeleton,
+                    };
+                }
+            }
+        }
+        if let (Some(uexp), Some(mappings_path)) = (&uexp, mappings_path)
+            && let Ok(package) = LegacyPackage::parse(&data, uexp)
+            && let Some(export) = package
+                .exports()
+                .first()
+                .filter(|export| export.class_name == "AnimSequence")
+            && let Ok(mappings) = Mappings::parse_file(mappings_path)
+            && let Ok(properties) = package.read_export_properties(0, &mappings)
+        {
+            let timeline_seconds = properties.properties.iter().find_map(|(name, value)| {
+                match (name.as_str(), value) {
+                    ("SequenceLength", PropValue::Float(seconds)) => Some(*seconds as f32),
+                    _ => None,
+                }
+            });
+            return UePreviewResult::Metadata {
+                name: export.name.clone(),
+                class_name: export.class_name.clone(),
+                rows: legacy_property_rows(&data, uexp, Some(mappings_path)),
+                timeline_seconds,
+                animation: None,
             };
         }
         if let Ok(summary) = parse_legacy_summary(&data) {
@@ -267,13 +400,26 @@ fn load_ue_asset_from_package(
                 lods: mesh.lods,
                 skeleton: None,
                 skins: Vec::new(),
+                rows: zen_property_rows(&package, primary, &mappings),
             };
         }
         if matches!(export.class_name.as_str(), "Skeleton" | "SkeletalMesh") {
             let preview = if export.class_name == "Skeleton" {
-                package
-                    .read_skeleton(primary, &mappings)
-                    .map(|skeleton| (skeleton, 0, 0, 0, 0, 0, None, None, Vec::new(), Vec::new()))
+                package.read_skeleton(primary, &mappings).map(|skeleton| {
+                    (
+                        skeleton,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        None,
+                        None,
+                        Vec::new(),
+                        Vec::new(),
+                        Vec::new(),
+                    )
+                })
             } else {
                 package
                     .read_skeletal_mesh_preview(primary, &mappings, ubulk.as_deref())
@@ -289,6 +435,7 @@ fn load_ue_asset_from_package(
                             preview.skin,
                             preview.lods,
                             preview.lod_skins,
+                            preview.material_names,
                         )
                     })
             };
@@ -303,6 +450,7 @@ fn load_ue_asset_from_package(
                 skin,
                 lods,
                 skins,
+                material_names,
             )) = preview
             {
                 let mut subtitle = format!(
@@ -314,6 +462,17 @@ fn load_ue_asset_from_package(
                     subtitle.push_str(&format!(
                         " · {lod_count} LOD · {material_slots} 材质 · {lod_sections} section"
                     ));
+                    if !material_names.is_empty() {
+                        subtitle.push_str(&format!(
+                            " · 材质 {}",
+                            material_names
+                                .iter()
+                                .take(4)
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ));
+                    }
                     if lod_vertices > 0 {
                         subtitle
                             .push_str(&format!(" · {lod_vertices} 顶点 · {lod_triangles} 三角形"));
@@ -347,6 +506,7 @@ fn load_ue_asset_from_package(
                         lods,
                         skeleton: Some(skeleton),
                         skins,
+                        rows: zen_property_rows(&package, primary, &mappings),
                     };
                 }
                 let rgba = render_skeleton_orbit(&skeleton, 480, 360, 35.0, 25.0, 1.0);
@@ -366,6 +526,7 @@ fn load_ue_asset_from_package(
                     name: export.name.clone(),
                     subtitle,
                     skeleton,
+                    rows: zen_property_rows(&package, primary, &mappings),
                 };
             }
         }
@@ -377,6 +538,8 @@ fn load_ue_asset_from_package(
             _ => None,
         };
         let rows = metadata.rows();
+        let mut rows = rows;
+        rows.extend(zen_property_rows(&package, primary, &mappings));
         let name = export.name.clone();
         let class_name = export.class_name.clone();
         let animation = if class_name == "AnimSequence" {
@@ -423,8 +586,25 @@ fn load_ue_asset_from_package(
             "{} · {}×{}",
             texture.pixel_format, texture.width, texture.height
         ),
-        rows: Vec::new(),
+        rows: zen_property_rows(&package, texture_index, &mappings),
     }
+}
+
+/// 读取 Zen 导出的无版本属性并格式化为详情行。
+fn zen_property_rows(
+    package: &lumark_unreal::UnrealPackage,
+    export_index: usize,
+    mappings: &Mappings,
+) -> Vec<(String, String)> {
+    let Ok(properties) = package.read_export_properties(export_index, mappings) else {
+        return Vec::new();
+    };
+    properties
+        .properties
+        .iter()
+        .take(40)
+        .map(|(name, value)| (name.clone(), format_prop_value(value)))
+        .collect()
 }
 
 /// 资产读取结果：包字节、`.ubulk` 侧载和脚本对象。
@@ -535,8 +715,18 @@ fn legacy_property_rows(
     rows
 }
 
-/// 属性值转成一行可读文本。
+/// 属性值转成一行可读文本；小型 struct/数组展开到下一层。
 fn format_prop_value(value: &PropValue) -> String {
+    let text = format_prop_value_at(value, 0);
+    if text.chars().count() > 160 {
+        format!("{}…", text.chars().take(160).collect::<String>())
+    } else {
+        text
+    }
+}
+
+/// 递归格式化属性值；深度超过 2 后只显示数量。
+fn format_prop_value_at(value: &PropValue, depth: usize) -> String {
     match value {
         PropValue::Int(value) => value.to_string(),
         PropValue::UInt(value) => value.to_string(),
@@ -544,215 +734,65 @@ fn format_prop_value(value: &PropValue) -> String {
         PropValue::Bool(value) => value.to_string(),
         PropValue::Name(value) | PropValue::String(value) => value.clone(),
         PropValue::Object(index) => format!("Object({index})"),
-        PropValue::Array(values) | PropValue::Set(values) => format!("[{} 项]", values.len()),
-        PropValue::Map(values) => format!("{{{} 项}}", values.len()),
-        PropValue::Struct(fields) => format!("{{{} 字段}}", fields.len()),
+        PropValue::Array(values) | PropValue::Set(values) => {
+            if depth >= 2 || values.is_empty() {
+                return format!("[{} 项]", values.len());
+            }
+            let shown = values
+                .iter()
+                .take(4)
+                .map(|value| format_prop_value_at(value, depth + 1))
+                .collect::<Vec<_>>();
+            let suffix = if values.len() > shown.len() {
+                format!(" …+{}", values.len() - shown.len())
+            } else {
+                String::new()
+            };
+            format!("[{}]", shown.join(", ") + &suffix)
+        }
+        PropValue::Map(values) => {
+            if depth >= 2 || values.is_empty() {
+                return format!("{{{} 项}}", values.len());
+            }
+            let shown = values
+                .iter()
+                .take(3)
+                .map(|(key, value)| {
+                    format!(
+                        "{}: {}",
+                        format_prop_value_at(key, depth + 1),
+                        format_prop_value_at(value, depth + 1)
+                    )
+                })
+                .collect::<Vec<_>>();
+            let suffix = if values.len() > shown.len() {
+                format!(" …+{}", values.len() - shown.len())
+            } else {
+                String::new()
+            };
+            format!("{{{}}}", shown.join(", ") + &suffix)
+        }
+        PropValue::Struct(fields) => {
+            if depth >= 2 || fields.is_empty() {
+                return format!("{{{} 字段}}", fields.len());
+            }
+            let shown = fields
+                .iter()
+                .take(6)
+                .map(|(name, value)| format!("{name}={}", format_prop_value_at(value, depth + 1)))
+                .collect::<Vec<_>>();
+            let suffix = if fields.len() > shown.len() {
+                format!(" …+{}", fields.len() - shown.len())
+            } else {
+                String::new()
+            };
+            format!("{{{}}}", shown.join(", ") + &suffix)
+        }
         PropValue::Zero => "0".to_string(),
         PropValue::Other => "<原始值>".to_string(),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use lumark_archive::{ArchiveFormat, CompressionOptions};
-
-    /// 使用 CUE4Parse UE5.8 fixture 验证完整纹理预览链路。
-    ///
-    /// 需要把 `LUMARK_UE_FIXTURE_ROOT` 指向 `CUE4Parse.Tests/Fixtures/UE5_8`；
-    /// 未配置时跳过，避免测试依赖外部仓库。
-    #[test]
-    fn loads_fixture_assets_when_available() {
-        let Ok(root) = std::env::var("LUMARK_UE_FIXTURE_ROOT") else {
-            return;
-        };
-        let base = std::path::PathBuf::from(root);
-        let toc = base.join(
-            "IoStore/Unversioned/Uncompressed/CUE4ParseFixtures-Minimal-Uncompressed-Windows.utoc",
-        );
-        let global = base.join("IoStore/Unversioned/global.utoc");
-        let mapping = base.join("Mappings/CUE4ParseFixtures-Uncompressed.usmap");
-        if !toc.is_file() || !global.is_file() || !mapping.is_file() {
-            return;
-        }
-        let temp = tempfile::tempdir().expect("temp dir");
-        let output = temp.path().join("preview.png");
-        let result = load_ue_asset_preview(
-            &toc,
-            &global,
-            "CUE4ParseFixtures/Content/Fixtures/Textures/T_BC1.uasset",
-            Some(&mapping),
-            None,
-            None,
-            &output,
-        );
-        match result {
-            UePreviewResult::Texture {
-                path,
-                name,
-                subtitle,
-                ..
-            } => {
-                assert_eq!(name, "T_BC1");
-                assert!(subtitle.contains("PF_DXT1"));
-                assert!(path.is_file());
-            }
-            _ => panic!("fixture texture preview failed"),
-        }
-
-        // 未选择映射时仍展示包级元数据，而不是直接失败。
-        match load_ue_asset_preview(
-            &toc,
-            &global,
-            "CUE4ParseFixtures/Content/Fixtures/Textures/T_BC1.uasset",
-            None,
-            None,
-            None,
-            &temp.path().join("metadata.png"),
-        ) {
-            UePreviewResult::Metadata {
-                class_name, rows, ..
-            } => {
-                assert_eq!(class_name, "Texture2D");
-                assert!(rows.iter().any(|(label, _)| label == "包"));
-            }
-            _ => panic!("fixture no-mapping metadata failed"),
-        }
-
-        // 普通 PAK（ZIP 容器）中的同一 Zen 包也应能预览。
-        let package_bytes = IoStoreContainer::open(&toc, None)
-            .expect("fixture container")
-            .read_file("CUE4ParseFixtures/Content/Fixtures/Textures/T_BC1.uasset")
-            .expect("fixture texture entry");
-        let source_dir = temp.path().join("pak-source");
-        std::fs::create_dir_all(&source_dir).expect("pak source dir");
-        let source = source_dir.join("T_BC1.uasset");
-        std::fs::write(&source, &package_bytes).expect("write texture package");
-        let pak = temp.path().join("fixture.pak");
-        ArchiveService::create(
-            &pak,
-            &[source],
-            &CompressionOptions {
-                format: ArchiveFormat::Zip,
-                ..Default::default()
-            },
-            |_| {},
-        )
-        .expect("create fixture pak");
-        let pak_output = temp.path().join("pak-preview.png");
-        match load_ue_asset_preview(
-            &pak,
-            &global,
-            "T_BC1.uasset",
-            Some(&mapping),
-            None,
-            None,
-            &pak_output,
-        ) {
-            UePreviewResult::Texture { name, path, .. } => {
-                assert_eq!(name, "T_BC1");
-                assert!(path.is_file());
-            }
-            _ => panic!("fixture pak texture preview failed"),
-        }
-
-        let model = load_ue_asset_preview(
-            &toc,
-            &global,
-            "CUE4ParseFixtures/Content/Fixtures/Meshes/SM_Fixture.uasset",
-            Some(&mapping),
-            None,
-            None,
-            &temp.path().join("model.png"),
-        );
-        match model {
-            UePreviewResult::Model {
-                path,
-                name,
-                subtitle,
-                ..
-            } => {
-                assert_eq!(name, "SM_Fixture");
-                assert!(subtitle.contains("6 顶点"));
-                assert!(subtitle.contains("2 三角形"));
-                assert!(path.is_file());
-            }
-            _ => panic!("fixture static mesh preview failed"),
-        }
-
-        let skeleton = load_ue_asset_preview(
-            &toc,
-            &global,
-            "CUE4ParseFixtures/Content/Fixtures/Animations/SKEL_Fixture.uasset",
-            Some(&mapping),
-            None,
-            None,
-            &temp.path().join("skeleton.png"),
-        );
-        match skeleton {
-            UePreviewResult::Skeleton {
-                path,
-                subtitle,
-                skeleton,
-                ..
-            } => {
-                assert_eq!(skeleton.bones.len(), 3);
-                assert!(subtitle.contains("3 根参考骨骼"));
-                assert!(path.is_file());
-            }
-            _ => panic!("fixture skeleton preview failed"),
-        }
-
-        let animation = load_ue_asset_preview(
-            &toc,
-            &global,
-            "CUE4ParseFixtures/Content/Fixtures/Animations/AS_Fixture.uasset",
-            Some(&mapping),
-            None,
-            None,
-            &temp.path().join("animation.png"),
-        );
-        match animation {
-            UePreviewResult::Metadata {
-                class_name,
-                timeline_seconds,
-                ..
-            } => {
-                assert_eq!(class_name, "AnimSequence");
-                assert!(timeline_seconds.is_some_and(|length| (length - 1.0).abs() < 1.0e-4));
-            }
-            _ => panic!("fixture animation metadata failed"),
-        }
-
-        let skeletal = load_ue_asset_preview(
-            &toc,
-            &global,
-            "CUE4ParseFixtures/Content/Fixtures/Meshes/SK_Fixture.uasset",
-            Some(&mapping),
-            None,
-            None,
-            &temp.path().join("skeletal.png"),
-        );
-        match skeletal {
-            UePreviewResult::Model {
-                path,
-                subtitle,
-                mesh,
-                skeleton,
-                ..
-            } => {
-                assert_eq!(mesh.positions.len(), 6);
-                assert!(mesh.triangle_count() > 0);
-                assert!(!mesh.sections.is_empty(), "SkeletalMesh section palette");
-                assert!(
-                    skeleton.is_some_and(|skeleton| skeleton.bones.len() == 3),
-                    "SkeletalMesh 参考骨骼应随模型预览返回"
-                );
-                assert!(subtitle.contains("SkeletalMesh"));
-                assert!(subtitle.contains("6 顶点"), "subtitle={subtitle}");
-                assert!(path.is_file());
-            }
-            _ => panic!("fixture skeletal mesh geometry preview failed"),
-        }
-    }
-}
+#[path = "preview_ue_tests.rs"]
+mod tests;

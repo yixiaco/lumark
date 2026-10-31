@@ -17,11 +17,13 @@ pub use package::legacy::{
     parse_legacy_summary, read_legacy_property_header, read_legacy_texture,
 };
 pub use package::{
-    AnimSequenceData, AssetKind, AssetMetadata, Bone, BulkDataEntry, Mappings, MeshLod,
-    MeshSection, PackageError, PackageExport, PackageInfo, PropSchema, PropType, PropValue,
-    SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, StaticMesh, StructSchema,
-    Texture2D, TextureMip, TrackPose, UnrealPackage, UnversionedProperties, ZenScriptObjects,
-    parse_package, read_anim_sequence, read_asset_metadata,
+    AnimSequenceData, AssetKind, AssetMetadata, Bone, BulkDataEntry, LegacySkeletalMeshGeometry,
+    LegacySkeletalMeshSummary, Mappings, MeshLod, MeshSection, PackageError, PackageExport,
+    PackageInfo, PropSchema, PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats,
+    SkinWeights, StaticMesh, StructSchema, Texture2D, TextureMip, TrackPose, UnrealPackage,
+    UnversionedProperties, ZenScriptObjects, parse_package, read_anim_sequence,
+    read_asset_metadata, read_legacy_skeletal_mesh_geometry, read_legacy_skeletal_mesh_skeleton,
+    read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
 };
 pub use raster::{
     render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh, render_static_mesh_orbit,

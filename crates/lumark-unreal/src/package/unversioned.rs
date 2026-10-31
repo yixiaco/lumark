@@ -55,7 +55,7 @@ pub fn read_properties(
     mappings: &Mappings,
     class_name: &str,
 ) -> Result<UnversionedProperties, PackageError> {
-    read_properties_with(data, names, mappings, class_name, true)
+    read_properties_with(data, names, mappings, class_name, true, false)
 }
 
 /// 从旧式 UE4 导出数据起点读取无版本属性。
@@ -67,7 +67,11 @@ pub fn read_properties_legacy(
     mappings: &Mappings,
     class_name: &str,
 ) -> Result<UnversionedProperties, PackageError> {
-    read_properties_with(data, names, mappings, class_name, false)
+    read_properties_with(data, names, mappings, class_name, false, false).or_else(|_| {
+        // FF7R 4.18 的 AnimSequence 比映射少了少量属性（如
+        // BakedPerBoneCustomAttributeData/Notifies），正常读取失败时再按兼容布局重试。
+        read_properties_with(data, names, mappings, class_name, false, true)
+    })
 }
 
 /// 按标量精度读取无版本属性。
@@ -77,6 +81,7 @@ fn read_properties_with(
     mappings: &Mappings,
     class_name: &str,
     wide_scalars: bool,
+    legacy_anim_override: bool,
 ) -> Result<UnversionedProperties, PackageError> {
     if mappings.find(class_name).is_none() {
         return Err(PackageError::Unsupported(format!(
@@ -89,6 +94,7 @@ fn read_properties_with(
         names,
         mappings,
         wide_scalars,
+        legacy_anim_override,
     };
     let properties = reader.read_unversioned_struct(class_name)?;
     Ok(UnversionedProperties {
@@ -118,6 +124,8 @@ struct PropertyReader<'a> {
     mappings: &'a Mappings,
     /// UE5 LWC 标量（Vector 等使用 64 位浮点）。
     wide_scalars: bool,
+    /// 旧式 AnimSequence 的类布局可能比映射少若干属性。
+    legacy_anim_override: bool,
 }
 
 impl<'a> PropertyReader<'a> {
@@ -312,14 +320,23 @@ impl<'a> PropertyReader<'a> {
             index += fragment.skip;
             for _ in 0..fragment.values {
                 let is_zero = fragment.has_zeroes && zeroes.next().unwrap_or(false);
-                let (schema, element) =
-                    self.mappings
-                        .property_at(struct_name, index)
-                        .ok_or_else(|| {
-                            PackageError::Unsupported(format!(
-                                "{struct_name} 的属性槽位 {index} 不在映射中"
-                            ))
-                        })?;
+                let resolved = if self.legacy_anim_override && struct_name == "AnimSequence" {
+                    self.mappings.property_at_filtered(
+                        struct_name,
+                        index,
+                        &["BakedPerBoneCustomAttributeData", "Notifies"],
+                    )
+                } else {
+                    self.mappings.property_at(struct_name, index)
+                };
+                let Some((schema, element)) = resolved else {
+                    if self.legacy_anim_override && struct_name == "AnimSequence" {
+                        break;
+                    }
+                    return Err(PackageError::Unsupported(format!(
+                        "{struct_name} 的属性槽位 {index} 不在映射中"
+                    )));
+                };
                 let key = if element > 0 {
                     format!("{}[{element}]", schema.name)
                 } else {
@@ -329,7 +346,10 @@ impl<'a> PropertyReader<'a> {
                     zero_value(&schema.ty)
                 } else {
                     self.read_value(&schema.ty).map_err(|error| {
-                        PackageError::Invalid(format!("{struct_name}.{}：{error}", schema.name))
+                        PackageError::Invalid(format!(
+                            "{struct_name}.{} (@{}): {error}",
+                            schema.name, self.position
+                        ))
                     })?
                 };
                 properties.push((key, value));
@@ -659,5 +679,50 @@ fn zero_value(ty: &PropType) -> PropValue {
             _ => PropValue::Zero,
         },
         _ => PropValue::Zero,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::package::mappings::{PropSchema, StructSchema};
+
+    /// FF7R/UE4.18 的旧式布尔可能写成任意非零字节；非零即视为 true。
+    #[test]
+    fn accepts_non_zero_legacy_bool() {
+        let mut structs = HashMap::new();
+        structs.insert(
+            "TestClass".to_string(),
+            StructSchema {
+                super_name: None,
+                prop_count: 2,
+                props: vec![
+                    PropSchema {
+                        name: "Flag".to_string(),
+                        schema_index: 0,
+                        array_size: 1,
+                        ty: PropType::Bool,
+                    },
+                    PropSchema {
+                        name: "Count".to_string(),
+                        schema_index: 1,
+                        array_size: 1,
+                        ty: PropType::Int,
+                    },
+                ],
+            },
+        );
+        let mappings = Mappings {
+            structs,
+            enums: HashMap::new(),
+        };
+        // 一个 fragment：跳过 0 个槽位、包含 2 个值，并且是最后一个。
+        let data = [0x00, 0x05, 0x81, 0x01, 0x00, 0x00, 0x00];
+        let properties = read_properties(&data, &[], &mappings, "TestClass").expect("属性");
+        assert_eq!(properties.bytes_read, 7);
+        assert_eq!(properties.properties[0].1, PropValue::Bool(true));
+        assert_eq!(properties.properties[1].1, PropValue::Int(1));
     }
 }
