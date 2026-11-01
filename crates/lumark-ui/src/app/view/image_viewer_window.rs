@@ -527,11 +527,9 @@ impl LumarkApp {
         let size = std::fs::metadata(&target)
             .map(|metadata| metadata.len())
             .unwrap_or(0);
-        let name = target
-            .file_name()
-            .and_then(|value| value.to_str())
-            .map(ToString::to_string)
-            .unwrap_or_else(|| display.clone());
+        // 生成型预览（纹理/材质球等）的临时 PNG 文件名没有意义，优先使用
+        // 调用方传入的资产显示名。
+        let name = viewer_display_name(&display, &target);
         let window_size = gpui_kit::size(px(1000.), px(760.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
@@ -570,6 +568,19 @@ impl LumarkApp {
             Err(error) => self.status = format!("无法打开图片查看器：{error}"),
         }
     }
+}
+
+/// 图片查看器标题使用的显示名：优先资产名，其次文件名。
+fn viewer_display_name(display: &str, target: &std::path::Path) -> String {
+    let display = display.trim();
+    if !display.is_empty() {
+        return display.to_string();
+    }
+    target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| tr("图片", "Image").to_string())
 }
 
 /// 读取图片格式与像素尺寸，并在解码前执行内存上限检查。
@@ -905,4 +916,15 @@ fn rotates_image_file_both_directions() {
     let (half, width, height) = rotate_image_file(&source, 2).expect("180°");
     assert_eq!((width, height), (2, 3));
     let _ = std::fs::remove_file(half);
+}
+
+/// 生成型预览使用资产显示名，而不是临时文件名。
+#[test]
+fn viewer_display_name_prefers_asset_name() {
+    let temporary = std::path::Path::new("C:/tmp/ue-1234.png");
+    assert_eq!(
+        viewer_display_name("MAT-ChickenA", temporary),
+        "MAT-ChickenA"
+    );
+    assert_eq!(viewer_display_name("  ", temporary), "ue-1234.png");
 }
