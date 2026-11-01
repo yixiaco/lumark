@@ -56,7 +56,32 @@ impl DetailsPreview {
 
 impl LumarkApp {
     /// 在渲染前同步选中条目和预览状态，必要时启动后台解压。
+    ///
+    /// 预览解析结果同时携带查看器场景数据（网格/骨骼/材质）；渲染期间会
+    /// 重新同步预览，若预览 key 未变则恢复这些缓存，避免双击时退回图片查看器。
     pub(crate) fn sync_details_preview(&mut self, cx: &mut Context<Self>) {
+        let cached_key = self
+            .details_preview
+            .as_ref()
+            .map(|preview| preview.key().to_string());
+        let cached_mesh = self.details_mesh.take();
+        let cached_skeleton = self.details_skeleton.take();
+        let cached_material = self.details_material.take();
+        self.sync_details_preview_inner(cx);
+        if self
+            .details_preview
+            .as_ref()
+            .map(|preview| preview.key().to_string())
+            == cached_key
+        {
+            self.details_mesh = cached_mesh;
+            self.details_skeleton = cached_skeleton;
+            self.details_material = cached_material;
+        }
+    }
+
+    /// 重新同步详情预览的内部实现。
+    fn sync_details_preview_inner(&mut self, cx: &mut Context<Self>) {
         self.clear_stale_pending_asset_viewer();
         let Some(entry) = self.selected_entry() else {
             self.details_preview = None;

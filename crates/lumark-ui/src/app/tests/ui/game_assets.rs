@@ -1,4 +1,4 @@
-﻿//! 游戏资产工作区和详情图片预览的真实窗口测试。
+//! 游戏资产工作区和详情图片预览的真实窗口测试。
 
 use super::*;
 
@@ -703,6 +703,53 @@ fn game_library_remove_requires_confirmation(cx: &mut gpui_kit::TestAppContext) 
         assert!(app.settings.get().games.is_empty(), "确认后应移除游戏记录");
         assert!(app.game_session.is_none(), "移除当前游戏应关闭会话");
         assert!(app.game_library, "移除后仍停留在游戏库列表");
+    });
+    let _ = app;
+}
+
+/// 预览已缓存时再次同步预览不应丢失查看器场景数据（否则双击会退回图片查看器）。
+#[gpui_kit::test]
+fn cached_preview_keeps_viewer_scene_data(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 255]))
+        .save(directory.path().join("photo.png"))
+        .unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|_window, cx| {
+        app.update(cx, |app, cx| {
+            let entry = app
+                .displayed_entries()
+                .into_iter()
+                .find(|entry| entry.name == "photo.png")
+                .expect("应包含 photo.png");
+            app.browser.selection.select_only(&entry.id);
+            app.sync_details_preview(cx);
+            assert!(matches!(
+                app.details_preview,
+                Some(crate::app::view::DetailsPreview::Ready { .. })
+            ));
+            app.details_material = Some(lumark_unreal::MaterialViewerData {
+                appearance: lumark_unreal::MaterialAppearance::default(),
+                base_color: None,
+                normal: None,
+                metallic_roughness: None,
+            });
+            // 模拟渲染期间的再次同步：预览 key 未变，查看器数据应保留。
+            app.sync_details_preview(cx);
+            assert!(
+                app.details_material.is_some(),
+                "缓存预览不应丢失材质查看器数据"
+            );
+        });
     });
     let _ = app;
 }
