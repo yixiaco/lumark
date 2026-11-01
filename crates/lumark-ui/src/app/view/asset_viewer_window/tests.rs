@@ -367,3 +367,34 @@ fn viewer_renders_animation_timeline_with_real_fixture(cx: &mut gpui_kit::TestAp
         window.draw(cx).clear(cx);
     });
 }
+
+/// 材质场景会渲染近似 PBR 材质球，拖拽旋转后重绘出新画面。
+#[test]
+fn viewer_renders_material_scene_and_orbits() {
+    let viewer = lumark_unreal::MaterialViewerData {
+        appearance: lumark_unreal::MaterialAppearance::default(),
+        base_color: lumark_unreal::MaterialViewerImage::new(
+            [180, 90, 40, 255].repeat(16),
+            4,
+            4,
+            512,
+        ),
+        normal: None,
+        metallic_roughness: None,
+    };
+    let mut view =
+        AssetViewerWindowView::new("MAT_Teapot".to_string(), ViewerScene::Material { viewer });
+    assert!(view.error.is_none());
+    assert!(view.image_path.is_file());
+    let before = std::fs::read(&view.image_path).expect("读取材质球图片");
+    view.yaw = 150.0;
+    view.pitch = 10.0;
+    view.render_preview();
+    assert!(view.error.is_none());
+    let after = std::fs::read(&view.image_path).expect("读取旋转后的材质球图片");
+    assert_ne!(before, after, "旋转后应重绘材质球");
+    assert_eq!(
+        (view.scene_mesh().is_none(), view.static_lods().is_none()),
+        (true, true)
+    );
+}

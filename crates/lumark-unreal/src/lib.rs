@@ -19,16 +19,17 @@ pub use package::legacy::{
 pub use package::{
     AnimSequenceData, AssetKind, AssetMetadata, Bone, BulkDataEntry, LegacySkeletalMeshGeometry,
     LegacySkeletalMeshSummary, Mappings, MaterialAppearance, MaterialTextureKind,
-    MaterialTextureRef, MeshLod, MeshSection, PackageError, PackageExport, PackageInfo, PropSchema,
-    PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, StaticMesh,
-    StructSchema, Texture2D, TextureMip, TrackPose, UnrealPackage, UnversionedProperties,
-    ZenScriptObjects, is_material_class, material_parent_package, parse_package,
-    read_anim_sequence, read_asset_metadata, read_legacy_anim_sequence,
-    read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
+    MaterialTextureRef, MaterialViewerData, MaterialViewerImage, MeshLod, MeshSection,
+    PackageError, PackageExport, PackageInfo, PropSchema, PropType, PropValue, SkeletalMeshPreview,
+    Skeleton, SkinWeightStats, SkinWeights, StaticMesh, StructSchema, Texture2D, TextureMip,
+    TrackPose, UnrealPackage, UnversionedProperties, ZenScriptObjects, is_material_class,
+    material_parent_package, parse_package, read_anim_sequence, read_asset_metadata,
+    read_legacy_anim_sequence, read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
     read_zen_material_appearance, texture_references,
 };
 pub use raster::{
-    MaterialPreviewTexture, render_material_ball, render_skeletal_mesh_orbit,
-    render_skeleton_orbit, render_static_mesh, render_static_mesh_orbit,
+    MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,
+    render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
+    render_static_mesh_orbit,
 };

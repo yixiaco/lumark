@@ -31,6 +31,11 @@ pub(crate) enum ViewerScene {
         /// 可播放的压缩动画
         animation: Option<Box<lumark_unreal::AnimSequenceData>>,
     },
+    /// 交互式近似 PBR 材质球
+    Material {
+        /// 材质查看器数据
+        viewer: lumark_unreal::MaterialViewerData,
+    },
 }
 
 /// 当前拖动状态
@@ -172,6 +177,37 @@ impl AssetViewerWindowView {
             ViewerScene::Skeleton(skeleton) => lumark_unreal::render_skeleton_orbit(
                 skeleton, 900, 600, self.yaw, self.pitch, self.zoom,
             ),
+            ViewerScene::Material { viewer } => {
+                let ball = lumark_unreal::render_material_ball_orbit(
+                    &viewer.appearance,
+                    viewer.base_color.as_ref().map(|texture| {
+                        lumark_unreal::MaterialPreviewTexture::new(
+                            &texture.rgba,
+                            texture.width,
+                            texture.height,
+                        )
+                    }),
+                    viewer.normal.as_ref().map(|texture| {
+                        lumark_unreal::MaterialPreviewTexture::new(
+                            &texture.rgba,
+                            texture.width,
+                            texture.height,
+                        )
+                    }),
+                    viewer.metallic_roughness.as_ref().map(|texture| {
+                        lumark_unreal::MaterialPreviewTexture::new(
+                            &texture.rgba,
+                            texture.width,
+                            texture.height,
+                        )
+                    }),
+                    self.yaw,
+                    self.pitch,
+                    self.zoom,
+                    600,
+                );
+                compose_square_canvas(&ball, 600, 900, 600)
+            }
             ViewerScene::SkeletalMesh {
                 lods,
                 skeleton,
@@ -260,6 +296,7 @@ impl AssetViewerWindowView {
             ViewerScene::Mesh { .. } => tr("模型查看器", "Model viewer"),
             ViewerScene::Skeleton(_) => tr("骨骼查看器", "Skeleton viewer"),
             ViewerScene::SkeletalMesh { .. } => tr("骨骼网格查看器", "Skeletal mesh viewer"),
+            ViewerScene::Material { .. } => tr("材质查看器", "Material viewer"),
         }
     }
 
@@ -308,6 +345,7 @@ impl AssetViewerWindowView {
             ViewerScene::SkeletalMesh { lods, .. } => {
                 lods.get(self.lod_index).or_else(|| lods.first())
             }
+            ViewerScene::Material { .. } => None,
         }
     }
 
@@ -748,6 +786,22 @@ impl AssetViewerWindowView {
                         None => tr("无 LOD", "No LOD").to_string(),
                     }
                 }
+                ViewerScene::Material { viewer } => {
+                    let textures = [
+                        viewer.base_color.is_some(),
+                        viewer.normal.is_some(),
+                        viewer.metallic_roughness.is_some(),
+                    ]
+                    .into_iter()
+                    .filter(|present| *present)
+                    .count();
+                    format!(
+                        "{} · {} {}",
+                        tr("近似 PBR 材质球", "Approximate PBR material ball"),
+                        textures,
+                        tr("张贴图", "textures")
+                    )
+                }
             })
             .child(tr("左键拖拽旋转", "Drag to orbit").to_string())
             .child(format!("{}%", this_zoom_percent(self.zoom)))
@@ -811,9 +865,31 @@ fn filter_sections(mesh: &MeshLod, hidden: &[bool]) -> MeshLod {
     }
 }
 
+/// 把正方形材质球画面放到查看器画布中央，两侧用材质球背景色填充。
+fn compose_square_canvas(square: &[u8], square_size: u32, width: usize, height: usize) -> Vec<u8> {
+    let background = [24u8, 27, 33, 255];
+    let mut canvas = vec![0u8; width * height * 4];
+    for pixel in canvas.as_chunks_mut::<4>().0 {
+        pixel.copy_from_slice(&background);
+    }
+    let square_size = square_size as usize;
+    let offset_x = width.saturating_sub(square_size) / 2;
+    let offset_y = height.saturating_sub(square_size) / 2;
+    for y in 0..square_size.min(height.saturating_sub(offset_y)) {
+        let source_start = y * square_size * 4;
+        let source_end = source_start + square_size.min(width.saturating_sub(offset_x)) * 4;
+        let target_start = ((y + offset_y) * width + offset_x) * 4;
+        let target_end = target_start + (source_end - source_start);
+        canvas[target_start..target_end].copy_from_slice(&square[source_start..source_end]);
+    }
+    canvas
+}
 impl LumarkApp {
     /// 根据详情面板缓存选择查看器场景
     pub(crate) fn details_viewer_scene(&self) -> Option<ViewerScene> {
+        if let Some(viewer) = self.details_material.clone() {
+            return Some(ViewerScene::Material { viewer });
+        }
         match (self.details_mesh.clone(), self.details_skeleton.clone()) {
             (Some(mesh), Some(skeleton)) => Some(ViewerScene::SkeletalMesh {
                 lods: if self.details_lods.is_empty() {
@@ -849,11 +925,13 @@ impl LumarkApp {
             ViewerScene::Mesh { .. } => "模型查看器 - Lumark",
             ViewerScene::Skeleton(_) => "骨骼查看器 - Lumark",
             ViewerScene::SkeletalMesh { .. } => "骨骼网格查看器 - Lumark",
+            ViewerScene::Material { .. } => "材质查看器 - Lumark",
         };
         let display_kind = match scene {
             ViewerScene::Mesh { .. } => "模型",
             ViewerScene::Skeleton(_) => "骨骼",
             ViewerScene::SkeletalMesh { .. } => "骨骼网格",
+            ViewerScene::Material { .. } => "材质",
         };
         let window_size = gpui_kit::size(px(960.), px(720.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();

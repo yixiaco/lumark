@@ -1,4 +1,4 @@
-﻿//! 材质外观近似：从旧式材质/材质实例中提取可用的 PBR 参数和贴图引用。
+//! 材质外观近似：从旧式材质/材质实例中提取可用的 PBR 参数和贴图引用。
 //!
 //! cooked 材质不包含可直接还原的 shader，但旧式包仍保留材质表达式对象和
 //! 导入表：这里从中提取矢量/标量参数默认值、父材质和贴图引用，供 CPU 渲染
@@ -517,6 +517,75 @@ fn is_roughness_name(name: Option<&str>) -> bool {
     })
 }
 
+/// 材质查看器使用的一张 RGBA8 贴图（已限制尺寸）。
+#[derive(Debug, Clone)]
+pub struct MaterialViewerImage {
+    /// RGBA8 像素。
+    pub rgba: Vec<u8>,
+    /// 像素宽度。
+    pub width: u32,
+    /// 像素高度。
+    pub height: u32,
+}
+
+impl MaterialViewerImage {
+    /// 从 RGBA8 数据创建查看器贴图；超过 `max_size` 时按最近邻缩放。
+    pub fn new(rgba: Vec<u8>, width: u32, height: u32, max_size: u32) -> Option<Self> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let max_size = max_size.max(16);
+        if rgba.len() < (width as usize) * (height as usize) * 4 {
+            return None;
+        }
+        let mut image = Self {
+            rgba,
+            width,
+            height,
+        };
+        if image.width.max(image.height) > max_size {
+            image = image.downsample(max_size)?;
+        }
+        Some(image)
+    }
+
+    /// 最近邻缩放，避免贴图在查看器中占用过多内存。
+    fn downsample(&self, max_size: u32) -> Option<Self> {
+        let scale = max_size as f32 / self.width.max(self.height) as f32;
+        let width = ((self.width as f32 * scale).round()).max(1.0) as u32;
+        let height = ((self.height as f32 * scale).round()).max(1.0) as u32;
+        let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+        for y in 0..height {
+            let source_y = (y as f32 * self.height as f32 / height as f32) as u32;
+            for x in 0..width {
+                let source_x = (x as f32 * self.width as f32 / width as f32) as u32;
+                let source = ((source_y.min(self.height - 1) * self.width
+                    + source_x.min(self.width - 1))
+                    * 4) as usize;
+                let target = ((y * width + x) * 4) as usize;
+                rgba[target..target + 4].copy_from_slice(&self.rgba[source..source + 4]);
+            }
+        }
+        Some(Self {
+            rgba,
+            width,
+            height,
+        })
+    }
+}
+
+/// 交互式材质查看器所需的数据：近似外观参数 + 已抽样的贴图。
+#[derive(Debug, Clone)]
+pub struct MaterialViewerData {
+    /// 近似 PBR 外观参数。
+    pub appearance: MaterialAppearance,
+    /// 基础色贴图。
+    pub base_color: Option<MaterialViewerImage>,
+    /// 法线贴图。
+    pub normal: Option<MaterialViewerImage>,
+    /// 金属/粗糙度贴图。
+    pub metallic_roughness: Option<MaterialViewerImage>,
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -577,4 +646,14 @@ mod tests {
             Some("T_Hero_D")
         );
     }
+}
+
+/// 材质查看器贴图超过上限时按最近邻缩小。
+#[test]
+fn downsamples_material_viewer_image() {
+    let rgba = vec![128u8; 32 * 32 * 4];
+    let image = MaterialViewerImage::new(rgba, 32, 32, 16).expect("创建查看器贴图");
+    assert_eq!((image.width, image.height), (16, 16));
+    assert_eq!(image.rgba.len(), 16 * 16 * 4);
+    assert!(MaterialViewerImage::new(vec![0; 3], 8, 8, 16).is_none());
 }

@@ -1,4 +1,4 @@
-﻿//! Unreal 包解析入口：名称表、脚本对象和 UE5 Zen 包。
+//! Unreal 包解析入口：名称表、脚本对象和 UE5 Zen 包。
 //!
 //! 当前里程碑先提供包级元数据（导出对象、类、数据范围）和脚本对象解析，
 //! 供资产查看器逐步接入；UE4.27 的旧式 `uasset` 读取器会和纹理/网格
@@ -311,8 +311,9 @@ pub use legacy_skeleton::{
 };
 pub use mappings::{Mappings, PropSchema, PropType, StructSchema};
 pub use material::{
-    MaterialAppearance, MaterialTextureKind, MaterialTextureRef, material_parent_package,
-    read_legacy_material_appearance, read_zen_material_appearance, texture_references,
+    MaterialAppearance, MaterialTextureKind, MaterialTextureRef, MaterialViewerData,
+    MaterialViewerImage, material_parent_package, read_legacy_material_appearance,
+    read_zen_material_appearance, texture_references,
 };
 pub use mesh::{MeshLod, MeshSection, StaticMesh, read_static_mesh};
 pub use script_objects::{ScriptObject, ZenScriptObjects};

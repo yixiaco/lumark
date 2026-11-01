@@ -62,10 +62,12 @@ impl LumarkApp {
             self.details_preview = None;
             self.details_mesh = None;
             self.details_skeleton = None;
+            self.details_material = None;
             return;
         };
         self.details_mesh = None;
         self.details_skeleton = None;
+        self.details_material = None;
         if !entry.is_dir
             && self.game_session.is_some()
             && is_ue_package_name(&entry.name)
@@ -282,12 +284,6 @@ impl LumarkApp {
                         name,
                         subtitle,
                         rows,
-                    }
-                    | UePreviewResult::Material {
-                        path,
-                        name,
-                        subtitle,
-                        rows,
                     } => DetailsPreview::Ready {
                         key,
                         path,
@@ -295,6 +291,22 @@ impl LumarkApp {
                         subtitle: Some(subtitle),
                         rows,
                     },
+                    UePreviewResult::Material {
+                        path,
+                        name,
+                        subtitle,
+                        rows,
+                        viewer,
+                    } => {
+                        app.details_material = viewer;
+                        DetailsPreview::Ready {
+                            key,
+                            path,
+                            name,
+                            subtitle: Some(subtitle),
+                            rows,
+                        }
+                    }
                     UePreviewResult::Other { name, class_name } => DetailsPreview::Unavailable {
                         key,
                         message: format!(

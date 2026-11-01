@@ -428,3 +428,108 @@ fn image_viewer_opens_exif_rotated_image(cx: &mut gpui_kit::TestAppContext) {
     .unwrap();
     let _ = app;
 }
+
+/// 图片查看器可以手动旋转并在重置后恢复。
+#[gpui_kit::test]
+fn image_viewer_rotates_and_resets(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let file = directory.path().join("rotated.png");
+    let mut image = image::RgbaImage::new(2, 3);
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        *pixel = image::Rgba([(x * 100) as u8, (y * 60) as u8, 40, 255]);
+    }
+    image.save(&file).unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_image_viewer(file.clone(), "rotated.png".to_string(), window, cx);
+        });
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "应打开图片查看器窗口");
+    let viewer = *windows.last().unwrap();
+    cx.run_until_parked();
+    cx.update_window(viewer, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("image-rotate-right", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(viewer, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("image-rotation").visible(),
+            "旋转后状态栏应显示旋转角度"
+        );
+        window.click("image-reset", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(viewer, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(
+            window.try_find("image-rotation").is_none(),
+            "重置后应恢复未旋转状态"
+        );
+    })
+    .unwrap();
+    let _ = app;
+}
+
+/// 材质预览应打开独立的材质查看器（可拖拽旋转），而不是静态图片查看器。
+#[gpui_kit::test]
+fn material_viewer_opens_dedicated_window(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    let viewer = lumark_unreal::MaterialViewerData {
+        appearance: lumark_unreal::MaterialAppearance::default(),
+        base_color: None,
+        normal: None,
+        metallic_roughness: None,
+    };
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_asset_viewer(
+                crate::app::view::ViewerScene::Material { viewer },
+                "MAT_Teapot".to_string(),
+                window,
+                cx,
+            );
+        });
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "应打开独立的材质查看器窗口");
+    let handle = *windows.last().unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("model-reset").visible() && window.find("model-zoom-in").visible(),
+            "材质查看器应渲染交互式查看器工具栏"
+        );
+        assert!(
+            window.try_find("image-fit").is_none(),
+            "材质不应打开静态图片查看器"
+        );
+    })
+    .unwrap();
+    let _ = app;
+}

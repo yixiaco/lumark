@@ -1,4 +1,4 @@
-﻿//! 轻量 CPU 光栅器：把首个 LOD 渲染成 RGBA 缩略图。
+//! 轻量 CPU 光栅器：把首个 LOD 渲染成 RGBA 缩略图。
 //!
 //! 固定三等轴相机、正交投影、Z-buffer 和简单方向光；用于详情面板/资产
 //! 查看器的静态预览。真正的轨道相机和交互放入 UI 层。
@@ -83,13 +83,44 @@ pub fn render_material_ball(
     metallic_roughness_texture: Option<MaterialPreviewTexture<'_>>,
     size: u32,
 ) -> Vec<u8> {
+    render_material_ball_orbit(
+        appearance,
+        base_color_texture,
+        normal_texture,
+        metallic_roughness_texture,
+        0.0,
+        0.0,
+        1.0,
+        size,
+    )
+}
+
+/// 用近似 PBR 参数渲染可绕球体旋转的材质球（交互式材质查看器）。
+///
+/// `yaw`/`pitch` 是相机绕球体旋转的角度（度），`zoom` 缩放球体；光线和
+/// 视线保持世界空间固定，因此转动时能观察到真实的明暗变化。
+#[allow(clippy::too_many_arguments)]
+pub fn render_material_ball_orbit(
+    appearance: &MaterialAppearance,
+    base_color_texture: Option<MaterialPreviewTexture<'_>>,
+    normal_texture: Option<MaterialPreviewTexture<'_>>,
+    metallic_roughness_texture: Option<MaterialPreviewTexture<'_>>,
+    yaw: f32,
+    pitch: f32,
+    zoom: f32,
+    size: u32,
+) -> Vec<u8> {
     let size = size.max(16);
     let mut pixels = vec![0u8; (size * size * 4) as usize];
     let center = size as f32 * 0.5;
-    let radius = size as f32 * 0.42;
+    let radius = (size as f32 * 0.42 * zoom.clamp(0.2, 6.0)).min(size as f32 * 2.0);
+    let camera_yaw = yaw.to_radians();
+    let camera_pitch = pitch.to_radians();
     let light = normalize3([-0.42, 0.5, 0.76]);
-    let view = [0.0f32, 0.0, 1.0];
+    let view = world_from_camera([0.0, 0.0, 1.0], camera_yaw, camera_pitch);
     let half = normalize3([light[0] + view[0], light[1] + view[1], light[2] + view[2]]);
+    let right = world_from_camera([1.0, 0.0, 0.0], camera_yaw, camera_pitch);
+    let up = world_from_camera([0.0, 1.0, 0.0], camera_yaw, camera_pitch);
     for y in 0..size {
         for x in 0..size {
             let fx = (x as f32 + 0.5 - center) / radius;
@@ -116,7 +147,11 @@ pub fn render_material_ball(
                 pixels[offset + 3] = 255;
                 continue;
             }
-            let mut normal = [fx, fy, (1.0 - fx * fx - fy * fy).max(0.0).sqrt()];
+            let mut normal = normalize3(world_from_camera(
+                [fx, fy, (1.0 - fx * fx - fy * fy).max(0.0).sqrt()],
+                camera_yaw,
+                camera_pitch,
+            ));
             // 球面 UV：u 沿赤道，v 沿极轴。
             let u = 0.5 + normal[0].atan2(normal[2]) / std::f32::consts::TAU;
             let v = 0.5 - normal[1].asin() / std::f32::consts::PI;
@@ -143,10 +178,11 @@ pub fn render_material_ball(
             if let Some(texture) = normal_texture {
                 let sample = texture.sample(u, v);
                 let tangent = [sample[0] * 2.0 - 1.0, sample[1] * 2.0 - 1.0];
-                normal[0] = (normal[0] + tangent[0] * 0.55).clamp(-1.0, 1.0);
-                normal[1] = (normal[1] + tangent[1] * 0.55).clamp(-1.0, 1.0);
-                let length = (normal[0] * normal[0] + normal[1] * normal[1] + 1.0).sqrt();
-                normal = [normal[0] / length, normal[1] / length, 1.0 / length];
+                for channel in 0..3 {
+                    normal[channel] +=
+                        (right[channel] * tangent[0] + up[channel] * tangent[1]) * 0.55;
+                }
+                normal = normalize3(normal);
             }
             let ndotl = dot3(normal, light).max(0.0);
             let ndoth = dot3(normal, half).max(0.0);
@@ -180,6 +216,19 @@ pub fn render_material_ball(
         }
     }
     pixels
+}
+
+/// 把相机空间的向量转换到世界空间（相机绕球体 yaw/pitch 旋转的逆变换）。
+fn world_from_camera(value: [f32; 3], yaw: f32, pitch: f32) -> [f32; 3] {
+    // R = Ry(yaw) * Rx(pitch)，世界向量 = R^T * 相机向量。
+    let yaw = -yaw;
+    let (sin_yaw, cos_yaw) = yaw.sin_cos();
+    let (sin_pitch, cos_pitch) = (-pitch).sin_cos();
+    let x = value[0] * cos_yaw + value[2] * sin_yaw;
+    let z = -value[0] * sin_yaw + value[2] * cos_yaw;
+    let y = value[1] * cos_pitch - z * sin_pitch;
+    let z = value[1] * sin_pitch + z * cos_pitch;
+    [x, y, z]
 }
 
 /// 三维向量点积。
@@ -851,4 +900,27 @@ mod material_tests {
         assert!(red > 20, "应采样到红色区域");
         assert!(blue > 20, "应采样到蓝色区域");
     }
+}
+
+/// 交互式材质查看器：相机旋转后材质球画面应变化。
+#[test]
+fn renders_orbit_material_ball() {
+    let texture = [
+        255u8, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 255, 255, 0, 0, 255,
+    ];
+    let appearance = MaterialAppearance::default();
+    let base = MaterialPreviewTexture::new(&texture, 2, 2);
+    let front = render_material_ball_orbit(&appearance, Some(base), None, None, 0.0, 0.0, 1.0, 96);
+    let side = render_material_ball_orbit(
+        &appearance,
+        Some(MaterialPreviewTexture::new(&texture, 2, 2)),
+        None,
+        None,
+        140.0,
+        10.0,
+        1.0,
+        96,
+    );
+    assert_eq!(front.len(), 96 * 96 * 4);
+    assert_ne!(front, side, "旋转相机后材质球应重绘");
 }

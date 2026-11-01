@@ -1,4 +1,4 @@
-﻿//! 应用状态、启动参数和窗口生命周期。
+//! 应用状态、启动参数和窗口生命周期。
 //!
 //! 文件与归档动作、界面视图、主题应用和自动化测试分别位于 `actions`、
 //! `view`、`theme` 和 `tests` 子模块；这里只保留跨模块共享的状态定义、
@@ -357,6 +357,8 @@ pub struct LumarkApp {
     details_skins: Vec<Option<lumark_unreal::SkinWeights>>,
     details_animation: Option<lumark_unreal::AnimSequenceData>,
     details_skeleton: Option<lumark_unreal::Skeleton>,
+    /// 材质详情预览对应的交互式查看器数据。
+    details_material: Option<lumark_unreal::MaterialViewerData>,
     /// 等详情预览完成后自动打开的资产查看器请求。
     pending_asset_viewer: Option<PendingAssetViewer>,
 }
@@ -652,6 +654,7 @@ impl LumarkApp {
             details_skins: Vec::new(),
             details_animation: None,
             details_skeleton: None,
+            details_material: None,
             pending_asset_viewer: None,
         };
         set_input(

@@ -31,6 +31,8 @@ pub(super) enum UePreviewResult {
         subtitle: String,
         /// 材质依赖、字段与外观参数说明。
         rows: Vec<(String, String)>,
+        /// 交互式材质查看器数据。
+        viewer: Option<lumark_unreal::MaterialViewerData>,
     },
     /// 可识别但不是纹理的资产。
     Other { name: String, class_name: String },
@@ -317,6 +319,7 @@ pub(super) fn load_ue_asset_preview(
                     name: export.name.clone(),
                     subtitle: tr("近似 PBR 材质球", "Approximate PBR material ball").to_string(),
                     rows,
+                    viewer: Some(rendered.viewer),
                 };
             }
             return UePreviewResult::Metadata {
@@ -429,6 +432,7 @@ pub(super) fn load_ue_asset_preview(
                 name,
                 subtitle: tr("近似 PBR 材质球", "Approximate PBR material ball").to_string(),
                 rows,
+                viewer: Some(rendered.viewer),
             };
         }
         rows.push((

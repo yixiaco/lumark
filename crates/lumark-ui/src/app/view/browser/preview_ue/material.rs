@@ -186,6 +186,33 @@ pub(super) struct RenderedMaterialPreview {
     pub appearance: MaterialAppearance,
     /// 已加载的贴图用途与名称。
     pub textures: Vec<(String, String)>,
+    /// 交互式材质查看器数据。
+    pub viewer: lumark_unreal::MaterialViewerData,
+}
+
+/// 构建交互式材质查看器数据（贴图最大 512 像素）。
+fn viewer_data(
+    appearance: &MaterialAppearance,
+    base: Option<&PreviewTexture>,
+    normal: Option<&PreviewTexture>,
+    orm: Option<&PreviewTexture>,
+) -> lumark_unreal::MaterialViewerData {
+    let image = |texture: Option<&PreviewTexture>| {
+        texture.and_then(|texture| {
+            lumark_unreal::MaterialViewerImage::new(
+                texture.rgba.clone(),
+                texture.width,
+                texture.height,
+                512,
+            )
+        })
+    };
+    lumark_unreal::MaterialViewerData {
+        appearance: appearance.clone(),
+        base_color: image(base),
+        normal: image(normal),
+        metallic_roughness: image(orm),
+    }
 }
 
 /// 读取旧式材质并渲染近似 PBR 材质球到 `output`。
@@ -272,10 +299,17 @@ pub(super) fn load_legacy_material_preview(
             }
         }
     }
+    let viewer = viewer_data(
+        &appearance,
+        base_texture.as_ref(),
+        normal_texture.as_ref(),
+        orm_texture.as_ref(),
+    );
     Some(RenderedMaterialPreview {
         path: output.to_path_buf(),
         appearance,
         textures,
+        viewer,
     })
 }
 
@@ -443,10 +477,17 @@ pub(super) fn load_zen_material_preview(
         return None;
     }
     image.save(output).ok()?;
+    let viewer = viewer_data(
+        &appearance,
+        base_texture.as_ref().map(|texture| &texture.texture),
+        normal_texture.as_ref().map(|texture| &texture.texture),
+        orm_texture.as_ref().map(|texture| &texture.texture),
+    );
     Some(RenderedMaterialPreview {
         path: output.to_path_buf(),
         appearance,
         textures,
+        viewer,
     })
 }
 

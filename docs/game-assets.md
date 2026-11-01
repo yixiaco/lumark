@@ -30,7 +30,7 @@
   BGRA8/RGBA8/G8 解码；详情面板后台生成缩略图并支持点击进入图片查看器。
 - **资产元数据**：Skeleton 参考骨骼树（名称/父索引/参考姿态）、AnimSequence 的时长和
   RateScale、StaticMesh 材质槽/插槽；在详情面板展示。
-- **材质外观渲染**：FF7R 旧式材质/材质实例会在详情面板渲染近似 PBR 材质球：从材质表达式提取矢量/标量参数默认值，读取父材质补齐材质实例参数，按名称识别基础色/法线/金属粗糙度贴图并从同一容器加载解码，CPU 光栅器生成 512×512 材质球（含方向光、高光、法线扰动）。FF7R `M_UE4Man_Body`/`M_UE4Man_ChestLogo` 已生成可辨认的皮肤色+法线细节材质球；UE5/IoStore（BNB）材质同样渲染材质球：从 `VectorParameterValues`/`ScalarParameterValues`/`TextureParameterValues` 提取参数，按同目录命名约定定位贴图（`MAT-ChickenA` 验证羽毛贴图+法线细节）；完整 shader 图不复原。
+- **材质外观渲染**：FF7R 旧式材质/材质实例会在详情面板渲染近似 PBR 材质球：从材质表达式提取矢量/标量参数默认值，读取父材质补齐材质实例参数，按名称识别基础色/法线/金属粗糙度贴图并从同一容器加载解码，CPU 光栅器生成 512×512 材质球（含方向光、高光、法线扰动）。详情面板中的材质球可点击打开**独立的材质查看器**（与模型/骨骼查看器共用交互式窗口）：左键拖拽绕球旋转、缩放/重置，旋转时按世界空间固定光照重绘，静态图片仍由图片查看器打开。FF7R `M_UE4Man_Body`/`M_UE4Man_ChestLogo` 已生成可辨认的皮肤色+法线细节材质球；UE5/IoStore（BNB）材质同样渲染材质球：从 `VectorParameterValues`/`ScalarParameterValues`/`TextureParameterValues` 提取参数，按同目录命名约定定位贴图（`MAT-ChickenA` 验证羽毛贴图+法线细节）；完整 shader 图不复原。
 
 - **StaticMesh 预览**：首个 LOD 的顶点/索引/section 解析，并识别资产声明的 LOD 数量；
   CPU 光栅器生成 3D 缩略图显示在详情面板；独立模型查看器窗口支持左键轨道旋转、缩放和

@@ -42,6 +42,12 @@ pub(crate) struct ImageViewerWindowView {
     error: Option<String>,
     fit: bool,
     zoom: f32,
+    /// 用户手动旋转的 90° 次数（0–3）。
+    rotation: u8,
+    /// 是否正在后台旋转图片。
+    rotating: bool,
+    /// 旋转失败等提示。
+    notice: Option<String>,
 }
 
 impl Drop for ImageViewerWindowView {
@@ -96,6 +102,9 @@ impl ImageViewerWindowView {
             error: None,
             fit: true,
             zoom: 1.0,
+            rotation: 0,
+            rotating: false,
+            notice: None,
         }
     }
 
@@ -117,6 +126,57 @@ impl ImageViewerWindowView {
         self.fit = false;
         self.zoom = zoom.clamp(0.05, 16.0);
         cx.notify();
+    }
+
+    /// 在后台旋转图片（`delta` 为正表示顺时针），完成后替换临时图片。
+    fn rotate(&mut self, delta: i32, cx: &mut Context<Self>) {
+        if self
+            .meta
+            .as_ref()
+            .is_some_and(|meta| meta.animated || meta.vector)
+        {
+            self.notice = Some(
+                tr(
+                    "动画或矢量图片不支持旋转",
+                    "Animated or vector images cannot be rotated",
+                )
+                .to_string(),
+            );
+            cx.notify();
+            return;
+        }
+        if self.rotating || delta == 0 {
+            return;
+        }
+        self.rotating = true;
+        self.notice = None;
+        let source = self.display_path.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { rotate_image_file(&source, delta) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.rotating = false;
+                match result {
+                    Ok((path, width, height)) => {
+                        if let Some(previous) = this.temporary.take() {
+                            let _ = std::fs::remove_file(previous);
+                        }
+                        this.display_path = path.clone();
+                        this.temporary = Some(path);
+                        this.rotation = ((this.rotation as i32 + delta).rem_euclid(4)) as u8;
+                        if let Some(meta) = this.meta.as_mut() {
+                            meta.width = width;
+                            meta.height = height;
+                        }
+                    }
+                    Err(error) => this.notice = Some(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 渲染标题栏。
@@ -216,6 +276,22 @@ impl ImageViewerWindowView {
                     })),
             )
             .child(
+                button("image-rotate-left")
+                    .ghost()
+                    .label(tr("左转", "Rotate left"))
+                    .tooltip(tr("向左旋转 90°", "Rotate left 90°"))
+                    .accessibility_label(tr("向左旋转", "Rotate left"))
+                    .on_click(cx.listener(|this, _, _, cx| this.rotate(-1, cx))),
+            )
+            .child(
+                button("image-rotate-right")
+                    .ghost()
+                    .label(tr("右转", "Rotate right"))
+                    .tooltip(tr("向右旋转 90°", "Rotate right 90°"))
+                    .accessibility_label(tr("向右旋转", "Rotate right"))
+                    .on_click(cx.listener(|this, _, _, cx| this.rotate(1, cx))),
+            )
+            .child(
                 button("image-reset")
                     .ghost()
                     .icon(AppIcon::Refresh.element(13.))
@@ -223,6 +299,10 @@ impl ImageViewerWindowView {
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.fit = true;
                         this.zoom = 1.0;
+                        if this.rotation != 0 {
+                            let delta = -(this.rotation as i32);
+                            this.rotate(delta, cx);
+                        }
                         cx.notify();
                     })),
             )
@@ -369,6 +449,31 @@ impl ImageViewerWindowView {
             )
             .when_some(self.orientation.as_ref(), |this, label| {
                 this.child(Tag::secondary().xsmall().child(label.clone()))
+            })
+            .when(self.rotation != 0 || self.notice.is_some(), |this| {
+                let label = match &self.notice {
+                    Some(notice) => notice.clone(),
+                    None => format!("{} {}°", tr("旋转", "Rotated"), self.rotation as u32 * 90),
+                };
+                this.child(
+                    button("image-rotation")
+                        .ghost()
+                        .xsmall()
+                        .label(label)
+                        .tooltip(tr(
+                            "点击恢复原方向",
+                            "Click to restore the original orientation",
+                        ))
+                        .accessibility_label(tr("恢复图片方向", "Restore image orientation"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if this.rotation != 0 {
+                                let delta = -(this.rotation as i32);
+                                this.rotate(delta, cx);
+                            }
+                            this.notice = None;
+                            cx.notify();
+                        })),
+                )
             })
             .child(format_size(self.size))
             .child(if self.fit {
@@ -534,6 +639,41 @@ fn inspect_image(path: &std::path::Path) -> Result<ImageMeta, String> {
     })
 }
 
+/// 在后台旋转图片并写入新的临时 PNG。
+fn rotate_image_file(
+    source: &std::path::Path,
+    delta: i32,
+) -> Result<(std::path::PathBuf, u32, u32), String> {
+    let mut image = image::ImageReader::open(source)
+        .map_err(|error| format!("{}：{error}", tr("无法打开图片", "Cannot open image")))?
+        .with_guessed_format()
+        .map_err(|error| {
+            format!(
+                "{}：{error}",
+                tr("无法识别图片格式", "Unknown image format")
+            )
+        })?
+        .decode()
+        .map_err(|error| format!("{}：{error}", tr("无法解码图片", "Cannot decode image")))?;
+    let steps = delta.rem_euclid(4);
+    for _ in 0..steps {
+        image = if delta > 0 {
+            image.rotate90()
+        } else {
+            image.rotate270()
+        };
+    }
+    let temporary =
+        std::env::temp_dir().join(format!("lumark-rotate-{}.png", uuid::Uuid::new_v4()));
+    image.save(&temporary).map_err(|error| {
+        format!(
+            "{}：{error}",
+            tr("无法保存旋转结果", "Cannot save rotation")
+        )
+    })?;
+    let (width, height) = image.dimensions();
+    Ok((temporary, width, height))
+}
 /// 图片显示准备结果：元数据、实际绘制路径和 EXIF 方向说明。
 struct PreparedImage {
     meta: ImageMeta,
@@ -744,4 +884,25 @@ mod tests {
         assert_eq!(prepared.display_path, path);
         assert!(prepared.temporary.is_none());
     }
+}
+
+/// 手动旋转能在两个方向生成正确的宽高。
+#[test]
+fn rotates_image_file_both_directions() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("image.png");
+    let mut image = image::RgbaImage::new(2, 3);
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        *pixel = image::Rgba([(x * 100) as u8, (y * 60) as u8, 40, 255]);
+    }
+    image.save(&source).unwrap();
+    let (right, width, height) = rotate_image_file(&source, 1).expect("右转");
+    assert_eq!((width, height), (3, 2));
+    let _ = std::fs::remove_file(right);
+    let (left, width, height) = rotate_image_file(&source, -1).expect("左转");
+    assert_eq!((width, height), (3, 2));
+    let _ = std::fs::remove_file(left);
+    let (half, width, height) = rotate_image_file(&source, 2).expect("180°");
+    assert_eq!((width, height), (2, 3));
+    let _ = std::fs::remove_file(half);
 }

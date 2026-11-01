@@ -1,4 +1,4 @@
-﻿//! 游戏资产动作：扫描目录、保存游戏、提取密钥和打开容器。
+//! 游戏资产动作：扫描目录、保存游戏、提取密钥和打开容器。
 
 use super::super::*;
 use crate::i18n::tr;
@@ -567,6 +567,7 @@ impl LumarkApp {
         self.game_session = None;
         self.details_preview = None;
         self.details_mesh = None;
+        self.details_material = None;
         self.details_skeleton = None;
         if let Some(next) = self.inactive_games.pop() {
             self.game_session = Some(next.session);
@@ -621,6 +622,7 @@ impl LumarkApp {
             self.browser = target.browser;
             self.details_preview = None;
             self.details_mesh = None;
+            self.details_material = None;
             self.details_skeleton = None;
             self.game_setup = None;
             self.screen = Screen::Browser;
@@ -769,6 +771,7 @@ impl LumarkApp {
         self.game_session = Some(session);
         self.details_preview = None;
         self.details_mesh = None;
+        self.details_material = None;
         self.details_skeleton = None;
         self.game_setup = None;
         self.screen = Screen::Browser;

@@ -97,7 +97,7 @@ pub(super) fn render_parent_row(
             this.child(muted_cell(cx, widths.kind, tr("文件夹", "Folder")))
         })
         .on_click(
-            cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {
+            cx.listener(move |this, _event: &gpui_kit::ClickEvent, window, cx| {
                 // 此处就是点击就返回，不要进行点击次数判断
                 this.navigate_up(window, cx);
                 cx.notify();

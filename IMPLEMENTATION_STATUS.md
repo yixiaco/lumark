@@ -45,6 +45,7 @@
 - [x] AnimSequence PerTrackCompression 解码：解析 `CompressedTrackOffsets`/scale offsets/关键帧流，支持 Float96NoW、Fixed48NoW、IntervalFixed32NoW 及帧表索引；`anim_play` 示例按时间采样 42 条轨道并调用 `skinning::skin_mesh_pose` 生成 BNB `SK_Chicken` 动画帧。查看器已接入播放/暂停：先选中 AnimSequence，再打开 SkeletalMesh 查看器即可约 20fps 连续播放。
 - [x] FF7R 旧式 AnimSequence 解码：新增 `legacy_animation::read_legacy_anim_sequence`，按 UE4.18 `FCompressedAnimSequence` 布局用结构特征扫描定位压缩头，解析 ConstantKeyLerp 轨道偏移表、缩放偏移、压缩轨道映射、曲线数据、原始大小与压缩字节流；支持 ACF_None/Float96NoW/Fixed48NoW/Fixed32NoW/IntervalFixed32NoW 及单关键帧无损格式，采样规则对齐 `AnimEncoding::TimeToIndex`。真实 FF7R `ThirdPersonIdle` 验证 68 轨道/80 帧/2.63s，首尾帧 28 条轨道变化。查看器工具栏新增只读时间轴、帧号/时间显示、回到开头、上一帧、下一帧按钮。端到端验证：FF7R `SK_Mannequin`（68 骨骼/23297 顶点/41052 三角形/内置蒙皮）由 `ThirdPersonIdle` 驱动，`skin_mesh_pose` 输出顶点最大位移约 340。
 - [x] 材质外观渲染：`lumark-unreal` 新增 `MaterialAppearance`/`MaterialTextureRef` 与 `read_legacy_material_appearance`，从 `MaterialExpressionVectorParameter`/`ScalarParameter` 默认值提取基础色/金属度/粗糙度，按名称识别基础色/法线/ORM 贴图并解析父材质包；`raster::render_material_ball` 用 CPU 渲染 512×512 近似 PBR 材质球（方向光、高光、法线扰动、软阴影）。UI 在旧式材质/材质实例预览中从同一 PAK 加载父材质与贴图（支持 FF7R 加密 PAK + AES），渲染成功返回新的 `UePreviewResult::Material` 详情预览，展示基础色/金属度/粗糙度/已加载贴图/参数来源；真实 FF7R `M_UE4Man_Body` 与 `M_UE4Man_ChestLogo` 验证渲染出皮肤色+法线细节材质球；UE5/IoStore（BNB）材质新增 `read_zen_material_appearance` 与按同目录命名约定定位贴图的材质球渲染，真实 `MAT-ChickenA` 验证羽毛贴图+法线细节材质球；两者均有可选环境变量测试。
+- [x] 材质/3D 预览分流：详情面板中的材质球点击后打开独立“材质查看器”（与模型/骨骼查看器共用交互式窗口），支持左键拖拽绕球旋转、缩放和重置，旋转时按世界空间固定光照重新渲染；静态图片仍由图片查看器打开。新增轨道材质球渲染 `render_material_ball_orbit`、`MaterialViewerData/MaterialViewerImage`（贴图最大 512 像素）及对应查看器/UI 测试。
 - [x] 材质预览信息：新增 `is_material_class`、`LegacyPackage::resolve_object_name` 与详情面板材质行；`Material`/`MaterialInstance*`/`MaterialFunction`/`MaterialExpression*` 展示材质类、父材质/材质依赖、纹理引用、引用资源包与可解析属性（对象索引解析成导入/导出名称），属性表与映射不一致时给出可读提示；Zen 与旧式包共用同一行格式化逻辑。真实 FF7R `M_UE4Man_ChestLogo` 验证父材质 `M_UE4Man_Body` 与纹理 `UE4Man_Logo_N` 引用可读出（可选环境变量测试）。
 - [x] StaticMesh 几何与多 LOD：各 LOD 的 `FPositionVertexBuffer`、索引、section 和 `FStaticMeshBuffersSize`/附加索引缓冲尾部布局解析；查看器新增 LOD 切换按钮。已用 `SM_Fixture` 验证 6 顶点/2 三角形/2 section；BNB `sm_StoneBlocks_02_02` 的 4 个 LOD 全部成功解析，详情副标题显示 LOD 数量。
 - [x] 内置模型查看器窗口：左键拖拽旋转、工具栏缩放/重置、状态栏顶点/三角形统计；详情面板缩略图或双击 `.uasset` 可打开。
@@ -77,7 +78,7 @@
 - [x] 侧栏和文件表保留专用自定义组合（懒加载目录树、可调列宽表），内部使用官方 Button/Checkbox/Select/Progress/Scrollable 和主题 token；通用 `Sidebar`/`DataTable` 无法直接表达现有树与列宽交互，作为专用数据视图维护。动作带和状态栏已迁移到官方 `Toolbar`/`StatusBar`。
 - [x] 已知限制：ZIPX 的 LZMA 写入受 `zip` crate 限制；当前 ZIPX 创建支持 Deflate/Bzip2/XZ/Zstd/PPMd，LZMA/Deflate64 为只读。
 - [x] RAR5 样本测试：`comment.rar`、`solid.rar`、Unicode 文件名、头加密密码、后续分卷错误路径；样本来源与许可见 `tests/fixtures/rar5/NOTICE.txt`。
-- [x] 图片查看器 EXIF 方向校正：静态图片（JPEG/WebP 等）按 EXIF Orientation 自动旋转/翻转，动图与 SVG 保持原文件；校正结果写入临时 PNG 并在窗口关闭时删除，状态栏显示 EXIF 校正标签。单元测试验证方向 6 生成宽高互换的临时图、无方向时保持原图，并有打开带方向图片的查看器 UI 测试。已知限制：手动旋转、超大图分块解码仍为后续增强；当前在 1 亿像素/512 MiB 前拒绝，避免解码失控。
+- [x] 图片查看器 EXIF 方向校正：静态图片（JPEG/WebP 等）按 EXIF Orientation 自动旋转/翻转，动图与 SVG 保持原文件；校正结果写入临时 PNG 并在窗口关闭时删除，状态栏显示 EXIF 校正标签。单元测试验证方向 6 生成宽高互换的临时图、无方向时保持原图，并有打开带方向图片的查看器 UI 测试；手动旋转（左右 90°）已实现：后台旋转并写入临时图，状态栏显示旋转角度且点击可恢复原方向，重置按钮同时恢复旋转；动画/矢量图不支持旋转。已知限制：超大图分块解码仍为后续增强；当前在 1 亿像素/512 MiB 前拒绝，避免解码失控。
 
 ## 已完成
 
