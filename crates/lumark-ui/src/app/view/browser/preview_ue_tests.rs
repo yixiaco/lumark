@@ -357,8 +357,23 @@ fn renders_real_material_ball_when_fixture_available() {
             &output,
         );
         match result {
-            UePreviewResult::Material { path, rows, .. } => {
+            UePreviewResult::Material {
+                path, rows, viewer, ..
+            } => {
                 assert!(path.is_file(), "{file} 材质球图片应存在");
+                let viewer = viewer.expect("应提供材质查看器数据");
+                if !inherited {
+                    assert!(
+                        viewer.base_color.is_some() || viewer.normal.is_some(),
+                        "皮肤材质应带至少一张贴图"
+                    );
+                }
+                if let Some(base) = &viewer.base_color {
+                    assert!(base.width.max(base.height) <= 512);
+                }
+                if let Some(normal) = &viewer.normal {
+                    assert!(normal.width.max(normal.height) <= 512);
+                }
                 assert!(
                     rows.iter().any(|(key, _)| key == "外观预览"),
                     "{file} 应带外观预览说明：{rows:?}"
@@ -439,8 +454,17 @@ fn renders_real_zen_material_ball_when_fixture_available() {
         &output,
     );
     match result {
-        UePreviewResult::Material { path, rows, .. } => {
+        UePreviewResult::Material {
+            path, rows, viewer, ..
+        } => {
             assert!(path.is_file(), "Zen 材质球图片应存在");
+            let viewer = viewer.expect("应提供材质查看器数据");
+            let base = viewer.base_color.as_ref().expect("Zen 材质应带基础色贴图");
+            assert!(base.width.max(base.height) <= 512);
+            assert!(viewer.normal.is_some(), "Zen 材质应带法线贴图");
+            if let Some(normal) = &viewer.normal {
+                assert!(normal.width.max(normal.height) <= 512);
+            }
             assert!(
                 rows.iter().any(|(key, _)| key == "外观预览"),
                 "应带外观预览说明：{rows:?}"
