@@ -293,3 +293,51 @@ fn locked_vault_auto_extract_requests_unlock(cx: &mut gpui_kit::TestAppContext) 
     });
     let _ = app;
 }
+
+/// 在独立密码编辑窗口输入名称/密码并保存，记录应写入密码库。
+#[gpui_kit::test]
+fn password_editor_window_saves_record(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            vault_path,
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    let handle = cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.vault.unlock("master-pass").unwrap();
+            app.open_password_editor_window(None, window, cx);
+        });
+        app.read(cx).password_editor_window.expect("密码编辑窗口")
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("password-editor-label", cx);
+        window.input("GitHub", cx);
+        window.click("password-editor-value", cx);
+        window.input("gh-secret", cx);
+        window.click("password-editor-pattern", cx);
+        window.input("*.git", cx);
+        window.draw(cx).clear(cx);
+        window.click("password-editor-save", cx);
+    })
+    .unwrap();
+    app.update(cx, |app, _| {
+        assert_eq!(app.vault.entry_count(), 1, "保存后密码库应有一条记录");
+        let entry = &app.vault.entries()[0];
+        assert_eq!(entry.label, "GitHub");
+        assert_eq!(entry.password.expose(), "gh-secret");
+        assert_eq!(entry.archive_pattern.as_deref(), Some("*.git"));
+        assert!(app.password_editor_window.is_none(), "保存后编辑窗口应关闭");
+    });
+    let _ = app;
+}

@@ -7,6 +7,7 @@ use tempfile::tempdir;
 
 mod browser;
 mod compress;
+mod extract;
 mod files;
 mod game_assets;
 mod mail;
