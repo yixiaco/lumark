@@ -413,3 +413,111 @@ fn reset_preferences_keeps_vault_location(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 删除密码记录前必须确认：取消保留记录，确认后删除。
+#[gpui_kit::test]
+fn delete_password_record_requires_confirmation(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
+    });
+    let app = app_slot.expect("测试窗口应创建应用视图");
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.vault.unlock("master-pass").unwrap();
+            let id = app
+                .save_password_entry(None, "确认删除", "secret".to_string(), "*.zip", "测试")
+                .unwrap();
+            app.selected_password = Some(id);
+            app.request_delete_password(window, cx);
+        });
+        window.draw(cx).clear(cx);
+        assert!(window.find("cancel").visible(), "应弹出删除密码确认框");
+        window.click("cancel", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(app.vault.entry_count(), 1, "取消不应删除记录")
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| app.request_delete_password(window, cx));
+        window.draw(cx).clear(cx);
+        assert!(window.find("ok").visible());
+        window.click("ok", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(app.vault.entry_count(), 0, "确认后应删除记录")
+    });
+    let _ = app;
+}
+
+/// 清除密码库前必须确认：取消保留全部记录，确认后清空。
+#[gpui_kit::test]
+fn clear_vault_requires_confirmation(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                vault_path,
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
+    });
+    let app = app_slot.expect("测试窗口应创建应用视图");
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.vault.unlock("master-pass").unwrap();
+            app.save_password_entry(None, "记录一", "one".to_string(), "", "测试")
+                .unwrap();
+            app.save_password_entry(None, "记录二", "two".to_string(), "", "测试")
+                .unwrap();
+            app.request_clear_vault(window, cx);
+        });
+        window.draw(cx).clear(cx);
+        assert!(window.find("cancel").visible(), "应弹出清除密码库确认框");
+        window.click("cancel", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(app.vault.entry_count(), 2, "取消不应清空密码库")
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| app.request_clear_vault(window, cx));
+        window.draw(cx).clear(cx);
+        assert!(window.find("ok").visible());
+        window.click("ok", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(app.vault.entry_count(), 0, "确认后应清空密码库")
+    });
+    let _ = app;
+}
