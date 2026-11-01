@@ -150,3 +150,62 @@ fn task_center_renders_pause_control(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 任务中心“查看”按钮打开进度窗口，并可把窗口转入后台。
+#[gpui_kit::test]
+fn task_center_opens_progress_window(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.screen = Screen::Tasks;
+            app.task_records.push(TaskRecord {
+                id: 42,
+                kind: TaskKind::Compress,
+                label: "测试压缩".to_string(),
+                state: TaskState::Running,
+                progress: TaskProgress {
+                    bytes_done: 25,
+                    bytes_total: 100,
+                    ..Default::default()
+                },
+                message: None,
+            });
+            cx.notify();
+        });
+        window.draw(cx).clear(cx);
+        window.click("task-open-42", cx);
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "应打开独立进度窗口");
+    let handle = *windows.last().unwrap();
+    app.update(cx, |app, _| {
+        assert!(app.progress_windows.contains_key(&42), "应记录进度窗口句柄");
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("progress-background").visible());
+        assert!(window.find("progress-cancel").visible());
+        window.click("progress-background", cx);
+    })
+    .unwrap();
+    assert_eq!(cx.windows().len(), 1, "转入后台后应关闭进度窗口");
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("task-open-42", cx);
+    });
+    assert_eq!(cx.windows().len(), 2, "再次查看应重新打开进度窗口");
+    app.update(cx, |app, _| {
+        assert_eq!(app.task_records.len(), 1, "任务记录仍保留在任务中心");
+    });
+    let _ = app;
+}

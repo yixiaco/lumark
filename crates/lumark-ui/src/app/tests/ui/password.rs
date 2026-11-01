@@ -341,3 +341,57 @@ fn password_editor_window_saves_record(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 主密码窗口可以验证当前主密码并修改为新主密码。
+#[gpui_kit::test]
+fn master_password_window_changes_master(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            vault_path,
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    let handle = cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.vault.unlock("master-pass").unwrap();
+            app.open_master_password_window(window, cx);
+        });
+        app.read(cx).master_password_window.expect("主密码窗口")
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("master-window-current", cx);
+        window.input("master-pass", cx);
+        window.click("master-window-new", cx);
+        window.input("new-master-pass", cx);
+        window.click("master-window-confirm", cx);
+        window.input("new-master-pass", cx);
+        window.draw(cx).clear(cx);
+        window.click("master-window-save", cx);
+    })
+    .unwrap();
+    app.update(cx, |app, _| {
+        assert!(
+            app.master_password_window.is_none(),
+            "保存后应关闭主密码窗口"
+        );
+        app.vault.lock();
+        assert!(
+            app.vault.unlock("master-pass").is_err(),
+            "旧主密码不应再能解锁"
+        );
+        app.vault
+            .unlock("new-master-pass")
+            .expect("新主密码应能解锁");
+    });
+    let _ = app;
+}
