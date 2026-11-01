@@ -39,10 +39,9 @@ pub(super) fn render_parent_tile(cx: &mut Context<LumarkApp>) -> impl IntoElemen
         )
         .on_click(
             cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {
-                if event.click_count() == 1 {
-                    this.navigate_up(window, cx);
-                    cx.notify();
-                }
+                // 此处就是点击就返回，不要进行点击次数判断
+                this.navigate_up(window, cx);
+                cx.notify();
             }),
         )
 }
