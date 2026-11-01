@@ -532,3 +532,87 @@ fn regex_search_filters_files(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 文件表键盘快捷键：Ctrl+A 全选、Esc 清除、F2 重命名、Delete 删除确认。
+#[gpui_kit::test]
+fn browser_keyboard_shortcuts(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("alpha.txt"), b"a").unwrap();
+    std::fs::write(directory.path().join("beta.txt"), b"b").unwrap();
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
+    });
+    let app = app_slot.expect("测试窗口应创建应用视图");
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.browser_focus.focus(window, cx);
+            let entry = app
+                .displayed_entries()
+                .into_iter()
+                .find(|entry| entry.name == "alpha.txt")
+                .expect("应包含 alpha.txt");
+            app.browser.selection.select_only(&entry.id);
+            cx.notify();
+        });
+        window.draw(cx).clear(cx);
+        window.press("ctrl-a", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(
+            app.browser.selection.selected_ids().len(),
+            2,
+            "Ctrl+A 应全选当前目录文件"
+        );
+    });
+    cx.update(|window, cx| {
+        window.press("escape", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert!(
+            app.browser.selection.selected_ids().is_empty(),
+            "Esc 应清除选择"
+        );
+    });
+    cx.update(|window, cx| {
+        for shortcut in ["f2", "delete"] {
+            app.update(cx, |app, cx| {
+                app.browser_focus.focus(window, cx);
+                let entry = app
+                    .displayed_entries()
+                    .into_iter()
+                    .find(|entry| entry.name == "alpha.txt")
+                    .expect("应包含 alpha.txt");
+                app.browser.selection.select_only(&entry.id);
+                cx.notify();
+            });
+            window.press(shortcut, cx);
+            window.draw(cx).clear(cx);
+            if shortcut == "f2" {
+                assert!(
+                    window.find("rename-name").visible(),
+                    "F2 应打开重命名对话框"
+                );
+                window.click("rename-cancel", cx);
+            } else {
+                assert!(window.find("cancel").visible(), "Delete 应打开删除确认框");
+                window.click("cancel", cx);
+            }
+            window.draw(cx).clear(cx);
+        }
+    });
+    let _ = app;
+}
