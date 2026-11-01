@@ -398,3 +398,32 @@ fn viewer_renders_material_scene_and_orbits() {
         (true, true)
     );
 }
+
+/// 材质查看器只显示通用视角操作，不显示蒙皮/LOD 等网格专用按钮。
+#[gpui_kit::test]
+fn material_viewer_toolbar_hides_mesh_controls(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let scene = ViewerScene::Material {
+        viewer: lumark_unreal::MaterialViewerData {
+            appearance: lumark_unreal::MaterialAppearance::default(),
+            base_color: None,
+            normal: None,
+            metallic_roughness: None,
+        },
+    };
+    let (_view, cx) =
+        cx.add_window_view(|_, _| AssetViewerWindowView::new("MAT_Teapot".to_string(), scene));
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("model-reset").visible());
+        assert!(window.find("model-zoom-in").visible());
+        assert!(
+            window.try_find("model-skin-pose").is_none(),
+            "材质查看器不应显示蒙皮演示按钮"
+        );
+        assert!(
+            window.try_find("model-lod").is_none(),
+            "材质查看器不应显示 LOD 按钮"
+        );
+    });
+}

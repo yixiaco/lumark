@@ -357,6 +357,14 @@ impl AssetViewerWindowView {
         }
     }
 
+    /// 当前场景是否包含蒙皮权重（用于显示蒙皮演示按钮）。
+    fn has_skin(&self) -> bool {
+        matches!(
+            &self.scene,
+            ViewerScene::SkeletalMesh { skins, .. } if skins.iter().any(Option::is_some)
+        )
+    }
+
     /// 是否具备可播放动画
     fn has_animation(&self) -> bool {
         let has_animation = matches!(
@@ -366,12 +374,7 @@ impl AssetViewerWindowView {
                 ..
             }
         );
-        let has_skin = matches!(
-            &self.scene,
-            ViewerScene::SkeletalMesh { skins, .. }
-                if skins.iter().any(Option::is_some)
-        );
-        has_animation && has_skin
+        has_animation && self.has_skin()
     }
 
     /// 当前动画时长
@@ -647,7 +650,7 @@ impl AssetViewerWindowView {
                             .child(timeline.label()),
                     )
             }))
-            .child({
+            .when(self.has_skin(), |this| {
                 let mut pose_button = button("model-skin-pose")
                     .ghost()
                     .label(tr("蒙皮演示", "Skin pose"))
@@ -663,7 +666,7 @@ impl AssetViewerWindowView {
                 if self.skin_pose {
                     pose_button = pose_button.primary();
                 }
-                pose_button
+                this.child(pose_button)
             })
             .child(
                 div()
