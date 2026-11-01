@@ -77,7 +77,7 @@
 - [x] 侧栏和文件表保留专用自定义组合（懒加载目录树、可调列宽表），内部使用官方 Button/Checkbox/Select/Progress/Scrollable 和主题 token；通用 `Sidebar`/`DataTable` 无法直接表达现有树与列宽交互，作为专用数据视图维护。动作带和状态栏已迁移到官方 `Toolbar`/`StatusBar`。
 - [x] 已知限制：ZIPX 的 LZMA 写入受 `zip` crate 限制；当前 ZIPX 创建支持 Deflate/Bzip2/XZ/Zstd/PPMd，LZMA/Deflate64 为只读。
 - [x] RAR5 样本测试：`comment.rar`、`solid.rar`、Unicode 文件名、头加密密码、后续分卷错误路径；样本来源与许可见 `tests/fixtures/rar5/NOTICE.txt`。
-- [x] 已知限制：图片查看器保留旋转、EXIF 方向校正和超大图分块解码为后续增强；当前在 1 亿像素/512 MiB 前拒绝，避免解码失控。
+- [x] 图片查看器 EXIF 方向校正：静态图片（JPEG/WebP 等）按 EXIF Orientation 自动旋转/翻转，动图与 SVG 保持原文件；校正结果写入临时 PNG 并在窗口关闭时删除，状态栏显示 EXIF 校正标签。单元测试验证方向 6 生成宽高互换的临时图、无方向时保持原图，并有打开带方向图片的查看器 UI 测试。已知限制：手动旋转、超大图分块解码仍为后续增强；当前在 1 亿像素/512 MiB 前拒绝，避免解码失控。
 
 ## 已完成
 

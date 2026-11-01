@@ -1,4 +1,4 @@
-//! 游戏资产工作区和详情图片预览的真实窗口测试。
+﻿//! 游戏资产工作区和详情图片预览的真实窗口测试。
 
 use super::*;
 
@@ -275,6 +275,8 @@ fn details_preview_shows_filesystem_image(cx: &mut gpui_kit::TestAppContext) {
             Some(directory.path().to_path_buf()),
         )
     });
+    // 等待初次目录列表加载完成，避免绘制时刷新目录清掉选择。
+    cx.run_until_parked();
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             let entry = app
@@ -644,6 +646,63 @@ fn game_editor_close_button_discards_game(cx: &mut gpui_kit::TestAppContext) {
             app.settings.get().games.is_empty(),
             "取消编辑不应写入游戏记录"
         );
+    });
+    let _ = app;
+}
+
+/// 移除游戏先弹出确认框：取消保留记录，确认后删除并关闭当前会话。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn game_library_remove_requires_confirmation(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let project = fake_game_project(directory.path(), "TogetherBNB");
+    let mut app_slot = None;
+    let (_root, cx) = cx.add_window_view(|window, cx| {
+        let app = cx.new(|cx| {
+            LumarkApp::new_with_stores(
+                window,
+                cx,
+                directory.path().join("vault.dat"),
+                directory.path().join("settings.json"),
+                Some(directory.path().to_path_buf()),
+            )
+        });
+        app_slot = Some(app.clone());
+        gpui_kit::base::Root::new(app, window, cx)
+    });
+    let app = app_slot.expect("测试窗口应创建应用视图");
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.start_game_setup(None, window, cx);
+            app.scan_game_directory(project.clone(), window, cx);
+            app.save_game_setup(window, cx);
+            app.back_to_game_library(window, cx);
+        });
+        window.draw(cx).clear(cx);
+        window.click(("game-remove", 0usize), cx);
+        window.draw(cx).clear(cx);
+    });
+    cx.update(|window, cx| {
+        assert!(window.find("cancel").visible(), "移除游戏应弹出确认框");
+        window.click("cancel", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(app.settings.get().games.len(), 1, "取消确认不应移除游戏");
+    });
+    cx.update(|window, cx| {
+        window.click(("game-remove", 0usize), cx);
+        window.draw(cx).clear(cx);
+        assert!(window.find("ok").visible());
+        window.click("ok", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert!(app.settings.get().games.is_empty(), "确认后应移除游戏记录");
+        assert!(app.game_session.is_none(), "移除当前游戏应关闭会话");
+        assert!(app.game_library, "移除后仍停留在游戏库列表");
     });
     let _ = app;
 }

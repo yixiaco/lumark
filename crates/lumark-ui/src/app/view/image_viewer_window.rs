@@ -12,6 +12,9 @@ use gpui_kit::component::empty::{
 };
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tag::Tag;
+use image::GenericImageView as _;
+use image::ImageDecoder as _;
+use image::metadata::Orientation;
 
 /// 解码前预检得到的图片元数据。
 #[derive(Clone, Debug)]
@@ -26,14 +29,28 @@ struct ImageMeta {
 /// 图片查看器窗口。
 pub(crate) struct ImageViewerWindowView {
     name: String,
-    path: std::path::PathBuf,
     path_text: String,
+    /// 实际用于绘制的图片路径；EXIF 方向校正后是临时 PNG。
+    display_path: std::path::PathBuf,
+    /// EXIF 校正生成的临时文件，窗口关闭时删除。
+    temporary: Option<std::path::PathBuf>,
+    /// EXIF 方向说明。
+    orientation: Option<String>,
     size: u64,
     meta: Option<ImageMeta>,
     loading: bool,
     error: Option<String>,
     fit: bool,
     zoom: f32,
+}
+
+impl Drop for ImageViewerWindowView {
+    /// 删除 EXIF 方向校正生成的临时图片。
+    fn drop(&mut self) {
+        if let Some(temporary) = self.temporary.take() {
+            let _ = std::fs::remove_file(temporary);
+        }
+    }
 }
 
 impl ImageViewerWindowView {
@@ -50,12 +67,17 @@ impl ImageViewerWindowView {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { inspect_image(&inspect_path) })
+                .spawn(async move { prepare_image(&inspect_path) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match result {
-                    Ok(meta) => this.meta = Some(meta),
+                    Ok(prepared) => {
+                        this.meta = Some(prepared.meta);
+                        this.display_path = prepared.display_path;
+                        this.temporary = prepared.temporary;
+                        this.orientation = prepared.orientation;
+                    }
                     Err(error) => this.error = Some(error),
                 }
                 cx.notify();
@@ -64,7 +86,9 @@ impl ImageViewerWindowView {
         .detach();
         Self {
             name,
-            path,
+            display_path: path,
+            temporary: None,
+            orientation: None,
             path_text,
             size,
             meta: None,
@@ -258,7 +282,7 @@ impl ImageViewerWindowView {
                 .justify_center()
                 .bg(cx.theme().background)
                 .child(
-                    gpui_kit::img(self.path.clone())
+                    gpui_kit::img(self.display_path.clone())
                         .size_full()
                         .object_fit(gpui_kit::ObjectFit::Contain),
                 )
@@ -282,7 +306,7 @@ impl ImageViewerWindowView {
                         .items_center()
                         .justify_center()
                         .child(
-                            gpui_kit::img(self.path.clone())
+                            gpui_kit::img(self.display_path.clone())
                                 .w(px(width))
                                 .h(px(height))
                                 .object_fit(gpui_kit::ObjectFit::Fill),
@@ -343,6 +367,9 @@ impl ImageViewerWindowView {
                 self.meta.as_ref().filter(|meta| meta.animated),
                 |this, _| this.child(Tag::secondary().xsmall().child(tr("动画", "Animated"))),
             )
+            .when_some(self.orientation.as_ref(), |this, label| {
+                this.child(Tag::secondary().xsmall().child(label.clone()))
+            })
             .child(format_size(self.size))
             .child(if self.fit {
                 tr("适应窗口", "Fit").to_string()
@@ -507,6 +534,79 @@ fn inspect_image(path: &std::path::Path) -> Result<ImageMeta, String> {
     })
 }
 
+/// 图片显示准备结果：元数据、实际绘制路径和 EXIF 方向说明。
+struct PreparedImage {
+    meta: ImageMeta,
+    display_path: std::path::PathBuf,
+    temporary: Option<std::path::PathBuf>,
+    orientation: Option<String>,
+}
+
+/// 预检图片并按 EXIF 方向生成校正后的临时 PNG。
+///
+/// 只对静态栅格图应用方向校正；动图与 SVG 保持原文件，避免破坏动画或
+/// 矢量渲染。方向读取或校正失败时回退到原图。
+fn prepare_image(path: &std::path::Path) -> Result<PreparedImage, String> {
+    let meta = inspect_image(path)?;
+    let original = |meta: ImageMeta| PreparedImage {
+        meta,
+        display_path: path.to_path_buf(),
+        temporary: None,
+        orientation: None,
+    };
+    if meta.vector || meta.animated {
+        return Ok(original(meta));
+    }
+    let Ok(reader) = image::ImageReader::open(path).and_then(|reader| reader.with_guessed_format())
+    else {
+        return Ok(original(meta));
+    };
+    let Ok(mut decoder) = reader.into_decoder() else {
+        return Ok(original(meta));
+    };
+    let Ok(orientation) = decoder.orientation() else {
+        return Ok(original(meta));
+    };
+    if orientation == Orientation::NoTransforms {
+        return Ok(original(meta));
+    }
+    let Ok(mut image) = image::DynamicImage::from_decoder(decoder) else {
+        return Ok(original(meta));
+    };
+    image.apply_orientation(orientation);
+    let temporary = std::env::temp_dir().join(format!("lumark-image-{}.png", uuid::Uuid::new_v4()));
+    if image.save(&temporary).is_err() {
+        return Ok(original(meta));
+    }
+    let (width, height) = image.dimensions();
+    Ok(PreparedImage {
+        meta: ImageMeta {
+            width,
+            height,
+            format: meta.format,
+            animated: meta.animated,
+            vector: false,
+        },
+        display_path: temporary.clone(),
+        temporary: Some(temporary),
+        orientation: Some(orientation_label(orientation)),
+    })
+}
+
+/// EXIF 方向的中文说明。
+fn orientation_label(orientation: Orientation) -> String {
+    let label = match orientation {
+        Orientation::NoTransforms => "原方向",
+        Orientation::Rotate90 => "旋转 90°",
+        Orientation::Rotate180 => "旋转 180°",
+        Orientation::Rotate270 => "旋转 270°",
+        Orientation::FlipHorizontal => "水平翻转",
+        Orientation::FlipVertical => "垂直翻转",
+        Orientation::Rotate90FlipH => "旋转 90° + 水平翻转",
+        Orientation::Rotate270FlipH => "旋转 270° + 水平翻转",
+    };
+    format!("EXIF {label}")
+}
 /// 从 SVG 根节点读取 `width`/`height` 或 `viewBox`，避免为预检构建完整树。
 fn inspect_svg_size(path: &std::path::Path) -> Result<(u32, u32), String> {
     let bytes = std::fs::read(path)
@@ -574,5 +674,74 @@ fn parse_svg_view_box(value: &str) -> Option<(u32, u32)> {
         Some((parts[2].round() as u32, parts[3].round() as u32))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 生成一张最小 JPEG。
+    fn encode_jpeg(width: u32, height: u32) -> Vec<u8> {
+        let mut image = image::RgbImage::new(width, height);
+        for (x, y, pixel) in image.enumerate_pixels_mut() {
+            *pixel = image::Rgb([(x * 40) as u8, (y * 80) as u8, 100]);
+        }
+        let mut bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut bytes);
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 90)
+            .encode_image(&image)
+            .expect("编码 JPEG");
+        bytes
+    }
+
+    /// 给 JPEG 插入包含 Orientation 标签的 EXIF APP1 段。
+    fn with_exif_orientation(jpeg: &[u8], orientation: u16) -> Vec<u8> {
+        let mut tiff = Vec::new();
+        tiff.extend_from_slice(b"II*\0");
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0112u16.to_le_bytes());
+        tiff.extend_from_slice(&3u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&orientation.to_le_bytes());
+        tiff.extend_from_slice(&[0, 0]);
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        let mut payload = b"Exif\0\0".to_vec();
+        payload.extend_from_slice(&tiff);
+        let mut output = vec![0xFF, 0xD8];
+        output.extend_from_slice(&[0xFF, 0xE1]);
+        output.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        output.extend_from_slice(&payload);
+        output.extend_from_slice(&jpeg[2..]);
+        output
+    }
+
+    /// EXIF 方向 6（旋转 90°）会生成校正后的临时 PNG，宽高互换。
+    #[test]
+    fn corrects_exif_orientation_for_static_jpeg() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rotated.jpg");
+        std::fs::write(&path, with_exif_orientation(&encode_jpeg(2, 3), 6)).unwrap();
+        let prepared = prepare_image(&path).expect("准备图片");
+        assert!(prepared.orientation.is_some(), "应识别 EXIF 方向");
+        assert_eq!((prepared.meta.width, prepared.meta.height), (3, 2));
+        assert_ne!(prepared.display_path, path);
+        assert!(prepared.display_path.is_file());
+        let temporary = prepared.temporary.clone().expect("应有临时文件");
+        assert!(temporary.exists(), "校正结果应写入临时图片");
+        let _ = std::fs::remove_file(temporary);
+    }
+
+    /// 没有 EXIF 方向的图片保持原文件。
+    #[test]
+    fn keeps_original_without_orientation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("plain.jpg");
+        std::fs::write(&path, encode_jpeg(4, 2)).unwrap();
+        let prepared = prepare_image(&path).expect("准备图片");
+        assert!(prepared.orientation.is_none());
+        assert_eq!(prepared.display_path, path);
+        assert!(prepared.temporary.is_none());
     }
 }

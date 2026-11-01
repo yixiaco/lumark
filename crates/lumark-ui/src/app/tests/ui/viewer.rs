@@ -1,4 +1,4 @@
-﻿//! 文本查看器和归档添加弹窗测试。
+//! 文本查看器和归档添加弹窗测试。
 
 use super::*;
 
@@ -363,4 +363,68 @@ fn text_viewer_copy_button_writes_clipboard(cx: &mut gpui_kit::TestAppContext) {
         );
     });
     let _ = view;
+}
+
+/// 生成带 EXIF 方向的最小 JPEG。
+fn exif_rotated_jpeg(width: u32, height: u32, orientation: u16) -> Vec<u8> {
+    let mut image = image::RgbImage::new(width, height);
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        *pixel = image::Rgb([(x * 40) as u8, (y * 80) as u8, 100]);
+    }
+    let mut jpeg = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut jpeg);
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 90)
+        .encode_image(&image)
+        .expect("编码 JPEG");
+    let mut tiff = Vec::new();
+    tiff.extend_from_slice(b"II*\0");
+    tiff.extend_from_slice(&8u32.to_le_bytes());
+    tiff.extend_from_slice(&1u16.to_le_bytes());
+    tiff.extend_from_slice(&0x0112u16.to_le_bytes());
+    tiff.extend_from_slice(&3u16.to_le_bytes());
+    tiff.extend_from_slice(&1u32.to_le_bytes());
+    tiff.extend_from_slice(&orientation.to_le_bytes());
+    tiff.extend_from_slice(&[0, 0]);
+    tiff.extend_from_slice(&0u32.to_le_bytes());
+    let mut payload = b"Exif\0\0".to_vec();
+    payload.extend_from_slice(&tiff);
+    let mut output = vec![0xFF, 0xD8];
+    output.extend_from_slice(&[0xFF, 0xE1]);
+    output.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+    output.extend_from_slice(&payload);
+    output.extend_from_slice(&jpeg[2..]);
+    output
+}
+
+/// 带 EXIF 方向的图片仍能在查看器中打开并显示工具栏。
+#[gpui_kit::test]
+fn image_viewer_opens_exif_rotated_image(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let file = directory.path().join("rotated.jpg");
+    std::fs::write(&file, exif_rotated_jpeg(2, 3, 6)).unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_image_viewer(file.clone(), "rotated.jpg".to_string(), window, cx);
+        });
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "应打开图片查看器窗口");
+    let viewer = *windows.last().unwrap();
+    cx.run_until_parked();
+    cx.update_window(viewer, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("image-fit").visible(), "图片查看器应渲染工具栏");
+    })
+    .unwrap();
+    let _ = app;
 }
