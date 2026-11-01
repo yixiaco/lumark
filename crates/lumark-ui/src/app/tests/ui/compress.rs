@@ -475,3 +475,59 @@ fn encrypted_archive_requests_password_dialog(cx: &mut gpui_kit::TestAppContext)
     });
     let _ = app;
 }
+
+/// 压缩窗口点击开始后应生成可读取的压缩包。
+#[gpui_kit::test]
+fn compress_window_creates_archive(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let source = directory.path().join("inside.txt");
+    std::fs::write(&source, b"inside").unwrap();
+    let output = directory.path().join("created.zip");
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            crate::app::util::set_input(
+                &app.compress_output,
+                output.to_str().expect("输出路径"),
+                window,
+                cx,
+            );
+            app.open_compress_window_for_sources(vec![source.clone()], window, cx);
+        });
+    });
+    let handle = cx.update(|_, cx| app.read(cx).compress_window.expect("应打开压缩窗口"));
+    cx.update_window(handle, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("compress-window-start").visible());
+        window.click("compress-window-start", cx);
+    })
+    .unwrap();
+    let mut created = false;
+    for _ in 0..200 {
+        cx.run_until_parked();
+        if output.is_file() && std::fs::metadata(&output).is_ok_and(|metadata| metadata.len() > 0) {
+            created = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(created, "点击开始压缩后应生成压缩包");
+    let listing = lumark_archive::ArchiveService::list(&output, None).expect("读取压缩包");
+    assert!(
+        listing
+            .entries
+            .iter()
+            .any(|entry| entry.path.contains("inside.txt")),
+        "压缩包应包含 inside.txt"
+    );
+    let _ = app;
+}
