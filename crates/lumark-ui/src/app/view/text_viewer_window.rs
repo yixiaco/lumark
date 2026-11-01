@@ -6,6 +6,7 @@ use std::rc::Rc;
 use super::super::*;
 use super::components::AppIcon;
 use crate::i18n::tr;
+use gpui_kit::base::SelectableText;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::{Editor, EditorState};
@@ -15,6 +16,12 @@ use lumark_viewer::{
     ContentKind, Eol, HexDocument, PeImage, PeInfo, TextDocument, classify_content, open_source,
     save_text,
 };
+
+#[path = "text_viewer_memory.rs"]
+mod memory;
+
+#[path = "text_viewer_copy.rs"]
+mod copy;
 
 /// 查看器当前内容视图。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,6 +401,16 @@ impl TextViewerWindowView {
                         ),
                 )
             })
+            .when(self.mode != ViewerMode::Pe, |this| {
+                this.child(
+                    button("viewer-copy")
+                        .ghost()
+                        .icon(AppIcon::Copy.element(13.))
+                        .label(tr("复制", "Copy"))
+                        .tooltip(tr("复制当前视图内容", "Copy the current view"))
+                        .on_click(cx.listener(|this, _, _, cx| this.copy_current(cx))),
+                )
+            })
             .child(
                 div()
                     .ml_auto()
@@ -404,6 +421,9 @@ impl TextViewerWindowView {
     }
 
     /// 渲染文本行；大文件只解码当前视口内的行。
+    ///
+    /// 正文使用可选中的文本元素，鼠标拖选后 Ctrl+C 即可复制；行号保持不可选，
+    /// 避免复制内容混入行号。
     fn render_text_line(&self, index: usize, cx: &Context<Self>) -> impl IntoElement {
         let line = self
             .document
@@ -435,11 +455,17 @@ impl TextViewerWindowView {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_color(cx.theme().foreground)
-                    .child(line),
+                    .child(
+                        SelectableText::new(format!("viewer-text-line-{index}"), line)
+                            .document_order(index as u64),
+                    ),
             )
     }
 
     /// 渲染十六进制行。
+    ///
+    /// 偏移、字节和 ASCII 合成一条可选中的文本，鼠标拖选后按 Ctrl+C 复制；
+    /// 十六进制列按 16 字节补齐，保持列对齐。
     fn render_hex_line(&self, index: usize, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let Some(hex) = self.hex.as_ref() else {
             return div().into_any_element();
@@ -448,37 +474,26 @@ impl TextViewerWindowView {
             return div().into_any_element();
         };
         let offset = HexDocument::offset_text(row.offset, hex.byte_len() > u32::MAX as u64);
+        let line = format!("{offset}  {}  {}", row.hex, row.ascii);
         h_flex()
             .w_full()
             .h(px(18.))
             .flex_shrink_0()
             .items_center()
-            .gap_3()
             .px_2()
             .font_family(cx.theme().mono_font_family.clone())
             .text_xs()
             .child(
                 div()
-                    .w(px(112.))
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(offset),
-            )
-            .child(
-                div()
-                    .w(px(420.))
-                    .flex_shrink_0()
-                    .whitespace_nowrap()
-                    .text_color(cx.theme().foreground)
-                    .child(row.hex),
-            )
-            .child(
-                div()
                     .flex_1()
                     .min_w_0()
+                    .overflow_hidden()
                     .whitespace_nowrap()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(row.ascii),
+                    .text_color(cx.theme().foreground)
+                    .child(
+                        SelectableText::new(format!("viewer-hex-line-{index}"), line)
+                            .document_order(index as u64),
+                    ),
             )
             .into_any_element()
     }
@@ -894,33 +909,7 @@ impl LumarkApp {
             .and_then(|value| value.to_str())
             .map(ToString::to_string)
             .unwrap_or_else(|| display.clone());
-        let window_size = gpui_kit::size(px(980.), px(680.));
-        let parent_bounds = parent.inner_window_bounds().get_bounds();
-        let origin = gpui_kit::point(
-            px(parent_bounds.origin.x.as_f32()
-                + (parent_bounds.size.width.as_f32() - window_size.width.as_f32()) / 2.0),
-            px(parent_bounds.origin.y.as_f32()
-                + (parent_bounds.size.height.as_f32() - window_size.height.as_f32()) / 2.0),
-        );
-        let options = gpui_kit::WindowOptions {
-            window_bounds: Some(gpui_kit::WindowBounds::Windowed(gpui_kit::Bounds {
-                origin,
-                size: window_size,
-            })),
-            titlebar: Some(gpui_kit::TitlebarOptions {
-                title: Some("查看器 - Lumark".into()),
-                appears_transparent: true,
-                traffic_light_position: None,
-            }),
-            kind: gpui_kit::WindowKind::Normal,
-            focus: true,
-            show: true,
-            is_resizable: true,
-            is_minimizable: true,
-            is_movable: true,
-            window_min_size: Some(gpui_kit::size(px(620.), px(420.))),
-            ..TitleBar::window_options()
-        };
+        let options = viewer_window_options(parent);
         let viewer_path = target.clone();
         let result = gpui_kit::open_window(options, cx, move |window, cx| {
             cx.new(|cx| {
@@ -938,5 +927,36 @@ impl LumarkApp {
             Ok(_) => self.status = format!("已在内置查看器中打开 {display}"),
             Err(error) => self.status = format!("无法打开查看器：{error}"),
         }
+    }
+}
+
+/// 构造与主窗口居中的查看器窗口选项；文件查看器和内存查看器共用。
+fn viewer_window_options(parent: &Window) -> gpui_kit::WindowOptions {
+    let window_size = gpui_kit::size(px(980.), px(680.));
+    let parent_bounds = parent.inner_window_bounds().get_bounds();
+    let origin = gpui_kit::point(
+        px(parent_bounds.origin.x.as_f32()
+            + (parent_bounds.size.width.as_f32() - window_size.width.as_f32()) / 2.0),
+        px(parent_bounds.origin.y.as_f32()
+            + (parent_bounds.size.height.as_f32() - window_size.height.as_f32()) / 2.0),
+    );
+    gpui_kit::WindowOptions {
+        window_bounds: Some(gpui_kit::WindowBounds::Windowed(gpui_kit::Bounds {
+            origin,
+            size: window_size,
+        })),
+        titlebar: Some(gpui_kit::TitlebarOptions {
+            title: Some("查看器 - Lumark".into()),
+            appears_transparent: true,
+            traffic_light_position: None,
+        }),
+        kind: gpui_kit::WindowKind::Normal,
+        focus: true,
+        show: true,
+        is_resizable: true,
+        is_minimizable: true,
+        is_movable: true,
+        window_min_size: Some(gpui_kit::size(px(620.), px(420.))),
+        ..TitleBar::window_options()
     }
 }

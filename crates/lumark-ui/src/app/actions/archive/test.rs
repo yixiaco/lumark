@@ -13,7 +13,7 @@ impl LumarkApp {
             self.status = tr("请选择一个压缩包", "Select an archive").to_string();
             return;
         };
-        if let Some(password) = &self.archive_password {
+        if let Some(password) = self.archive_operation_password() {
             self.submit_archive_test(archive, Some(password.to_string()));
             return;
         }

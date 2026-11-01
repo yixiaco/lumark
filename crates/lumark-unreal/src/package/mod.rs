@@ -264,9 +264,29 @@ pub(crate) fn invalid(message: impl Into<String>) -> PackageError {
     PackageError::Invalid(message.into())
 }
 
+/// 判断导出类名是否属于材质资产。
+///
+/// 材质本身没有可以直接光栅化的几何/纹理，详情面板展示引用资源和属性；
+/// 该判断用于给 `Material`/`MaterialInstance*`/`MaterialFunction` 等类提供
+/// 专门的预览信息，而不是落入“暂不支持”。
+pub fn is_material_class(class_name: &str) -> bool {
+    let class = class_name.to_ascii_lowercase();
+    matches!(
+        class.as_str(),
+        "material"
+            | "materialinstance"
+            | "materialinstanceconstant"
+            | "materialinstancedynamic"
+            | "materialinterface"
+            | "materialfunction"
+            | "materialfunctioninstance"
+    ) || class.starts_with("materialexpression")
+}
+
 mod animation;
 mod asset;
 pub mod legacy;
+mod legacy_animation;
 mod legacy_skeleton;
 mod mappings;
 mod mesh;
@@ -283,6 +303,7 @@ pub use legacy::{
     LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader,
     read_legacy_property_header, read_legacy_texture,
 };
+pub use legacy_animation::read_legacy_anim_sequence;
 pub use legacy_skeleton::{
     LegacySkeletalMeshGeometry, LegacySkeletalMeshSummary, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
@@ -340,4 +361,26 @@ pub(crate) fn read_i64(cursor: &mut Cursor<&[u8]>) -> Result<i64, PackageError> 
     Ok(i64::from_le_bytes(
         read_bytes(cursor, 8)?.try_into().unwrap_or_default(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_material_class;
+
+    /// 材质相关类名应被识别为材质资产。
+    #[test]
+    fn recognizes_material_classes() {
+        for class in [
+            "Material",
+            "MaterialInstanceConstant",
+            "MaterialInstanceDynamic",
+            "MaterialFunction",
+            "MaterialExpressionTextureSample",
+        ] {
+            assert!(is_material_class(class), "{class} 应识别为材质类");
+        }
+        for class in ["StaticMesh", "Texture2D", "AnimSequence", "BluePrint"] {
+            assert!(!is_material_class(class), "{class} 不应识别为材质类");
+        }
+    }
 }

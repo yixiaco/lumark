@@ -34,13 +34,12 @@ impl LumarkApp {
     /// 判断游戏容器内的伴随文件是否应隐藏。
     ///
     /// 游戏资产以包为单位浏览；`.uexp/.ubulk/.uptnl` 只是包的伴随数据，
-    /// 在普通压缩包浏览中仍然保留，避免影响现有归档操作。
+    /// 在普通压缩包浏览中仍然保留，避免影响现有归档操作。浏览器模型在
+    /// 游戏容器里也会按同一扩展名隐藏并汇总目录大小。
     fn hide_game_sidecar(&self, entry: &BrowserEntry) -> bool {
         self.game_session.is_some()
             && matches!(&self.browser.location, BrowserLocation::Archive { .. })
-            && [".uexp", ".ubulk", ".uptnl"]
-                .iter()
-                .any(|extension| entry.name.to_ascii_lowercase().ends_with(extension))
+            && lumark_browser::is_ue_sidecar(&entry.name)
     }
 
     /// 返回当前显示条目；游戏容器内隐藏包的伴随文件。
@@ -172,10 +171,11 @@ impl LumarkApp {
         self.tree_expanded.insert(path);
     }
 
-    /// 对当前文件系统或归档执行名称搜索。
+    /// 对当前文件系统或归档执行名称搜索，并应用可选的资产类型过滤。
     pub(crate) fn run_search(&mut self, cx: &mut Context<Self>) {
         let pattern = input_value(&self.search_input, cx);
-        if pattern.trim().is_empty() {
+        let category = self.search_category;
+        if pattern.trim().is_empty() && category.is_none() {
             self.search_results = None;
             self.status = tr("已清除搜索", "Search cleared").to_string();
             return;
@@ -185,6 +185,7 @@ impl LumarkApp {
             recursive: true,
             case_sensitive: false,
             mode: self.search_mode,
+            category,
             ..Default::default()
         });
         self.status = format!(
@@ -199,6 +200,7 @@ impl LumarkApp {
     /// 清除当前搜索结果并恢复正常文件列表。
     pub(crate) fn clear_search(&mut self) {
         self.search_results = None;
+        self.search_category = None;
         self.status = format!("{} {}", self.browser.entries.len(), tr("个项目", "items"));
     }
 
@@ -523,8 +525,7 @@ impl LumarkApp {
                 .collect::<Vec<_>>();
             let output = self.temp_root.join(format!("copy-{}", Uuid::new_v4()));
             let password = self
-                .archive_password
-                .as_ref()
+                .archive_operation_password()
                 .map(|value| value.to_string());
             if self.temp_extract.is_some() {
                 self.status = tr(
@@ -833,23 +834,7 @@ impl LumarkApp {
         }
         if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
             if self.game_session.is_some() && is_ue_package_name(&entry.name) {
-                if let Some(scene) = self.details_viewer_scene() {
-                    self.open_asset_viewer(scene, entry.name.clone(), window, cx);
-                    return;
-                }
-                if let Some(crate::app::view::DetailsPreview::Ready { path, name, .. }) =
-                    self.details_preview.as_ref()
-                {
-                    let path = path.clone();
-                    let name = name.clone();
-                    self.open_image_viewer(path, name, window, cx);
-                    return;
-                }
-                self.status = tr(
-                    "正在解析 UE 资产；纹理/模型可在详情面板预览",
-                    "Parsing the UE asset; textures/models preview in the details panel",
-                )
-                .to_string();
+                self.open_ue_asset_viewer(window, cx);
                 return;
             }
             if is_nested_archive_name(&entry.name) {
@@ -904,6 +889,12 @@ impl LumarkApp {
             return;
         }
         if matches!(&self.browser.location, BrowserLocation::Archive { .. }) {
+            // 游戏容器内的 UE 资产和双击一样打开模型/纹理查看器；内置查看器
+            // 的文本/十六进制视图只用于普通归档文件。
+            if self.game_session.is_some() && is_ue_package_name(&entry.name) {
+                self.open_ue_asset_viewer(window, cx);
+                return;
+            }
             self.view_archive_entry(entry, window, cx);
             return;
         }
@@ -948,6 +939,23 @@ impl LumarkApp {
         self.selected_entry()
             .filter(|entry| !entry.is_dir && is_archive_path(&entry.path))
             .map(|entry| entry.path)
+    }
+
+    /// 返回当前归档操作应使用的密码。
+    ///
+    /// 游戏容器内的归档密码就是游戏会话的 AES 密钥：打开容器时即使因为
+    /// 列表阶段已经解密而没把密码落到 `archive_password`，打开条目、解压、
+    /// 复制和拖出也必须用同一个密钥，否则会误报“需要密码”。其它归档继续
+    /// 使用浏览时输入或密码库解析出的密码。
+    pub(crate) fn archive_operation_password(&self) -> Option<zeroize::Zeroizing<String>> {
+        if let (Some(session), BrowserLocation::Archive { archive, .. }) =
+            (self.game_session.as_ref(), &self.browser.location)
+            && session.contains_container(archive)
+            && let Some(key) = session.key.as_ref()
+        {
+            return Some(zeroize::Zeroizing::new(key.to_string()));
+        }
+        self.archive_password.clone()
     }
 
     /// 返回当前选择中可压缩的源路径。

@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 use lumark_archive::{ArchiveEntry, ArchiveFormat, ArchiveInfo, ArchiveService};
 
 use crate::selection::SelectionModel;
+use crate::sidecar::merge_ue_sidecars;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// 浏览器当前所在位置：真实文件系统目录、归档内部路径或游戏归档列表。
@@ -104,6 +105,8 @@ pub struct SearchQuery {
     pub modified_after: Option<DateTime<Utc>>,
     /// 修改时间上界。
     pub modified_before: Option<DateTime<Utc>>,
+    /// 资产类型筛选；`None` 表示不限类型。
+    pub category: Option<crate::AssetCategory>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -138,6 +141,8 @@ pub struct BrowserModel {
     archive_entries: Vec<ArchiveEntry>,
     archive_format: Option<ArchiveFormat>,
     archive_encrypted: bool,
+    /// 是否把 UE 包伴随文件从列表和目录大小中隐藏。
+    hide_ue_sidecars: bool,
     game_archives: Vec<GameArchiveRow>,
     back_stack: Vec<BrowserLocation>,
     forward_stack: Vec<BrowserLocation>,
@@ -154,6 +159,7 @@ impl BrowserModel {
             archive_entries: Vec::new(),
             archive_format: None,
             archive_encrypted: false,
+            hide_ue_sidecars: false,
             game_archives: Vec::new(),
             back_stack: Vec::new(),
             forward_stack: Vec::new(),
@@ -327,6 +333,7 @@ impl BrowserModel {
             && query.max_size.is_none()
             && query.modified_after.is_none()
             && query.modified_before.is_none()
+            && query.category.is_none()
         {
             return Vec::new();
         }
@@ -348,7 +355,7 @@ impl BrowserModel {
                         if !matcher.matches(&name)
                             || !filters_match(
                                 query,
-                                &name,
+                                &entry.path().to_string_lossy(),
                                 metadata.len(),
                                 entry.file_type().is_dir(),
                                 modified,
@@ -374,31 +381,37 @@ impl BrowserModel {
                     })
                     .collect()
             }
-            BrowserLocation::Archive { .. } => self
-                .archive_entries
-                .iter()
-                .filter_map(|entry| {
-                    let name = entry
-                        .path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(&entry.path)
-                        .to_string();
-                    if matcher.matches(&name)
-                        && filters_match(
-                            query,
-                            &entry.path,
-                            entry.size,
-                            entry.is_dir,
-                            entry.modified,
-                        )
-                    {
-                        Some(BrowserEntry::from_archive(entry.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
+            BrowserLocation::Archive { .. } => {
+                let archive_entries = if self.hide_ue_sidecars {
+                    merge_ue_sidecars(&self.archive_entries)
+                } else {
+                    self.archive_entries.clone()
+                };
+                archive_entries
+                    .iter()
+                    .filter_map(|entry| {
+                        let name = entry
+                            .path
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(&entry.path)
+                            .to_string();
+                        if matcher.matches(&name)
+                            && filters_match(
+                                query,
+                                &entry.path,
+                                entry.size,
+                                entry.is_dir,
+                                entry.modified,
+                            )
+                        {
+                            Some(BrowserEntry::from_archive(entry.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            }
             BrowserLocation::GameArchives { .. } => self
                 .game_archives
                 .iter()
@@ -419,6 +432,15 @@ impl BrowserModel {
     /// 返回当前归档是否加密。
     pub fn archive_encrypted(&self) -> bool {
         self.archive_encrypted
+    }
+
+    /// 设置游戏容器是否按包隐藏伴随文件（`.uexp/.ubulk/.uptnl`）。
+    ///
+    /// 隐藏口径同时作用于条目列表、搜索和目录大小汇总，保证上级列表里的
+    /// 文件夹大小与进入后可见条目的总和对得上。应在打开归档前设置，
+    /// 之后同一归档内的导航会沿用该值。
+    pub fn set_hide_ue_sidecars(&mut self, hide: bool) {
+        self.hide_ue_sidecars = hide;
     }
 
     /// 返回用于路径栏展示的当前位置文本。
@@ -535,13 +557,20 @@ impl BrowserModel {
         _archive: PathBuf,
         inner: String,
     ) -> Result<(), BrowserError> {
+        // 游戏容器按包浏览：伴随文件先从条目里移除，再把大小并入所属包，
+        // 这样文件夹大小和进入后可见条目的总和使用同一份数据。
+        let archive_entries = if self.hide_ue_sidecars {
+            merge_ue_sidecars(&self.archive_entries)
+        } else {
+            self.archive_entries.clone()
+        };
         let prefix = if inner.is_empty() {
             String::new()
         } else {
             format!("{inner}/")
         };
         let mut items: BTreeMap<String, BrowserEntry> = BTreeMap::new();
-        for entry in &self.archive_entries {
+        for entry in &archive_entries {
             let normalized = entry.path.replace('\\', "/");
             let Some(remainder) = normalized.strip_prefix(&prefix) else {
                 continue;
@@ -573,8 +602,10 @@ impl BrowserModel {
         }
         // 归档目录在条目列表里可能只作为子文件的隐含父路径出现；统一按
         // 子文件实际大小汇总，避免 PE 节、普通归档文件夹在“大小”列显示 0 B。
+        // 压缩后大小同样递归汇总，让游戏容器的文件夹能和压缩包磁盘大小对照。
         let mut directory_sizes: HashMap<String, u64> = HashMap::new();
-        for entry in &self.archive_entries {
+        let mut directory_compressed: HashMap<String, (u64, usize)> = HashMap::new();
+        for entry in &archive_entries {
             if entry.is_dir {
                 continue;
             }
@@ -582,12 +613,34 @@ impl BrowserModel {
             let mut parent = normalized.as_str();
             while let Some((directory, _)) = parent.rsplit_once('/') {
                 *directory_sizes.entry(directory.to_string()).or_default() += entry.size;
+                if let Some(compressed) = entry.compressed_size {
+                    let slot = directory_compressed
+                        .entry(directory.to_string())
+                        .or_insert((0, 0));
+                    slot.0 = slot.0.saturating_add(compressed);
+                    slot.1 += 1;
+                }
                 parent = directory;
             }
         }
         for item in items.values_mut().filter(|item| item.is_dir) {
             let path = item.path.to_string_lossy().replace('\\', "/");
             item.size = directory_sizes.get(&path).copied().unwrap_or(0);
+            let compressed = directory_compressed
+                .get(&path)
+                .filter(|(_, counted)| *counted > 0)
+                .map(|(total, _)| *total);
+            item.archive_entry = Some(ArchiveEntry {
+                id: u64::MAX,
+                path,
+                is_dir: true,
+                size: item.size,
+                compressed_size: compressed,
+                modified: item.modified,
+                crc32: None,
+                method: String::new(),
+                encrypted: item.encrypted,
+            });
         }
         let mut entries: Vec<_> = items.into_values().collect();
         entries.sort_by(|left, right| {
@@ -687,13 +740,13 @@ impl TextMatcher {
 /// 判断扩展名、类型和大小过滤是否通过。
 fn filters_match(
     query: &SearchQuery,
-    name: &str,
+    path: &str,
     size: u64,
     is_dir: bool,
     modified: Option<DateTime<Utc>>,
 ) -> bool {
     if !query.extensions.is_empty() && !is_dir {
-        let extension = Path::new(name)
+        let extension = Path::new(path)
             .extension()
             .and_then(|value| value.to_str())
             .unwrap_or_default();
@@ -704,6 +757,11 @@ fn filters_match(
         }) {
             return false;
         }
+    }
+    if let Some(category) = query.category
+        && crate::asset_type::classify(path, is_dir) != Some(category)
+    {
+        return false;
     }
     if query.min_size.is_some_and(|minimum| size < minimum) {
         return false;
@@ -735,6 +793,7 @@ fn file_kind(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sidecar::is_ue_sidecar;
 
     #[test]
     /// 验证通配符和扩展名过滤。
@@ -833,6 +892,78 @@ mod tests {
             .find(|entry| entry.is_dir && entry.name == "docs")
             .expect("归档根目录应包含 docs");
         assert_eq!(folder.size, 5);
+    }
+
+    /// 验证游戏容器隐藏伴随文件后，文件夹大小和进入后可见条目的总和对得上。
+    #[test]
+    fn hidden_ue_sidecars_match_archive_directory_size() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("content");
+        std::fs::create_dir_all(source.join("mount")).unwrap();
+        std::fs::write(source.join("mount").join("SK_Hero.uasset"), vec![0u8; 4]).unwrap();
+        std::fs::write(source.join("mount").join("SK_Hero.uexp"), vec![1u8; 40]).unwrap();
+        std::fs::write(source.join("mount").join("SK_Hero.ubulk"), vec![2u8; 400]).unwrap();
+        let archive = directory.path().join("game.zip");
+        ArchiveService::create(
+            &archive,
+            &[source],
+            &lumark_archive::CompressionOptions {
+                format: ArchiveFormat::Zip,
+                path_mode: lumark_archive::PathMode::NoRoot,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        let mut browser = BrowserModel::new(directory.path()).unwrap();
+        browser.set_hide_ue_sidecars(true);
+        browser.open_archive(&archive, None).unwrap();
+        let folder = browser
+            .entries
+            .iter()
+            .find(|entry| entry.is_dir && entry.name == "mount")
+            .expect("归档根目录应包含 mount")
+            .clone();
+        assert_eq!(folder.size, 444, "文件夹大小应包含伴随数据");
+        let folder_compressed = folder
+            .archive_entry
+            .as_ref()
+            .and_then(|archive| archive.compressed_size);
+        assert!(folder_compressed.is_some(), "文件夹应汇总压缩后大小");
+        browser.enter_entry(&folder.id).unwrap();
+        assert!(
+            browser
+                .entries
+                .iter()
+                .all(|entry| !is_ue_sidecar(&entry.name))
+        );
+        let visible: u64 = browser.entries.iter().map(|entry| entry.size).sum();
+        assert_eq!(
+            visible, folder.size,
+            "进入后可见条目总和应与上级文件夹大小一致"
+        );
+        let visible_compressed: u64 = browser
+            .entries
+            .iter()
+            .filter_map(|entry| entry.archive_entry.as_ref()?.compressed_size)
+            .sum();
+        assert_eq!(
+            Some(visible_compressed),
+            folder_compressed,
+            "子项压缩后大小之和应等于上级文件夹"
+        );
+        // 关闭隐藏后伴随文件重新出现，数据口径保持不变。
+        browser.set_hide_ue_sidecars(false);
+        browser.refresh().unwrap();
+        let visible: u64 = browser.entries.iter().map(|entry| entry.size).sum();
+        assert_eq!(visible, 444);
+        browser.go_parent().unwrap();
+        let folder = browser
+            .entries
+            .iter()
+            .find(|entry| entry.is_dir && entry.name == "mount")
+            .expect("返回归档根目录后仍应包含 mount");
+        assert_eq!(folder.size, 444);
     }
 
     /// 验证归档内部总能返回，归档根目录只在压缩包有实际父目录时才能跳出。

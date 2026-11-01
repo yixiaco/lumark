@@ -358,10 +358,7 @@ pub(super) fn archive_drag_item(app: &LumarkApp, entry: &BrowserEntry) -> Option
     };
     Some(ArchiveDragItem {
         archive: archive.clone(),
-        password: app
-            .archive_password
-            .as_ref()
-            .map(|value| zeroize::Zeroizing::new(value.to_string())),
+        password: app.archive_operation_password(),
         selected,
         output: app.temp_root.join(format!("drag-{}", uuid::Uuid::new_v4())),
         label,

@@ -1,4 +1,4 @@
-# Lumark 实施状态
+﻿# Lumark 实施状态
 
 本文件把完整规划拆成可验收的阶段。当前版本是可运行的桌面原型和核心安全链路，不应把未勾选项目视为已完成。
 
@@ -43,6 +43,8 @@
 - [x] UTexture2D 解码：BC1/BC3/BC4/BC5/BC7、BGRA8/RGBA8/G8；详情面板后台生成纹理缩略图，点击打开图片查看器。已用 CUE4Parse UE5.8 unversioned fixture 的 10 种纹理格式和 BNB 真实纹理包（类名/bulk map）验证。
 - [x] 资产元数据：Skeleton 参考骨骼树（名称/父索引/参考姿态）解析；AnimSequence 时长/RateScale/骨架/压缩轨道数/压缩字节/压缩 codec、Skeleton 骨骼数/根骨骼、StaticMesh 材质槽/插槽在详情面板展示；BNB `ANIM_Chicken_Idle1` 定位到 42 条 `TrackToSkeletonMap`、6144 字节压缩流，codec 为 `AnimCompress_PerTrackCompression_6`（121 帧）。已用 fixture 验证 `SKEL_Fixture` 的 3 根骨骼（Root、Joint_1、Joint_2）和 `AS_Fixture` 的 AnimSequence 元数据。
 - [x] AnimSequence PerTrackCompression 解码：解析 `CompressedTrackOffsets`/scale offsets/关键帧流，支持 Float96NoW、Fixed48NoW、IntervalFixed32NoW 及帧表索引；`anim_play` 示例按时间采样 42 条轨道并调用 `skinning::skin_mesh_pose` 生成 BNB `SK_Chicken` 动画帧。查看器已接入播放/暂停：先选中 AnimSequence，再打开 SkeletalMesh 查看器即可约 20fps 连续播放。
+- [x] FF7R 旧式 AnimSequence 解码：新增 `legacy_animation::read_legacy_anim_sequence`，按 UE4.18 `FCompressedAnimSequence` 布局用结构特征扫描定位压缩头，解析 ConstantKeyLerp 轨道偏移表、缩放偏移、压缩轨道映射、曲线数据、原始大小与压缩字节流；支持 ACF_None/Float96NoW/Fixed48NoW/Fixed32NoW/IntervalFixed32NoW 及单关键帧无损格式，采样规则对齐 `AnimEncoding::TimeToIndex`。真实 FF7R `ThirdPersonIdle` 验证 68 轨道/80 帧/2.63s，首尾帧 28 条轨道变化。查看器工具栏新增只读时间轴、帧号/时间显示、回到开头、上一帧、下一帧按钮。端到端验证：FF7R `SK_Mannequin`（68 骨骼/23297 顶点/41052 三角形/内置蒙皮）由 `ThirdPersonIdle` 驱动，`skin_mesh_pose` 输出顶点最大位移约 340。
+- [x] 材质预览信息：新增 `is_material_class`、`LegacyPackage::resolve_object_name` 与详情面板材质行；`Material`/`MaterialInstance*`/`MaterialFunction`/`MaterialExpression*` 展示材质类、父材质/材质依赖、纹理引用、引用资源包与可解析属性（对象索引解析成导入/导出名称），属性表与映射不一致时给出可读提示；Zen 与旧式包共用同一行格式化逻辑。真实 FF7R `M_UE4Man_ChestLogo` 验证父材质 `M_UE4Man_Body` 与纹理 `UE4Man_Logo_N` 引用可读出（可选环境变量测试）。
 - [x] StaticMesh 几何与多 LOD：各 LOD 的 `FPositionVertexBuffer`、索引、section 和 `FStaticMeshBuffersSize`/附加索引缓冲尾部布局解析；查看器新增 LOD 切换按钮。已用 `SM_Fixture` 验证 6 顶点/2 三角形/2 section；BNB `sm_StoneBlocks_02_02` 的 4 个 LOD 全部成功解析，详情副标题显示 LOD 数量。
 - [x] 内置模型查看器窗口：左键拖拽旋转、工具栏缩放/重置、状态栏顶点/三角形统计；详情面板缩略图或双击 `.uasset` 可打开。
 - [x] section/材质切换：查看器工具栏按 section/material_index 显示开关，动态过滤三角形并重绘；StaticMesh 与 SkeletalMesh（网格+骨骼）共用。StaticMesh 详情面板额外列出 `StaticMaterials.MaterialSlotName` 材质槽名。
@@ -64,6 +66,7 @@
 - [x] FF7R 原生 SkeletalMesh 几何与蒙皮：按 UE4.18 默认版本解析 section、索引、RequiredBones、顶点缓冲和独立蒙皮权重；`SK_Mannequin` 验证 23297 顶点/41052 三角形/2 section/4 影响，详情缩略图和查看器可显示 rest pose 网格、骨骼叠加及蒙皮演示。
 - [x] FF7R 旧式 AnimSequence 元数据：为 4.18 资产增加 AnimSequence 兼容槽位回退（忽略映射中多出的 `BakedPerBoneCustomAttributeData`/`Notifies`），`ThirdPersonIdle` 验证 `NumFrames=80`、68 条骨骼映射、`SequenceLength≈2.633s`，详情面板显示字段与时间轴；压缩动画数据/播放尚未解析。
 - [x] 已记录已知限制：FF7R 旧式 AnimSequence 的压缩动画数据/播放暂不支持（元数据、字段和时间轴已支持）；SkeletalMesh LOD1+ 探测为尽力而为，遇到更复杂可选块时可能退化为仅 LOD0。
+- [x] 游戏容器浏览修复：加密 PAK 的资产预览解压会携带游戏会话 AES 密钥，不再把条目统一误报为“需要密码”（FF7R `pakchunk0_s10` 实测无密钥报错、有密钥 + Oodle 可解压并解析包）；`.uexp/.ubulk/.uptnl` 隐藏时其大小并入所属资产包，文件夹同时汇总解压后/压缩后大小，上级文件夹与进入后条目总和一致，压缩后总计可与 PAK 磁盘大小对照；`Content/Paks` 递归扫描包含 `~mods` 子目录；新增“查看密钥”入口（内置文本/十六进制查看器、仅内存）；查看器文本/十六进制行支持鼠标拖选 + Ctrl+C（工具栏仍可整体复制）。加密 PAK 列表补上加密标志，打开条目/解压/复制/拖出统一回退到游戏 AES 密钥；游戏资产入口改为游戏库列表页，新增/编辑游戏使用独立窗口，侧栏与上下文条改为“返回列表”，显示名称改用游戏库名称；游戏容器内双击与右键查看器统一为同一入口，解析完成后自动打开纹理/模型/骨骼查看器。；搜索栏新增按资产类型筛选（图片/模型/骨骼/动画等）；平铺视图列数随窗口重排并为图片生成缩略图。
 
 ### 已完成与已接受限制
 

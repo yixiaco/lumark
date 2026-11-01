@@ -146,11 +146,15 @@ pub(super) fn render_file_row(
         .and_then(|archive| archive.compressed_size)
         .map(format_size)
         .unwrap_or_else(|| "—".to_string());
-    let algorithm = entry
-        .archive_entry
-        .as_ref()
-        .map(|archive| archive.method.clone())
-        .unwrap_or_else(|| "—".to_string());
+    let algorithm = if entry.is_dir {
+        "—".to_string()
+    } else {
+        entry
+            .archive_entry
+            .as_ref()
+            .map(|archive| archive.method.clone())
+            .unwrap_or_else(|| "—".to_string())
+    };
     let crc32 = entry
         .archive_entry
         .as_ref()

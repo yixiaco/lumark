@@ -1,8 +1,10 @@
-//! UE5 `AnimSequence` 的 PerTrackCompression 解码。
+//! UE5 `AnimSequence` 的 PerTrackCompression 解码，以及旧式 ConstantKeyLerp 后端。
 //!
-//! 只覆盖 cooked 动画中常见的 `AnimCompress_PerTrackCompression` 数据：
-//! FFloat96NoW / FFixed48NoW / FIntervalFixed32NoW 关键帧格式。
+//! UE5 Zen 包走 `PerTrackCompression`：FFloat96NoW / FFixed48NoW /
+//! FIntervalFixed32NoW 关键帧格式；FF7R 等 UE4 旧式包走
+//! `AnimEncoding_ConstantKeyLerp` 的逐轨道偏移表，见 `legacy_animation`。
 
+use super::legacy_animation::LegacyKeyLerpData;
 use super::{Mappings, PackageError, UnrealPackage};
 
 /// 一条骨骼动画轨道的采样姿态。
@@ -33,6 +35,30 @@ pub struct AnimSequenceData {
     scale_offsets: Vec<i32>,
     /// 关键帧字节流。
     key_data: Vec<u8>,
+    /// 旧式 ConstantKeyLerp 压缩数据；存在时优先使用该解码路径。
+    legacy: Option<LegacyKeyLerpData>,
+}
+
+impl AnimSequenceData {
+    /// 构造旧式（UE4 ConstantKeyLerp）动画数据。
+    pub(crate) fn from_legacy_key_lerp(
+        name: String,
+        length: f32,
+        frames: u32,
+        track_to_bone: Vec<i32>,
+        legacy: LegacyKeyLerpData,
+    ) -> Self {
+        Self {
+            name,
+            length,
+            frames,
+            track_to_bone,
+            offsets: Vec::new(),
+            scale_offsets: Vec::new(),
+            key_data: Vec::new(),
+            legacy: Some(legacy),
+        }
+    }
 }
 
 /// 解码一个动画在指定相对时间的骨骼轨迹。
@@ -68,12 +94,16 @@ pub fn read_anim_sequence(
         offsets: header.offsets,
         scale_offsets: header.scale_offsets,
         key_data: header.key_data,
+        legacy: None,
     })
 }
 
 impl AnimSequenceData {
     /// 采样指定相对时间（0–1）的轨道姿态。
     pub fn sample(&self, ratio: f32) -> Vec<TrackPose> {
+        if let Some(legacy) = &self.legacy {
+            return legacy.sample(ratio);
+        }
         let ratio = ratio.clamp(0.0, 1.0) as f64;
         let mut poses = Vec::with_capacity(self.track_to_bone.len());
         for track in 0..self.track_to_bone.len() {

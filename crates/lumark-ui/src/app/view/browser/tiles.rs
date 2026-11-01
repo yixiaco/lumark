@@ -84,7 +84,13 @@ pub(super) fn render_tile_row(
             let drag_item = matches!(&app.browser.location, BrowserLocation::Archive { .. })
                 .then(|| archive_drag_item(app, &entry))
                 .flatten();
-            let tile_icon = if let Some(icon) = system_icon_for(app, &entry) {
+            // 图片文件优先生成真实缩略图；缩略图未就绪或失败时保留类型图标。
+            let tile_icon = if let Some(thumbnail) = app.tile_thumbnail(&entry, cx) {
+                gpui_kit::img(thumbnail)
+                    .size(px(64.))
+                    .object_fit(gpui_kit::ObjectFit::Contain)
+                    .into_any_element()
+            } else if let Some(icon) = system_icon_for(app, &entry) {
                 gpui_kit::img(icon).size(px(48.)).into_any_element()
             } else {
                 tile_icon.element(48.).into_any_element()

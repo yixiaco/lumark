@@ -47,6 +47,8 @@ mod game;
 pub(crate) use game::*;
 mod stores;
 pub(crate) use stores::*;
+mod state;
+pub(crate) use state::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// 主窗口当前页面。
@@ -174,70 +176,6 @@ pub(crate) enum PendingOpenMode {
     NestedArchive,
 }
 
-/// 任务中心展示的一条任务记录。
-///
-/// 记录在任务整个生命周期内保留，成功后也不会立即删除，因此用户可以从
-/// 任务中心重新打开后台任务的进度窗口或查看最终结果。
-#[derive(Clone)]
-pub(crate) struct TaskRecord {
-    /// 任务 ID。
-    pub(crate) id: u64,
-    /// 任务类型。
-    pub(crate) kind: TaskKind,
-    /// 任务展示名称。
-    pub(crate) label: String,
-    /// 任务状态。
-    pub(crate) state: TaskState,
-    /// 最近进度。
-    pub(crate) progress: TaskProgress,
-    /// 完成或失败消息。
-    pub(crate) message: Option<String>,
-}
-
-/// 拖出或复制归档条目时的临时解压进度弹窗。
-#[derive(Clone)]
-pub(crate) struct TempExtractDialog {
-    /// 弹窗标题。
-    pub(crate) title: String,
-    /// 说明文本。
-    pub(crate) message: String,
-    /// 临时解压进度。
-    pub(crate) progress: f32,
-}
-
-/// 侧栏目录树的扁平行。
-pub(crate) struct TreeRow {
-    path: PathBuf,
-    label: String,
-    depth: usize,
-    expanded: bool,
-}
-
-/// 正在拖动调整的文件表列。
-#[derive(Clone, Copy)]
-pub(crate) struct ColumnResize {
-    /// 正在调整的列。
-    pub(crate) column: ColumnKind,
-    /// 按下鼠标时的窗口横坐标。
-    pub(crate) start_x: f32,
-    /// 按下鼠标时的列宽。
-    pub(crate) start_width: f32,
-}
-
-/// 文件表框选状态。
-///
-/// 框选只在文件表空白区域开始，记录按下/当前位置和框选开始时的选择快照；
-/// Ctrl/Shift 按下时在快照上追加，否则替换选择。
-#[derive(Clone, Debug)]
-pub(crate) struct MarqueeState {
-    /// 按下鼠标时的窗口坐标。
-    pub(crate) start: gpui_kit::Point<gpui_kit::Pixels>,
-    /// 当前鼠标的窗口坐标。
-    pub(crate) current: gpui_kit::Point<gpui_kit::Pixels>,
-    /// 开始框选前已选中的条目 ID。
-    pub(crate) base_ids: Vec<String>,
-}
-
 /// Lumark 主应用状态。
 pub struct LumarkApp {
     browser: BrowserModel,
@@ -341,6 +279,8 @@ pub struct LumarkApp {
     search_input: gpui_kit::Entity<InputState>,
     search_results: Option<Vec<BrowserEntry>>,
     search_mode: SearchMode,
+    /// 搜索时按资产类型过滤；`None` 表示不限类型。
+    search_category: Option<lumark_browser::AssetCategory>,
     details_visible: bool,
     column_layout: u8,
     tile_view: bool,
@@ -385,6 +325,10 @@ pub struct LumarkApp {
     tree_children: HashMap<PathBuf, Vec<PathBuf>>,
     file_list_scroll: gpui_kit::base::VirtualListScrollHandle,
     system_icon_cache: std::cell::RefCell<HashMap<String, Option<Arc<gpui_kit::Image>>>>,
+    /// 平铺视图图片缩略图缓存：key → 生成结果（失败为 None）。
+    tile_thumbnails: std::cell::RefCell<HashMap<String, Option<PathBuf>>>,
+    /// 正在后台生成缩略图的缓存 key。
+    tile_thumb_pending: std::cell::RefCell<HashSet<String>>,
     file_association_count: usize,
     main_window: gpui_kit::AnyWindowHandle,
     /// 后台压缩任务没有可见窗口时显示的系统托盘图标。
@@ -401,12 +345,20 @@ pub struct LumarkApp {
     game_session: Option<GameSession>,
     inactive_games: Vec<InactiveGame>,
     game_previous_dir: Option<PathBuf>,
+    /// 主窗口当前是否显示游戏库列表页。
+    game_library: bool,
+    /// 当前窗口是否只是游戏编辑窗口；编辑窗口只渲染设置表单。
+    game_editor_only: bool,
+    /// 主窗口记录的游戏编辑窗口句柄，用于在窗口关闭后刷新游戏库列表。
+    game_editor_window: Option<gpui_kit::AnyWindowHandle>,
     details_preview: Option<view::DetailsPreview>,
     details_mesh: Option<lumark_unreal::MeshLod>,
     details_lods: Vec<lumark_unreal::MeshLod>,
     details_skins: Vec<Option<lumark_unreal::SkinWeights>>,
     details_animation: Option<lumark_unreal::AnimSequenceData>,
     details_skeleton: Option<lumark_unreal::Skeleton>,
+    /// 等详情预览完成后自动打开的资产查看器请求。
+    pending_asset_viewer: Option<PendingAssetViewer>,
 }
 impl Drop for LumarkApp {
     /// 关闭单个归档窗口时清理该窗口产生的复制和拖出临时文件。
@@ -636,6 +588,7 @@ impl LumarkApp {
             search_input,
             search_results: None,
             search_mode: SearchMode::Wildcard,
+            search_category: None,
             details_visible,
             column_layout: settings_snapshot.column_layout.min(2),
             tile_view: false,
@@ -676,6 +629,8 @@ impl LumarkApp {
             tree_children: HashMap::new(),
             file_list_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
             system_icon_cache: std::cell::RefCell::new(HashMap::new()),
+            tile_thumbnails: std::cell::RefCell::new(HashMap::new()),
+            tile_thumb_pending: std::cell::RefCell::new(HashSet::new()),
             file_association_count: platform::shell::registered_extension_count(),
             main_window: window.window_handle(),
             tray_icon: None,
@@ -688,12 +643,16 @@ impl LumarkApp {
             game_session: None,
             inactive_games: Vec::new(),
             game_previous_dir: None,
+            game_library: false,
+            game_editor_only: false,
+            game_editor_window: None,
             details_preview: None,
             details_mesh: None,
             details_lods: Vec::new(),
             details_skins: Vec::new(),
             details_animation: None,
             details_skeleton: None,
+            pending_asset_viewer: None,
         };
         set_input(
             &app.location_input,

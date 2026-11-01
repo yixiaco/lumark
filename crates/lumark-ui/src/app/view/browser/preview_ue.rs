@@ -6,9 +6,9 @@ use crate::i18n::tr;
 use lumark_archive::{ArchiveService, ExtractionOptions, IoStoreContainer};
 use lumark_unreal::{
     AssetKind, AssetMetadata, LegacyPackage, Mappings, PropValue, ZenScriptObjects,
-    is_legacy_package, parse_legacy_summary, parse_package, read_legacy_skeletal_mesh_geometry,
-    read_legacy_skeletal_mesh_summary, read_legacy_skeleton, read_legacy_texture,
-    render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
+    is_legacy_package, parse_legacy_summary, parse_package, read_legacy_anim_sequence,
+    read_legacy_skeletal_mesh_geometry, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
+    read_legacy_texture, render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
 };
 use uuid::Uuid;
 
@@ -243,11 +243,35 @@ pub(super) fn load_ue_asset_preview(
                     _ => None,
                 }
             });
+            // FF7R 等旧式包使用 AnimEncoding_ConstantKeyLerp 压缩；解码失败时仍
+            // 保留元数据，只是查看器里不能播放。
+            let animation = read_legacy_anim_sequence(&package, 0, &mappings).ok();
             return UePreviewResult::Metadata {
                 name: export.name.clone(),
                 class_name: export.class_name.clone(),
                 rows: legacy_property_rows(&data, uexp, Some(mappings_path)),
                 timeline_seconds,
+                animation,
+            };
+        }
+        if let (Some(uexp), Some(mappings_path)) = (&uexp, mappings_path)
+            && let Ok(package) = LegacyPackage::parse(&data, uexp)
+            && let Some(export) = package
+                .exports()
+                .first()
+                .filter(|export| lumark_unreal::is_material_class(&export.class_name))
+        {
+            return UePreviewResult::Metadata {
+                name: export.name.clone(),
+                class_name: export.class_name.clone(),
+                rows: legacy_material_rows(
+                    &data,
+                    uexp,
+                    Some(mappings_path),
+                    &export.class_name,
+                    &export.name,
+                ),
+                timeline_seconds: None,
                 animation: None,
             };
         }
@@ -547,6 +571,30 @@ fn load_ue_asset_from_package(
         } else {
             None
         };
+        // 材质（含材质函数/材质表达式）没有纹理或网格预览，但可以展示类、
+        // 引用资源和可解析属性，避免只显示“暂不支持”。
+        if lumark_unreal::is_material_class(&class_name) {
+            let mut rows = vec![
+                ("材质类".to_string(), class_name.clone()),
+                ("对象".to_string(), name.clone()),
+                (
+                    "说明".to_string(),
+                    tr(
+                        "材质着色器/参数为引擎自定义布局，暂不渲染材质预览；可查看引用资源与可解析属性",
+                        "Material shaders/parameters use an engine-specific layout; material preview is not rendered yet",
+                    )
+                    .to_string(),
+                ),
+            ];
+            rows.extend(zen_property_rows(&package, primary, &mappings));
+            return UePreviewResult::Metadata {
+                name,
+                class_name,
+                rows,
+                timeline_seconds: None,
+                animation: None,
+            };
+        }
         return if rows.is_empty() {
             UePreviewResult::Other { name, class_name }
         } else {
@@ -657,10 +705,14 @@ fn read_ue_asset_inputs(
         if let Some(uexp) = &uexp_relative {
             selected.push(uexp.clone());
         }
+        // 加密 PAK 的目录索引和条目共用同一个 AES 密钥；列表阶段已经用它，
+        // 预览解压也必须带上，否则每个资产都会误报“需要密码”。
+        let password = aes_key.map(|key| zeroize::Zeroizing::new(key.to_string()));
         let mut options = ExtractionOptions {
             output_dir: temp.clone(),
             selected_paths: selected,
             overwrite: true,
+            password,
             ..Default::default()
         };
         if ArchiveService::extract(archive, &options, |_| {}).is_err() {
@@ -684,27 +736,23 @@ fn read_ue_asset_inputs(
 }
 
 /// 读取旧式包属性并格式化为详情行；无映射或解析失败时返回空。
+/// 读取旧式包属性并格式化为详情行；无映射或解析失败时返回空。
 fn legacy_property_rows(
     asset: &[u8],
     uexp: &[u8],
     mappings_path: Option<&std::path::Path>,
 ) -> Vec<(String, String)> {
-    let Some(mappings_path) = mappings_path else {
-        return Vec::new();
-    };
-    let Ok(mappings) = Mappings::parse_file(mappings_path) else {
-        return Vec::new();
-    };
-    let Ok(package) = LegacyPackage::parse(asset, uexp) else {
+    let Some((package, mappings)) = parse_legacy_asset(asset, uexp, mappings_path) else {
         return Vec::new();
     };
     let Ok(properties) = package.read_export_properties(0, &mappings) else {
         return Vec::new();
     };
+    let resolve = |index: i32| package.resolve_object_name(index);
     let mut rows: Vec<(String, String)> = properties
         .properties
         .iter()
-        .map(|(name, value)| (name.clone(), format_prop_value(value)))
+        .map(|(name, value)| (name.clone(), format_prop_value_with(value, &resolve)))
         .collect();
     if let Some(header) = lumark_unreal::read_legacy_property_header(uexp) {
         rows.push((
@@ -715,9 +763,135 @@ fn legacy_property_rows(
     rows
 }
 
+/// 解析旧式包与映射；材质预览等需要同时使用两者。
+fn parse_legacy_asset(
+    asset: &[u8],
+    uexp: &[u8],
+    mappings_path: Option<&std::path::Path>,
+) -> Option<(LegacyPackage, Mappings)> {
+    let mappings_path = mappings_path?;
+    let mappings = Mappings::parse_file(mappings_path).ok()?;
+    let package = LegacyPackage::parse(asset, uexp).ok()?;
+    Some((package, mappings))
+}
+
+/// 旧式材质资产的预览行：引用资源、可解析属性与说明。
+fn legacy_material_rows(
+    asset: &[u8],
+    uexp: &[u8],
+    mappings_path: Option<&std::path::Path>,
+    class_name: &str,
+    name: &str,
+) -> Vec<(String, String)> {
+    let mut rows = vec![
+        ("材质类".to_string(), class_name.to_string()),
+        ("对象".to_string(), name.to_string()),
+    ];
+    let note = tr(
+        "材质着色器/参数为引擎自定义布局，暂不渲染材质预览；这里展示引用资源与可解析属性",
+        "Material shaders/parameters use an engine-specific layout; preview is not rendered; references and parsed properties are shown",
+    )
+    .to_string();
+    let Some((package, mappings)) = parse_legacy_asset(asset, uexp, mappings_path) else {
+        rows.push(("说明".to_string(), note));
+        return rows;
+    };
+    // 材质依赖：父材质/材质实例/纹理引用。
+    let mut parents: Vec<String> = Vec::new();
+    let mut textures: Vec<String> = Vec::new();
+    let mut packages: Vec<String> = Vec::new();
+    for (class_package, import_class, object_name) in package.imports() {
+        if import_class == "Package" {
+            if object_name.starts_with("/Game/") {
+                packages.push(object_name.clone());
+            }
+            continue;
+        }
+        if object_name.starts_with("Default__") || object_name.starts_with('/') {
+            continue;
+        }
+        if import_class.contains("Material") {
+            parents.push(format!("{object_name} ({import_class})"));
+        } else if import_class == "Texture2D" || import_class.ends_with("Texture2D") {
+            textures.push(object_name.clone());
+        }
+        let _ = class_package;
+    }
+    parents.sort();
+    parents.dedup();
+    textures.sort();
+    textures.dedup();
+    packages.sort();
+    packages.dedup();
+    if !parents.is_empty() {
+        rows.push(("材质依赖".to_string(), parents.len().to_string()));
+        rows.extend(
+            parents
+                .iter()
+                .take(8)
+                .map(|value| ("依赖".to_string(), value.clone())),
+        );
+    }
+    if !textures.is_empty() {
+        rows.push(("纹理引用".to_string(), textures.len().to_string()));
+        rows.extend(
+            textures
+                .iter()
+                .take(12)
+                .map(|value| ("纹理".to_string(), value.clone())),
+        );
+    }
+    if !packages.is_empty() {
+        rows.push(("资源引用".to_string(), packages.len().to_string()));
+        rows.extend(packages.iter().take(12).map(|value| {
+            let short = value.rsplit('/').next().unwrap_or(value).to_string();
+            ("资源".to_string(), short)
+        }));
+    }
+    match package.read_export_properties(0, &mappings) {
+        Ok(properties) if !properties.properties.is_empty() => {
+            let resolve = |index: i32| package.resolve_object_name(index);
+            rows.push((
+                "可解析字段".to_string(),
+                format!("{} 项", properties.properties.len()),
+            ));
+            rows.extend(
+                properties
+                    .properties
+                    .iter()
+                    .take(24)
+                    .map(|(name, value)| (name.clone(), format_prop_value_with(value, &resolve))),
+            );
+        }
+        Ok(_) => rows.push((
+            "可解析字段".to_string(),
+            tr(
+                "属性表为空或全部为默认值",
+                "Properties are empty or all defaults",
+            )
+            .to_string(),
+        )),
+        Err(_) => rows.push((
+            "可解析字段".to_string(),
+            tr(
+                "该材质布局与映射不一致，暂未能解析属性值",
+                "This material layout does not match the mapping; properties could not be parsed",
+            )
+            .to_string(),
+        )),
+    }
+    rows.push(("说明".to_string(), note));
+    rows
+}
+
 /// 属性值转成一行可读文本；小型 struct/数组展开到下一层。
 fn format_prop_value(value: &PropValue) -> String {
-    let text = format_prop_value_at(value, 0);
+    format_prop_value_with(value, &|_| None)
+}
+
+/// 属性值转成一行可读文本，并用 `resolve` 把对象索引解析成资产名。
+fn format_prop_value_with(value: &PropValue, resolve: &dyn Fn(i32) -> Option<String>) -> String {
+    let text = format_prop_value_at(value, 0, resolve);
     if text.chars().count() > 160 {
         format!("{}…", text.chars().take(160).collect::<String>())
     } else {
@@ -726,14 +900,22 @@ fn format_prop_value(value: &PropValue) -> String {
 }
 
 /// 递归格式化属性值；深度超过 2 后只显示数量。
-fn format_prop_value_at(value: &PropValue, depth: usize) -> String {
+fn format_prop_value_at(
+    value: &PropValue,
+    depth: usize,
+    resolve: &dyn Fn(i32) -> Option<String>,
+) -> String {
     match value {
         PropValue::Int(value) => value.to_string(),
         PropValue::UInt(value) => value.to_string(),
         PropValue::Float(value) => format!("{value:.6}"),
         PropValue::Bool(value) => value.to_string(),
         PropValue::Name(value) | PropValue::String(value) => value.clone(),
-        PropValue::Object(index) => format!("Object({index})"),
+        PropValue::Object(index) => match resolve(*index) {
+            Some(name) => format!("Object({index}) {name}"),
+            None if *index == 0 => "None".to_string(),
+            None => format!("Object({index})"),
+        },
         PropValue::Array(values) | PropValue::Set(values) => {
             if depth >= 2 || values.is_empty() {
                 return format!("[{} 项]", values.len());
@@ -741,7 +923,7 @@ fn format_prop_value_at(value: &PropValue, depth: usize) -> String {
             let shown = values
                 .iter()
                 .take(4)
-                .map(|value| format_prop_value_at(value, depth + 1))
+                .map(|value| format_prop_value_at(value, depth + 1, resolve))
                 .collect::<Vec<_>>();
             let suffix = if values.len() > shown.len() {
                 format!(" …+{}", values.len() - shown.len())
@@ -760,8 +942,8 @@ fn format_prop_value_at(value: &PropValue, depth: usize) -> String {
                 .map(|(key, value)| {
                     format!(
                         "{}: {}",
-                        format_prop_value_at(key, depth + 1),
-                        format_prop_value_at(value, depth + 1)
+                        format_prop_value_at(key, depth + 1, resolve),
+                        format_prop_value_at(value, depth + 1, resolve)
                     )
                 })
                 .collect::<Vec<_>>();
@@ -779,7 +961,9 @@ fn format_prop_value_at(value: &PropValue, depth: usize) -> String {
             let shown = fields
                 .iter()
                 .take(6)
-                .map(|(name, value)| format!("{name}={}", format_prop_value_at(value, depth + 1)))
+                .map(|(name, value)| {
+                    format!("{name}={}", format_prop_value_at(value, depth + 1, resolve))
+                })
                 .collect::<Vec<_>>();
             let suffix = if fields.len() > shown.len() {
                 format!(" …+{}", fields.len() - shown.len())
@@ -792,7 +976,6 @@ fn format_prop_value_at(value: &PropValue, depth: usize) -> String {
         PropValue::Other => "<原始值>".to_string(),
     }
 }
-
 #[cfg(test)]
 #[path = "preview_ue_tests.rs"]
 mod tests;

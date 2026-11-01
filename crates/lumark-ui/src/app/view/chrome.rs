@@ -20,6 +20,13 @@ impl Render for LumarkApp {
     /// 组合标题栏、动作带、导航行、侧栏、当前页面、状态栏和模态层。
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_details_preview(cx);
+        // 双击资产时详情还在后台解析，渲染结束后再打开查看器：窗口创建
+        // 不能发生在渲染过程中，否则会和布局/窗口句柄刷新互相影响。
+        if self.pending_asset_viewer_ready() {
+            cx.defer_in(window, |this, window, cx| {
+                this.flush_pending_asset_viewer(window, cx);
+            });
+        }
         if self.last_size_save.elapsed() >= std::time::Duration::from_secs(2) {
             let size = window.inner_window_bounds().get_bounds().size;
             let current = (size.width.as_f32(), size.height.as_f32());
@@ -35,8 +42,19 @@ impl Render for LumarkApp {
             self.last_size_save = std::time::Instant::now();
         }
 
-        let content = if self.game_setup.is_some() {
-            self.render_game_setup(window, cx)
+        // 游戏编辑窗口是独立的小窗口：只保留自己的标题栏和设置表单，
+        // 不渲染主窗口的动作带、导航行和侧栏，避免出现两套全局导航。
+        if self.game_editor_only {
+            return v_flex()
+                .size_full()
+                .bg(cx.theme().background)
+                .text_color(cx.theme().foreground)
+                .child(self.render_game_editor_window(window, cx))
+                .into_any_element();
+        }
+
+        let content = if self.game_library {
+            self.render_game_library(window, cx).into_any_element()
         } else {
             match self.screen {
                 Screen::Browser => self.render_browser(window, cx).into_any_element(),
@@ -46,7 +64,7 @@ impl Render for LumarkApp {
         };
         // 密码库的整页滚动条向窗口内侧留出空间，避免与 Windows 窗口
         // 缩放边框重叠而无法拖动。
-        let content = if self.screen == Screen::Passwords {
+        let content = if self.screen == Screen::Passwords && !self.game_library {
             v_flex()
                 .w_full()
                 .h_full()
@@ -57,7 +75,8 @@ impl Render for LumarkApp {
         } else {
             content
         };
-        let browser = self.screen == Screen::Browser && self.game_setup.is_none();
+        // 游戏库列表页没有文件表导航行和侧栏，保持页面专注。
+        let browser = self.screen == Screen::Browser && !self.game_library;
         let game = self.game_session.is_some();
 
         v_flex()
@@ -94,5 +113,6 @@ impl Render for LumarkApp {
                     ),
             )
             .child(self.render_status_bar(cx))
+            .into_any_element()
     }
 }

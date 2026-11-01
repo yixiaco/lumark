@@ -43,9 +43,12 @@ fn saved_game_shows_archive_list(cx: &mut gpui_kit::TestAppContext) {
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.open_game_assets(window, cx);
+            assert!(app.game_library, "游戏资产入口应显示游戏库列表");
+            app.start_game_setup(None, window, cx);
             app.scan_game_directory(project.clone(), window, cx);
             app.save_game_setup(window, cx);
             assert!(app.game_session.is_some(), "保存后应进入游戏会话");
+            assert!(!app.game_library, "进入游戏后应离开游戏库列表");
             assert!(
                 matches!(
                     app.browser.location,
@@ -69,15 +72,16 @@ fn saved_game_shows_archive_list(cx: &mut gpui_kit::TestAppContext) {
         });
         window.draw(cx).clear(cx);
         assert!(window.find("game-sidebar-edit").visible());
+        assert!(window.find("game-sidebar-list").visible());
         assert!(window.find("game-context-exit").visible());
     });
     let _ = app;
 }
 
-/// 验证动作带入口打开游戏设置页，并渲染目录和保存按钮。
+/// 验证动作带入口打开游戏库列表，并渲染新增游戏和返回文件浏览按钮。
 #[cfg(windows)]
 #[gpui_kit::test]
-fn game_assets_button_opens_setup_page(cx: &mut gpui_kit::TestAppContext) {
+fn game_assets_button_opens_library(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
     let (app, cx) = cx.add_window_view(|window, cx| {
@@ -97,12 +101,12 @@ fn game_assets_button_opens_setup_page(cx: &mut gpui_kit::TestAppContext) {
         );
         app.update(cx, |app, cx| {
             app.open_game_assets(window, cx);
-            assert!(app.game_setup.is_some(), "应打开游戏设置页");
+            assert!(app.game_library, "应打开游戏库列表页");
+            assert!(app.game_setup.is_none(), "游戏库列表不应直接打开设置表单");
         });
         window.draw(cx).clear(cx);
-        assert!(window.find("game-directory").visible());
-        assert!(window.find("game-setup-save").visible());
-        assert!(window.find("game-setup-close").visible());
+        assert!(window.find("game-library-add").visible());
+        assert!(window.find("game-library-back").visible());
     });
     let _ = app;
 }
@@ -166,7 +170,7 @@ fn multiple_games_stay_open(cx: &mut gpui_kit::TestAppContext) {
             assert_eq!(
                 app.game_session
                     .as_ref()
-                    .map(|session| session.game.name.as_str()),
+                    .map(|session| session.display_name.as_str()),
                 Some("GameOne")
             );
             assert!(
@@ -185,16 +189,17 @@ fn multiple_games_stay_open(cx: &mut gpui_kit::TestAppContext) {
             assert_eq!(
                 app.game_session
                     .as_ref()
-                    .map(|session| session.game.name.as_str()),
+                    .map(|session| session.display_name.as_str()),
                 Some("GameTwo")
             );
         });
         window.draw(cx).clear(cx);
+        assert!(
+            window.find("game-sidebar-edit").visible(),
+            "侧栏应显示当前游戏卡片"
+        );
         for game_id in &tab_ids {
-            assert!(
-                window.find(format!("game-tab-{game_id}")).visible(),
-                "侧栏应显示已打开游戏切换标签"
-            );
+            let _ = game_id;
         }
         app.update(cx, |app, cx| {
             // 关闭当前游戏后应自动切回仍打开的另一个游戏。
@@ -203,7 +208,7 @@ fn multiple_games_stay_open(cx: &mut gpui_kit::TestAppContext) {
             assert_eq!(
                 app.game_session
                     .as_ref()
-                    .map(|session| session.game.name.as_str()),
+                    .map(|session| session.display_name.as_str()),
                 Some("GameOne")
             );
         });
@@ -235,12 +240,16 @@ fn game_setup_scan_fills_detection(cx: &mut gpui_kit::TestAppContext) {
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {
             app.open_game_assets(window, cx);
+            app.start_game_setup(None, window, cx);
             app.scan_game_directory(project.clone(), window, cx);
             let setup = app.game_setup.as_ref().expect("设置页");
             assert!(setup.scanned.is_some(), "应完成目录扫描");
             assert_eq!(setup.engine(), lumark_unreal::UnrealEngine::Unknown);
             assert!(setup.mappings.is_some(), "应自动发现映射文件");
             assert!(setup.ready(), "扫描完成后应可保存");
+            // 设置表单只由独立编辑窗口渲染；测试窗口模拟编辑窗口的渲染分支。
+            app.game_editor_only = true;
+            app.game_library = false;
         });
         window.draw(cx).clear(cx);
         assert!(window.find("game-setup-save").visible());

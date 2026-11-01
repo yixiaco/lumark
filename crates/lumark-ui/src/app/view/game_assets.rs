@@ -1,8 +1,9 @@
 //! 游戏资产设置页、游戏侧栏和上下文条。
 use super::super::*;
-use super::components::AppIcon;
+use super::components::{AppIcon, brand_mark, icon_button};
 use crate::i18n::tr;
 use gpui_kit::component::Disableable as _;
+use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
@@ -10,7 +11,7 @@ use gpui_kit::component::tag::Tag;
 use lumark_settings::GameLibraryEntry;
 
 impl LumarkApp {
-    /// 渲染游戏资产设置页：已保存游戏列表和添加/编辑表单。
+    /// 渲染游戏设置页：独立编辑窗口显示表单，主窗口只在兼容路径下显示。
     pub(crate) fn render_game_setup(
         &self,
         _window: &Window,
@@ -26,6 +27,17 @@ impl LumarkApp {
             tr("编辑游戏", "Edit game")
         } else {
             tr("添加游戏", "Add game")
+        };
+        let subtitle = if self.game_editor_only {
+            tr(
+                "配置游戏目录、密钥和映射；保存后回到游戏库。",
+                "Configure the game folder, key and mappings; saving returns to the game library.",
+            )
+        } else {
+            tr(
+                "选择 UE 游戏目录，浏览 pak/IoStore 容器中的资产。只读，不改动游戏文件。",
+                "Choose a UE game folder to browse assets in pak/IoStore containers. Read-only.",
+            )
         };
         let page = v_flex()
             .id("game-setup-page")
@@ -68,40 +80,45 @@ impl LumarkApp {
                                         div()
                                             .text_xs()
                                             .text_color(cx.theme().muted_foreground)
-                                            .child(tr(
-                                                "选择 UE 游戏目录，浏览 pak/IoStore 容器中的资产。只读，不改动游戏文件。",
-                                                "Choose a UE game folder to browse assets in pak/IoStore containers. Read-only.",
-                                            )),
+                                            .child(subtitle),
                                     ),
                             )
                             .child(
                                 button("game-setup-close")
                                     .ghost()
                                     .ml_auto()
-                                    .label(tr("返回文件浏览", "Back to files"))
+                                    .label(if self.game_editor_only {
+                                        tr("取消", "Cancel")
+                                    } else {
+                                        tr("返回文件浏览", "Back to files")
+                                    })
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.close_game_setup(window, cx);
                                     })),
                             ),
                     )
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .gap_2()
-                            .child(section_label(cx, tr("已保存的游戏", "Saved games")))
-                            .when(games.is_empty(), |this| {
-                                this.child(hint_line(
-                                    cx,
-                                    tr(
-                                        "还没有游戏记录。选择下方目录即可开始。",
-                                        "No games yet. Choose a folder below to begin.",
-                                    ),
-                                ))
-                            })
-                            .children(games.iter().enumerate().map(|(index, game)| {
-                                saved_game_row(index, game, setup.editing_id.as_deref(), cx)
-                            })),
-                    )
+                    .when(!self.game_editor_only, |this| {
+                        this.child(
+                            v_flex()
+                                .w_full()
+                                .gap_2()
+                                .child(section_label(cx, tr("已保存的游戏", "Saved games")))
+                                .when(games.is_empty(), |this| {
+                                    this.child(hint_line(
+                                        cx,
+                                        tr(
+                                            "还没有游戏记录。选择下方目录即可开始。",
+                                            "No games yet. Choose a folder below to begin.",
+                                        ),
+                                    ))
+                                })
+                                .children(
+                                    games.iter().enumerate().map(|(index, game)| {
+                                        saved_game_row(index, game, false, cx)
+                                    }),
+                                ),
+                        )
+                    })
                     .child(
                         v_flex()
                             .w_full()
@@ -111,9 +128,7 @@ impl LumarkApp {
                             .border_color(cx.theme().border)
                             .bg(cx.theme().popover)
                             .p_4()
-                            .child(
-                                div().text_sm().font_semibold().child(title.to_string()),
-                            )
+                            .child(div().text_sm().font_semibold().child(title.to_string()))
                             .child(
                                 v_flex()
                                     .gap_2()
@@ -151,9 +166,7 @@ impl LumarkApp {
                                 v_flex()
                                     .gap_2()
                                     .child(field_label(cx, tr("游戏名称", "Game name")))
-                                    .child(
-                                        Input::new(&setup.name).id("game-name").w_full(),
-                                    ),
+                                    .child(Input::new(&setup.name).id("game-name").w_full()),
                             )
                             .child(detection_summary(setup, cx))
                             .child(key_section(setup, cx))
@@ -168,34 +181,223 @@ impl LumarkApp {
                                         button("game-setup-cancel")
                                             .secondary()
                                             .label(tr("取消", "Cancel"))
-                                            .on_click(cx.listener(
-                                                |this, _, window, cx| {
-                                                    this.close_game_setup(window, cx);
-                                                },
-                                            )),
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.close_game_setup(window, cx);
+                                            })),
                                     )
                                     .child(
                                         button("game-setup-save")
                                             .primary()
                                             .disabled(!setup.ready())
-                                            .label(tr("保存并打开", "Save and open"))
-                                            .on_click(cx.listener(
-                                                |this, _, window, cx| {
-                                                    this.save_game_setup(window, cx);
-                                                },
-                                            )),
+                                            .label(if self.game_editor_only {
+                                                tr("保存", "Save")
+                                            } else {
+                                                tr("保存并打开", "Save and open")
+                                            })
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.save_game_setup(window, cx);
+                                            })),
                                     ),
                             ),
                     ),
             )
-            .on_drop(cx.listener(
-                |this, paths: &gpui_kit::ExternalPaths, window, cx| {
+            .on_drop(
+                cx.listener(|this, paths: &gpui_kit::ExternalPaths, window, cx| {
                     if let Some(directory) = paths.0.iter().find(|path| path.is_dir()).cloned() {
                         this.scan_game_directory(directory, window, cx);
                     }
-                },
-            ));
+                }),
+            );
         page.into_any_element()
+    }
+}
+
+impl LumarkApp {
+    /// 渲染游戏库列表页：主窗口的游戏资产入口。
+    ///
+    /// 页面只负责“已有游戏列表 + 新增/编辑/打开/移除”这几个决定；游戏配置
+    /// 表单在独立编辑窗口中打开，避免列表页被长表单挤占。
+    pub(crate) fn render_game_library(
+        &self,
+        _window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let mut games = self.settings.get().games;
+        games.sort_by(|left, right| right.last_opened.cmp(&left.last_opened));
+        let active_id = self
+            .game_session
+            .as_ref()
+            .map(|session| session.entry_id.clone());
+        v_flex()
+            .id("game-library-page")
+            .size_full()
+            .overflow_y_scrollbar()
+            .bg(cx.theme().background)
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(px(880.))
+                    .mx_auto()
+                    .p_6()
+                    .gap_4()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .size(px(38.))
+                                    .rounded(cx.theme().radius_lg)
+                                    .bg(cx.theme().primary.opacity(0.12))
+                                    .text_color(cx.theme().primary)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(AppIcon::Game.element(20.)),
+                            )
+                            .child(
+                                v_flex()
+                                    .gap(px(1.))
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_semibold()
+                                            .child(tr("游戏资产", "Game assets")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(tr(
+                                                "选择游戏进入容器浏览，或新增一个 UE 游戏目录。只读，不改动游戏文件。",
+                                                "Open a game to browse its containers, or add a UE game folder. Read-only.",
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .ml_auto()
+                                    .gap_2()
+                                    .child(
+                                        button("game-library-add")
+                                            .label(tr("新增游戏", "Add game"))
+                                            .icon(AppIcon::Add.element(14.))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.open_game_setup_new(window, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        button("game-library-back")
+                                            .ghost()
+                                            .label(tr("返回文件浏览", "Back to files"))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.exit_game_assets(window, cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .gap_2()
+                            .child(section_label(cx, tr("已保存的游戏", "Saved games")))
+                            .when(games.is_empty(), |this| {
+                                this.child(
+                                    v_flex()
+                                        .w_full()
+                                        .gap_1()
+                                        .rounded(cx.theme().radius_lg)
+                                        .border_1()
+                                        .border_color(cx.theme().border)
+                                        .bg(cx.theme().popover)
+                                        .p_4()
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_semibold()
+                                                .child(tr("还没有游戏记录", "No games yet")),
+                                        )
+                                        .child(hint_line(
+                                            cx,
+                                            tr(
+                                                "点击“新增游戏”选择 UE 游戏目录，Lumark 会扫描容器和密钥。",
+                                                "Choose a UE game folder with Add game; Lumark scans its containers and keys.",
+                                            ),
+                                        )),
+                                )
+                            })
+                            .children(games.iter().enumerate().map(|(index, game)| {
+                                let active = active_id.as_deref() == Some(game.id.as_str());
+                                saved_game_row(index, game, active, cx)
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 渲染独立游戏编辑窗口：标题栏、设置表单和状态栏。
+    pub(crate) fn render_game_editor_window(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        v_flex()
+            .id("game-editor-window")
+            .size_full()
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
+            .child(
+                TitleBar::new()
+                    .h(px(38.))
+                    .bg(cx.theme().title_bar)
+                    .border_b_1()
+                    .border_color(cx.theme().title_bar_border)
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .items_center()
+                            .gap_2()
+                            .child(brand_mark(22.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .child(
+                                        if self
+                                            .game_setup
+                                            .as_ref()
+                                            .is_some_and(|setup| setup.editing_id.is_some())
+                                        {
+                                            tr("编辑游戏 - Lumark", "Edit game - Lumark")
+                                        } else {
+                                            tr("添加游戏 - Lumark", "Add game - Lumark")
+                                        },
+                                    ),
+                            )
+                            .child(
+                                icon_button(
+                                    "game-editor-close",
+                                    AppIcon::Close,
+                                    tr("关闭编辑窗口", "Close editor"),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.close_game_setup(window, cx);
+                                    },
+                                )),
+                            ),
+                    ),
+            )
+            .child(self.render_game_setup(window, cx))
+            .child(self.render_status_bar(cx))
+            .into_any_element()
     }
 }
 
@@ -203,7 +405,7 @@ impl LumarkApp {
 fn saved_game_row(
     index: usize,
     game: &GameLibraryEntry,
-    editing: Option<&str>,
+    active: bool,
     cx: &mut Context<LumarkApp>,
 ) -> gpui_kit::AnyElement {
     let id = game.id.clone();
@@ -214,7 +416,6 @@ fn saved_game_row(
     } else {
         game.engine.clone()
     };
-    let active = editing == Some(game.id.as_str());
     h_flex()
         .w_full()
         .gap_2()
@@ -296,7 +497,7 @@ fn saved_game_row(
                                 .into_iter()
                                 .find(|game| game.id == edit_id);
                             if let Some(entry) = entry {
-                                this.start_game_setup(Some(&entry), window, cx);
+                                this.spawn_game_editor(Some(entry), window, cx);
                             }
                         })),
                 )
@@ -470,10 +671,30 @@ fn key_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::AnyE
                 ),
         )
         .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(state),
+            h_flex()
+                .w_full()
+                .gap_2()
+                .items_center()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(state),
+                )
+                .when(setup.key_state.key().is_some(), |this| {
+                    this.child(
+                        button("game-view-key")
+                            .ghost()
+                            .xsmall()
+                            .icon(AppIcon::Key.element(12.))
+                            .label(tr("查看密钥", "View key"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.view_setup_key(window, cx);
+                            })),
+                    )
+                }),
         )
         .into_any_element()
 }

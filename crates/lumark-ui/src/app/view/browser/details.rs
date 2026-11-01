@@ -22,11 +22,17 @@ impl LumarkApp {
             .map(ToString::to_string)
             .unwrap_or_else(|| display.clone());
         let entry_count = self.displayed_count();
-        let total_size = self
-            .displayed_entries()
-            .iter()
-            .map(|entry| entry.size)
-            .sum::<u64>();
+        let displayed = self.displayed_entries();
+        let total_size = displayed.iter().map(|entry| entry.size).sum::<u64>();
+        // 归档位置额外汇总压缩后大小，便于和容器文件的磁盘大小对照。
+        let compressed_total = matches!(&self.browser.location, BrowserLocation::Archive { .. })
+            .then(|| {
+                displayed
+                    .iter()
+                    .filter_map(|entry| entry.archive_entry.as_ref()?.compressed_size)
+                    .reduce(|left, right| left.saturating_add(right))
+            })
+            .flatten();
         v_flex()
             .id("details-panel")
             .w_full()
@@ -152,7 +158,7 @@ impl LumarkApp {
                             )
                         })
                         .when_some(
-                            entry.archive_entry.as_ref(),
+                            entry.archive_entry.as_ref().filter(|_| !entry.is_dir),
                             |this, archive| {
                                 this.child(div().h(px(1.)).bg(cx.theme().border))
                                     .child(detail_row(
@@ -221,6 +227,13 @@ impl LumarkApp {
                             tr("总计", "Total"),
                             &format_size(total_size),
                         ))
+                        .when_some(compressed_total, |this, compressed| {
+                            this.child(detail_row(
+                                cx,
+                                tr("压缩后总计", "Compressed total"),
+                                &format_size(compressed),
+                            ))
+                        })
                         .child(detail_row(cx, tr("位置", "Location"), &display))
                         .child(hint_text(
                             cx,

@@ -92,12 +92,22 @@ impl ArchiveService {
     }
 
     /// 列出传统只读格式条目。
+    ///
+    /// UnrealPak 的加密状态不在通用的传统条目结构里，列表阶段需要额外探测
+    /// 一次；否则加密 PAK 会被当成未加密，后续打开/解压条目时丢掉 AES 密钥。
     pub(crate) fn list_legacy(
         path: &Path,
         format: ArchiveFormat,
         password: Option<&str>,
     ) -> Result<ArchiveInfo, ArchiveError> {
-        Self::list_legacy_with(open_legacy_reader(path, format, password)?, format)
+        let mut info = Self::list_legacy_with(open_legacy_reader(path, format, password)?, format)?;
+        if format == ArchiveFormat::UnrealPak {
+            let (encrypted, header_encrypted) =
+                crate::pak::unreal::probe_encryption(path).map_err(ArchiveError::Corrupt)?;
+            info.encrypted = encrypted;
+            info.header_encrypted = header_encrypted;
+        }
+        Ok(info)
     }
 
     /// 用已打开的读取器列出传统归档。

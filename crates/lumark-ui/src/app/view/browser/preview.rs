@@ -57,6 +57,7 @@ impl DetailsPreview {
 impl LumarkApp {
     /// 在渲染前同步选中条目和预览状态，必要时启动后台解压。
     pub(crate) fn sync_details_preview(&mut self, cx: &mut Context<Self>) {
+        self.clear_stale_pending_asset_viewer();
         let Some(entry) = self.selected_entry() else {
             self.details_preview = None;
             self.details_mesh = None;
@@ -96,7 +97,8 @@ impl LumarkApp {
                 });
             }
             BrowserLocation::Archive { archive, .. } => {
-                let password_present = self.archive_password.is_some();
+                let password = self.archive_operation_password();
+                let password_present = password.is_some();
                 let key = format!(
                     "archive:{}:{}:{}:{password_present}",
                     archive.display(),
@@ -138,10 +140,6 @@ impl LumarkApp {
                     .join("preview")
                     .join(Uuid::new_v4().to_string());
                 let relative = entry.path.to_string_lossy().replace('\\', "/");
-                let password: Option<Zeroizing<String>> = self
-                    .archive_password
-                    .as_ref()
-                    .map(|password| Zeroizing::new(password.to_string()));
                 let target = match lumark_archive::safe_join(&output, &relative) {
                     Ok(path) => path,
                     Err(error) => {
@@ -241,13 +239,7 @@ impl LumarkApp {
             .key
             .as_ref()
             .map(|key| Zeroizing::new(key.to_string()));
-        let key = format!(
-            "ue:{}:{}:{}:{:?}",
-            archive.display(),
-            entry.path.display(),
-            entry.size,
-            mappings_path
-        );
+        let key = Self::ue_preview_key(&archive, entry, mappings_path.as_deref());
         if self
             .details_preview
             .as_ref()
@@ -300,7 +292,7 @@ impl LumarkApp {
                     UePreviewResult::Other { name, class_name } => DetailsPreview::Unavailable {
                         key,
                         message: format!(
-                            "{}（{}）；模型/骨骼/动画查看器将在后续版本提供",
+                            "{}（{}）暂不支持内置预览；纹理/模型/骨骼可在详情面板打开查看器",
                             name, class_name
                         ),
                     },
@@ -367,5 +359,166 @@ impl LumarkApp {
             });
         })
         .detach();
+    }
+
+    /// 选择变化时丢弃已经过期的资产查看器请求，避免旧请求在重新选中时误开。
+    fn clear_stale_pending_asset_viewer(&mut self) {
+        let Some(pending) = self.pending_asset_viewer.as_ref() else {
+            return;
+        };
+        let target = self.selected_entry().filter(|entry| !entry.is_dir).zip(
+            match self.browser.location.clone() {
+                BrowserLocation::Archive { archive, .. } => Some(archive),
+                _ => None,
+            },
+        );
+        let Some((entry, archive)) = target else {
+            self.pending_asset_viewer = None;
+            return;
+        };
+        let mappings = self
+            .game_session
+            .as_ref()
+            .and_then(|session| session.mappings.clone());
+        if Self::ue_preview_key(&archive, &entry, mappings.as_deref()) != pending.key {
+            self.pending_asset_viewer = None;
+        }
+    }
+
+    /// 计算 UE 资产详情预览的缓存 key；双击排队和后台解析必须使用同一口径。
+    fn ue_preview_key(
+        archive: &std::path::Path,
+        entry: &BrowserEntry,
+        mappings: Option<&std::path::Path>,
+    ) -> String {
+        format!(
+            "ue:{}:{}:{}:{:?}",
+            archive.display(),
+            entry.path.display(),
+            entry.size,
+            mappings
+        )
+    }
+
+    /// 打开游戏容器内所选资产的内置查看器。
+    ///
+    /// 双击和右键“使用内置查看器打开”共用这个入口：已经解析出场景或纹理时
+    /// 立即打开，仍在后台解析时挂起，由渲染后的
+    /// [`LumarkApp::flush_pending_asset_viewer`] 打开，两个入口不再给出不同提示。
+    pub(crate) fn open_ue_asset_viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            self.status = tr("请先选择一个资产", "Select an asset first").to_string();
+            return;
+        };
+        if entry.is_dir {
+            self.status = tr("请选择一个资产文件", "Select an asset file").to_string();
+            return;
+        }
+        if let Some(scene) = self.details_viewer_scene() {
+            self.pending_asset_viewer = None;
+            self.open_asset_viewer(scene, entry.name.clone(), window, cx);
+            return;
+        }
+        if let Some(DetailsPreview::Ready { path, name, .. }) = self.details_preview.as_ref() {
+            let path = path.clone();
+            let name = name.clone();
+            self.pending_asset_viewer = None;
+            self.open_image_viewer(path, name, window, cx);
+            return;
+        }
+        let BrowserLocation::Archive { archive, .. } = self.browser.location.clone() else {
+            return;
+        };
+        let mappings = self
+            .game_session
+            .as_ref()
+            .and_then(|session| session.mappings.clone());
+        let key = Self::ue_preview_key(&archive, &entry, mappings.as_deref());
+        self.pending_asset_viewer = Some(PendingAssetViewer { key });
+        self.status = tr(
+            "正在解析资产，完成后会自动打开内置查看器",
+            "Parsing the asset; the built-in viewer will open when ready",
+        )
+        .to_string();
+        cx.notify();
+    }
+
+    /// 判断挂起的资产查看器是否已经可以打开；供渲染结束后延迟调用。
+    pub(crate) fn pending_asset_viewer_ready(&self) -> bool {
+        let Some(pending) = self.pending_asset_viewer.as_ref() else {
+            return false;
+        };
+        self.details_preview.as_ref().is_some_and(|preview| {
+            preview.key() == pending.key && !matches!(preview, DetailsPreview::Loading { .. })
+        })
+    }
+
+    /// 在渲染后推进挂起的资产查看器请求。
+    ///
+    /// 选择变化、预览失败或该资产没有可用查看器时丢弃请求，避免后台结果
+    /// 落到别的资产上或让状态栏一直停在“正在解析”。
+    pub(crate) fn flush_pending_asset_viewer(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(pending) = self.pending_asset_viewer.clone() else {
+            return;
+        };
+        let Some(entry) = self.selected_entry().filter(|entry| !entry.is_dir) else {
+            self.pending_asset_viewer = None;
+            return;
+        };
+        let BrowserLocation::Archive { archive, .. } = self.browser.location.clone() else {
+            self.pending_asset_viewer = None;
+            return;
+        };
+        let mappings = self
+            .game_session
+            .as_ref()
+            .and_then(|session| session.mappings.clone());
+        if Self::ue_preview_key(&archive, &entry, mappings.as_deref()) != pending.key {
+            self.pending_asset_viewer = None;
+            return;
+        }
+        let Some(preview) = self.details_preview.clone() else {
+            return;
+        };
+        if preview.key() != pending.key {
+            return;
+        }
+        self.pending_asset_viewer = None;
+        match preview {
+            DetailsPreview::Loading { .. } => {
+                self.pending_asset_viewer = Some(pending);
+            }
+            DetailsPreview::Ready { path, name, .. } => {
+                if let Some(scene) = self.details_viewer_scene() {
+                    self.open_asset_viewer(scene, name, window, cx);
+                } else {
+                    self.open_image_viewer(path, name, window, cx);
+                }
+            }
+            DetailsPreview::Metadata {
+                title, subtitle, ..
+            } => {
+                self.status = format!(
+                    "{}{}（{}）",
+                    tr(
+                        "暂无可用的 3D/纹理查看器：",
+                        "No 3D/texture viewer for this asset: "
+                    ),
+                    title,
+                    subtitle
+                );
+            }
+            DetailsPreview::Error { message, .. } => {
+                self.status = format!("{}：{message}", tr("资产解析失败", "Asset parsing failed"));
+            }
+            DetailsPreview::Unavailable { message, .. } => {
+                self.status = message;
+            }
+        }
+        cx.notify();
     }
 }

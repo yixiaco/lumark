@@ -12,8 +12,7 @@ impl LumarkApp {
             return;
         };
         let password = self
-            .archive_password
-            .as_ref()
+            .archive_operation_password()
             .map(|value| value.to_string());
         self.prepare_extract_dialog(archive, password.is_none(), password.as_deref(), window, cx);
     }
@@ -166,7 +165,7 @@ impl LumarkApp {
         }
         let mut password = input_value(&self.extract_password, cx);
         if password.is_empty()
-            && let Some(known) = &self.archive_password
+            && let Some(known) = self.archive_operation_password()
         {
             password = known.to_string();
         }

@@ -422,6 +422,24 @@ impl LegacyPackage {
         &self.imports
     }
 
+    /// 把 UE 对象索引解析成导入/导出名称。
+    ///
+    /// UE 的 `FPackageIndex`：正数为导出下标 + 1，负数为导入下标取反 - 1，
+    /// 0 表示 `None`。
+    pub fn resolve_object_name(&self, index: i32) -> Option<String> {
+        if index > 0 {
+            self.exports
+                .get((index - 1) as usize)
+                .map(|export| export.name.clone())
+        } else if index < 0 {
+            self.imports
+                .get((-index - 1) as usize)
+                .map(|(_, _, object_name)| object_name.clone())
+        } else {
+            None
+        }
+    }
+
     /// 导出表。
     pub fn exports(&self) -> &[LegacyExport] {
         &self.exports
@@ -469,8 +487,25 @@ impl LegacyPackage {
             .ok_or_else(|| invalid("旧式导出偏移越界"))?;
         unversioned::read_properties_legacy(data, &self.names, mappings, &export.class_name)
     }
-}
 
+    /// 从导出数据的内嵌偏移读取一个无版本结构属性。
+    ///
+    /// 压缩动画的曲线数据和部分运行时结构直接写在导出字节流里，没有独立的
+    /// 导出表；结构名来自游戏的 `.usmap`。
+    pub fn read_embedded_struct_properties(
+        &self,
+        index: usize,
+        skip: usize,
+        mappings: &Mappings,
+        struct_name: &str,
+    ) -> Result<unversioned::UnversionedProperties, PackageError> {
+        let data = self
+            .export_data(index)
+            .and_then(|data| data.get(skip..))
+            .ok_or_else(|| invalid("旧式导出偏移越界"))?;
+        unversioned::read_struct_properties(data, &self.names, mappings, struct_name)
+    }
+}
 /// 旧式属性头统计。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LegacyPropertyHeader {

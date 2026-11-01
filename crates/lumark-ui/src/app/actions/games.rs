@@ -1,4 +1,4 @@
-//! 游戏资产动作：扫描目录、保存游戏、提取密钥和打开容器。
+﻿//! 游戏资产动作：扫描目录、保存游戏、提取密钥和打开容器。
 
 use super::super::*;
 use crate::i18n::tr;
@@ -8,9 +8,14 @@ use lumark_unreal::{
 };
 use zeroize::Zeroizing;
 
+mod editor;
+
 impl LumarkApp {
-    /// 进入游戏资产工作区；没有会话时打开设置页。
-    pub(crate) fn open_game_assets(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 进入游戏资产工作区：主窗口显示游戏库列表。
+    ///
+    /// 入口不再自动打开上次游戏；列表页保留已打开的游戏会话，用户点“打开”
+    /// 时才进入容器浏览，返回列表也不会丢失浏览位置。
+    pub(crate) fn open_game_assets(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if !GAME_ASSETS_SUPPORTED {
             self.status = tr(
                 "当前平台暂不支持游戏资产功能",
@@ -20,25 +25,23 @@ impl LumarkApp {
             cx.notify();
             return;
         }
-        self.screen = Screen::Browser;
-        if self.game_session.is_some() {
-            self.status = tr("当前处于游戏资产浏览", "Browsing game assets").to_string();
-        } else if self.game_setup.is_none() {
+        if self.game_session.is_none() && !self.game_library {
             self.remember_previous_directory();
-            self.restore_open_games(window, cx);
-            if self.game_session.is_none()
-                && let Some(active) = self.settings.get().active_game.clone()
-            {
-                self.open_saved_game(&active, window, cx);
-            }
-            if self.game_session.is_none() {
-                self.start_game_setup(None, window, cx);
-            }
         }
+        self.game_library = true;
+        self.screen = Screen::Browser;
         cx.notify();
     }
 
-    /// 直接打开“添加游戏”设置页（不自动打开上次游戏）。
+    /// 返回游戏库列表页；保留当前游戏会话和浏览位置。
+    pub(crate) fn back_to_game_library(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.persist_open_games();
+        self.game_library = true;
+        self.screen = Screen::Browser;
+        cx.notify();
+    }
+
+    /// 打开“添加游戏”编辑窗口。
     pub(crate) fn open_game_setup_new(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !GAME_ASSETS_SUPPORTED {
             self.status = tr(
@@ -49,11 +52,7 @@ impl LumarkApp {
             cx.notify();
             return;
         }
-        self.remember_previous_directory();
-        self.game_session = None;
-        self.start_game_setup(None, window, cx);
-        self.screen = Screen::Browser;
-        cx.notify();
+        self.spawn_game_editor(None, window, cx);
     }
 
     /// 记住进入游戏资产前的文件系统位置。
@@ -109,7 +108,7 @@ impl LumarkApp {
         cx.notify();
     }
 
-    /// 编辑当前会话对应的游戏。
+    /// 编辑当前会话对应的游戏：在独立编辑窗口中打开。
     pub(crate) fn edit_current_game(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(session) = &self.game_session else {
             return;
@@ -121,12 +120,16 @@ impl LumarkApp {
             .games
             .into_iter()
             .find(|entry| entry.id == id);
-        self.start_game_setup(entry.as_ref(), window, cx);
+        self.spawn_game_editor(entry, window, cx);
     }
 
-    /// 关闭设置页并返回游戏浏览或文件浏览。
+    /// 关闭设置页：编辑窗口关闭自身，主窗口恢复原来的浏览位置。
     pub(crate) fn close_game_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.game_setup = None;
+        if self.game_editor_only {
+            window.remove_window();
+            return;
+        }
         if self.game_session.is_some() {
             self.screen = Screen::Browser;
             set_input(
@@ -398,6 +401,32 @@ impl LumarkApp {
         cx.notify();
     }
 
+    /// 在文本/十六进制查看器中查看已提取的 AES 密钥。
+    pub(crate) fn view_setup_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(setup) = self.game_setup.as_ref() else {
+            return;
+        };
+        let Some(key) = setup.key_state.key() else {
+            self.status = tr("尚无可查看的 AES 密钥", "No AES key to view").to_string();
+            cx.notify();
+            return;
+        };
+        let text = format!("{}\n", key.as_str()).into_bytes();
+        let bytes = decode_hex_key(key.as_str()).unwrap_or_else(|| text.clone());
+        self.open_memory_viewer(
+            tr("AES 密钥", "AES key").to_string(),
+            tr(
+                "内存内容 · 提取的 AES 密钥",
+                "In memory · extracted AES key",
+            )
+            .to_string(),
+            text,
+            bytes,
+            window,
+            cx,
+        );
+    }
+
     /// 保存设置页并打开游戏。
     pub(crate) fn save_game_setup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(setup) = self.game_setup.as_ref() else {
@@ -484,10 +513,16 @@ impl LumarkApp {
             return;
         }
         self.game_setup = None;
+        if self.game_editor_only {
+            self.status = tr("游戏设置已保存", "Game settings saved").to_string();
+            window.remove_window();
+            return;
+        }
         self.open_saved_game(&id, window, cx);
     }
 
     /// 返回当前打开的游戏（含后台会话），用于侧栏切换。
+    #[cfg(test)]
     pub(crate) fn open_game_entries(&self) -> Vec<(String, String, bool)> {
         let mut rows = Vec::new();
         if let Some(session) = &self.game_session {
@@ -527,25 +562,6 @@ impl LumarkApp {
         let _ = self.settings.update(|settings| settings.open_games = ids);
     }
 
-    /// 尝试恢复上次打开的游戏；失败的游戏会被跳过。
-    pub(crate) fn restore_open_games(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let ids = self.settings.get().open_games;
-        let known: Vec<String> = self
-            .settings
-            .get()
-            .games
-            .into_iter()
-            .map(|game| game.id)
-            .collect();
-        let ids: Vec<String> = ids.into_iter().take(8).collect();
-        // 列表第一项是上次的前台游戏；倒序恢复，最后激活它。
-        for id in ids.into_iter().rev() {
-            if known.contains(&id) {
-                self.open_saved_game(&id, window, cx);
-            }
-        }
-    }
-
     /// 关闭当前游戏；如果还有后台游戏则切换到下一个。
     pub(crate) fn close_current_game(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.game_session = None;
@@ -556,11 +572,12 @@ impl LumarkApp {
             self.game_session = Some(next.session);
             self.browser = next.browser;
             self.screen = Screen::Browser;
+            self.game_library = false;
             if let Some(session) = &self.game_session {
                 self.status = format!(
                     "{}：{}",
                     tr("已切换游戏", "Switched game"),
-                    session.game.name
+                    session.display_name
                 );
             }
             set_input(
@@ -579,6 +596,7 @@ impl LumarkApp {
     }
 
     /// 切换到已打开的游戏；没有打开时回退到从游戏库加载。
+    #[cfg(test)]
     pub(crate) fn switch_game_session(
         &mut self,
         id: &str,
@@ -606,11 +624,12 @@ impl LumarkApp {
             self.details_skeleton = None;
             self.game_setup = None;
             self.screen = Screen::Browser;
+            self.game_library = false;
             if let Some(session) = &self.game_session {
                 self.status = format!(
                     "{}：{}",
                     tr("已切换游戏", "Switched game"),
-                    session.game.name
+                    session.display_name
                 );
             }
             set_input(
@@ -649,6 +668,26 @@ impl LumarkApp {
             self.status = tr("游戏记录不存在", "Game entry not found").to_string();
             return;
         };
+        // 返回列表后再次打开同一个游戏时保留浏览位置，不重新扫描目录。
+        if self
+            .game_session
+            .as_ref()
+            .is_some_and(|session| session.entry_id == id)
+        {
+            if let Some(session) = self.game_session.as_mut() {
+                session.display_name = entry.name.clone();
+            }
+            self.game_library = false;
+            self.screen = Screen::Browser;
+            set_input(
+                &self.location_input,
+                self.browser.current_display().as_str(),
+                window,
+                cx,
+            );
+            cx.notify();
+            return;
+        }
         // 重新加载同一游戏配置时替换旧实例，避免出现两个同名会话。
         self.inactive_games
             .retain(|inactive| inactive.session.entry_id != id);
@@ -703,6 +742,7 @@ impl LumarkApp {
         }
         let session = GameSession {
             entry_id: entry.id.clone(),
+            display_name: entry.name.clone(),
             key,
             key_state,
             oodle,
@@ -725,13 +765,14 @@ impl LumarkApp {
             self.stash_active_game();
         }
         self.browser
-            .show_game_archives(session.game.name.clone(), session.rows());
+            .show_game_archives(session.display_name.clone(), session.rows());
         self.game_session = Some(session);
         self.details_preview = None;
         self.details_mesh = None;
         self.details_skeleton = None;
         self.game_setup = None;
         self.screen = Screen::Browser;
+        self.game_library = false;
         set_input(
             &self.location_input,
             self.browser.current_display().as_str(),
@@ -813,6 +854,7 @@ impl LumarkApp {
         self.game_session = None;
         self.inactive_games.clear();
         self.game_setup = None;
+        self.game_library = false;
         self.archive_password = None;
         self.restore_previous_directory(window, cx);
         cx.notify();
@@ -900,10 +942,26 @@ impl LumarkApp {
         if !inner.is_empty() || !session.contains_container(archive) {
             return false;
         }
-        let title = session.game.name.clone();
+        let title = session.display_name.clone();
         let rows = session.rows();
         self.browser.show_game_archives(title, rows);
         self.archive_password = None;
         true
     }
+}
+
+/// 把 64 位十六进制 AES 密钥解码为 32 字节，供十六进制视图展示。
+fn decode_hex_key(key: &str) -> Option<Vec<u8>> {
+    let key = key.trim();
+    if key.len() != 64 || !key.chars().all(|character| character.is_ascii_hexdigit()) {
+        return None;
+    }
+    key.as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+        })
+        .collect()
 }

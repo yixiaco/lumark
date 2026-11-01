@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_size: None,
         modified_after: None,
         modified_before: None,
+        category: None,
     });
     let search = started.elapsed();
     assert!(!matches.is_empty());

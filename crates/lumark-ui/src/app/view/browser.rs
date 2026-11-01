@@ -1,4 +1,4 @@
-//! 主文件表、搜索结果条和侧栏详情检查器入口。
+﻿//! 主文件表、搜索结果条和侧栏详情检查器入口。
 
 use super::super::actions::TempExtractMode;
 use super::super::*;
@@ -22,6 +22,7 @@ mod menu;
 mod preview;
 mod preview_ue;
 mod rows;
+mod thumbnails;
 mod tiles;
 
 pub(crate) use drag::{ArchiveDragItem, path_bar_drop_handler};

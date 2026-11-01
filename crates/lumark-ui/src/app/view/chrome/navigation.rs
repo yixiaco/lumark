@@ -1,4 +1,4 @@
-//! 页面标签和路径/搜索导航行。
+﻿//! 页面标签和路径/搜索导航行。
 
 use super::super::{ArchiveDragItem, path_bar_drop_handler};
 use super::*;
@@ -133,7 +133,10 @@ impl LumarkApp {
         let contains_checked = self.search_mode == SearchMode::Contains;
         let wildcard_checked = self.search_mode == SearchMode::Wildcard;
         let regex_checked = self.search_mode == SearchMode::Regex;
+        let category_label = asset_category_label(self.search_category);
+        let category_checked = self.search_category;
         let app = cx.entity();
+        let app_for_type = app.clone();
         h_flex()
             .id("command-bar")
             .h(px(42.))
@@ -410,6 +413,59 @@ impl LumarkApp {
                         },
                     ),
             )
+            .child(
+                button("search-type")
+                    .ghost()
+                    .small()
+                    .rounded(px(6.))
+                    .label(if narrow {
+                        tr("类型", "Type").to_string()
+                    } else {
+                        format!("{} · {category_label}", tr("类型", "Type"))
+                    })
+                    .dropdown_caret(true)
+                    .tooltip(tr(
+                        "按资产类型筛选搜索结果：图片、模型、骨骼、动画等",
+                        "Filter results by asset type: images, models, skeletons, animations",
+                    ))
+                    .accessibility_label(tr("资产类型筛选", "Asset type filter"))
+                    .dropdown_menu_with_anchor(
+                        gpui_kit::Anchor::TopRight,
+                        move |menu, window, _| {
+                            let mut menu = menu;
+                            for category in std::iter::once(None::<lumark_browser::AssetCategory>)
+                                .chain(lumark_browser::AssetCategory::ALL.map(Some))
+                            {
+                                let app_category = app_for_type.clone();
+                                let checked = category_checked == category;
+                                menu = menu.item(
+                                    PopupMenuItem::new(asset_category_label(category))
+                                        .checked(checked)
+                                        .on_click(window.listener_for(
+                                            &app_category,
+                                            move |app,
+                                                  _: &gpui_kit::ClickEvent,
+                                                  _,
+                                                  cx| {
+                                                app.search_category = category;
+                                                if app.search_results.is_some() {
+                                                    app.run_search(cx);
+                                                } else {
+                                                    app.status = format!(
+                                                        "{}{}",
+                                                        tr("资产类型：", "Asset type: "),
+                                                        asset_category_label(category)
+                                                    );
+                                                }
+                                                cx.notify();
+                                            },
+                                        )),
+                                );
+                            }
+                            menu
+                        },
+                    ),
+            )
             .when(search_active, |this| {
                 this.child(
                     button("search-clear")
@@ -425,5 +481,20 @@ impl LumarkApp {
                         })),
                 )
             })
+    }
+}
+
+/// 返回资产类型筛选的界面标签。
+fn asset_category_label(category: Option<lumark_browser::AssetCategory>) -> &'static str {
+    match category {
+        None => tr("全部", "All"),
+        Some(lumark_browser::AssetCategory::Image) => tr("图片/纹理", "Images"),
+        Some(lumark_browser::AssetCategory::Model) => tr("模型", "Models"),
+        Some(lumark_browser::AssetCategory::Skeleton) => tr("骨骼", "Skeletons"),
+        Some(lumark_browser::AssetCategory::Animation) => tr("动画", "Animations"),
+        Some(lumark_browser::AssetCategory::Audio) => tr("音频", "Audio"),
+        Some(lumark_browser::AssetCategory::Text) => tr("文本", "Text"),
+        Some(lumark_browser::AssetCategory::Archive) => tr("压缩包", "Archives"),
+        Some(lumark_browser::AssetCategory::Other) => tr("其他", "Other"),
     }
 }

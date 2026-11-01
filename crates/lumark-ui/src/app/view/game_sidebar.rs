@@ -75,46 +75,16 @@ impl LumarkApp {
                                 icon_button(
                                     "game-sidebar-exit",
                                     AppIcon::Close,
-                                    tr("退出游戏资产", "Exit game assets"),
+                                    tr("返回列表", "Back to list"),
                                 )
                                 .on_click(cx.listener(
                                     |this, _, window, cx| {
-                                        this.exit_game_assets(window, cx);
+                                        this.back_to_game_library(window, cx);
                                     },
                                 )),
                             ),
                     ),
             )
-            .child(v_flex().px_2().pt_2().gap_1().when(
-                self.open_game_entries().len() > 1,
-                |this| {
-                    this.child(
-                        div()
-                            .px_1()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr("打开的游戏", "Open games")),
-                    )
-                    .children(self.open_game_entries().into_iter().map(
-                        |(game_id, name, active)| {
-                            let switch_id = game_id.clone();
-                            let mut tab = button(format!("game-tab-{game_id}"))
-                                .xsmall()
-                                .w_full()
-                                .label(name)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.switch_game_session(&switch_id, window, cx);
-                                }));
-                            if active {
-                                tab = tab.primary();
-                            } else {
-                                tab = tab.ghost();
-                            }
-                            tab
-                        },
-                    ))
-                },
-            ))
             .child(
                 v_flex()
                     .flex_shrink_0()
@@ -149,7 +119,7 @@ impl LumarkApp {
                                             .text_sm()
                                             .font_semibold()
                                             .whitespace_nowrap()
-                                            .child(session.game.name.clone()),
+                                            .child(session.display_name.clone()),
                                     )
                                     .child(
                                         div()
@@ -215,13 +185,13 @@ impl LumarkApp {
                                     })),
                             )
                             .child(
-                                button("game-sidebar-files")
+                                button("game-sidebar-list")
                                     .ghost()
                                     .xsmall()
-                                    .icon(AppIcon::FolderOpen.element(13.))
-                                    .label(tr("文件浏览", "Files"))
+                                    .icon(AppIcon::ArrowUp.element(13.))
+                                    .label(tr("返回列表", "Back to list"))
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        this.exit_game_assets(window, cx);
+                                        this.back_to_game_library(window, cx);
                                     })),
                             ),
                     ),
@@ -335,7 +305,7 @@ impl LumarkApp {
                 div()
                     .font_semibold()
                     .whitespace_nowrap()
-                    .child(session.game.name.clone()),
+                    .child(session.display_name.clone()),
             )
             .child(div().text_color(cx.theme().muted_foreground).child("›"))
             .child(
@@ -385,9 +355,10 @@ impl LumarkApp {
                         button("game-context-exit")
                             .ghost()
                             .xsmall()
-                            .label(tr("退出", "Exit"))
+                            .icon(AppIcon::ArrowUp.element(13.))
+                            .label(tr("返回列表", "Back to list"))
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.exit_game_assets(window, cx);
+                                this.back_to_game_library(window, cx);
                             })),
                     ),
             )

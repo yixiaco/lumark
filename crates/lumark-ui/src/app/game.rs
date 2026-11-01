@@ -31,6 +31,8 @@ pub(crate) enum GameKeyState {
 pub(crate) struct GameSession {
     /// 设置中的游戏 ID。
     pub(crate) entry_id: String,
+    /// 游戏库中保存的显示名称；扫描出的项目名可能只是子目录名（例如 "End"）。
+    pub(crate) display_name: String,
     /// 扫描结果。
     pub(crate) game: DetectedGame,
     /// 仅内存中的 AES 密钥。

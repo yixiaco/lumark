@@ -220,3 +220,78 @@ fn loads_fixture_assets_when_available() {
         _ => panic!("fixture skeletal mesh geometry preview failed"),
     }
 }
+
+/// 加密 PAK 的资产解压必须带上游戏 AES 密钥，不能把每个条目都误报成“需要密码”。
+#[test]
+fn encrypted_pak_asset_inputs_use_aes_key() {
+    const KEY: &str = "94d25bc3aeb420e0be914edc9d5435a1eaab5f2864e09e94019ac205b727a7de";
+    let pak = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../lumark-archive/tests/fixtures/unreal/pack_v11_encrypt.pak");
+    if !pak.is_file() {
+        return;
+    }
+    let global = std::path::Path::new("missing-global.utoc");
+    match read_ue_asset_inputs(&pak, global, "test.txt", None) {
+        Err(error) => assert_eq!(error, "需要密码"),
+        Ok(_) => panic!("未提供密钥时应拒绝读取加密 PAK 条目"),
+    }
+    let (data, ubulk, uexp, scripts) = read_ue_asset_inputs(&pak, global, "test.txt", Some(KEY))
+        .unwrap_or_else(|error| panic!("加密 PAK 条目读取失败：{error}"));
+    assert!(!data.is_empty(), "应读到加密条目的真实内容");
+    assert!(ubulk.is_none());
+    assert!(uexp.is_none());
+    assert!(scripts.is_none());
+}
+
+/// 对象索引会解析成导入/导出名称，便于材质依赖阅读。
+#[test]
+fn resolves_object_references_in_property_values() {
+    let value = PropValue::Struct(vec![
+        ("Parent".to_string(), PropValue::Object(-2)),
+        ("Texture".to_string(), PropValue::Object(1)),
+        ("Empty".to_string(), PropValue::Object(0)),
+    ]);
+    let resolve = |index: i32| match index {
+        -2 => Some("M_UE4Man_Body".to_string()),
+        1 => Some("SelfExport".to_string()),
+        _ => None,
+    };
+    let text = format_prop_value_with(&value, &resolve);
+    assert!(text.contains("M_UE4Man_Body"), "{text}");
+    assert!(text.contains("SelfExport"), "{text}");
+    assert!(text.contains("Empty=None"), "{text}");
+}
+
+/// 用真实 FF7R 材质资产验证材质预览行（可选环境变量）。
+///
+/// 需要设置 `LUMARK_FF7R_MATERIAL_FIXTURE`（含 M_UE4Man_ChestLogo.uasset/.uexp）
+/// 与 `LUMARK_FF7R_MAPPINGS`；未配置时跳过，避免测试依赖游戏数据。
+#[test]
+fn material_rows_from_real_fixture_when_available() {
+    let (Ok(base), Ok(mappings_path)) = (
+        std::env::var("LUMARK_FF7R_MATERIAL_FIXTURE"),
+        std::env::var("LUMARK_FF7R_MAPPINGS"),
+    ) else {
+        return;
+    };
+    let base = std::path::PathBuf::from(base);
+    let asset = std::fs::read(base.join("M_UE4Man_ChestLogo.uasset")).expect("读取材质 uasset");
+    let uexp = std::fs::read(base.join("M_UE4Man_ChestLogo.uexp")).expect("读取材质 uexp");
+    let rows = legacy_material_rows(
+        &asset,
+        &uexp,
+        Some(std::path::Path::new(&mappings_path)),
+        "MaterialInstanceConstant",
+        "M_UE4Man_ChestLogo",
+    );
+    assert!(rows.iter().any(|(key, _)| key == "材质类"));
+    assert!(
+        rows.iter()
+            .any(|(key, value)| key == "依赖" && value.contains("M_UE4Man_Body")),
+        "应显示父材质引用：{rows:?}"
+    );
+    assert!(
+        rows.iter().any(|(key, _)| key == "纹理引用"),
+        "应显示纹理引用：{rows:?}"
+    );
+}

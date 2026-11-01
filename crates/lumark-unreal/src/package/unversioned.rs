@@ -1,4 +1,4 @@
-//! 无版本属性（unversioned properties）读取。
+﻿//! 无版本属性（unversioned properties）读取。
 //!
 //! UE5 cooked 包（包括 BNB 的 Zen 包）通常不写属性名标签，而是用
 //! `FUnversionedHeader` 的位图表示哪些 schema 槽位有值，再按 `.usmap`
@@ -74,6 +74,22 @@ pub fn read_properties_legacy(
     })
 }
 
+/// 读取一段内嵌的无版本结构属性。
+///
+/// 旧式压缩动画把 `RawCurveTracks` 作为字节流里的普通结构序列化；该结构
+/// 没有导出表，只能按映射中的结构名从当前位置解析。
+pub(crate) fn read_struct_properties(
+    data: &[u8],
+    names: &[String],
+    mappings: &Mappings,
+    struct_name: &str,
+) -> Result<UnversionedProperties, PackageError> {
+    read_properties_with(data, names, mappings, struct_name, false, false).or_else(|_| {
+        // FF7R 部分结构的内嵌布局与映射也缺少少量属性，和 AnimSequence 一样
+        // 需要在失败后尝试兼容布局。
+        read_properties_with(data, names, mappings, struct_name, false, true)
+    })
+}
 /// 按标量精度读取无版本属性。
 fn read_properties_with(
     data: &[u8],

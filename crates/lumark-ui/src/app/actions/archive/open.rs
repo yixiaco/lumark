@@ -72,10 +72,11 @@ impl LumarkApp {
         };
         let archive = archive.clone();
         let relative = entry.path.to_string_lossy().replace('\\', "/");
-        let password = if self.browser.archive_encrypted() {
-            if let Some(password) = &self.archive_password {
-                Some(zeroize::Zeroizing::new(password.to_string()))
-            } else if self.begin_vault_password_resolution(
+        // 游戏容器的 AES 密钥优先：打开条目、解压都必须直接复用，不能再走
+        // 用户密码流程把每个条目误报成需要密码。
+        let known_password = self.archive_operation_password();
+        if known_password.is_none() && self.browser.archive_encrypted() {
+            if self.begin_vault_password_resolution(
                 &archive,
                 PendingPasswordAction::OpenEntry {
                     archive: archive.clone(),
@@ -85,7 +86,8 @@ impl LumarkApp {
                 cx,
             ) {
                 return;
-            } else if self.vault.state() == VaultState::Locked {
+            }
+            if self.vault.state() == VaultState::Locked {
                 self.pending_unlock_archive = Some(archive);
                 self.unlock_for_browse = true;
                 self.request_unlock_for_extract(window, cx);
@@ -95,19 +97,16 @@ impl LumarkApp {
                 )
                 .to_string();
                 return;
-            } else {
-                let action = PendingPasswordAction::OpenEntry {
-                    archive: archive.clone(),
-                    relative,
-                    mode,
-                };
-                self.request_archive_password(archive, action, window, cx);
-                return;
             }
-        } else {
-            None
-        };
-        self.open_archive_entry_with_password(archive, relative, password, mode, window, cx);
+            let action = PendingPasswordAction::OpenEntry {
+                archive: archive.clone(),
+                relative,
+                mode,
+            };
+            self.request_archive_password(archive, action, window, cx);
+            return;
+        }
+        self.open_archive_entry_with_password(archive, relative, known_password, mode, window, cx);
     }
 
     /// 使用已解析的密码解压一个条目，并记录解压完成后的处理方式。
@@ -347,6 +346,10 @@ impl LumarkApp {
         cx: &mut Context<Self>,
     ) {
         self.marquee = None;
+        // 游戏容器按包浏览：隐藏 `.uexp/.ubulk/.uptnl` 并把同一口径用于目录
+        // 大小汇总，避免上级文件夹大小包含进入后看不到的伴随数据。
+        self.browser
+            .set_hide_ue_sidecars(self.game_session.is_some());
         let result = if let Some(info) = archive_info {
             self.browser.open_archive_info(archive.clone(), info)
         } else {

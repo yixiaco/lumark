@@ -332,6 +332,9 @@ fn parse_release_text(text: &str) -> Option<UnrealEngine> {
 }
 
 /// 收集项目与安装根 `Content/Paks` 下的容器。
+///
+/// UE 的模组通常放在 `Content/Paks/~mods/` 的多层子目录里，因此容器发现
+/// 需要递归读取；深度上限避免异常目录结构拖慢扫描。
 fn discover_containers(root: &Path, project: &Path) -> Result<Vec<ContainerInfo>, GameScanError> {
     let mut directories = vec![project.join("Content/Paks")];
     if root != project {
@@ -339,23 +342,7 @@ fn discover_containers(root: &Path, project: &Path) -> Result<Vec<ContainerInfo>
     }
     let mut paths = Vec::new();
     for directory in directories {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let extension = path
-                .extension()
-                .and_then(|value| value.to_str())
-                .map(str::to_ascii_lowercase);
-            match extension.as_deref() {
-                Some("utoc") | Some("pak") => paths.push(path),
-                _ => {}
-            }
-        }
+        collect_container_paths(&directory, 0, &mut paths);
     }
     paths.sort_by_key(|path| {
         let name = path
@@ -389,6 +376,33 @@ fn discover_containers(root: &Path, project: &Path) -> Result<Vec<ContainerInfo>
         });
     }
     Ok(containers)
+}
+
+/// 递归收集一个 `Content/Paks` 目录下的 `.pak/.utoc` 容器。
+fn collect_container_paths(directory: &Path, depth: usize, paths: &mut Vec<PathBuf>) {
+    if depth > 3 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_container_paths(&path, depth + 1, paths);
+            continue;
+        }
+        if !path.is_file() {
+            continue;
+        }
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase);
+        if matches!(extension.as_deref(), Some("utoc") | Some("pak")) {
+            paths.push(path);
+        }
+    }
 }
 
 /// 收集游戏目录内常见的 `.usmap` 映射候选。
@@ -547,6 +561,33 @@ mod tests {
         assert_eq!(game.engine, UnrealEngine::Unknown);
         assert_eq!(game.containers.len(), 1);
         assert_eq!(game.containers[0].kind, ContainerKind::Pak);
+    }
+
+    /// 验证 `~mods` 多层目录里的 `.pak` 也会被扫描到。
+    #[test]
+    fn discovers_mod_containers_in_subdirectories() {
+        let directory = tempfile::tempdir().unwrap();
+        let paks = directory.path().join("Content/Paks");
+        fs::create_dir_all(paks.join("~mods/语音")).unwrap();
+        fs::write(paks.join("pakchunk0-WindowsNoEditor.pak"), b"base").unwrap();
+        fs::write(paks.join("~mods/语音/mod.pak"), b"mod").unwrap();
+        fs::write(paks.join("~mods/语音/readme.txt"), b"txt").unwrap();
+        let game = scan_game(directory.path()).unwrap();
+        assert_eq!(game.containers.len(), 2);
+        let names = game
+            .containers
+            .iter()
+            .map(|container| {
+                container
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"pakchunk0-WindowsNoEditor.pak".to_string()));
+        assert!(names.contains(&"mod.pak".to_string()));
     }
 
     /// 缺少 UE 项目结构时返回可读错误。
