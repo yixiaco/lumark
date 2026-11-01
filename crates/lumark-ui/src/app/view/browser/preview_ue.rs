@@ -12,6 +12,8 @@ use lumark_unreal::{
 };
 use uuid::Uuid;
 
+mod material;
+
 /// UE 资产预览结果。
 pub(super) enum UePreviewResult {
     /// 已解码的纹理缩略图。
@@ -20,6 +22,14 @@ pub(super) enum UePreviewResult {
         name: String,
         subtitle: String,
         /// 旧式包无映射/有映射时的只读字段行。
+        rows: Vec<(String, String)>,
+    },
+    /// 已渲染的近似 PBR 材质球。
+    Material {
+        path: PathBuf,
+        name: String,
+        subtitle: String,
+        /// 材质依赖、字段与外观参数说明。
         rows: Vec<(String, String)>,
     },
     /// 可识别但不是纹理的资产。
@@ -261,16 +271,58 @@ pub(super) fn load_ue_asset_preview(
                 .first()
                 .filter(|export| lumark_unreal::is_material_class(&export.class_name))
         {
+            let mut rows = material::legacy_material_rows(
+                &data,
+                uexp,
+                Some(mappings_path),
+                &export.class_name,
+                &export.name,
+            );
+            if let Some(rendered) = material::load_legacy_material_preview(
+                archive,
+                global,
+                relative,
+                &data,
+                uexp,
+                Some(mappings_path),
+                aes_key,
+                output,
+            ) {
+                let appearance = &rendered.appearance;
+                rows.push((
+                    "基础色".to_string(),
+                    material::format_color(appearance.base_color),
+                ));
+                rows.push(("金属度".to_string(), format!("{:.2}", appearance.metallic)));
+                rows.push(("粗糙度".to_string(), format!("{:.2}", appearance.roughness)));
+                if appearance.inherited {
+                    rows.push((
+                        "参数来源".to_string(),
+                        tr("继承自父材质", "Inherited from parent material").to_string(),
+                    ));
+                }
+                for (label, name) in &rendered.textures {
+                    rows.push((label.clone(), name.clone()));
+                }
+                rows.push((
+                    "外观预览".to_string(),
+                    tr(
+                        "近似 PBR 材质球：基础色/贴图/粗糙度来自可解析参数，未还原完整 shader 图",
+                        "Approximate PBR material ball from parsed parameters/textures; the full shader graph is not reproduced",
+                    )
+                    .to_string(),
+                ));
+                return UePreviewResult::Material {
+                    path: rendered.path,
+                    name: export.name.clone(),
+                    subtitle: tr("近似 PBR 材质球", "Approximate PBR material ball").to_string(),
+                    rows,
+                };
+            }
             return UePreviewResult::Metadata {
                 name: export.name.clone(),
                 class_name: export.class_name.clone(),
-                rows: legacy_material_rows(
-                    &data,
-                    uexp,
-                    Some(mappings_path),
-                    &export.class_name,
-                    &export.name,
-                ),
+                rows,
                 timeline_seconds: None,
                 animation: None,
             };
@@ -326,6 +378,75 @@ pub(super) fn load_ue_asset_preview(
             ));
         }
     };
+    // UE5 材质：尝试渲染近似 PBR 材质球；Zen 包不暴露贴图路径，按同目录
+    // 命名约定定位贴图，失败时回退为信息预览。
+    if let Some(export) = package
+        .info()
+        .exports
+        .first()
+        .filter(|export| lumark_unreal::is_material_class(&export.class_name))
+    {
+        let name = export.name.clone();
+        let class_name = export.class_name.clone();
+        let mut rows = vec![
+            ("材质类".to_string(), class_name.clone()),
+            ("对象".to_string(), name.clone()),
+        ];
+        if let Some(mappings_path) = mappings_path
+            && let Ok(mappings) = Mappings::parse_file(mappings_path)
+        {
+            rows.extend(zen_property_rows(&package, 0, &mappings));
+        }
+        if let Some(rendered) = material::load_zen_material_preview(
+            archive,
+            global,
+            relative,
+            &package,
+            mappings_path,
+            aes_key,
+            output,
+        ) {
+            let appearance = &rendered.appearance;
+            rows.push((
+                "基础色".to_string(),
+                material::format_color(appearance.base_color),
+            ));
+            rows.push(("金属度".to_string(), format!("{:.2}", appearance.metallic)));
+            rows.push(("粗糙度".to_string(), format!("{:.2}", appearance.roughness)));
+            for (label, texture) in &rendered.textures {
+                rows.push((label.clone(), texture.clone()));
+            }
+            rows.push((
+                "外观预览".to_string(),
+                tr(
+                    "近似 PBR 材质球：基础色/贴图来自可解析参数，贴图按同目录命名推断",
+                    "Approximate PBR material ball from parsed parameters; textures are guessed from sibling names",
+                )
+                .to_string(),
+            ));
+            return UePreviewResult::Material {
+                path: rendered.path,
+                name,
+                subtitle: tr("近似 PBR 材质球", "Approximate PBR material ball").to_string(),
+                rows,
+            };
+        }
+        rows.push((
+            "说明".to_string(),
+            tr(
+                "材质着色器/参数为引擎自定义布局，暂未生成材质球；可查看可解析属性",
+                "Material shaders/parameters use an engine-specific layout; material ball was not generated",
+            )
+            .to_string(),
+        ));
+        return UePreviewResult::Metadata {
+            name,
+            class_name,
+            rows,
+            timeline_seconds: None,
+            animation: None,
+        };
+    }
     load_ue_asset_from_package(package, mappings_path, ubulk, output)
 }
 
@@ -776,114 +897,6 @@ fn parse_legacy_asset(
 }
 
 /// 旧式材质资产的预览行：引用资源、可解析属性与说明。
-fn legacy_material_rows(
-    asset: &[u8],
-    uexp: &[u8],
-    mappings_path: Option<&std::path::Path>,
-    class_name: &str,
-    name: &str,
-) -> Vec<(String, String)> {
-    let mut rows = vec![
-        ("材质类".to_string(), class_name.to_string()),
-        ("对象".to_string(), name.to_string()),
-    ];
-    let note = tr(
-        "材质着色器/参数为引擎自定义布局，暂不渲染材质预览；这里展示引用资源与可解析属性",
-        "Material shaders/parameters use an engine-specific layout; preview is not rendered; references and parsed properties are shown",
-    )
-    .to_string();
-    let Some((package, mappings)) = parse_legacy_asset(asset, uexp, mappings_path) else {
-        rows.push(("说明".to_string(), note));
-        return rows;
-    };
-    // 材质依赖：父材质/材质实例/纹理引用。
-    let mut parents: Vec<String> = Vec::new();
-    let mut textures: Vec<String> = Vec::new();
-    let mut packages: Vec<String> = Vec::new();
-    for (class_package, import_class, object_name) in package.imports() {
-        if import_class == "Package" {
-            if object_name.starts_with("/Game/") {
-                packages.push(object_name.clone());
-            }
-            continue;
-        }
-        if object_name.starts_with("Default__") || object_name.starts_with('/') {
-            continue;
-        }
-        if import_class.contains("Material") {
-            parents.push(format!("{object_name} ({import_class})"));
-        } else if import_class == "Texture2D" || import_class.ends_with("Texture2D") {
-            textures.push(object_name.clone());
-        }
-        let _ = class_package;
-    }
-    parents.sort();
-    parents.dedup();
-    textures.sort();
-    textures.dedup();
-    packages.sort();
-    packages.dedup();
-    if !parents.is_empty() {
-        rows.push(("材质依赖".to_string(), parents.len().to_string()));
-        rows.extend(
-            parents
-                .iter()
-                .take(8)
-                .map(|value| ("依赖".to_string(), value.clone())),
-        );
-    }
-    if !textures.is_empty() {
-        rows.push(("纹理引用".to_string(), textures.len().to_string()));
-        rows.extend(
-            textures
-                .iter()
-                .take(12)
-                .map(|value| ("纹理".to_string(), value.clone())),
-        );
-    }
-    if !packages.is_empty() {
-        rows.push(("资源引用".to_string(), packages.len().to_string()));
-        rows.extend(packages.iter().take(12).map(|value| {
-            let short = value.rsplit('/').next().unwrap_or(value).to_string();
-            ("资源".to_string(), short)
-        }));
-    }
-    match package.read_export_properties(0, &mappings) {
-        Ok(properties) if !properties.properties.is_empty() => {
-            let resolve = |index: i32| package.resolve_object_name(index);
-            rows.push((
-                "可解析字段".to_string(),
-                format!("{} 项", properties.properties.len()),
-            ));
-            rows.extend(
-                properties
-                    .properties
-                    .iter()
-                    .take(24)
-                    .map(|(name, value)| (name.clone(), format_prop_value_with(value, &resolve))),
-            );
-        }
-        Ok(_) => rows.push((
-            "可解析字段".to_string(),
-            tr(
-                "属性表为空或全部为默认值",
-                "Properties are empty or all defaults",
-            )
-            .to_string(),
-        )),
-        Err(_) => rows.push((
-            "可解析字段".to_string(),
-            tr(
-                "该材质布局与映射不一致，暂未能解析属性值",
-                "This material layout does not match the mapping; properties could not be parsed",
-            )
-            .to_string(),
-        )),
-    }
-    rows.push(("说明".to_string(), note));
-    rows
-}
-
 /// 属性值转成一行可读文本；小型 struct/数组展开到下一层。
 fn format_prop_value(value: &PropValue) -> String {
     format_prop_value_with(value, &|_| None)

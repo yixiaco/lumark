@@ -282,6 +282,12 @@ impl LumarkApp {
                         name,
                         subtitle,
                         rows,
+                    }
+                    | UePreviewResult::Material {
+                        path,
+                        name,
+                        subtitle,
+                        rows,
                     } => DetailsPreview::Ready {
                         key,
                         path,

@@ -1,4 +1,4 @@
-﻿//! Unreal Engine 游戏资产支持：目录扫描、引擎版本探测、AES 密钥提取和 Zen 包读取。
+//! Unreal Engine 游戏资产支持：目录扫描、引擎版本探测、AES 密钥提取和 Zen 包读取。
 //!
 //! 本 crate 只做本地只读分析，不依赖 UI；容器读取复用 `lumark-archive`。
 
@@ -18,13 +18,17 @@ pub use package::legacy::{
 };
 pub use package::{
     AnimSequenceData, AssetKind, AssetMetadata, Bone, BulkDataEntry, LegacySkeletalMeshGeometry,
-    LegacySkeletalMeshSummary, Mappings, MeshLod, MeshSection, PackageError, PackageExport,
-    PackageInfo, PropSchema, PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats,
-    SkinWeights, StaticMesh, StructSchema, Texture2D, TextureMip, TrackPose, UnrealPackage,
-    UnversionedProperties, ZenScriptObjects, is_material_class, parse_package, read_anim_sequence,
-    read_asset_metadata, read_legacy_anim_sequence, read_legacy_skeletal_mesh_geometry,
+    LegacySkeletalMeshSummary, Mappings, MaterialAppearance, MaterialTextureKind,
+    MaterialTextureRef, MeshLod, MeshSection, PackageError, PackageExport, PackageInfo, PropSchema,
+    PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, StaticMesh,
+    StructSchema, Texture2D, TextureMip, TrackPose, UnrealPackage, UnversionedProperties,
+    ZenScriptObjects, is_material_class, material_parent_package, parse_package,
+    read_anim_sequence, read_asset_metadata, read_legacy_anim_sequence,
+    read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
+    read_zen_material_appearance, texture_references,
 };
 pub use raster::{
-    render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh, render_static_mesh_orbit,
+    MaterialPreviewTexture, render_material_ball, render_skeletal_mesh_orbit,
+    render_skeleton_orbit, render_static_mesh, render_static_mesh_orbit,
 };

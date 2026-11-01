@@ -1,4 +1,4 @@
-﻿//! 页面标签和路径/搜索导航行。
+//! 页面标签和路径/搜索导航行。
 
 use super::super::{ArchiveDragItem, path_bar_drop_handler};
 use super::*;
@@ -476,7 +476,9 @@ impl LumarkApp {
                         .tooltip(tr("清除搜索", "Clear search"))
                         .accessibility_label(tr("清除搜索", "Clear search"))
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.search_results = None;
+                            // 清除搜索结果时同时重置资产类型筛选，避免下一次搜索
+                            // 仍被上一次的类型条件限制。
+                            this.clear_search();
                             cx.notify();
                         })),
                 )

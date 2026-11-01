@@ -30,10 +30,8 @@
   BGRA8/RGBA8/G8 解码；详情面板后台生成缩略图并支持点击进入图片查看器。
 - **资产元数据**：Skeleton 参考骨骼树（名称/父索引/参考姿态）、AnimSequence 的时长和
   RateScale、StaticMesh 材质槽/插槽；在详情面板展示。
-- **材质预览信息**：`Material`/`MaterialInstance*`/`MaterialFunction`/`MaterialExpression*`
-  等材质类不渲染着色器或预览图，但详情面板会展示材质类、父材质/材质依赖、纹理引用、
-  引用资源包路径和可解析属性（对象索引会解析成导入/导出名称）；材质布局与映射不一致时
-  给出可读提示而不是“暂不支持”。
+- **材质外观渲染**：FF7R 旧式材质/材质实例会在详情面板渲染近似 PBR 材质球：从材质表达式提取矢量/标量参数默认值，读取父材质补齐材质实例参数，按名称识别基础色/法线/金属粗糙度贴图并从同一容器加载解码，CPU 光栅器生成 512×512 材质球（含方向光、高光、法线扰动）。FF7R `M_UE4Man_Body`/`M_UE4Man_ChestLogo` 已生成可辨认的皮肤色+法线细节材质球；UE5/IoStore（BNB）材质同样渲染材质球：从 `VectorParameterValues`/`ScalarParameterValues`/`TextureParameterValues` 提取参数，按同目录命名约定定位贴图（`MAT-ChickenA` 验证羽毛贴图+法线细节）；完整 shader 图不复原。
+
 - **StaticMesh 预览**：首个 LOD 的顶点/索引/section 解析，并识别资产声明的 LOD 数量；
   CPU 光栅器生成 3D 缩略图显示在详情面板；独立模型查看器窗口支持左键轨道旋转、缩放和
   重置，并可按 section/材质槽显示或隐藏几何。StaticMesh 的全部 LOD 已解析，查看器可
@@ -76,12 +74,10 @@
   - `cargo run -p lumark-unreal --example inspect_skeleton -- <utoc> <key|-> <global.utoc> <entry> <usmap> [export]`
   - `cargo run -p lumark-unreal --example inspect_mesh -- <utoc> <key|-> <global.utoc> <entry> <usmap> [export] [out.png]`
 
-## 未实现（M4/M5）
+## 已知限制与后续
 
-## 未实现（M5 剩余）
-
-- **UE4.27 旧式包**：当前优先支持 BNB/UE5.6 的 Zen 包和 PAK 中的 Zen 包；`uasset/uexp`
-  旧式包读取器仍需补齐。当前已解析旧式包头部与自定义版本表；FF7R 包自定义版本为 0，按 UE4.18
+- **UE4 旧式包**：已支持 FF7R（UE4.18）`uasset/uexp` 的 unversioned 属性、纹理、Skeleton、SkeletalMesh 与 AnimSequence 播放；
+  其它自定义引擎版本的 native struct 布局仍按结构特征尽力探测。旧式包头部与自定义版本表已解析；FF7R 包自定义版本为 0，按 UE4.18
   默认版本推断 SkeletalMesh 相关布局。
 - **可交互 3D 查看器**：独立查看器窗口已支持 StaticMesh/SkeletalMesh 轨道旋转/缩放、
   多 LOD 切换和 Skeleton 骨骼线条图；SkeletalMesh 几何/蒙皮/动画播放已接入。当前详情面板
@@ -114,18 +110,18 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
   （24 顶点/12 三角形）、SkeletalMesh `SK_Chicken`（42 骨骼、2860 顶点、3844 三角形）、
   Skeleton `SK_Chicken_Skeleton`（42 骨骼）和 AnimSequence `ANIM_Chicken_Idle1`（4.000s）
   均通过端到端验收；`tools/verify_game_assets.ps1` 已跑通真实 BNB 纹理链路。
-- **FF7R 实机**：PAK 列表/提取与旧式包摘要已通过；加载 FF7R `.usmap` 后，Texture2D 可显示 `AddressX`/`VirtualTextureStreaming`/`bApplyResidentLODBias`/`CachedCombinedLODBias`/`NeverStream`，SkeletalMesh 可显示 `Skeleton`/`MinLOD`/`bUseHighPrecisionTangentBasis`，Blueprint/EndTextResource 等也可显示字段。旧式 `Skeleton` 读取已实现：`UE4_Mannequin_Skeleton` 解析出 68 根参考骨骼并在骨骼查看器显示，参考姿态使用 UE4 的 f32 `FTransform`；`SK_Mannequin` 的 SkeletalMesh 原生数据会探测内嵌参考骨架（同样 68 根骨骼），并解析首个 LOD 的 section/索引/顶点几何（实测 23297 顶点、41052 三角形、2 section）及逐顶点蒙皮权重（4 影响），可在查看器中显示 rest pose 网格、骨骼叠加和做蒙皮演示；FF7R 旧式 AnimSequence 动画尚未完整解析，但已支持元数据：`ThirdPersonIdle` 可读出 80 帧、68 条骨骼映射和约 2.63 秒时长，详情面板显示字段与时间轴；压缩动画数据/播放仍未实现。
-- **阶段 2（蒙皮动画播放）进行中**：SkeletalMesh 顶点索引/权重数组已读取（BNB 2860
+- **FF7R 实机**：PAK 列表/提取与旧式包摘要已通过；加载 FF7R `.usmap` 后，Texture2D 可显示 `AddressX`/`VirtualTextureStreaming`/`bApplyResidentLODBias`/`CachedCombinedLODBias`/`NeverStream`，SkeletalMesh 可显示 `Skeleton`/`MinLOD`/`bUseHighPrecisionTangentBasis`，Blueprint/EndTextResource 等也可显示字段。旧式 `Skeleton` 读取已实现：`UE4_Mannequin_Skeleton` 解析出 68 根参考骨骼并在骨骼查看器显示，参考姿态使用 UE4 的 f32 `FTransform`；`SK_Mannequin` 的 SkeletalMesh 原生数据会探测内嵌参考骨架（同样 68 根骨骼），并解析首个 LOD 的 section/索引/顶点几何（实测 23297 顶点、41052 三角形、2 section）及逐顶点蒙皮权重（4 影响），可在查看器中显示 rest pose 网格、骨骼叠加和做蒙皮演示；FF7R 旧式 AnimSequence 已完整解码 ConstantKeyLerp 压缩数据：`ThirdPersonIdle` 读出 80 帧、68 条骨骼映射和约 2.63 秒时长，可在查看器中播放并用时间轴/帧按钮查看；`SK_Mannequin` 的 23297 顶点/41052 三角形网格可由该动画驱动完成蒙皮变形。
+- **阶段 2（蒙皮动画播放）已完成**：SkeletalMesh 顶点索引/权重数组已读取（BNB 2860
   顶点、8 影响），RequiredBones→骨架索引映射与 linear blend skinning 已完成（示例可将
   大腿骨骼旋转 15° 生成变形网格）；AnimSequence 的 PerTrackCompression 关键帧已解码，
   `anim_play` 可按时间采样（BNB 42 轨道/121 帧）并驱动 LBS 生成动画帧；查看器已接入
-  连续播放/暂停（先选中 AnimSequence 再打开 SkeletalMesh 查看器），StaticMesh/SkeletalMesh
+  连续播放/暂停、时间轴进度、帧号/秒数与逐帧按钮（先选中 AnimSequence 再打开 SkeletalMesh 查看器），FF7R 旧式 ConstantKeyLerp 动画同样可播放；StaticMesh/SkeletalMesh
   多 LOD 均可在查看器中切换。
 
 ## 实机验证
 
 - **BNB**：扫描到 `TogetherBNB` 项目、IoStore 容器和 AES 密钥；容器可列包，映射自动发现后已完成纹理/StaticMesh/SkeletalMesh/Skeleton/AnimSequence 的字段级验收（结果见上一节）。
-- **FINAL FANTASY VII REMAKE**：项目目录 `End`；主程序为 `Binaries/Win64/ff7remake_.exe`（无 `-Win64-Shipping.exe` 命名，已支持最大 exe 回退）；从其提取的 AES 密钥通过 `pakchunk0-WindowsNoEditor.pak` 验证；Oodle 候选位于 `Engine/Binaries/ThirdParty/Oodle/Win64`；该 PAK 可列出 18896 个条目，并已修正旧版 PAK 压缩槽位映射，可提取 `.uasset/.uexp/.ubulk`。其包为 **旧式 unversioned 包**（包 flags `0x80002000` 含 `PKG_UnversionedProperties`，`.uexp` 开头是无版本 header），字段名解析需要专用 `.usmap`。游戏实际为 **UE4.18**（可执行文件内 `++UE4+Release-4.18`）；FModel 手动 UE 版本应设为 4.18，而不是当前配置里的 4.28，否则 FModel 自身也会按错误的版本化布局解析。游戏目录下现已提供 **FF7 Remake 专用映射**（`Mappings.usmap`，9736 structs/1939 enums，含 `End*` 游戏类），映射本身可正常加载。旧式属性读取已能解析 `BlueprintGeneratedClass`、`EndTextResource`、`SimpleConstructionScript` 等资产；关键修正是 FF7R/UE4.18 的旧式 bool 值可能是**任意非零字节**（例如 `0x81` 表示 true），不能只接受 0/1。修正后 `Texture2D` 可读出 `AddressX`、`VirtualTextureStreaming`、`bApplyResidentLODBias`、`CachedCombinedLODBias`、`NeverStream`，`SkeletalMesh` 可读出 `Skeleton`、`MinLOD`、`bUseHighPrecisionTangentBasis`，详情面板会展示这些字段。**纹理基础 mip 无映射启发式预览**保留：通过 `SizeX/SizeY/PackedData/PF_*` 定位原生平台数据并读取 `.ubulk` 基础 mip（512×512 PF_BC5 已验证）。FF7R 的完整原生数据布局（例如 SkeletalMesh 的 LOD 几何）仍受版本化 native struct 影响，需要继续对齐。
+- **FINAL FANTASY VII REMAKE**：项目目录 `End`；主程序为 `Binaries/Win64/ff7remake_.exe`（无 `-Win64-Shipping.exe` 命名，已支持最大 exe 回退）；从其提取的 AES 密钥通过 `pakchunk0-WindowsNoEditor.pak` 验证；Oodle 候选位于 `Engine/Binaries/ThirdParty/Oodle/Win64`；该 PAK 可列出 18896 个条目，并已修正旧版 PAK 压缩槽位映射，可提取 `.uasset/.uexp/.ubulk`。其包为 **旧式 unversioned 包**（包 flags `0x80002000` 含 `PKG_UnversionedProperties`，`.uexp` 开头是无版本 header），字段名解析需要专用 `.usmap`。游戏实际为 **UE4.18**（可执行文件内 `++UE4+Release-4.18`）；FModel 手动 UE 版本应设为 4.18，而不是当前配置里的 4.28，否则 FModel 自身也会按错误的版本化布局解析。游戏目录下现已提供 **FF7 Remake 专用映射**（`Mappings.usmap`，9736 structs/1939 enums，含 `End*` 游戏类），映射本身可正常加载。旧式属性读取已能解析 `BlueprintGeneratedClass`、`EndTextResource`、`SimpleConstructionScript` 等资产；关键修正是 FF7R/UE4.18 的旧式 bool 值可能是**任意非零字节**（例如 `0x81` 表示 true），不能只接受 0/1。修正后 `Texture2D` 可读出 `AddressX`、`VirtualTextureStreaming`、`bApplyResidentLODBias`、`CachedCombinedLODBias`、`NeverStream`，`SkeletalMesh` 可读出 `Skeleton`、`MinLOD`、`bUseHighPrecisionTangentBasis`，详情面板会展示这些字段。**纹理基础 mip 无映射启发式预览**保留：通过 `SizeX/SizeY/PackedData/PF_*` 定位原生平台数据并读取 `.ubulk` 基础 mip（512×512 PF_BC5 已验证）。FF7R 旧式 SkeletalMesh 的 LOD0 几何/蒙皮与 AnimSequence 压缩数据均已解析；LOD1+ 与部分材质 native 布局仍按结构特征尽力探测。
 
 ## 已知依赖与限制
 
@@ -189,7 +185,7 @@ StaticMesh 到 PNG。
 5. 查看器与解析均为只读，不修改游戏目录或原始包；文本/十六进制内容可用鼠标拖选后
    Ctrl+C 复制，工具栏“复制”可整体复制当前视图。
 
-已知限制：FF7R 的 SkeletalMesh rest pose 几何与蒙皮权重已解析；AnimSequence 可显示元数据和时间轴，但压缩动画数据尚未解析，不能播放；SkeletalMesh
+已知限制：FF7R 的 SkeletalMesh rest pose 几何与蒙皮权重已解析；AnimSequence 已可播放（先选中动画再打开 SkeletalMesh 查看器）；材质渲染为基于参数/贴图的近似 PBR 材质球，完整 shader 图不复原；Zen 材质贴图按同目录命名约定定位；FF7R 旧式材质实例的标量/矢量/贴图参数数组在烘焙时未作为属性序列化（被写进内联 shader map），因此材质实例按父材质参数近似；完整材质图不复原；SkeletalMesh
 LOD1+ 探测为尽力而为；UE4 旧式包的部分资产仍需映射才能显示字段名。
 
 ## 参考与许可

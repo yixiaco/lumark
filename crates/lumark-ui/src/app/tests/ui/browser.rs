@@ -271,3 +271,264 @@ fn tile_view_generates_image_thumbnails(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 按资产类型筛选搜索结果，并在清除搜索时重置类型条件。
+#[gpui_kit::test]
+fn search_type_filter_limits_results_and_clear_resets(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("photo.png"), b"png").unwrap();
+    std::fs::write(directory.path().join("notes.txt"), b"text").unwrap();
+    std::fs::write(directory.path().join("bundle.zip"), b"zip").unwrap();
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            vault_path,
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("search-type").visible(),
+            "搜索栏应显示资产类型筛选"
+        );
+        app.update(cx, |app, cx| {
+            app.search_category = Some(lumark_browser::AssetCategory::Image);
+            app.run_search(cx);
+            let names: Vec<String> = app
+                .displayed_entries()
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect();
+            assert_eq!(names, vec!["photo.png".to_string()], "图片筛选结果不正确");
+            assert_eq!(app.displayed_count(), 1);
+
+            app.search_category = Some(lumark_browser::AssetCategory::Text);
+            app.run_search(cx);
+            let names: Vec<String> = app
+                .displayed_entries()
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect();
+            assert!(
+                names.iter().any(|name| name == "notes.txt"),
+                "文本筛选应包含 notes.txt：{names:?}"
+            );
+            assert!(
+                !names
+                    .iter()
+                    .any(|name| name == "photo.png" || name == "bundle.zip"),
+                "文本筛选不应包含图片/压缩包：{names:?}"
+            );
+        });
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("search-clear").visible(),
+            "有搜索结果时应显示清除按钮"
+        );
+        window.click("search-clear", cx);
+        app.update(cx, |app, _| {
+            assert!(app.search_results.is_none(), "清除后应恢复文件列表");
+            assert!(
+                app.search_category.is_none(),
+                "清除后应重置资产类型筛选，避免下次搜索被旧条件限制"
+            );
+        });
+    });
+    let _ = app;
+}
+
+/// 资产类型下拉菜单可以直接选中类型（菜单项按索引定位）。
+#[gpui_kit::test]
+fn search_type_dropdown_selects_category(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("photo.png"), b"png").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("search-type", cx);
+        window.draw(cx).clear(cx);
+        // 菜单第一项是“全部”，第二项是“图片/纹理”。
+        assert!(window.find(0usize).visible(), "菜单“全部”项应渲染");
+        window.click(1usize, cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(
+            app.search_category,
+            Some(lumark_browser::AssetCategory::Image),
+            "点击“图片/纹理”应设置筛选类型"
+        );
+        assert!(
+            app.status.contains("图片"),
+            "状态应显示类型：{}",
+            app.status
+        );
+        // 有搜索结果时切换类型应自动重新搜索。
+        app.search_results = Some(Vec::new());
+    });
+    cx.update(|window, cx| {
+        window.click("search-type", cx);
+        window.draw(cx).clear(cx);
+        window.click(1usize, cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        let names: Vec<String> = app
+            .displayed_entries()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(names, vec!["photo.png".to_string()], "类型筛选应只剩图片");
+        // 选回“全部”并再次搜索应清空结果（空文本 + 无类型）。
+        app.search_results = Some(Vec::new());
+    });
+    cx.update(|window, cx| {
+        window.click("search-type", cx);
+        window.draw(cx).clear(cx);
+        window.click(0usize, cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert!(app.search_category.is_none(), "“全部”应清空类型筛选");
+        assert!(
+            app.search_results.is_none(),
+            "空文本 + 无类型应清空搜索结果"
+        );
+    });
+    let _ = app;
+}
+
+/// 搜索模式下拉菜单可以切到正则表达式。
+#[gpui_kit::test]
+fn search_mode_dropdown_switches_to_regex(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("readme.txt"), b"lumark").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("search-mode", cx);
+        window.draw(cx).clear(cx);
+        // 菜单顺序：包含(0)、通配符(1)、正则表达式(2)。
+        window.click(2usize, cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(
+            app.search_mode,
+            lumark_browser::SearchMode::Regex,
+            "点击“正则表达式”应切换搜索模式"
+        );
+        assert!(
+            app.status.contains("正则"),
+            "状态栏应提示正则模式：{}",
+            app.status
+        );
+    });
+    let _ = app;
+}
+
+/// 详情面板开关会切换可见状态并持久化到设置。
+#[gpui_kit::test]
+fn details_toggle_button_updates_setting(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("readme.txt"), b"lumark").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        let initial = app.read(cx).details_visible;
+        window.click("details-toggle-panel", cx);
+        window.draw(cx).clear(cx);
+        app.update(cx, |app, _| {
+            assert_ne!(app.details_visible, initial, "点击后详情面板可见性应反转");
+            assert_eq!(
+                app.settings.get().details_visible,
+                app.details_visible,
+                "详情面板可见性应写入设置"
+            );
+        });
+        window.click("details-toggle-panel", cx);
+        window.draw(cx).clear(cx);
+        app.update(cx, |app, _| {
+            assert_eq!(app.details_visible, initial, "再次点击应恢复原状态");
+        });
+    });
+    let _ = app;
+}
+
+/// 正则搜索：在搜索框输入正则并运行，结果按正则匹配。
+#[gpui_kit::test]
+fn regex_search_filters_files(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("alpha.txt"), b"a").unwrap();
+    std::fs::write(directory.path().join("beta.txt"), b"b").unwrap();
+    std::fs::write(directory.path().join("gamma.md"), b"c").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("search-input", cx);
+        window.input("^a.*\\.txt$", cx);
+        window.click("search-mode", cx);
+        window.draw(cx).clear(cx);
+        window.click(2usize, cx);
+        window.click("search-run", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(app.search_mode, lumark_browser::SearchMode::Regex);
+        let names: Vec<String> = app
+            .displayed_entries()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["alpha.txt".to_string()],
+            "正则搜索应只匹配 alpha.txt"
+        );
+    });
+    let _ = app;
+}

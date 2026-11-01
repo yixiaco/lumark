@@ -5,7 +5,10 @@
 use std::error::Error;
 use std::path::Path;
 
-use lumark_unreal::{LegacyPackage, Mappings, PropValue};
+use lumark_unreal::{
+    LegacyPackage, Mappings, PropValue, material_parent_package, read_legacy_material_appearance,
+    render_material_ball,
+};
 
 /// 运行诊断。
 fn main() -> Result<(), Box<dyn Error>> {
@@ -29,6 +32,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!(
             "import{index}: class_pkg={class_package} class={class_name} object={object_name}"
         );
+    }
+    let appearance = read_legacy_material_appearance(&package, &mappings);
+    println!(
+        "appearance base_color={:?} metallic={} roughness={} inherited={} textures={:?}",
+        appearance.base_color,
+        appearance.metallic,
+        appearance.roughness,
+        appearance.inherited,
+        appearance.textures
+    );
+    if let Some(parent) = material_parent_package(&package) {
+        println!("parent={parent}");
+    }
+    if let Some(output) = std::env::args().nth(4) {
+        let size = 320u32;
+        let rgba = render_material_ball(&appearance, None, None, None, size);
+        let image = image::RgbaImage::from_raw(size, size, rgba).expect("材质球尺寸");
+        image.save(&output)?;
+        println!("ball saved to {output}");
     }
     match package.read_export_properties(0, &mappings) {
         Ok(properties) => {

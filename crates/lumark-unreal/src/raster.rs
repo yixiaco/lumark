@@ -1,10 +1,201 @@
-//! 轻量 CPU 光栅器：把首个 LOD 渲染成 RGBA 缩略图。
+﻿//! 轻量 CPU 光栅器：把首个 LOD 渲染成 RGBA 缩略图。
 //!
 //! 固定三等轴相机、正交投影、Z-buffer 和简单方向光；用于详情面板/资产
 //! 查看器的静态预览。真正的轨道相机和交互放入 UI 层。
 
 use super::{MeshLod, Skeleton};
 
+use super::MaterialAppearance;
+
+/// 材质球采样用贴图（RGBA8）。
+#[derive(Clone, Copy)]
+pub struct MaterialPreviewTexture<'a> {
+    /// RGBA8 像素。
+    pub rgba: &'a [u8],
+    /// 宽度。
+    pub width: u32,
+    /// 高度。
+    pub height: u32,
+}
+
+impl<'a> MaterialPreviewTexture<'a> {
+    /// 构造贴图引用。
+    pub fn new(rgba: &'a [u8], width: u32, height: u32) -> Self {
+        Self {
+            rgba,
+            width,
+            height,
+        }
+    }
+
+    /// 按 UV 采样（双线性，UV 环绕）。
+    fn sample(&self, u: f32, v: f32) -> [f32; 3] {
+        if self.width == 0 || self.height == 0 {
+            return [0.0; 3];
+        }
+        let wrap = |value: f32, size: u32| {
+            let scaled = value - value.floor();
+            scaled * size as f32 - 0.5
+        };
+        let x = wrap(u, self.width);
+        let y = wrap(v, self.height);
+        let x0 = x.floor() as i32;
+        let y0 = y.floor() as i32;
+        let fx = x - x0 as f32;
+        let fy = y - y0 as f32;
+        let fetch = |px: i32, py: i32| {
+            let px = px.rem_euclid(self.width as i32) as u32;
+            let py = py.rem_euclid(self.height as i32) as u32;
+            let offset = ((py * self.width + px) * 4) as usize;
+            let data = self.rgba;
+            if offset + 3 < data.len() {
+                [
+                    data[offset] as f32 / 255.0,
+                    data[offset + 1] as f32 / 255.0,
+                    data[offset + 2] as f32 / 255.0,
+                ]
+            } else {
+                [0.0; 3]
+            }
+        };
+        let c00 = fetch(x0, y0);
+        let c10 = fetch(x0 + 1, y0);
+        let c01 = fetch(x0, y0 + 1);
+        let c11 = fetch(x0 + 1, y0 + 1);
+        let mut out = [0.0; 3];
+        for channel in 0..3 {
+            let top = c00[channel] + (c10[channel] - c00[channel]) * fx;
+            let bottom = c01[channel] + (c11[channel] - c01[channel]) * fx;
+            out[channel] = top + (bottom - top) * fy;
+        }
+        out
+    }
+}
+
+/// 用近似 PBR 参数渲染一个材质球（正方形）。
+///
+/// 只做单方向光 + 简单高光，用于在详情面板快速判断材质颜色/贴图/粗糙度；
+/// 不还原完整材质图或 UE 的着色模型。
+pub fn render_material_ball(
+    appearance: &MaterialAppearance,
+    base_color_texture: Option<MaterialPreviewTexture<'_>>,
+    normal_texture: Option<MaterialPreviewTexture<'_>>,
+    metallic_roughness_texture: Option<MaterialPreviewTexture<'_>>,
+    size: u32,
+) -> Vec<u8> {
+    let size = size.max(16);
+    let mut pixels = vec![0u8; (size * size * 4) as usize];
+    let center = size as f32 * 0.5;
+    let radius = size as f32 * 0.42;
+    let light = normalize3([-0.42, 0.5, 0.76]);
+    let view = [0.0f32, 0.0, 1.0];
+    let half = normalize3([light[0] + view[0], light[1] + view[1], light[2] + view[2]]);
+    for y in 0..size {
+        for x in 0..size {
+            let fx = (x as f32 + 0.5 - center) / radius;
+            let fy = (center - y as f32 - 0.5) / radius;
+            let distance = (fx * fx + fy * fy).sqrt();
+            let offset = ((y * size + x) * 4) as usize;
+            if distance > 1.0 {
+                // 球下方软阴影。
+                let shadow = if distance < 1.35 && fy < 0.0 {
+                    let falloff = 1.0 - ((distance - 1.0) / 0.35).clamp(0.0, 1.0);
+                    (falloff * 0.35 * (1.0 + fy)).clamp(0.0, 0.35)
+                } else {
+                    0.0
+                };
+                let base = [24.0, 27.0, 33.0];
+                let color = [
+                    base[0] * (1.0 - shadow),
+                    base[1] * (1.0 - shadow),
+                    base[2] * (1.0 - shadow),
+                ];
+                pixels[offset] = color[0] as u8;
+                pixels[offset + 1] = color[1] as u8;
+                pixels[offset + 2] = color[2] as u8;
+                pixels[offset + 3] = 255;
+                continue;
+            }
+            let mut normal = [fx, fy, (1.0 - fx * fx - fy * fy).max(0.0).sqrt()];
+            // 球面 UV：u 沿赤道，v 沿极轴。
+            let u = 0.5 + normal[0].atan2(normal[2]) / std::f32::consts::TAU;
+            let v = 0.5 - normal[1].asin() / std::f32::consts::PI;
+            let mut base_color = appearance.base_color;
+            if let Some(texture) = base_color_texture {
+                let sample = texture.sample(u, v);
+                // 贴图存在时作为基础色；参数色只在与默认灰差异很大时作为染色。
+                base_color = [
+                    sample[0] * base_color[0].max(0.35) * 1.6,
+                    sample[1] * base_color[1].max(0.35) * 1.6,
+                    sample[2] * base_color[2].max(0.35) * 1.6,
+                ];
+                base_color
+                    .iter_mut()
+                    .for_each(|value| *value = value.min(1.0));
+            }
+            let mut roughness = appearance.roughness.clamp(0.04, 1.0);
+            let mut metallic = appearance.metallic.clamp(0.0, 1.0);
+            if let Some(texture) = metallic_roughness_texture {
+                let sample = texture.sample(u, v);
+                roughness *= sample[1].max(0.05);
+                metallic = metallic.max(sample[2]);
+            }
+            if let Some(texture) = normal_texture {
+                let sample = texture.sample(u, v);
+                let tangent = [sample[0] * 2.0 - 1.0, sample[1] * 2.0 - 1.0];
+                normal[0] = (normal[0] + tangent[0] * 0.55).clamp(-1.0, 1.0);
+                normal[1] = (normal[1] + tangent[1] * 0.55).clamp(-1.0, 1.0);
+                let length = (normal[0] * normal[0] + normal[1] * normal[1] + 1.0).sqrt();
+                normal = [normal[0] / length, normal[1] / length, 1.0 / length];
+            }
+            let ndotl = dot3(normal, light).max(0.0);
+            let ndoth = dot3(normal, half).max(0.0);
+            let ndotv = dot3(normal, view).max(0.0);
+            let shininess: f32 =
+                (2.0f32 / (roughness * roughness * roughness * roughness) - 2.0).clamp(4.0, 256.0);
+            let specular = ndoth.powf(shininess) * (0.04 + metallic * 0.5);
+            let fresnel = 0.04 + 0.96 * (1.0 - ndotv).powi(5);
+            let specular_tint = [
+                1.0 - metallic + base_color[0] * metallic,
+                1.0 - metallic + base_color[1] * metallic,
+                1.0 - metallic + base_color[2] * metallic,
+            ];
+            let ambient = 0.16;
+            let diffuse = ambient + 0.84 * ndotl;
+            let mut color = [0.0f32; 3];
+            for channel in 0..3 {
+                let diffuse_term = base_color[channel] * diffuse * (1.0 - metallic);
+                let specular_term = specular_tint[channel] * specular * (1.0 - roughness * 0.6);
+                let rim = fresnel * 0.18 * diffuse;
+                color[channel] =
+                    diffuse_term + specular_term + rim + appearance.emissive[channel] * 0.8;
+            }
+            let encode = |value: f32| -> u8 {
+                (value.max(0.0).powf(1.0 / 2.2) * 255.0).clamp(0.0, 255.0) as u8
+            };
+            pixels[offset] = encode(color[0]);
+            pixels[offset + 1] = encode(color[1]);
+            pixels[offset + 2] = encode(color[2]);
+            pixels[offset + 3] = 255;
+        }
+    }
+    pixels
+}
+
+/// 三维向量点积。
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// 三维向量归一化。
+fn normalize3(value: [f32; 3]) -> [f32; 3] {
+    let length = (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt();
+    if length <= f32::EPSILON {
+        [0.0, 0.0, 1.0]
+    } else {
+        [value[0] / length, value[1] / length, value[2] / length]
+    }
+}
 /// 背景颜色（深灰）。
 const BACKGROUND: [u8; 4] = [36, 40, 48, 255];
 /// 每个 material 槽使用的基色。
@@ -606,5 +797,58 @@ mod tests {
                 .iter()
                 .any(|pixel| *pixel != BACKGROUND)
         );
+    }
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::*;
+
+    /// 材质球应输出非透明球体，中心比角落亮。
+    #[test]
+    fn renders_shaded_material_ball() {
+        let appearance = MaterialAppearance {
+            base_color: [0.8, 0.2, 0.2],
+            ..Default::default()
+        };
+        let pixels = render_material_ball(&appearance, None, None, None, 96);
+        assert_eq!(pixels.len(), 96 * 96 * 4);
+        let center = ((48 * 96 + 48) * 4) as usize;
+        let corner = 0usize;
+        let center_luma =
+            pixels[center] as u32 + pixels[center + 1] as u32 + pixels[center + 2] as u32;
+        let corner_luma =
+            pixels[corner] as u32 + pixels[corner + 1] as u32 + pixels[corner + 2] as u32;
+        assert!(center_luma > corner_luma, "球体中心应更亮");
+        assert!(pixels[center] > pixels[center + 1], "红色基础色应偏红");
+        assert_eq!(pixels[center + 3], 255);
+    }
+
+    /// 基础色贴图应参与采样，球面出现贴图里的两种颜色。
+    #[test]
+    fn samples_base_color_texture() {
+        let texture = [
+            255u8, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 255, 255, 0, 0, 255,
+        ];
+        let appearance = MaterialAppearance::default();
+        let pixels = render_material_ball(
+            &appearance,
+            Some(MaterialPreviewTexture::new(&texture, 2, 2)),
+            None,
+            None,
+            96,
+        );
+        let mut red = 0;
+        let mut blue = 0;
+        for pixel in pixels.as_chunks::<4>().0 {
+            if pixel[0] as i32 - pixel[2] as i32 > 40 {
+                red += 1;
+            }
+            if pixel[2] as i32 - pixel[0] as i32 > 40 {
+                blue += 1;
+            }
+        }
+        assert!(red > 20, "应采样到红色区域");
+        assert!(blue > 20, "应采样到蓝色区域");
     }
 }

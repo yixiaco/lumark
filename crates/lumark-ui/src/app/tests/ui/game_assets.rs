@@ -366,3 +366,284 @@ fn details_preview_extracts_archive_image(cx: &mut gpui_kit::TestAppContext) {
     });
     let _ = app;
 }
+
+/// 游戏库列出已保存游戏，打开行可重新进入，返回按钮恢复文件浏览。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn game_library_lists_saved_games_and_reopens(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let project = directory.path().join("TogetherBNB");
+    let paks = project.join("Content/Paks");
+    std::fs::create_dir_all(&paks).unwrap();
+    let payload = directory.path().join("readme.txt");
+    std::fs::write(&payload, b"hello game").unwrap();
+    lumark_archive::ArchiveService::create(
+        &paks.join("pakchunk0-Windows.pak"),
+        &[payload],
+        &lumark_archive::CompressionOptions {
+            format: lumark_archive::ArchiveFormat::Zip,
+            path_mode: lumark_archive::PathMode::NoRoot,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.start_game_setup(None, window, cx);
+            app.scan_game_directory(project.clone(), window, cx);
+            app.save_game_setup(window, cx);
+            assert!(app.game_session.is_some(), "保存后应进入游戏会话");
+            app.back_to_game_library(window, cx);
+            assert!(app.game_library, "应返回游戏库列表");
+        });
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("game-library-add").visible(),
+            "游戏库列表页应渲染新增游戏按钮"
+        );
+        assert!(
+            window.find(("game-open", 0usize)).visible(),
+            "游戏库应列出已保存游戏的打开按钮"
+        );
+        assert!(window.find(("game-edit", 0usize)).visible());
+        assert!(window.find(("game-remove", 0usize)).visible());
+
+        window.click(("game-open", 0usize), cx);
+        app.update(cx, |app, _| {
+            assert!(app.game_session.is_some(), "打开已保存游戏应恢复会话");
+            assert!(!app.game_library, "打开游戏后应离开游戏库列表");
+            assert!(
+                matches!(
+                    app.browser.location,
+                    lumark_browser::BrowserLocation::GameArchives { .. }
+                ),
+                "应回到游戏归档列表：{:?}",
+                app.browser.location
+            );
+        });
+
+        app.update(cx, |app, cx| app.back_to_game_library(window, cx));
+        window.draw(cx).clear(cx);
+        window.click("game-library-back", cx);
+        app.update(cx, |app, _| {
+            assert!(app.game_session.is_none(), "返回文件浏览应关闭游戏会话");
+            assert!(!app.game_library);
+            assert!(
+                matches!(
+                    app.browser.location,
+                    lumark_browser::BrowserLocation::FileSystem(_)
+                ),
+                "应恢复进入游戏前的文件系统位置：{:?}",
+                app.browser.location
+            );
+        });
+    });
+    let _ = app;
+}
+
+/// 新增游戏会打开独立编辑窗口，重复点击复用已有窗口。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn new_game_editor_opens_separate_window(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.open_game_setup_new(window, cx);
+        });
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "新增游戏应打开独立编辑窗口");
+    let editor = *windows.last().unwrap();
+    cx.update_window(editor, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("game-editor-close").visible(),
+            "编辑窗口应渲染关闭按钮"
+        );
+        assert!(
+            window.find("game-setup-save").visible(),
+            "编辑窗口应渲染保存按钮"
+        );
+    })
+    .unwrap();
+    // 再次点击新增应复用已有编辑窗口，而不是继续创建。
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_setup_new(window, cx);
+        });
+    });
+    assert_eq!(cx.windows().len(), 2, "重复点击新增不应再开窗口");
+    let _ = app;
+}
+
+/// 编辑窗口扫描游戏目录后可保存并自行关闭。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn game_editor_window_saves_game_and_closes(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let project = directory.path().join("TogetherBNB");
+    let paks = project.join("Content/Paks");
+    std::fs::create_dir_all(&paks).unwrap();
+    std::fs::write(paks.join("pakchunk0-Windows.utoc"), b"stub").unwrap();
+    std::fs::create_dir_all(project.join("Mappings")).unwrap();
+    std::fs::write(project.join("Mappings/Game.usmap"), b"stub").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.open_game_setup_new(window, cx);
+        });
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "新增游戏应打开独立编辑窗口");
+    let editor = *windows.last().unwrap();
+    cx.update_window(editor, |view, window, cx| {
+        let root = view
+            .downcast::<gpui_kit::component::Root>()
+            .expect("编辑窗口 Root");
+        let editor_view = root
+            .read(cx)
+            .view()
+            .clone()
+            .downcast::<crate::app::LumarkApp>()
+            .expect("编辑窗口视图");
+        editor_view.update(cx, |editor, cx| {
+            editor.scan_game_directory(project.clone(), window, cx);
+        });
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find("game-setup-save").visible(),
+            "扫描完成后编辑窗口应可保存"
+        );
+        window.click("game-setup-save", cx);
+    })
+    .unwrap();
+    assert_eq!(cx.windows().len(), 1, "保存后编辑窗口应关闭");
+    app.update(cx, |app, _| {
+        assert_eq!(app.settings.get().games.len(), 1, "保存后游戏库应新增记录");
+        assert_eq!(app.settings.get().games[0].name, "TogetherBNB");
+    });
+    let _ = app;
+}
+
+/// 侧栏“编辑”按钮会打开当前游戏的独立编辑窗口。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn game_sidebar_edit_opens_editor_window(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let project = fake_game_project(directory.path(), "TogetherBNB");
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.start_game_setup(None, window, cx);
+            app.scan_game_directory(project.clone(), window, cx);
+            app.save_game_setup(window, cx);
+        });
+        window.draw(cx).clear(cx);
+        window.click("game-sidebar-edit", cx);
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "侧栏编辑应打开独立编辑窗口");
+    let editor = *windows.last().unwrap();
+    cx.update_window(editor, |view, window, cx| {
+        let root = view
+            .downcast::<gpui_kit::component::Root>()
+            .expect("编辑窗口 Root");
+        let editor_view = root
+            .read(cx)
+            .view()
+            .clone()
+            .downcast::<crate::app::LumarkApp>()
+            .expect("编辑窗口视图");
+        editor_view.update(cx, |editor, _| {
+            assert!(editor.game_editor_only, "窗口应使用仅编辑模式");
+            assert!(editor.game_setup.is_some(), "编辑窗口应打开设置表单");
+        });
+        window.draw(cx).clear(cx);
+        assert!(window.find("game-setup-save").visible());
+    })
+    .unwrap();
+    let _ = app;
+}
+
+/// 编辑窗口关闭按钮会关闭窗口且不保存游戏。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn game_editor_close_button_discards_game(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.open_game_setup_new(window, cx);
+        });
+    });
+    let windows = cx.windows();
+    assert_eq!(windows.len(), 2, "新增游戏应打开独立编辑窗口");
+    let editor = *windows.last().unwrap();
+    cx.update_window(editor, |_, window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("game-editor-close").visible());
+        window.click("game-editor-close", cx);
+    })
+    .unwrap();
+    assert_eq!(cx.windows().len(), 1, "关闭编辑窗口后应只剩主窗口");
+    app.update(cx, |app, _| {
+        assert!(
+            app.settings.get().games.is_empty(),
+            "取消编辑不应写入游戏记录"
+        );
+    });
+    let _ = app;
+}

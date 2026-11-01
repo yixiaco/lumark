@@ -1,4 +1,4 @@
-//! 文本查看器和归档添加弹窗测试。
+﻿//! 文本查看器和归档添加弹窗测试。
 
 use super::*;
 
@@ -316,4 +316,51 @@ fn archive_add_dialog_selects_update_mode(cx: &mut gpui_kit::TestAppContext) {
         );
     });
     let _ = app;
+}
+
+/// 复制按钮分别把文本正文和十六进制转储写入剪贴板。
+#[gpui_kit::test]
+fn text_viewer_copy_button_writes_clipboard(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let file = directory.path().join("note.txt");
+    std::fs::write(&file, "hello clipboard").unwrap();
+    let (view, cx) = cx.add_window_view(|window, cx| {
+        crate::app::view::text_viewer_window::TextViewerWindowView::new(
+            file.clone(),
+            "note.txt".to_string(),
+            false,
+            None,
+            window,
+            cx,
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("viewer-copy").visible());
+        window.click("viewer-copy", cx);
+        let text = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default();
+        assert_eq!(text, "hello clipboard", "文本复制内容不正确：{text:?}");
+
+        window.click("viewer-mode-hex", cx);
+        window.draw(cx).clear(cx);
+        window.click("viewer-copy", cx);
+        let hex = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default();
+        assert!(hex.contains("00000000"), "十六进制复制应带偏移：{hex:?}");
+        assert!(
+            hex.contains("68 65 6c 6c 6f"),
+            "十六进制复制应带字节：{hex:?}"
+        );
+        assert!(
+            hex.contains("hello clipboard"),
+            "十六进制复制应带 ASCII：{hex:?}"
+        );
+    });
+    let _ = view;
 }
