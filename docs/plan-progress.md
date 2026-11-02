@@ -98,7 +98,7 @@
 | E-13 批量任务接入 | ✅ | 第 32/36 轮：`export_archive_cancellable` + 取消/报告 JSON；`lumark-tasks` 新增 `TaskKind::Export`、`TaskRequest::Custom`、`TaskReporter`（自定义任务上报 `TaskProgress`）与自定义任务单测；批量导出窗口提交到 `TaskManager`，任务中心显示进度/取消，完成后写 `batch-report.json` |
 | E-14 单资产导出 UI | ✅ | 第 34 轮：详情面板 `.uasset` 新增“导出资产…”入口；独立导出窗口 `export_window.rs`：格式多选（GLB/UEMODEL/USDA/PSK）、材质旁挂开关、贴图格式四选、后台导出、取消、结果统计与“打开输出目录”；默认输出 `桌面/LumarkExports`（暂不可自定义目录）。UI 2 测试（切换/渲染），`lumark-ui` 166 个全过 |
 | E-15 批量导出 UI | ✅ | 第 35/36 轮：动作带“批量导出”入口；`batch_export_window/`：格式多选、材质/覆盖开关、数量限制（全部/10/50/100/500）、提交 `TaskManager` 后台任务、任务中心进度/取消、汇总报告 + `batch-report.json`、打开输出目录；3 个 UI 测试（含“提交 Export 类型任务”断言），`lumark-ui` 169 个全过 |
-| E-16 外部验证/真实验收 | 🟡 | GLB 已 gltf crate 校验；PSK/PSA/UEMODEL/USDA reader 已有示例 |
+| E-16 外部验证/真实验收 | ✅ | 第 37 轮：新增 `validate_exports` 工具（GLB 用官方 gltf crate；PSK/PSA/UEMODEL/USDA 独立布局解析）；BNB 9 个文件（Chicken GLB/PSK/PSA/UEMODEL/USDA + Box GLB/PSK/UEMODEL/USDA）全部 PASS；详见 `docs/export-validation.md`。限制：尚未在 UE/Blender 实际导入 |
 | E-17 文档（export-formats） | ✅ | 第 32 轮：新增 `docs/export-formats.md`（五种模型格式能力/限制、坐标单位、四种贴图、materials.json、批量 API、验证记录） |
 
 ## M / I / A
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（E-16 / E-10 / O）
+## 下一轮（E-10 / O）
 
-1. E-16 外部验证：GLB 用 gltf crate、PSK/PSA/UEMODEL/USDA 结构校验脚本 + BNB 验收清单；
-2. E-10 USD Skel（骨骼/动画）或 E-9 多 LOD；
-3. 进入 O（Oodle）阶段：解码后端/动态库探测与回退；
+1. E-10 USDA 补 USD Skel（骨骼/蒙皮/动画）或 E-9 UEMODEL 多 LOD；
+2. 进入 O（Oodle）阶段：`lumark-oodle` 解码后端、动态库探测与回退、BNB/FF7R 实机；
+3. M 阶段媒体播放器或 I 阶段图片查看器收尾；
 4. 记录进度并提交。
