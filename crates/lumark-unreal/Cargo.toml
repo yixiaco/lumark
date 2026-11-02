@@ -9,6 +9,7 @@ aes.workspace = true
 base64.workspace = true
 brotli.workspace = true
 lumark-archive = { path = "../lumark-archive" }
+lumark-scene = { path = "../lumark-scene" }
 memchr.workspace = true
 memmap2.workspace = true
 rayon.workspace = true

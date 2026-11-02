@@ -7,6 +7,7 @@ pub mod keys;
 pub mod materials;
 pub mod package;
 pub mod raster;
+pub mod scene;
 pub mod skinning;
 pub mod source;
 
@@ -38,6 +39,9 @@ pub use raster::{
     MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,
     render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
     render_static_mesh_orbit,
+};
+pub use scene::{
+    UE_UNIT_SCALE, convert_mesh, scene_material, skeletal_mesh_scene, static_mesh_scene,
 };
 pub use skinning::{
     AnimationSample, BonePose, BoneRotation, animation_poses, sample_animation,

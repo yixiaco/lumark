@@ -1,0 +1,376 @@
+//! 把 Unreal 资产转换为引擎无关的 [`lumark_scene::Scene`]。
+//!
+//! 这一层只做数据整形：f64 LWC → f32、UE 坐标系约定标记、材质外观与贴图映射；
+//! 渲染层和 UI 不直接依赖 Unreal 类型，也为未来的 Unity 适配保留同一入口。
+
+use lumark_scene::{
+    Axis, Bounds, MaterialData, MaterialHandle, MaterialTextures, MeshData, MeshHandle,
+    MeshSection, NodeKind, Scene, SceneNode, SceneNodeId, TextureData, Transform,
+};
+
+use crate::{
+    MaterialAppearance, MaterialViewerData, MeshLod, ResolvedMaterial, SkeletalMeshPreview,
+    StaticMesh,
+};
+
+/// 1 UE 单位（厘米）对应的场景单位（米）。
+pub const UE_UNIT_SCALE: f32 = 0.01;
+
+/// 由静态网格与已解析材质构建场景。
+pub fn static_mesh_scene(
+    scene_name: &str,
+    mesh: &StaticMesh,
+    materials: &[ResolvedMaterial],
+) -> Scene {
+    let mut scene = Scene::new(scene_name);
+    scene.source = mesh.name.clone();
+    scene.up_axis = Axis::Z;
+    scene.unit_scale = UE_UNIT_SCALE;
+    let slot_materials = add_resolved_materials(&mut scene, materials);
+    let mesh_handle = scene.add_mesh(convert_mesh(&mesh.lod, &mesh.name));
+    let node = SceneNode {
+        name: mesh.name.clone(),
+        parent: None,
+        transform: Transform::IDENTITY,
+        mesh: Some(mesh_handle),
+        materials: slot_materials,
+        visible: true,
+        kind: NodeKind::StaticMesh,
+        metadata: vec![
+            ("LOD".to_string(), mesh.lod_count.to_string()),
+            ("Section".to_string(), mesh.lod.sections.len().to_string()),
+        ],
+    };
+    scene.add_node(node);
+    scene
+}
+
+/// 由骨骼网格与已解析材质构建场景。
+///
+/// 参考骨架以空节点形式加入节点树（供骨骼树面板使用），首个可渲染 LOD 挂在
+/// 根节点下；动画与 GPU 蒙皮由渲染层处理。
+pub fn skeletal_mesh_scene(
+    scene_name: &str,
+    preview: &SkeletalMeshPreview,
+    materials: &[ResolvedMaterial],
+) -> Scene {
+    let mut scene = Scene::new(scene_name);
+    scene.source = preview.skeleton.name.clone();
+    scene.up_axis = Axis::Z;
+    scene.unit_scale = UE_UNIT_SCALE;
+    let slot_materials = add_resolved_materials(&mut scene, materials);
+
+    // 参考骨架节点。
+    let mut bone_nodes: Vec<Option<SceneNodeId>> = vec![None; preview.skeleton.bones.len()];
+    for (index, bone) in preview.skeleton.bones.iter().enumerate() {
+        let parent = usize::try_from(bone.parent_index)
+            .ok()
+            .filter(|parent| *parent < index)
+            .and_then(|parent| bone_nodes.get(parent).copied().flatten());
+        let node = SceneNode {
+            name: bone.name.clone(),
+            parent,
+            transform: Transform {
+                translation: [
+                    bone.translation[0] as f32,
+                    bone.translation[1] as f32,
+                    bone.translation[2] as f32,
+                ],
+                rotation: [
+                    bone.rotation[0] as f32,
+                    bone.rotation[1] as f32,
+                    bone.rotation[2] as f32,
+                    bone.rotation[3] as f32,
+                ],
+                scale: [
+                    bone.scale[0] as f32,
+                    bone.scale[1] as f32,
+                    bone.scale[2] as f32,
+                ],
+            },
+            mesh: None,
+            materials: Vec::new(),
+            visible: true,
+            kind: NodeKind::Other("Bone".to_string()),
+            metadata: Vec::new(),
+        };
+        bone_nodes[index] = Some(scene.add_node(node));
+    }
+
+    if let Some(lod) = preview.lods.first().or(preview.geometry.as_ref()) {
+        let mesh_handle = scene.add_mesh(convert_mesh(lod, &preview.skeleton.name));
+        let node = SceneNode {
+            name: preview.skeleton.name.clone(),
+            parent: bone_nodes.first().copied().flatten(),
+            transform: Transform::IDENTITY,
+            mesh: Some(mesh_handle),
+            materials: slot_materials,
+            visible: true,
+            kind: NodeKind::SkeletalMesh,
+            metadata: vec![
+                ("骨骼".to_string(), preview.skeleton.bones.len().to_string()),
+                ("LOD".to_string(), preview.lod_count.to_string()),
+                (
+                    "蒙皮顶点".to_string(),
+                    preview
+                        .skin
+                        .as_ref()
+                        .map(|skin| skin.vertices)
+                        .unwrap_or(0)
+                        .to_string(),
+                ),
+            ],
+        };
+        scene.add_node(node);
+    }
+    scene
+}
+
+/// 把一个已解析材质加入场景，返回句柄。
+pub fn add_material(scene: &mut Scene, material: &ResolvedMaterial) -> Option<MaterialHandle> {
+    let appearance = material.appearance.as_ref()?;
+    Some(scene.add_material(scene_material(
+        material.slot.name.as_str(),
+        appearance,
+        material.viewer.as_ref(),
+    )))
+}
+
+/// 把 UE 近似外观转换为场景材质。
+pub fn scene_material(
+    name: &str,
+    appearance: &MaterialAppearance,
+    viewer: Option<&MaterialViewerData>,
+) -> MaterialData {
+    let mut textures = MaterialTextures::default();
+    if let Some(viewer) = viewer {
+        textures.base_color = viewer
+            .base_color
+            .as_ref()
+            .map(|image| texture_data(name, "BaseColor", image));
+        textures.normal = viewer
+            .normal
+            .as_ref()
+            .map(|image| texture_data(name, "Normal", image));
+        textures.metallic_roughness = viewer
+            .metallic_roughness
+            .as_ref()
+            .map(|image| texture_data(name, "ORM", image));
+    }
+    MaterialData {
+        name: name.to_string(),
+        base_color: [
+            appearance.base_color[0],
+            appearance.base_color[1],
+            appearance.base_color[2],
+            1.0,
+        ],
+        metallic: appearance.metallic.clamp(0.0, 1.0),
+        roughness: appearance.roughness.clamp(0.0, 1.0),
+        emissive: appearance.emissive,
+        textures,
+        two_sided: false,
+    }
+}
+
+/// 把 `MeshLod` 转换为场景网格。
+pub fn convert_mesh(lod: &MeshLod, name: &str) -> MeshData {
+    let positions: Vec<[f32; 3]> = lod
+        .positions
+        .iter()
+        .map(|position| [position[0] as f32, position[1] as f32, position[2] as f32])
+        .collect();
+    let mut mesh = MeshData::new(name, positions, lod.indices.clone());
+    mesh.normals = lod.attributes.normals.clone();
+    mesh.tangents = lod.attributes.tangents.clone();
+    mesh.uvs = lod.attributes.uvs.clone();
+    mesh.colors = lod.attributes.colors.clone();
+    mesh.sections = lod
+        .sections
+        .iter()
+        .map(|section| MeshSection {
+            material_index: usize::try_from(section.material_index.max(0)).unwrap_or(0),
+            first_index: u32::try_from(section.first_index.max(0)).unwrap_or(0),
+            index_count: u32::try_from(section.triangle_count.max(0) * 3).unwrap_or(0),
+        })
+        .collect();
+    mesh
+}
+
+/// 场景网格的包围盒（应用节点世界变换前的局部包围盒）。
+pub fn mesh_bounds(mesh: &MeshData) -> Bounds {
+    mesh.bounds
+}
+
+/// 添加已解析材质并返回“槽位 → 材质句柄”映射。
+fn add_resolved_materials(
+    scene: &mut Scene,
+    materials: &[ResolvedMaterial],
+) -> Vec<Option<MaterialHandle>> {
+    materials
+        .iter()
+        .map(|material| add_material(scene, material))
+        .collect()
+}
+
+/// 由查看器图像生成场景贴图。
+fn texture_data(
+    material_name: &str,
+    kind: &str,
+    image: &crate::MaterialViewerImage,
+) -> TextureData {
+    TextureData {
+        name: format!("{material_name}_{kind}"),
+        width: image.width,
+        height: image.height,
+        rgba: image.rgba.clone(),
+    }
+}
+
+/// 从网格材质槽数量生成句柄映射（用于只有槽名没有材质资产的情况）。
+pub fn empty_slots(count: usize) -> Vec<Option<MaterialHandle>> {
+    vec![None; count]
+}
+
+/// 返回网格节点默认的 [`MeshHandle`]（若有）。
+pub fn first_mesh(scene: &Scene) -> Option<MeshHandle> {
+    scene
+        .nodes
+        .iter()
+        .find_map(|node| node.mesh.filter(|mesh| mesh.0 < scene.meshes.len()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{MaterialSlot, MaterialTextureKind, MaterialTextureRef, MeshVertexAttributes};
+
+    /// 构造一个带法线/UV 的三角形 LOD。
+    fn test_lod() -> MeshLod {
+        MeshLod {
+            positions: vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 100.0]],
+            indices: vec![0, 1, 2],
+            sections: vec![crate::MeshSection {
+                material_index: 0,
+                first_index: 0,
+                triangle_count: 1,
+            }],
+            attributes: MeshVertexAttributes {
+                normals: vec![[0.0, 0.0, 1.0]; 3],
+                tangents: vec![[1.0, 0.0, 0.0, 1.0]; 3],
+                uvs: vec![vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]],
+                colors: Vec::new(),
+            },
+        }
+    }
+
+    /// 已解析材质转换为基础色/贴图。
+    fn test_material() -> ResolvedMaterial {
+        ResolvedMaterial {
+            slot: MaterialSlot {
+                name: "M_Test".to_string(),
+                package: None,
+            },
+            package_path: Some("Game/M_Test.uasset".to_string()),
+            appearance: Some(MaterialAppearance {
+                base_color: [0.5, 0.25, 0.125],
+                metallic: 0.2,
+                roughness: 0.4,
+                textures: vec![MaterialTextureRef {
+                    name: "BaseColor".to_string(),
+                    package: None,
+                    kind: MaterialTextureKind::BaseColor,
+                }],
+                ..Default::default()
+            }),
+            viewer: Some(MaterialViewerData {
+                appearance: MaterialAppearance::default(),
+                base_color: Some(crate::MaterialViewerImage {
+                    rgba: vec![255; 4],
+                    width: 1,
+                    height: 1,
+                }),
+                normal: None,
+                metallic_roughness: None,
+            }),
+            loaded_assets: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    /// 静态网格转换保留几何、材质和 LOD 元数据。
+    #[test]
+    fn converts_static_mesh_scene() {
+        let mesh = StaticMesh {
+            name: "SM_Test".to_string(),
+            lod: test_lod(),
+            lod_count: 1,
+            lods: vec![test_lod()],
+            material_slots: vec![MaterialSlot {
+                name: "M_Test".to_string(),
+                package: None,
+            }],
+        };
+        let scene = static_mesh_scene("Test", &mesh, &[test_material()]);
+        assert_eq!(scene.stats().nodes, 1);
+        assert_eq!(scene.stats().meshes, 1);
+        assert_eq!(scene.stats().triangles, 1);
+        assert_eq!(scene.stats().materials, 1);
+        assert!(scene.validate().is_ok());
+        assert_eq!(scene.up_axis, Axis::Z);
+        let bounds = scene.compute_bounds();
+        assert_eq!(bounds.max, [100.0, 100.0, 100.0]);
+        let node = &scene.nodes[0];
+        assert_eq!(node.kind, NodeKind::StaticMesh);
+        assert_eq!(node.materials, vec![Some(MaterialHandle(0))]);
+    }
+
+    /// 骨骼网格转换生成骨骼节点与网格节点。
+    #[test]
+    fn converts_skeletal_mesh_scene() {
+        let scene_skeleton = crate::Skeleton {
+            name: "SK_Test".to_string(),
+            bones: vec![
+                crate::Bone {
+                    name: "Root".to_string(),
+                    parent_index: -1,
+                    translation: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale: [1.0; 3],
+                },
+                crate::Bone {
+                    name: "Child".to_string(),
+                    parent_index: 0,
+                    translation: [0.0, 0.0, 10.0],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale: [1.0; 3],
+                },
+            ],
+        };
+        let preview = SkeletalMeshPreview {
+            skeleton: scene_skeleton.clone(),
+            material_slots: 1,
+            material_names: vec!["M_Test".to_string()],
+            lod_count: 1,
+            lod_sections: 1,
+            required_bones: 2,
+            bone_map: vec![0, 1],
+            lod_vertices: 3,
+            lod_triangles: 1,
+            geometry: Some(test_lod()),
+            lods: vec![test_lod()],
+            lod_skins: Vec::new(),
+            skin: None,
+        };
+        let scene = skeletal_mesh_scene("Test", &preview, &[test_material()]);
+        assert_eq!(scene.nodes.len(), 3);
+        assert_eq!(scene.stats().meshes, 1);
+        assert!(scene.validate().is_ok());
+        let mesh_node = scene
+            .nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::SkeletalMesh)
+            .expect("骨骼网格节点");
+        assert_eq!(mesh_node.parent, Some(SceneNodeId(0)));
+    }
+}
