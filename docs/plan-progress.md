@@ -85,8 +85,8 @@
 | E-0 DTO/公共基础 | 🟡 | `ExportMesh/ExportBone/ExportOptions/validate`；原子写/Report 未抽 |
 | E-1 GameExportConfig（settings） | 🟡 | `BatchExportConfig` JSON 在 unreal；settings 版本化未接 |
 | E-2 游戏编辑窗口导出 UI | ⬜ | |
-| E-3 贴图写入器（PNG/JPEG/TGA/WebP/HDR） | ⬜ | |
-| E-4 材质旁挂 | 🟡 | glTF 内嵌、USDA 侧车；`materials.json`/独立贴图目录未做 |
+| E-3 贴图写入器（PNG/JPEG/TGA/WebP/HDR） | ✅（HDR 待 E-5） | 第 30 轮：`TextureExportFormat{Png,Jpeg,Tga,Webp}` + `encode_texture`；PNG/JPEG/WebP 用 image 编码，TGA 手写 18 字节头 + 未压缩 BGRA；3 测试 + BNB `MI_Props` 四格式实机侧车 |
+| E-4 材质旁挂 | ✅ | 第 30 轮：`material_sidecars` 生成 `textures/<材质>_BaseColor|Normal.<ext>` + `materials.json`（版本/格式/基础色/金属度/粗糙度/自发光/双面/贴图路径），`write_resources` 防路径穿越；3 测试 + BNB 实机 3 文件 × 4 格式 |
 | E-5 glTF 2.0 GLB | ✅ | 4 测试 + BNB 实机 + gltf crate 校验 |
 | E-6 ActorX PSK | ✅ | 3 测试 + BNB 实机 + chunk 校验 |
 | E-7 ActorX PSA | ⬜ | |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-19 收尾 / 进入 E 阶段）
+## 下一轮（E-7 / E-13）
 
-1. V-19 收尾：F 重置、Space/←→ 帧步进、L/G/B/N 快捷键、动画 Slider、骨骼搜索；
-2. 转 E-3 贴图写入器（PNG/JPEG/TGA/WebP/HDR）与 E-4 材质旁挂（materials.json/贴图目录）；
-3. 之后 E-7 PSA、E-13…E-17 批量任务/UI、O（Oodle）、M（媒体）、A 验收；
+1. E-7 ActorX PSA：动画采样 → PSA 序列（bone tracks/quat keys/fps），PSK 配套验证；
+2. E-13 批量任务接入：复用 `lumark-tasks` 的任务模型与进度/取消，报告 JSON；
+3. E-14/E-15 导出 UI 或 E-17 `docs/export-formats.md`；
 4. 记录进度并提交。
