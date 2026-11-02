@@ -16,7 +16,7 @@ pub mod source;
 
 pub use batch::{
     BatchExportConfig, BatchExportFormat, BatchExportReport, BatchFailure, BatchProgress,
-    ExportedAsset, export_archive,
+    ExportedAsset, export_archive, export_archive_cancellable,
 };
 pub use export_input::{MeshExportBundle, build_mesh_export, export_materials};
 

@@ -5,6 +5,8 @@
 //! 单个资产失败不会中断整批；报告包含成功、跳过与失败明细。
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use lumark_export::{
     ExportOptions, GltfExport, write_glb, write_psk, write_ueformat_model, write_usda,
@@ -140,7 +142,7 @@ impl BatchExportConfig {
 }
 
 /// 单个资产的导出失败。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatchFailure {
     /// 资产路径。
     pub asset: String,
@@ -149,7 +151,7 @@ pub struct BatchFailure {
 }
 
 /// 已导出的资产。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportedAsset {
     /// 资产路径。
     pub asset: String,
@@ -164,7 +166,7 @@ pub struct ExportedAsset {
 }
 
 /// 批量导出报告。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BatchExportReport {
     /// 成功导出的资产。
     pub exported: Vec<ExportedAsset>,
@@ -172,12 +174,21 @@ pub struct BatchExportReport {
     pub skipped: usize,
     /// 失败明细。
     pub failures: Vec<BatchFailure>,
+    /// 是否因取消而提前结束。
+    pub cancelled: bool,
+    /// 总耗时（秒）。
+    pub elapsed_seconds: f64,
 }
 
 impl BatchExportReport {
     /// 写出的文件总数。
     pub fn file_count(&self) -> usize {
         self.exported.iter().map(|asset| asset.files.len()).sum()
+    }
+
+    /// 序列化为 JSON 报告。
+    pub fn to_json_pretty(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(self).map_err(|error| format!("序列化导出报告失败：{error}"))
     }
 }
 
@@ -214,15 +225,32 @@ pub enum BatchProgress {
         /// 错误信息。
         message: String,
     },
+    /// 批量任务被取消。
+    Cancelled {
+        /// 取消时正在处理的资产。
+        asset: String,
+    },
 }
 
-/// 批量导出。
+/// 批量导出（不可取消）。
 pub fn export_archive(
     source: &mut GameAssetSource,
     mappings: &Mappings,
     config: &BatchExportConfig,
+    progress: impl FnMut(BatchProgress),
+) -> Result<BatchExportReport, String> {
+    export_archive_cancellable(source, mappings, config, None, progress)
+}
+
+/// 批量导出，可传入取消标志（任务面板/UI 使用）。
+pub fn export_archive_cancellable(
+    source: &mut GameAssetSource,
+    mappings: &Mappings,
+    config: &BatchExportConfig,
+    cancel: Option<&AtomicBool>,
     mut progress: impl FnMut(BatchProgress),
 ) -> Result<BatchExportReport, String> {
+    let started = Instant::now();
     let config = config.clone().normalized();
     std::fs::create_dir_all(&config.output_dir)
         .map_err(|error| format!("创建输出目录失败：{error}"))?;
@@ -250,6 +278,13 @@ pub fn export_archive(
     let mut report = BatchExportReport::default();
 
     for (position, asset) in candidates.into_iter().enumerate() {
+        if cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
+            report.cancelled = true;
+            progress(BatchProgress::Cancelled {
+                asset: asset.clone(),
+            });
+            break;
+        }
         progress(BatchProgress::Analyzing {
             index: position + 1,
             total,
@@ -334,6 +369,7 @@ pub fn export_archive(
             bones: bundle.mesh.bones.len(),
         });
     }
+    report.elapsed_seconds = started.elapsed().as_secs_f64();
     Ok(report)
 }
 
@@ -521,5 +557,33 @@ mod tests {
             vec![BatchExportFormat::Glb, BatchExportFormat::Psk]
         );
         assert!(config.scale > 0.0);
+    }
+
+    /// 报告可序列化为 JSON，包含取消/耗时/失败。
+    #[test]
+    fn report_serializes_to_json() {
+        let report = BatchExportReport {
+            exported: vec![ExportedAsset {
+                asset: "Game/SM_A.uasset".to_string(),
+                files: vec![PathBuf::from("out/Game/SM_A.glb")],
+                vertices: 3,
+                triangles: 1,
+                bones: 0,
+            }],
+            skipped: 2,
+            failures: vec![BatchFailure {
+                asset: "Game/SM_B.uasset".to_string(),
+                message: "读取失败".to_string(),
+            }],
+            cancelled: true,
+            elapsed_seconds: 1.25,
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&report.to_json_pretty().expect("JSON")).expect("解析 JSON");
+        assert_eq!(json["skipped"], 2);
+        assert_eq!(json["cancelled"], true);
+        assert_eq!(json["exported"][0]["vertices"], 3);
+        assert_eq!(json["failures"][0]["asset"], "Game/SM_B.uasset");
+        assert!((json["elapsed_seconds"].as_f64().unwrap() - 1.25).abs() < 1e-6);
     }
 }

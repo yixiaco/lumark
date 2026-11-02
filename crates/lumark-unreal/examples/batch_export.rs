@@ -1,14 +1,17 @@
 //! 诊断：按导出配置批量导出容器内网格资产。
 //!
-//! 用法：`batch_export <game-root> <container> <mapping.usmap> <out-dir> [formats] [filter] [limit]`
-//! 其中 `formats` 为逗号分隔的 `glb,uemodel,usda,psk`，默认 `glb,uemodel`。
+//! 用法：`batch_export <game-root> <container> <mapping.usmap> <out-dir> [formats] [filter] [limit] [cancel-after]`
+//! 其中 `formats` 为逗号分隔的 `glb,uemodel,usda,psk`，默认 `glb,uemodel`；
+//! `cancel-after` 表示成功导出 N 个资产后触发取消（验证任务控制）。
 
 use std::error::Error;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use lumark_unreal::{
     BatchExportConfig, BatchExportFormat, BatchProgress, GameAssetOptions, GameAssetSource,
-    Mappings, export_archive, extract_key_for_game, scan_game,
+    Mappings, export_archive_cancellable, extract_key_for_game, scan_game,
 };
 
 /// 运行诊断。
@@ -21,6 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let formats = args.next().unwrap_or_else(|| "glb,uemodel".to_string());
     let filter = args.next();
     let limit = args.next().and_then(|value| value.parse::<usize>().ok());
+    let cancel_after = args.next().and_then(|value| value.parse::<usize>().ok());
 
     let game = scan_game(Path::new(&root))?;
     let container_path = game
@@ -62,34 +66,55 @@ fn main() -> Result<(), Box<dyn Error>> {
         overwrite: true,
         ..BatchExportConfig::default()
     };
-    let report = export_archive(&mut source, &mappings, &config, |progress| match progress {
-        BatchProgress::Analyzing {
-            index,
-            total,
-            asset,
-        } => {
-            println!("[{index}/{total}] {asset}");
-        }
-        BatchProgress::Exported { asset, files } => {
-            println!("  完成 {asset} → {} 个文件", files.len());
-        }
-        BatchProgress::Skipped { asset, reason } => {
-            println!("  跳过 {asset}：{reason}");
-        }
-        BatchProgress::Failed { asset, message } => {
-            println!("  失败 {asset}：{message}");
-        }
-    })?;
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut exported_count = 0usize;
+    let report = export_archive_cancellable(
+        &mut source,
+        &mappings,
+        &config,
+        Some(cancel.as_ref()),
+        |progress| match progress {
+            BatchProgress::Analyzing {
+                index,
+                total,
+                asset,
+            } => {
+                println!("[{index}/{total}] {asset}");
+            }
+            BatchProgress::Exported { asset, files } => {
+                exported_count += 1;
+                println!("  完成 {asset} → {} 个文件", files.len());
+                if cancel_after.is_some_and(|limit| exported_count >= limit) {
+                    cancel.store(true, Ordering::Relaxed);
+                    println!("  已触发取消标志");
+                }
+            }
+            BatchProgress::Skipped { asset, reason } => {
+                println!("  跳过 {asset}：{reason}");
+            }
+            BatchProgress::Failed { asset, message } => {
+                println!("  失败 {asset}：{message}");
+            }
+            BatchProgress::Cancelled { asset } => {
+                println!("  已取消：{asset}");
+            }
+        },
+    )?;
     println!(
-        "汇总：导出 {} 个资产 / {} 个文件，跳过 {}，失败 {}",
+        "汇总：导出 {} 个资产 / {} 个文件，跳过 {}，失败 {}，取消 {}，耗时 {:.2}s",
         report.exported.len(),
         report.file_count(),
         report.skipped,
-        report.failures.len()
+        report.failures.len(),
+        report.cancelled,
+        report.elapsed_seconds
     );
     for failure in report.failures.iter().take(10) {
         println!("失败明细：{} → {}", failure.asset, failure.message);
     }
+    let report_path = Path::new(&output).join("batch-report.json");
+    std::fs::write(&report_path, report.to_json_pretty()?)?;
+    println!("报告：{}", report_path.display());
     Ok(())
 }
 

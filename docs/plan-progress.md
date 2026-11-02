@@ -94,12 +94,12 @@
 | E-9 UEFormat UEMODEL | ✅ | 3 测试 + BNB 实机 |
 | E-10 USDA | 🟡 | 网格/材质/贴图/GeomSubset；USD Skel 未做 |
 | E-11 单资产编排 | ⬜ | |
-| E-12 批量枚举/执行 | 🟡 | 后端完成（4 测试 + BNB 四格式）；暂停/取消/报告 JSON 未做 |
-| E-13 批量任务接入 | ⬜ | |
+| E-12 批量枚举/执行 | ✅ | 后端完成（5 测试 + BNB 四格式）；取消、报告 JSON、耗时已实现 |
+| E-13 批量任务接入 | 🟡 | 第 32 轮：`export_archive_cancellable` + `Arc<AtomicBool>` 取消、`BatchProgress::Cancelled`、`BatchExportReport{cancelled,elapsed_seconds}` + `to_json_pretty()`；示例 `batch_export` 支持 cancel-after 并写 `batch-report.json`，BNB 实机取消生效（导出 1 后停止）；`TaskManager`/任务面板接入（E-15）未做 |
 | E-14 单资产导出 UI | ⬜ | |
 | E-15 批量导出 UI | ⬜ | |
-| E-16 外部验证/真实验收 | 🟡 | GLB 已 gltf crate 校验；PSK/UEMODEL/USDA reader 已有示例 |
-| E-17 文档（export-formats） | ⬜ | 当前记录在 STATUS/game-assets |
+| E-16 外部验证/真实验收 | 🟡 | GLB 已 gltf crate 校验；PSK/PSA/UEMODEL/USDA reader 已有示例 |
+| E-17 文档（export-formats） | ✅ | 第 32 轮：新增 `docs/export-formats.md`（五种模型格式能力/限制、坐标单位、四种贴图、materials.json、批量 API、验证记录） |
 
 ## M / I / A
 
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（E-13 / E-17）
+## 下一轮（E-11 / E-14 / E-15）
 
-1. E-13 批量任务接入：复用 `lumark-tasks` 的任务模型与进度/取消，报告 JSON；
-2. E-17 `docs/export-formats.md`：四种模型格式 + 四种贴图 + materials.json 的字段/兼容性/限制；
-3. E-14/E-15 导出 UI（单资产/批量）或 E-11 单资产编排；
+1. E-11 单资产导出编排：统一"解析资产 → 选格式/材质/贴图 → 落盘"的服务函数，供 UI 与批量复用；
+2. E-14 单资产导出 UI：详情/查看器导出入与格式选择、进度、结果打开目录；
+3. E-15 批量导出 UI：配置对话框 + `lumark-tasks` 任务面板/取消/报告 JSON；
 4. 记录进度并提交。
