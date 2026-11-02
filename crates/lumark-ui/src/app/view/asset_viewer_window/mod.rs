@@ -100,6 +100,8 @@ pub(crate) struct AssetViewerWindowView {
     rendering: bool,
     /// 骨骼搜索输入（正式窗口创建）
     bone_filter: Option<gpui_kit::Entity<InputState>>,
+    /// 材质槽名称（顺序与 section.material_index 对应）
+    material_names: Vec<String>,
 }
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角（无键盘焦点，供测试/内部使用）。
@@ -166,11 +168,18 @@ impl AssetViewerWindowView {
             render_generation: 0,
             rendering: false,
             bone_filter: None,
+            material_names: Vec::new(),
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();
         view
     }
+    /// 附带材质槽名称（由详情解析结果提供）。
+    pub(crate) fn with_material_names(mut self, names: Vec<String>) -> Self {
+        self.material_names = names;
+        self
+    }
+
     fn kind_label(&self) -> &'static str {
         match self.scene {
             ViewerScene::Mesh { .. } => tr("模型查看器", "Model viewer"),

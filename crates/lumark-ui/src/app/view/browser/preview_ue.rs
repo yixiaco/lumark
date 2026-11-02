@@ -47,6 +47,8 @@ pub(super) enum UePreviewResult {
         skeleton: Option<lumark_unreal::Skeleton>,
         /// SkeletalMesh 对应的逐 LOD 蒙皮权重。
         skins: Vec<Option<lumark_unreal::SkinWeights>>,
+        /// 材质槽名称（顺序与 section.material_index 对应）。
+        material_names: Vec<String>,
         /// 只读字段行（无版本属性）。
         rows: Vec<(String, String)>,
     },
@@ -257,6 +259,7 @@ pub(super) fn load_ue_asset_preview(
                         mesh: geometry.mesh,
                         skeleton: Some(geometry.skeleton),
                         skins: vec![geometry.skin],
+                        material_names: Vec::new(),
                         rows: legacy_property_rows(&data, uexp, Some(mappings_path)),
                     };
                 }
@@ -598,6 +601,11 @@ fn load_ue_asset_from_package(
                 lods: mesh.lods,
                 skeleton: None,
                 skins: Vec::new(),
+                material_names: mesh
+                    .material_slots
+                    .iter()
+                    .map(|slot| slot.name.clone())
+                    .collect(),
                 rows: zen_property_rows(&package, primary, &mappings),
             };
         }
@@ -703,6 +711,7 @@ fn load_ue_asset_from_package(
                         lods,
                         skeleton: Some(skeleton),
                         skins,
+                        material_names,
                         rows: zen_property_rows(&package, primary, &mappings),
                     };
                 }

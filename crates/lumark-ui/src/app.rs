@@ -357,6 +357,7 @@ pub struct LumarkApp {
     details_mesh: Option<lumark_unreal::MeshLod>,
     details_lods: Vec<lumark_unreal::MeshLod>,
     details_skins: Vec<Option<lumark_unreal::SkinWeights>>,
+    details_material_names: Vec<String>,
     details_animation: Option<lumark_unreal::AnimSequenceData>,
     details_skeleton: Option<lumark_unreal::Skeleton>,
     /// 材质详情预览对应的交互式查看器数据。
@@ -654,6 +655,7 @@ impl LumarkApp {
             details_mesh: None,
             details_lods: Vec::new(),
             details_skins: Vec::new(),
+            details_material_names: Vec::new(),
             details_animation: None,
             details_skeleton: None,
             details_material: None,

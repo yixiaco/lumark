@@ -49,6 +49,7 @@ impl LumarkApp {
             ViewerScene::SkeletalMesh { .. } => "骨骼网格",
             ViewerScene::Material { .. } => "材质",
         };
+        let material_names = self.details_material_names.clone();
         let window_size = gpui_kit::size(px(960.), px(720.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
@@ -88,6 +89,7 @@ impl LumarkApp {
                     window,
                     _cx,
                 )
+                .with_material_names(material_names.clone())
             });
             window.focus(&focus, cx);
             view

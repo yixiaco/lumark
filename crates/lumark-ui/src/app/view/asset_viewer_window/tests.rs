@@ -519,6 +519,25 @@ fn viewer_async_preview_updates_image(cx: &mut gpui_kit::TestAppContext) {
     assert!(!rendering, "渲染完成后应复位 rendering");
 }
 
+/// 查看器接收材质槽名称，供 section 列表展示。
+#[test]
+fn viewer_accepts_material_names() {
+    let mesh = MeshLod {
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let view =
+        AssetViewerWindowView::new("SM_Mat".to_string(), ViewerScene::Mesh { lods: vec![mesh] })
+            .with_material_names(vec!["M_Brick".to_string()]);
+    assert_eq!(view.material_names, vec!["M_Brick"]);
+}
+
 /// 骨骼搜索大小写不敏感，空搜索匹配全部。
 #[test]
 fn bone_search_matches_case_insensitive() {

@@ -67,6 +67,7 @@ impl LumarkApp {
         let cached_mesh = self.details_mesh.take();
         let cached_skeleton = self.details_skeleton.take();
         let cached_material = self.details_material.take();
+        let cached_material_names = std::mem::take(&mut self.details_material_names);
         self.sync_details_preview_inner(cx);
         if self
             .details_preview
@@ -77,6 +78,7 @@ impl LumarkApp {
             self.details_mesh = cached_mesh;
             self.details_skeleton = cached_skeleton;
             self.details_material = cached_material;
+            self.details_material_names = cached_material_names;
         }
     }
 
@@ -88,11 +90,13 @@ impl LumarkApp {
             self.details_mesh = None;
             self.details_skeleton = None;
             self.details_material = None;
+            self.details_material_names.clear();
             return;
         };
         self.details_mesh = None;
         self.details_skeleton = None;
         self.details_material = None;
+        self.details_material_names.clear();
         if !entry.is_dir
             && self.game_session.is_some()
             && is_ue_package_name(&entry.name)
@@ -347,12 +351,14 @@ impl LumarkApp {
                         lods,
                         skeleton,
                         skins,
+                        material_names,
                         rows,
                     } => {
                         app.details_mesh = Some(mesh);
                         app.details_lods = lods;
                         app.details_skeleton = skeleton;
                         app.details_skins = skins;
+                        app.details_material_names = material_names;
                         DetailsPreview::Ready {
                             key,
                             path,

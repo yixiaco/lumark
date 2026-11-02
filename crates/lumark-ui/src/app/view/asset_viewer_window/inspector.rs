@@ -166,7 +166,16 @@ impl AssetViewerWindowView {
             let title = self
                 .scene_mesh()
                 .and_then(|mesh| mesh.sections.get(index))
-                .map(|section| format!("S{index} · 材质槽 {}", section.material_index))
+                .map(|section| {
+                    let material_name = usize::try_from(section.material_index)
+                        .ok()
+                        .and_then(|index| self.material_names.get(index))
+                        .filter(|name| !name.is_empty());
+                    match material_name {
+                        Some(name) => format!("S{index} · {name}"),
+                        None => format!("S{index} · 材质槽 {}", section.material_index),
+                    }
+                })
                 .unwrap_or_else(|| format!("S{index}"));
             list = list.child(
                 button(format!("model-inspector-section-{index}"))
