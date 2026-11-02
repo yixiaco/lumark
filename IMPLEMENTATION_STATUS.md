@@ -61,7 +61,7 @@
 - [x] V-20 场景统计/状态栏：`lumark-render` 新增 `SceneStats`（mesh_instances/unique_meshes/draw_calls/vertices/triangles/skinned_instances）与 `scene_stats(scene)`；`render_service::RenderedImage` 透传 stats；资产查看器状态栏显示后端 + 批次/顶点/三角形。测试：统计单测（隐藏节点/共享网格实例）+ `lumark-render` **31 个测试**、`lumark-ui` **176 个测试**全过；clippy/fmt/workspace check 全绿。V 阶段 10/21。
 - [x] V-7 GPU 静态网格实例化：GPU 批次键改为「网格 + section + 材质 + 蒙皮节点」，静态网格共享本地空间顶点缓冲，每个节点仅追加实例矩阵；新增实例顶点缓冲（`step_mode=Instance`，4×vec4 列矩阵）与 WGSL 实例变换（法线/切线同步）；蒙皮网格仍独占批次。新增 GPU 两实例左右半屏测试；BNB `SM_Box_02` 实机 480×480 2×SS **81.5 ms**，截图 `target/render-box-instanced.png` 正常。`lumark-render` **32 个测试**、`lumark-ui` 176 个全过；docs/viewer-architecture 更新。V 阶段 11/21。
 - [x] V-8（部分）GPU 错误回退：`render_service::render_target_with_backend` 在 GPU 渲染失败时打印原因并回退 CPU，`RenderedImage.backend` 返回实际使用的后端；查看器状态栏因此能显示 `CPU` 回退。测试：render_service 2 个测试、UI 全量通过；clippy/fmt/workspace check 全绿。缺 MSAA、纹理 LRU、device lost 重建与 sRGB 视图切换，V-8 仍为 🟡。
-- [x] V-19 键盘快捷键：`AssetViewerWindowView` 新增可选 `FocusHandle`；正式窗口通过 `new_with_focus` 创建并在打开时 `window.focus`，根视图 `track_focus + on_key_down`；实现 F 重置、Space 播放/暂停、←/→ 帧步进、L 着色循环、G 网格、B 骨骼线、N 法线；Ctrl/Alt 组合不拦截。测试：快捷键状态测试（F/G/L/N/未知键），查看器 16 个、`lumark-ui` **177 个测试**全过，clippy/fmt/workspace check 全绿。V-19 仍缺动画 Slider。
+- [x] V-19 输入/快捷键/动画 Slider：`AssetViewerWindowView` 新增可选 `FocusHandle`；正式窗口通过 `new_with_focus` 创建并在打开时 `window.focus`，根视图 `track_focus + on_key_down`；实现 F 重置、Space 播放/暂停、←/→ 帧步进、L 着色循环、G 网格、B 骨骼线、N 法线；Ctrl/Alt 组合不拦截。正式窗口创建官方 `SliderState`（0–1，step 0.001）并订阅 `SliderEvent::Change`：拖动/点击跳转并暂停播放；播放/步进/重置后在 `Render` 中同步滑块位置。测试：快捷键状态测试（F/G/L/N/未知键 + Slider 存在），查看器 16 个、`lumark-ui` **177 个测试**全过，clippy/fmt/workspace check 全绿。**V-19 完成**。
 
 ## 2026-10-29 本轮升级
 

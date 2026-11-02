@@ -135,7 +135,6 @@ impl AssetViewerWindowView {
             .children(self.has_animation().then(|| {
                 let (length, total) = self.animation_info().unwrap_or((0.0, 1));
                 let timeline = AnimationTimeline::new(length, total, self.animation_time);
-                let ratio = timeline.ratio();
                 let label = if self.animation_playing {
                     tr("暂停动画", "Pause animation")
                 } else {
@@ -192,19 +191,11 @@ impl AssetViewerWindowView {
                             })),
                     )
                     .child(
-                        div()
-                            .id("model-animation-timeline")
-                            .w(px(120.))
-                            .h(px(4.))
-                            .rounded_full()
-                            .bg(cx.theme().border)
-                            .child(
-                                div()
-                                    .h(px(4.))
-                                    .rounded_full()
-                                    .bg(cx.theme().primary)
-                                    .w(px(120.0 * ratio)),
-                            ),
+                        div().id("model-animation-slider").w(px(140.)).children(
+                            self.timeline_slider
+                                .as_ref()
+                                .map(|slider| Slider::new(slider).horizontal().w_full()),
+                        ),
                     )
                     .child(
                         div()

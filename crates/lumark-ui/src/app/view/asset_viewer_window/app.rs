@@ -85,6 +85,7 @@ impl LumarkApp {
                     display.clone(),
                     scene_for_window.clone(),
                     focus.clone(),
+                    _cx,
                 )
             });
             window.focus(&focus, cx);

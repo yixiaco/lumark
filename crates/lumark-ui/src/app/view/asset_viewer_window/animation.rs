@@ -65,6 +65,22 @@ impl AnimationTimeline {
 }
 
 impl AssetViewerWindowView {
+    /// 把当前时间同步到 Slider（播放/步进/重置后）。
+    pub(super) fn sync_timeline_slider(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(slider) = self.timeline_slider.as_ref() else {
+            return;
+        };
+        let ratio = match (self.animation_length(), self.animation_info()) {
+            (Some(length), Some((_, total))) => {
+                AnimationTimeline::new(length, total, self.animation_time).ratio()
+            }
+            _ => 0.0,
+        };
+        if (slider.read(cx).value().end() - ratio).abs() > 0.001 {
+            slider.update(cx, |state, cx| state.set_value(ratio, window, cx));
+        }
+    }
+
     pub(super) fn step_animation(&mut self, frames: i32, cx: &mut Context<Self>) {
         let Some((length, total)) = self.animation_info() else {
             return;

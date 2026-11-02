@@ -9,6 +9,7 @@ use super::components::AppIcon;
 use crate::i18n::tr;
 use gpui_kit::RenderImage;
 use gpui_kit::component::TitleBar;
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use lumark_render::ShadingMode;
 use lumark_unreal::{MeshLod, Skeleton};
 
@@ -87,6 +88,10 @@ pub(crate) struct AssetViewerWindowView {
     last_stats: Option<lumark_render::SceneStats>,
     /// 键盘焦点（仅正式窗口创建；测试/内部构造可为空）
     focus: Option<gpui_kit::FocusHandle>,
+    /// 动画时间轴 Slider 状态
+    timeline_slider: Option<gpui_kit::Entity<SliderState>>,
+    /// Slider 事件订阅
+    slider_subscription: Option<gpui_kit::Subscription>,
 }
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角（无键盘焦点，供测试/内部使用）。
@@ -100,8 +105,25 @@ impl AssetViewerWindowView {
         name: String,
         scene: ViewerScene,
         focus: gpui_kit::FocusHandle,
+        cx: &mut Context<Self>,
     ) -> Self {
-        Self::create(name, scene, Some(focus))
+        let mut view = Self::create(name, scene, Some(focus));
+        let slider = cx.new(|_| SliderState::new().min(0.0).max(1.0).step(0.001));
+        let subscription = cx.subscribe(&slider, |view, _slider, event: &SliderEvent, cx| {
+            let SliderEvent::Change(value) = event else {
+                return;
+            };
+            let Some(length) = view.animation_length() else {
+                return;
+            };
+            view.animation_playing = false;
+            view.animation_time = value.end().clamp(0.0, 1.0) * length;
+            view.render_preview();
+            cx.notify();
+        });
+        view.timeline_slider = Some(slider);
+        view.slider_subscription = Some(subscription);
+        view
     }
 
     fn create(name: String, scene: ViewerScene, focus: Option<gpui_kit::FocusHandle>) -> Self {
@@ -126,6 +148,8 @@ impl AssetViewerWindowView {
             last_backend: None,
             last_stats: None,
             focus,
+            timeline_slider: None,
+            slider_subscription: None,
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();
@@ -203,7 +227,8 @@ impl AssetViewerWindowView {
 
 impl Render for AssetViewerWindowView {
     /// 组合标题、工具栏、画布和状态栏
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_timeline_slider(window, cx);
         v_flex()
             .size_full()
             .bg(cx.theme().background)

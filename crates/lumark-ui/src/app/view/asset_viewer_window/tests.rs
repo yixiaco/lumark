@@ -501,10 +501,15 @@ fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
             "SM_Keys".to_string(),
             ViewerScene::Mesh { lods: vec![mesh] },
             cx.focus_handle(),
+            cx,
         )
     });
     cx.update(|_, cx| {
         view.update(cx, |view, cx| {
+            assert!(
+                view.timeline_slider.is_some(),
+                "正式查看器应创建时间轴 Slider"
+            );
             view.yaw = 90.0;
             view.zoom = 2.0;
             assert!(view.handle_shortcut("f", cx));
