@@ -232,6 +232,11 @@ impl UnrealPackage {
         mesh::read_static_mesh(self, index, mappings)
     }
 
+    /// 读取 `.umap` 的 World/Level 摘要。
+    pub fn read_world_summary(&self, mappings: &Mappings) -> Result<WorldSummary, PackageError> {
+        world::read_world_summary(self, mappings)
+    }
+
     /// 返回主资产（第一个导出）的种类。
     pub fn primary_kind(&self) -> AssetKind {
         self.info
@@ -296,6 +301,7 @@ pub mod script_objects;
 mod skeleton;
 mod texture;
 mod unversioned;
+mod world;
 mod zen;
 
 pub use animation::{AnimSequenceData, TrackPose, read_anim_sequence};
@@ -324,6 +330,7 @@ pub use skeleton::{
 };
 pub use texture::{DecodedTexture, Texture2D, TextureMip, TexturePixels, read_texture2d};
 pub use unversioned::{PropValue, UnversionedProperties};
+pub use world::{WorldActor, WorldSummary, read_world_summary};
 pub use zen::parse_package;
 
 /// 从字节游标读取指定长度，越界返回可读错误。

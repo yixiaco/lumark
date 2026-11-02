@@ -134,6 +134,7 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
 - StaticMesh、SkeletalMesh 与旧式（UE4.18）骨骼网格现均可读取法线、切线、UV 通道和顶点颜色（旧式暂不含顶点颜色），并暴露 `StaticMaterials` 材质槽名；FF7R 的位置偏移已修正，包围盒与蒙皮动画链路复验通过。
 - 材质槽解析 API：`resolve_material_slots` 从槽位名定位材质包并合并旧式父材质链，再按命名约定加载基础色/法线/ORM 贴图；`resolve_material_asset` 可直接解析单个材质或材质实例。Zen 包缺少对象引用包路径时按资产目录/文件名启发式搜索，找不到时返回 warning 而非失败。
 - 动画采样 API：`sample_animation` 按秒采样（自动钳制到 `[0, length]`）并输出局部姿态与列主序蒙皮矩阵，`skin_mesh_animation` 提供 CPU LBS 预览（位置/法线/切线同步蒙皮），可供后续 GPU 蒙皮与 glTF/PSA 导出复用。
+- World 摘要 API：`read_world_summary` 解析 `.umap` 的 PersistentLevel、StreamingLevels 与 Actors 数组，输出 Actor 清单和类别统计；World Partition 子关卡在属性流无法解析时用全数据扫描回退，SoftObjectPath 等未支持属性会记录 warning。
 - 游戏资产入口在非 Windows 平台隐藏；Oodle 的纯 Rust 后端本身跨平台，当前入口仍按 Windows 门控。
 - SkeletalMesh 的参考骨架（骨骼名/父索引/参考姿态）和各 LOD 的 rest pose 几何已可读取并
   在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽与其名称、LOD、section/

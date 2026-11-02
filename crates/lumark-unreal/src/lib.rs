@@ -28,11 +28,11 @@ pub use package::{
     MeshLod, MeshSection, MeshVertexAttributes, PackageError, PackageExport, PackageInfo,
     PropSchema, PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights,
     StaticMesh, StructSchema, Texture2D, TextureMip, TexturePixels, TrackPose, UnrealPackage,
-    UnversionedProperties, ZenScriptObjects, is_material_class, material_parent_package,
-    parse_package, read_anim_sequence, read_asset_metadata, read_legacy_anim_sequence,
-    read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
+    UnversionedProperties, WorldActor, WorldSummary, ZenScriptObjects, is_material_class,
+    material_parent_package, parse_package, read_anim_sequence, read_asset_metadata,
+    read_legacy_anim_sequence, read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
-    read_static_mesh, read_zen_material_appearance, texture_references,
+    read_static_mesh, read_world_summary, read_zen_material_appearance, texture_references,
 };
 pub use raster::{
     MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,

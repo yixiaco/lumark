@@ -16,6 +16,7 @@
 - [x] 浮点/HDR 纹理：`Texture2D::decode_mip` 支持 `PF_FloatRGB`/`PF_FloatRGBA`/`PF_R16F`/`PF_RGBA16F`/`PF_RGBE`/`PF_R32_FLOAT`/`PF_R32G32B32F`/`PF_A32B32G32R32F`，返回线性 f32 RGBA；`decode_mip_rgba` 保持兼容并对 HDR 做 Reinhard + gamma 近似显示。新增 3 组浮点格式单元测试；`.hdr` 文件导出在导出阶段实现。
 - [x] 网格材质槽解析（S-7）：新增 `resolve_material_slots` / `resolve_material_asset` 与 `ResolvedMaterial`：槽位名 → 材质包（同目录优先、容器索引按公共前缀排序）→ 旧式父材质链合并 → 基础色/法线/ORM 贴图解码（`MaterialViewerData`），Zen 包按材质名与用途后缀搜索贴图，旧式包走导入表精确路径。实机验证：BNB `MI_Props`/`MI_Crate_04`/`MI_Lamps` 均解析出外观与基础色/法线/ORM；FF7R `M_UE4Man_Body` 合并参数并加载法线贴图。BNB 样本包常缺少网格引用的材质资产，此时返回可读 warning。新增 5 个候选路径/排序单测。
 - [x] 动画采样公共接口（S-8）：新增 `sample_animation(skeleton, anim, seconds) -> AnimationSample`（时间自动钳制、局部姿态 + 列主序 4×4 蒙皮矩阵）、`skin_matrices_from_poses` 与 `skin_mesh_animation`；CPU LBS 现在同步旋转并归一化法线/切线。BNB `SK_Chicken + ANIM_Chicken_Idle1`（4 s/121 帧/42 轨道/2860 顶点）在 0/2/4 s 均生成 42 个姿态与蒙皮矩阵，最大顶点位移 15.4/48.1/15.4，越界时间正确钳制；新增 3 个采样/矩阵/法线蒙皮单测。
+- [x] `.umap` World/Level 摘要（S-9）：新增 `read_world_summary` / `WorldSummary` / `WorldActor`：优先精确 `World` 导出、解析 PersistentLevel/StreamingLevels 原生尾部与 `Actors` 数组（FPackageIndex 按“导出索引+1”、去重），属性流不可解析时全数据扫描回退；导入类名用 UAID 前缀生成可读标签，输出 Actor 清单与类别统计。BNB `GinkgoTree.umap` 解析出 45 个 Actor（StaticMeshActor 11、Landscape 2 等）并正确定位 PersistentLevel；`_Generated_` 子关卡 130 个 Actor（StaticMeshActor 111）；`Engine/Content/Maps/Entry.umap` 回退得到 1 个 PlayerStart。SoftObjectPath 等未支持属性类型会记录 warning 并回退。新增 3 个索引数组/去重/类别统计单测。
 
 ## 2026-10-29 本轮升级
 
