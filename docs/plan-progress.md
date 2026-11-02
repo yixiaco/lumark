@@ -71,7 +71,7 @@
 | V-12 骨骼网格/动画 Provider | ✅ | 第 24 轮：`SceneLoadOptions.animation/animation_time`、`SceneLoadStage::Animation`、`AnimationInfo`（名称/时长/帧数/轨道/采样时间）、`LoadedScene.skeleton`；BNB `SK_Chicken + ANIM_Chicken_Idle2` t=0.5s Provider 实机加载（42 骨骼/42 轨道/141 帧/4.667s）；时间轴 UI 待 V-19 |
 | V-13 独立场景 | 🟡 | 查看器可开 Mesh/Skeleton/SkeletalMaterial；入口/动画待完善 |
 | V-14 世界场景 Provider | ⬜ | 依赖 Zen 导入表/组件属性：`WorldSummary` 仅有 Actor 清单，尚无 `StaticMeshComponent` 外部网格引用与 Transform，需先暴露 Zen import map |
-| V-15 UI 模块拆分 | ⬜ | `asset_viewer_window.rs` 仍单文件 |
+| V-15 UI 模块拆分 | ✅ | 第 26 轮：`asset_viewer_window/` 拆为 `mod/animation/app/body/render/status/toolbar/tests` 8 个文件，最大源码模块 242 行（toolbar）、测试 434 行，均 <600；行为不变，13 个查看器测试与 162 个 UI 总测试全过 |
 | V-16 渲染桥接/帧泵 | 🟡 | 第 25 轮：资产查看器 `image_path` 临时 PNG 改为 `Arc<RenderImage>`（`render_target_to_image` 直连）、删除逐帧落盘/Drop 清理，13 个查看器测试全过；异步帧泵与详情面板 RenderImage 直连待 V-16 后续 |
 | V-17 UI 外壳/工具栏 | ⬜ | |
 | V-18 检查器 | ⬜ | |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-14 前置 / V-15 / V-16 收尾）
+## 下一轮（V-17 / V-18）
 
-1. 暴露 Zen 导入表/`StaticMeshComponent` 属性（世界 Provider 前置）；若仍受阻，继续 UI 线；
-2. V-15 拆分 `asset_viewer_window.rs`（≈978 行）为目录模块，行为不变、测试全绿；
-3. V-16 收尾：详情面板缩略图改 RenderImage、异步渲染帧泵（拖拽不阻塞 UI）；
+1. V-17 查看器外壳与工具栏：着色 DropdownMenu、网格/骨骼 Toggle、LOD Select、重置/检查器入口，窄窗折叠；
+2. V-18 检查器：场景树、LOD/section 材质、骨骼搜索、动画信息、世界统计；
+3. V-19 输入/快捷键/动画 Slider；
 4. 记录进度并提交。
