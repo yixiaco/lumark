@@ -29,13 +29,50 @@ pub struct UsdaOutput {
     pub resources: Vec<ExportResource>,
 }
 
-/// 写出 USDA。
+/// 一帧中一根骨骼的动画采样。
+#[derive(Debug, Clone, Copy)]
+pub struct UsdaAnimKey {
+    /// 局部平移。
+    pub translation: [f32; 3],
+    /// 局部旋转（xyzw）。
+    pub rotation: [f32; 4],
+    /// 局部缩放。
+    pub scale: [f32; 3],
+}
+
+/// USDA 动画输入（SkelAnimation）。
+#[derive(Debug, Clone)]
+pub struct UsdaAnimation {
+    /// 动画名。
+    pub name: String,
+    /// 帧数。
+    pub frames: u32,
+    /// 帧率。
+    pub fps: f32,
+    /// 逐帧逐骨骼采样：`keys[frame][bone]`。
+    pub keys: Vec<Vec<UsdaAnimKey>>,
+}
+
+/// 写出 USDA（不含动画）。
 pub fn write_usda(
     mesh: &ExportMesh,
     materials: &[ExportMaterial],
     options: &ExportOptions,
 ) -> Result<UsdaOutput, ExportError> {
+    write_usda_with_animation(mesh, materials, options, None)
+}
+
+/// 写 USDA，可选 SkelAnimation。
+pub fn write_usda_with_animation(
+    mesh: &ExportMesh,
+    materials: &[ExportMaterial],
+    options: &ExportOptions,
+    animation: Option<&UsdaAnimation>,
+) -> Result<UsdaOutput, ExportError> {
     crate::actorx::validate(mesh)?;
+    if let Some(animation) = animation {
+        validate_animation(mesh, animation)?;
+    }
     let scale = options.scale.max(f32::MIN_POSITIVE);
     let meters_per_unit = 0.01 / scale;
     let mesh_id = sanitize_identifier(&mesh.name);
@@ -70,7 +107,11 @@ pub fn write_usda(
 
     // 骨架（USD Skeleton）。
     if !mesh.bones.is_empty() {
-        write_skeleton(&mut text, mesh);
+        let animation_name = animation.map(|animation| sanitize_identifier(&animation.name));
+        write_skeleton(&mut text, mesh, animation_name.as_deref());
+        if let Some(animation) = animation {
+            write_skel_animation(&mut text, mesh, animation);
+        }
     }
 
     // Mesh。
@@ -80,7 +121,7 @@ pub fn write_usda(
 }
 
 /// 写 USD Skeleton：joints/bindTransforms/restTransforms。
-fn write_skeleton(text: &mut String, mesh: &ExportMesh) {
+fn write_skeleton(text: &mut String, mesh: &ExportMesh, animation_name: Option<&str>) {
     let joints = joint_tokens(mesh);
     let worlds = world_matrices(mesh);
     let rest: Vec<[[f32; 4]; 4]> = (0..mesh.bones.len())
@@ -109,7 +150,138 @@ fn write_skeleton(text: &mut String, mesh: &ExportMesh) {
         }
         text.push_str(&format_matrix(*local));
     }
-    text.push_str("]\n    }\n\n");
+    text.push_str("]\n");
+    if let Some(name) = animation_name {
+        text.push_str(&format!(
+            "        rel skel:animationSource = </Root/{name}>\n"
+        ));
+    }
+    text.push_str("    }\n\n");
+}
+
+/// 写 SkelAnimation；四元数按 USD 的 (w,x,y,z) 顺序。
+fn write_skel_animation(text: &mut String, mesh: &ExportMesh, animation: &UsdaAnimation) {
+    let name = sanitize_identifier(&animation.name);
+    let joints = joint_tokens(mesh);
+    text.push_str(&format!("    def SkelAnimation \"{name}\"\n    {{\n"));
+    text.push_str("        uniform token[] joints = [");
+    for (index, joint) in joints.iter().enumerate() {
+        if index > 0 {
+            text.push_str(", ");
+        }
+        text.push_str(&format!("\"{joint}\""));
+    }
+    text.push_str("]\n");
+    text.push_str("        float3[] translations.timeSamples = {\n");
+    for (frame, keys) in animation.keys.iter().enumerate() {
+        let time = frame as f32 / animation.fps.max(f32::MIN_POSITIVE);
+        text.push_str(&format!("            {}: [", format_float(time)));
+        for (bone, key) in keys.iter().enumerate() {
+            if bone > 0 {
+                text.push_str(", ");
+            }
+            text.push_str(&format_vec3(key.translation));
+        }
+        text.push_str("],\n");
+    }
+    text.push_str("        }\n");
+    text.push_str("        quatf[] rotations.timeSamples = {\n");
+    for (frame, keys) in animation.keys.iter().enumerate() {
+        let time = frame as f32 / animation.fps.max(f32::MIN_POSITIVE);
+        text.push_str(&format!("            {}: [", format_float(time)));
+        for (bone, key) in keys.iter().enumerate() {
+            if bone > 0 {
+                text.push_str(", ");
+            }
+            let rotation = key.rotation;
+            let normalized = normalize_quat(rotation);
+            text.push_str(&format!(
+                "({}, {}, {}, {})",
+                format_float(normalized[3]),
+                format_float(normalized[0]),
+                format_float(normalized[1]),
+                format_float(normalized[2])
+            ));
+        }
+        text.push_str("],\n");
+    }
+    text.push_str("        }\n");
+    text.push_str("        float3[] scales.timeSamples = {\n");
+    for (frame, keys) in animation.keys.iter().enumerate() {
+        let time = frame as f32 / animation.fps.max(f32::MIN_POSITIVE);
+        text.push_str(&format!("            {}: [", format_float(time)));
+        for (bone, key) in keys.iter().enumerate() {
+            if bone > 0 {
+                text.push_str(", ");
+            }
+            text.push_str(&format_vec3(key.scale));
+        }
+        text.push_str("],\n");
+    }
+    text.push_str("        }\n    }\n\n");
+}
+
+/// 动画输入校验。
+fn validate_animation(mesh: &ExportMesh, animation: &UsdaAnimation) -> Result<(), ExportError> {
+    if mesh.bones.is_empty() {
+        return Err(ExportError::Serialization(
+            "USDA 动画需要骨骼网格".to_string(),
+        ));
+    }
+    if animation.frames == 0 || animation.fps <= 0.0 {
+        return Err(ExportError::Serialization(
+            "USDA 动画帧率/帧数无效".to_string(),
+        ));
+    }
+    if animation.keys.len() != animation.frames as usize {
+        return Err(ExportError::Serialization(format!(
+            "USDA 动画关键帧数量 {} 与帧数 {} 不一致",
+            animation.keys.len(),
+            animation.frames
+        )));
+    }
+    for (frame, keys) in animation.keys.iter().enumerate() {
+        if keys.len() != mesh.bones.len() {
+            return Err(ExportError::Serialization(format!(
+                "USDA 动画第 {frame} 帧骨骼数 {} 与骨架 {} 不一致",
+                keys.len(),
+                mesh.bones.len()
+            )));
+        }
+        for key in keys {
+            if !key
+                .translation
+                .iter()
+                .chain(key.rotation.iter())
+                .chain(key.scale.iter())
+                .all(|value| value.is_finite())
+            {
+                return Err(ExportError::Serialization(format!(
+                    "USDA 动画第 {frame} 帧含非有限数值"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 四元数归一化。
+fn normalize_quat(rotation: [f32; 4]) -> [f32; 4] {
+    let length = (rotation[0] * rotation[0]
+        + rotation[1] * rotation[1]
+        + rotation[2] * rotation[2]
+        + rotation[3] * rotation[3])
+        .sqrt();
+    if length <= f32::EPSILON {
+        [0.0, 0.0, 0.0, 1.0]
+    } else {
+        [
+            rotation[0] / length,
+            rotation[1] / length,
+            rotation[2] / length,
+            rotation[3] / length,
+        ]
+    }
 }
 
 /// 关节 token：按父级拼出层级路径并去重。
@@ -765,6 +937,67 @@ mod tests {
                 .contains("float[] primvars:skel:jointWeights = [")
         );
         assert!(output.text.contains("0.75, 0.25, 0, 0"));
+    }
+
+    /// USDA SkelAnimation：joints/时间样本/动画关系。
+    #[test]
+    fn writes_usda_skel_animation() {
+        let mut mesh = quad();
+        mesh.bones = vec![
+            ExportBone {
+                name: "Root".to_string(),
+                parent_index: -1,
+                position: [0.0; 3],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            },
+            ExportBone {
+                name: "Child".to_string(),
+                parent_index: 0,
+                position: [0.0, 0.0, 10.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            },
+        ];
+        mesh.bone_indices = vec![[0, 1, 0, 0]; mesh.vertices.len()];
+        mesh.bone_weights = vec![[0.5, 0.5, 0.0, 0.0]; mesh.vertices.len()];
+        let key = |x: f32| UsdaAnimKey {
+            translation: [x, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0; 3],
+        };
+        let animation = UsdaAnimation {
+            name: "ANIM_Test".to_string(),
+            frames: 2,
+            fps: 30.0,
+            keys: vec![vec![key(0.0), key(0.0)], vec![key(1.0), key(1.0)]],
+        };
+        let output =
+            write_usda_with_animation(&mesh, &[], &ExportOptions::default(), Some(&animation))
+                .expect("usda");
+        assert!(output.text.contains("def SkelAnimation \"ANIM_Test\""));
+        assert!(
+            output
+                .text
+                .contains("float3[] translations.timeSamples = {")
+        );
+        assert!(output.text.contains("quatf[] rotations.timeSamples = {"));
+        assert!(output.text.contains("float3[] scales.timeSamples = {"));
+        assert!(output.text.contains("0: [(0, 0, 0), (0, 0, 0)]"));
+        assert!(output.text.contains("0.033333: [(1, 0, 0), (1, 0, 0)]"));
+        assert!(output.text.contains("(1, 0, 0, 0)"));
+        assert!(
+            output
+                .text
+                .contains("rel skel:animationSource = </Root/ANIM_Test>")
+        );
+
+        let invalid = UsdaAnimation {
+            frames: 3,
+            ..animation
+        };
+        assert!(
+            write_usda_with_animation(&mesh, &[], &ExportOptions::default(), Some(&invalid))
+                .is_err()
+        );
     }
 
     /// 贴图自动旁挂为 textures/*.png，并连接 UsdUVTexture。

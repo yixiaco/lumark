@@ -549,6 +549,18 @@ fn validate_usda(bytes: &[u8], report: &mut Report) {
             }
         }
     }
+    if text.contains("def SkelAnimation") {
+        for required in [
+            "rel skel:animationSource =",
+            "float3[] translations.timeSamples = {",
+            "quatf[] rotations.timeSamples = {",
+            "float3[] scales.timeSamples = {",
+        ] {
+            if !text.contains(required) {
+                report.fail(format!("动画资产缺少 {required}"));
+            }
+        }
+    }
     if has_non_finite_token(text) {
         report.fail("包含 NaN/Inf 数值");
     }

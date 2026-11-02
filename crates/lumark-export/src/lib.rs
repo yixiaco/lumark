@@ -20,7 +20,9 @@ pub use psa::{AnimKey, PsaExport, write_psa};
 pub use sidecar::{MaterialSidecarOptions, material_sidecars, write_resources};
 pub use texture::{TextureExportFormat, TextureExportOptions, encode_texture};
 pub use ueformat::write_ueformat_model;
-pub use usda::{ExportResource, UsdaOutput, write_usda};
+pub use usda::{
+    ExportResource, UsdaAnimKey, UsdaAnimation, UsdaOutput, write_usda, write_usda_with_animation,
+};
 
 /// 导出错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
