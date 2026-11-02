@@ -1,6 +1,6 @@
 ---
 name: lumark-code-style
-description: 维护 Lumark 项目的注释、模块边界和界面资源约定；在修改该仓库的 Rust、PowerShell、IconPark SVG 或项目文档时使用。
+description: 维护 Lumark 项目的注释、模块边界、界面资源和工作区完整性约定；在修改该仓库的 Rust、PowerShell、IconPark SVG 或项目文档时使用。
 ---
 
 # Lumark 项目规范
@@ -49,6 +49,12 @@ description: 维护 Lumark 项目的注释、模块边界和界面资源约定�
 - 实现按钮手型只有两条路：给 `vendor/gpui-component` 打一行补丁，让可交互按钮走手型（推荐）；或改用在 `link` / `text` 变体。禁止为此复制组件的视觉实现。
 - 需要其它光标时按语义选择：可选中文字 `.cursor_text()`、拖拽 `.cursor_grab()` / `.cursor_grabbing()`、不可用 `.cursor_not_allowed()`、缩放 `.cursor_ew_resize()` / `.cursor_ns_resize()`。
 - 出处：`gpui-kit-design-guides` 的「Pointer conventions」；按钮一项是本仓库有意偏离官方默认。
+
+## 工作区完整性
+
+- **禁止将工作区根目录标记为 Low**：不得对仓库根目录执行 `icacls /setintegritylevel Low`，也不得让沙箱、构建脚本、测试或临时命令把仓库根目录设置为低完整性；根目录必须保持 Medium。
+- 根目录的 Low 标签会传播到 `target` 下新生成的 exe，触发 Windows“打开文件 - 安全警告”。发现根目录是 Low 时，应恢复为 Medium（`icacls <仓库根目录> /setintegritylevel "(OI)(CI)Medium"`），并用 `icacls .\target\release\lumark-app.exe` 确认产物也是 Medium；不要用签名或 MOTW 清理掩盖。
+- 低完整性/沙箱实验只能在临时目录进行，禁止用仓库根目录测试；发布构建使用 `tools/build_release.ps1`，它会恢复根目录和 `target`/`dist` 子目录的完整性标签。
 
 ## 提交
 
