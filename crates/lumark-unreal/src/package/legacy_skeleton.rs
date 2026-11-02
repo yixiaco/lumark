@@ -4,7 +4,10 @@
 //! 可能位于未知原生前缀之后；这里以范围扫描和严格校验提取骨架。
 
 use super::legacy::LegacyPackage;
-use super::mesh::{MeshLod, MeshSection};
+use super::mesh::{
+    MeshLod, MeshSection, MeshVertexAttributes, build_tangent, decode_packed_normal, half_to_f32,
+    normalize3,
+};
 use super::skeleton::{Bone, Skeleton, SkinWeights};
 use super::{Mappings, PackageError, invalid};
 
@@ -153,7 +156,13 @@ pub fn read_legacy_skeletal_mesh_geometry(
     let import_map = reader.count(4, 10_000_000)?;
     let _ = reader.bytes(import_map * 4)?;
     let _ = reader.i32()?;
-    let _ = reader.i32()?; // NumTexCoords
+    let num_tex_coords_raw = reader.i32()?; // NumTexCoords
+    if !(0..=8).contains(&num_tex_coords_raw) {
+        return Err(invalid(format!(
+            "SkeletalMesh UV 通道数非法：{num_tex_coords_raw}"
+        )));
+    }
+    let num_tex_coords = num_tex_coords_raw as usize;
     // FSkeletalMeshVertexBuffer：strip、NumTexCoords、bool、extension/origin、bulk。
     let _ = reader.bytes(2)?;
     let _ = reader.i32()?;
@@ -173,18 +182,44 @@ pub fn read_legacy_skeletal_mesh_geometry(
         )));
     }
     let vertex_data = reader.bytes(element_count * element_size as usize)?;
-    let mut positions = Vec::with_capacity(element_count);
-    for vertex in vertex_data.chunks_exact(element_size as usize) {
-        let x = f32::from_le_bytes(vertex[12..16].try_into().unwrap_or_default());
-        let y = f32::from_le_bytes(vertex[16..20].try_into().unwrap_or_default());
-        let z = f32::from_le_bytes(vertex[20..24].try_into().unwrap_or_default());
-        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
-            return Err(invalid("SkeletalMesh 原生顶点包含非法浮点"));
-        }
-        positions.push([x as f64, y as f64, z as f64]);
+    if element_size < 20 {
+        return Err(PackageError::Unsupported(format!(
+            "SkeletalMesh 原生顶点 stride {element_size} 暂不支持"
+        )));
     }
-    if let Some(max_index) = indices.iter().max()
-        && *max_index as usize >= positions.len()
+    // 旧式 GPU 顶点布局：TangentX(4) + TangentZ(4) + Position(12) + UV。
+    // 之前的实现对位置偏移判断有误（读成 12..24），会得到错误的 Y/Z 分量。
+    let uv_size = element_size as usize - 20;
+    let uv_kind = if uv_size == num_tex_coords * 8 {
+        LegacyUvKind::Float
+    } else if uv_size == num_tex_coords * 4 {
+        LegacyUvKind::Half
+    } else {
+        LegacyUvKind::None
+    };
+    let mut positions = Vec::with_capacity(element_count);
+    let mut attributes = MeshVertexAttributes::default();
+    attributes.normals.reserve(element_count);
+    attributes.tangents.reserve(element_count);
+    attributes
+        .uvs
+        .resize_with(num_tex_coords, || Vec::with_capacity(element_count));
+    for vertex in vertex_data.chunks_exact(element_size as usize) {
+        let decoded = decode_legacy_vertex(vertex, num_tex_coords, uv_kind)?;
+        positions.push(decoded.position);
+        attributes.normals.push(decoded.normal);
+        attributes.tangents.push(decoded.tangent);
+        for (channel, uv) in attributes.uvs.iter_mut().zip(decoded.uvs) {
+            channel.push(uv);
+        }
+    }
+    if matches!(uv_kind, LegacyUvKind::None) {
+        attributes.uvs.clear();
+    }
+    if indices
+        .iter()
+        .max()
+        .is_some_and(|max| *max as usize >= positions.len())
     {
         return Err(invalid("SkeletalMesh 原生索引超出顶点范围"));
     }
@@ -209,11 +244,98 @@ pub fn read_legacy_skeletal_mesh_geometry(
             positions,
             indices,
             sections: mesh_sections,
-            attributes: Default::default(),
+            attributes,
         },
         lod_count,
         section_count,
         skin,
+    })
+}
+
+/// 旧式顶点 UV 的存储精度。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LegacyUvKind {
+    /// 每通道 2×f32。
+    Float,
+    /// 每通道 2×f16。
+    Half,
+    /// 顶点缓冲没有 UV。
+    None,
+}
+
+/// 旧式骨骼网格单个顶点的解码结果。
+struct LegacyVertex {
+    /// 位置（f64，供查看器与导出使用）。
+    position: [f64; 3],
+    /// 归一化法线。
+    normal: [f32; 3],
+    /// 切线 xyz + 副切线符号。
+    tangent: [f32; 4],
+    /// 各 UV 通道。
+    uvs: Vec<[f32; 2]>,
+}
+
+/// 解析旧式骨骼网格的单个 GPU 顶点。
+///
+/// 布局：`TangentX(4) + TangentZ(4) + Position(12) + UV`；其中 TangentX/Z 为
+/// UE 的 `FPackedNormal`，位置为 f32，UV 为每通道 f16/f32 对。
+fn decode_legacy_vertex(
+    vertex: &[u8],
+    num_tex_coords: usize,
+    uv_kind: LegacyUvKind,
+) -> Result<LegacyVertex, PackageError> {
+    if vertex.len() < 20 {
+        return Err(invalid("旧式顶点数据长度不足"));
+    }
+    let tangent_x = decode_packed_normal(u32::from_le_bytes(
+        vertex[0..4].try_into().unwrap_or_default(),
+    ));
+    let tangent_z = decode_packed_normal(u32::from_le_bytes(
+        vertex[4..8].try_into().unwrap_or_default(),
+    ));
+    let x = f32::from_le_bytes(vertex[8..12].try_into().unwrap_or_default());
+    let y = f32::from_le_bytes(vertex[12..16].try_into().unwrap_or_default());
+    let z = f32::from_le_bytes(vertex[16..20].try_into().unwrap_or_default());
+    if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+        return Err(invalid("SkeletalMesh 原生顶点包含非法浮点"));
+    }
+    let normal = normalize3([tangent_z[0], tangent_z[1], tangent_z[2]]);
+    let tangent = build_tangent(tangent_x, tangent_z);
+    let mut uvs = Vec::with_capacity(num_tex_coords);
+    let mut offset = 20;
+    for _ in 0..num_tex_coords {
+        match uv_kind {
+            LegacyUvKind::Float => {
+                let u =
+                    f32::from_le_bytes(vertex[offset..offset + 4].try_into().unwrap_or_default());
+                let v = f32::from_le_bytes(
+                    vertex[offset + 4..offset + 8]
+                        .try_into()
+                        .unwrap_or_default(),
+                );
+                uvs.push([u, v]);
+                offset += 8;
+            }
+            LegacyUvKind::Half => {
+                let u = half_to_f32(u16::from_le_bytes(
+                    vertex[offset..offset + 2].try_into().unwrap_or_default(),
+                ));
+                let v = half_to_f32(u16::from_le_bytes(
+                    vertex[offset + 2..offset + 4]
+                        .try_into()
+                        .unwrap_or_default(),
+                ));
+                uvs.push([u, v]);
+                offset += 4;
+            }
+            LegacyUvKind::None => break,
+        }
+    }
+    Ok(LegacyVertex {
+        position: [x as f64, y as f64, z as f64],
+        normal,
+        tangent,
+        uvs,
     })
 }
 
@@ -523,5 +645,51 @@ impl<'a> LegacySkeletonReader<'a> {
             return Err(invalid("旧式骨骼数组数量非法"));
         }
         Ok(count as usize)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LegacyUvKind, decode_legacy_vertex};
+
+    /// 构造一个旧式顶点：8 字节切线基 + 12 字节位置 + UV。
+    fn vertex(position: [f32; 3], uv: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0u8; 20];
+        for (index, value) in position.iter().enumerate() {
+            let offset = 8 + index * 4;
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(uv);
+        bytes
+    }
+
+    /// half UV 顶点：位置正确、UV 为 f16 对、法线已归一化。
+    #[test]
+    fn decodes_legacy_vertex_with_half_uv() {
+        let vertex = vertex([1.0, 2.0, 3.0], &[0x00, 0x38, 0x00, 0x34]); // 0.5, 0.25
+        let decoded = decode_legacy_vertex(&vertex, 1, LegacyUvKind::Half).expect("解码");
+        assert_eq!(decoded.position, [1.0, 2.0, 3.0]);
+        assert!((decoded.uvs[0][0] - 0.5).abs() < 1e-4);
+        assert!((decoded.uvs[0][1] - 0.25).abs() < 1e-4);
+        let length = (decoded.normal[0] * decoded.normal[0]
+            + decoded.normal[1] * decoded.normal[1]
+            + decoded.normal[2] * decoded.normal[2])
+            .sqrt();
+        assert!((length - 1.0).abs() < 1e-4);
+        assert!(decoded.tangent[3].abs() == 1.0);
+    }
+
+    /// f32 UV 顶点与截断输入。
+    #[test]
+    fn decodes_legacy_vertex_with_float_uv() {
+        let mut uv = Vec::new();
+        uv.extend_from_slice(&0.1f32.to_le_bytes());
+        uv.extend_from_slice(&0.2f32.to_le_bytes());
+        let vertex = vertex([-1.0, 0.5, 9.0], &uv);
+        let decoded = decode_legacy_vertex(&vertex, 1, LegacyUvKind::Float).expect("解码");
+        assert_eq!(decoded.position, [-1.0, 0.5, 9.0]);
+        assert!((decoded.uvs[0][0] - 0.1).abs() < 1e-6);
+        assert!((decoded.uvs[0][1] - 0.2).abs() < 1e-6);
+        assert!(decode_legacy_vertex(&vertex[..19], 1, LegacyUvKind::None).is_err());
     }
 }
