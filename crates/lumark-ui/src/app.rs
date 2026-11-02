@@ -174,6 +174,8 @@ pub(crate) enum PendingOpenMode {
     Viewer,
     /// 作为嵌套压缩包在独立窗口中打开。
     NestedArchive,
+    /// 在内置媒体播放器中打开。
+    Media,
 }
 
 /// Lumark 主应用状态。

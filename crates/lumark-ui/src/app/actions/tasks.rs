@@ -489,6 +489,17 @@ impl LumarkApp {
                                                     }
                                                 }
                                             }
+                                            PendingOpenMode::Media => {
+                                                let name = pending
+                                                    .relative
+                                                    .rsplit('/')
+                                                    .next()
+                                                    .unwrap_or(&pending.relative)
+                                                    .to_string();
+                                                app.open_media_player(
+                                                    target, name, window, cx,
+                                                );
+                                            }
                                         }
                                     }
                                     continue;

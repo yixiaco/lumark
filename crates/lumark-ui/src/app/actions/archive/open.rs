@@ -33,7 +33,14 @@ impl LumarkApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_archive_entry_as(entry, PendingOpenMode::External, window, cx);
+        let mode = if crate::app::view::media_player_window::is_media_path(&entry.path)
+            && lumark_media::FfmpegTools::locate().is_ok()
+        {
+            PendingOpenMode::Media
+        } else {
+            PendingOpenMode::External
+        };
+        self.open_archive_entry_as(entry, mode, window, cx);
     }
 
     /// 用一个内置只读查看器打开归档条目。
