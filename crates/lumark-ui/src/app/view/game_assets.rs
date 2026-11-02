@@ -737,6 +737,14 @@ fn oodle_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::An
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.choose_game_oodle(window, cx);
                         })),
+                )
+                .child(
+                    button("game-download-oodle")
+                        .ghost()
+                        .label(tr("下载 Oodle…", "Download Oodle..."))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_oodle_download(window, cx);
+                        })),
                 ),
         )
         .child(

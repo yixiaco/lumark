@@ -16,6 +16,7 @@ pub(crate) mod extract_window;
 mod game_assets;
 mod game_sidebar;
 pub(crate) mod image_viewer_window;
+pub(crate) mod oodle_download_window;
 mod pages;
 pub(crate) mod password_windows;
 mod settings_window;

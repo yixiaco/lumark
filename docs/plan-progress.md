@@ -8,7 +8,7 @@
 | 阶段 | 完成度 | 当前状态 |
 |---|---|---|
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
-| O（Oodle FModel 式） | 5/7 | O-1/O-2/O-3/O-6/O-7 完成；O-4/O-5 部分 |
+| O（Oodle FModel 式） | 6/7 | O-1/O-2/O-3/O-5/O-6/O-7 完成；O-4 部分（查找路径完成，随包发布流水线待做） |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
 | V（查看器） | 9/21 | V-2/3/6/13/16/18/19 部分；V-7/8/14/20 待做 |
 | E（导出） | 14/18 | E-0/E-1/E-2/E-10 待补或部分；其余完成 |
@@ -34,7 +34,7 @@
 | O-2 容器 needs_oodle 预检 | ✅ | 第 38 轮：`IoStoreContainer::needs_oodle`、`GameAssetSource::oodle_preflight()`（`OodlePreflight{needed,ready,methods,status,summary}`）；BNB 实机 92368 条目、methods=["Oodle"]、needed=true、ready=true（Rust 后端） |
 | O-3 运行时下载与缓存 | ✅ | 第 39 轮：`oodle_download`：reqwest 流式下载 + 进度 → SHA-256 校验 → 原子缓存 `oodle.zip` → zip 安全解压 `oo2core*/oodle*.dll` → 缓存复用；`install_oodle_zip` 离线安装；4 测试（安装/复用、SHA、路径穿越、非法 DLL） |
 | O-4 随包内置 | 🟡 | 第 39 轮：DLL 查找新增 `oodle/`、`resources/oodle/`（exe 同目录已支持）；仓库不内置二进制，发布需放置已授权 DLL |
-| O-5 UI 集成与设置 | 🟡 | 第 38 轮：游戏设置 Oodle 区新增“当前后端”摘要；下载/安装向导未接入 |
+| O-5 UI 集成与设置 | ✅ | 第 38/41 轮：游戏设置 Oodle 区显示“当前后端”摘要；新增「下载 Oodle…」入口与 `oodle_download_window`（URL/SHA/缓存目录、进度百分比与字节、下载后自动解压并配置、失败原因）；2 UI 测试 |
 | O-6 诊断与文档 | ✅ | 第 38/39 轮：`docs/oodle-backends.md` 补充下载/缓存 API、随包目录、设置页、诊断；`oodle_preflight` 示例；BNB 实机 |
 | O-7 真实验收 | ✅ | 第 40 轮：BNB IoStore（92,368 条目/Oodle/读取 2,297B 资产）与 FF7R PAK（18,896 条目/None+Zlib+Gzip+Oodle/读取 700B 资产）均 `needed=true ready=true`，Rust 后端真实解码成功 |
 
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（O-5 / E-10 / V-7）
+## 下一轮（O-4 / M / I）
 
-1. O-5 设置页下载/安装向导（URL/SHA/缓存目录、进度、失败提示、配置后端）；
-2. E-10 USDA Skel 或 V-7 实例化；
-3. M 媒体播放器或 I 图片查看器收尾；
+1. O-4 随包资源打包脚本/首启检测（或标记为发布配置项）；
+2. M 媒体播放器（M-1 ffmpeg 后端/播放窗口）或 I 图片查看器收尾；
+3. E-10 USDA Skel 或 V-7 实例化；
 4. 记录进度并提交。
