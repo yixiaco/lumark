@@ -25,7 +25,7 @@ const VERTEX_FLOATS: usize = 16;
 /// 相机 uniform 大小（字节）。
 const CAMERA_UNIFORM_SIZE: u64 = 160;
 /// 材质 uniform 大小（字节）。
-const MATERIAL_UNIFORM_SIZE: u64 = 48;
+const MATERIAL_UNIFORM_SIZE: u64 = 64;
 
 /// GPU 渲染错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +60,8 @@ pub struct GpuRenderer {
     queue: wgpu::Queue,
     adapter_name: String,
     adapter_backend: String,
-    pipeline: wgpu::RenderPipeline,
+    pipeline_single: wgpu::RenderPipeline,
+    pipeline_double: wgpu::RenderPipeline,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -115,7 +116,8 @@ impl GpuRenderer {
                 queue,
                 adapter_name: info.name,
                 adapter_backend: format!("{:?}", info.backend),
-                pipeline: resources.pipeline,
+                pipeline_single: resources.pipeline_single,
+                pipeline_double: resources.pipeline_double,
                 camera_layout: resources.camera_layout,
                 material_layout: resources.material_layout,
                 sampler: resources.sampler,
@@ -228,9 +230,14 @@ impl GpuRenderer {
                 }),
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(&self.pipeline_double);
             pass.set_bind_group(0, &camera_bind_group, &[]);
             for batch in &batches {
+                pass.set_pipeline(if batch.material.two_sided {
+                    &self.pipeline_double
+                } else {
+                    &self.pipeline_single
+                });
                 let vertex_bytes = f32_bytes(&batch.vertices);
                 let vertex_buffer = self.create_buffer(
                     "lumark-vertices",
@@ -257,8 +264,22 @@ impl GpuRenderer {
                     .normal
                     .as_ref()
                     .and_then(|texture| self.upload_texture(texture, false));
+                let orm_upload = batch
+                    .material
+                    .textures
+                    .metallic_roughness
+                    .as_ref()
+                    .and_then(|texture| self.upload_texture(texture, false));
+                let emissive_upload = batch
+                    .material
+                    .textures
+                    .emissive
+                    .as_ref()
+                    .and_then(|texture| self.upload_texture(texture, true));
                 let base_view = base_upload.as_ref().unwrap_or(&self.white_view);
                 let normal_view = normal_upload.as_ref().unwrap_or(&self.flat_normal_view);
+                let orm_view = orm_upload.as_ref().unwrap_or(&self.white_view);
+                let emissive_view = emissive_upload.as_ref().unwrap_or(&self.white_view);
                 let material_bind_group =
                     self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("lumark-material"),
@@ -279,6 +300,14 @@ impl GpuRenderer {
                             wgpu::BindGroupEntry {
                                 binding: 3,
                                 resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 4,
+                                resource: wgpu::BindingResource::TextureView(orm_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 5,
+                                resource: wgpu::BindingResource::TextureView(emissive_view),
                             },
                         ],
                     });
@@ -418,7 +447,8 @@ impl GpuRenderer {
 
 /// 共享管线资源。
 struct Resources {
-    pipeline: wgpu::RenderPipeline,
+    pipeline_single: wgpu::RenderPipeline,
+    pipeline_double: wgpu::RenderPipeline,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -483,6 +513,26 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 5,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
         ],
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -517,45 +567,50 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
             shader_location: 4,
         },
     ];
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("lumark-pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main"),
-            compilation_options: Default::default(),
-            buffers: &[Some(wgpu::VertexBufferLayout {
-                array_stride: (VERTEX_FLOATS * 4) as u64,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &vertex_attributes,
-            })],
-        },
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            cull_mode: None,
-            ..Default::default()
-        },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Less),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState::default(),
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_main"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: COLOR_FORMAT,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    });
+    let create_pipeline = |label: &'static str, cull_mode: Option<wgpu::Face>| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: (VERTEX_FLOATS * 4) as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &vertex_attributes,
+                })],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let pipeline_single = create_pipeline("lumark-pipeline-single", Some(wgpu::Face::Back));
+    let pipeline_double = create_pipeline("lumark-pipeline-double", None);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("lumark-sampler"),
         address_mode_u: wgpu::AddressMode::Repeat,
@@ -576,7 +631,8 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         false,
     );
     Ok(Resources {
-        pipeline,
+        pipeline_single,
+        pipeline_double,
         camera_layout,
         material_layout,
         sampler,
@@ -846,6 +902,20 @@ fn material_uniform(material: &MaterialData) -> Vec<u8> {
         material.emissive[0],
         material.emissive[1],
         material.emissive[2],
+        if material.textures.emissive.is_some() {
+            1.0
+        } else {
+            0.0
+        },
+    ]);
+    values.extend_from_slice(&[
+        if material.textures.metallic_roughness.is_some() {
+            1.0
+        } else {
+            0.0
+        },
+        0.5,
+        0.0,
         0.0,
     ]);
     f32_bytes(&values)
@@ -996,5 +1066,105 @@ mod tests {
             }
         }
         assert!(red_pixels > 0, "GPU 基础色贴图未生效");
+    }
+
+    /// 有 GPU 时验证自发光贴图与 ORM 遮蔽；无 GPU 时跳过。
+    #[test]
+    fn gpu_emissive_and_orm_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU PBR 测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+
+        let mut scene = triangle_scene();
+        scene.materials[0].base_color = [0.0, 0.0, 0.0, 1.0];
+        scene.materials[0].emissive = [1.0; 3];
+        scene.materials[0].textures.emissive = Some(lumark_scene::TextureData {
+            name: "T_Emissive".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![255, 0, 0, 255],
+        });
+        let target = renderer.render(&scene, &settings).expect("GPU 渲染");
+        let red_pixels = target
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > pixel[2].saturating_add(10) && pixel[0] > 10)
+            .count();
+        assert!(red_pixels > 0, "GPU 自发光贴图未生效");
+
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            key_intensity: 0.0,
+            fill_intensity: 0.0,
+            ambient_strength: 1.0,
+            ..RenderSettings::default()
+        };
+        let render_occlusion = |occlusion: u8| {
+            let mut scene = triangle_scene();
+            scene.materials[0].base_color = [1.0; 4];
+            scene.materials[0].textures.metallic_roughness = Some(lumark_scene::TextureData {
+                name: "T_ORM".to_string(),
+                width: 1,
+                height: 1,
+                rgba: vec![occlusion, 128, 0, 255],
+            });
+            renderer.render(&scene, &settings).expect("GPU 渲染")
+        };
+        let lit = render_occlusion(255);
+        let dark = render_occlusion(0);
+        let bright = |target: &RenderTarget| {
+            target
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|pixel| pixel[0] > 10)
+                .count()
+        };
+        assert!(bright(&lit) > 0 && bright(&dark) == 0, "GPU ORM 遮蔽未生效");
+    }
+
+    /// 有 GPU 时验证单/双面剔除；无 GPU 时跳过。
+    #[test]
+    fn gpu_two_sided_culling_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 双面测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let mut scene = triangle_scene();
+        if let Some(mesh) = scene.meshes.first_mut() {
+            mesh.indices = vec![0, 2, 1];
+        }
+        let culled = renderer.render(&scene, &settings).expect("GPU 渲染");
+        assert!(culled.is_uniform(), "GPU 单面材质未剔除背面");
+        scene.materials[0].two_sided = true;
+        let double = renderer.render(&scene, &settings).expect("GPU 渲染");
+        assert!(!double.is_uniform(), "GPU 双面材质未渲染背面");
     }
 }

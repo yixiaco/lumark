@@ -1,4 +1,4 @@
-// Lumark GPU 着色器：与 CPU 参考渲染器一致的近似 PBR + 双灯 + 法线贴图。
+// Lumark GPU 着色器：与 CPU 参考渲染器一致的近似 PBR + 双灯 + 法线/ORM/自发光贴图。
 // 输出到 Rgba8Unorm 目标，因此这里手动做 tone mapping 与 sRGB 编码。
 
 struct Camera {
@@ -17,13 +17,18 @@ struct Material {
     base_color: vec4<f32>,
     // x = metallic, y = roughness, z = has base texture, w = has normal texture
     params: vec4<f32>,
+    // xyz = emissive, w = has emissive texture
     emissive: vec4<f32>,
+    // x = has ORM texture, y = alpha cutoff, z/w 保留
+    flags: vec4<f32>,
 };
 
 @group(1) @binding(0) var<uniform> material: Material;
 @group(1) @binding(1) var base_texture: texture_2d<f32>;
 @group(1) @binding(2) var normal_texture: texture_2d<f32>;
 @group(1) @binding(3) var tex_sampler: sampler;
+@group(1) @binding(4) var orm_texture: texture_2d<f32>;
+@group(1) @binding(5) var emissive_texture: texture_2d<f32>;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -62,6 +67,7 @@ fn light_contribution(
     light_color: vec3<f32>,
     intensity: f32,
     shininess: f32,
+    specular_strength: f32,
 ) -> vec3<f32> {
     if intensity <= 0.0 {
         return vec3<f32>(0.0);
@@ -75,7 +81,7 @@ fn light_contribution(
     let ndh = max(dot(normal, half_vector), 0.0);
     let specular = pow(ndh, shininess);
     return base * light_color * intensity * ndl
-        + light_color * specular * intensity * vec3<f32>(0.1);
+        + light_color * specular * specular_strength * intensity;
 }
 
 @fragment
@@ -85,10 +91,17 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
         normal = -normal;
     }
     var base = material.base_color.rgb;
+    var alpha = material.base_color.a * in.color.a;
     if (material.params.z > 0.5) {
-        base = base * textureSample(base_texture, tex_sampler, in.uv).rgb;
+        let sampled = textureSample(base_texture, tex_sampler, in.uv);
+        base = base * sampled.rgb;
+        alpha = alpha * sampled.a;
     }
     base = base * in.color.rgb;
+    // 首版 alpha 采用 0.5 阈值裁剪，与 CPU 后端一致。
+    if (alpha < 0.5) {
+        discard;
+    }
     if (material.params.w > 0.5) {
         let tangent = normalize(in.tangent.xyz - normal * dot(normal, in.tangent.xyz));
         let bitangent = cross(normal, tangent) * sign(in.tangent.w);
@@ -104,9 +117,21 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     if (dot(normal, view) < 0.0) {
         normal = -normal;
     }
-    let roughness = clamp(material.params.y, 0.04, 1.0);
+    var metallic = material.params.x;
+    var roughness = material.params.y;
+    var occlusion = 1.0;
+    if (material.flags.x > 0.5) {
+        // ORM：R=环境光遮蔽、G=粗糙度、B=金属度（线性数据）。
+        let orm = textureSample(orm_texture, tex_sampler, in.uv).rgb;
+        occlusion = orm.r;
+        roughness = roughness * orm.g;
+        metallic = metallic * orm.b;
+    }
+    roughness = clamp(roughness, 0.04, 1.0);
     let shininess = clamp(2.0 / pow(roughness, 4.0), 4.0, 2048.0);
-    var color = base * camera.ambient.x;
+    let specular_strength = 0.04 + metallic * 0.5;
+    let ambient = camera.ambient.x * occlusion;
+    var color = base * ambient;
     color = color + light_contribution(
         normal,
         view,
@@ -115,6 +140,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
         camera.light0_color.rgb,
         camera.light0_dir.w,
         shininess,
+        specular_strength,
     );
     color = color + light_contribution(
         normal,
@@ -124,8 +150,13 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
         camera.light1_color.rgb,
         camera.light1_dir.w,
         shininess,
+        specular_strength,
     );
-    color = color + material.emissive.rgb;
+    var emissive = material.emissive.rgb;
+    if (material.emissive.w > 0.5) {
+        emissive = emissive * textureSample(emissive_texture, tex_sampler, in.uv).rgb;
+    }
+    color = color + emissive;
     let non_negative = max(color, vec3<f32>(0.0));
     let mapped = non_negative / (vec3<f32>(1.0) + non_negative);
     return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), 1.0);

@@ -316,6 +316,10 @@ fn project_and_raster(
     if area.abs() <= 1.0e-7 {
         return;
     }
+    // 屏幕 Y 轴向下，正面三角形面积为负；单面材质剔除背面。
+    if !material.two_sided && area > 0.0 {
+        return;
+    }
     let min_x = projected
         .iter()
         .map(|vertex| vertex.0)
@@ -453,7 +457,12 @@ fn project_and_raster(
                 uv,
                 color,
             };
-            frame.color[offset] = shade(&surface, material, lights, settings, camera);
+            let shaded = shade(&surface, material, lights, settings, camera);
+            // 首版 alpha 采用 0.5 阈值裁剪，避免排序与混合复杂度。
+            if shaded[3] < 0.5 {
+                continue;
+            }
+            frame.color[offset] = [shaded[0], shaded[1], shaded[2]];
             frame.depth[offset] = depth;
         }
     }
@@ -486,14 +495,15 @@ struct Surface {
     color: [f32; 4],
 }
 
-/// 近似 PBR 着色，返回线性辐射度。
+/// 近似 PBR 着色，返回线性辐射度 + 透明度。
 fn shade(
     surface: &Surface,
     material: &MaterialData,
     lights: &[([f32; 3], [f32; 3], f32)],
     settings: &RenderSettings,
     camera: &Camera,
-) -> [f32; 3] {
+) -> [f32; 4] {
+    let mut alpha = material.base_color[3] * surface.color[3];
     let mut base = [
         material.base_color[0],
         material.base_color[1],
@@ -506,12 +516,23 @@ fn shade(
             base[1] * srgb_to_linear(sampled[1]),
             base[2] * srgb_to_linear(sampled[2]),
         ];
+        alpha *= sampled[3];
     }
     base = [
         base[0] * surface.color[0],
         base[1] * surface.color[1],
         base[2] * surface.color[2],
     ];
+    // ORM：R=环境光遮蔽、G=粗糙度、B=金属度（线性数据）。
+    let mut metallic = material.metallic.clamp(0.0, 1.0);
+    let mut roughness = material.roughness.clamp(0.04, 1.0);
+    let mut occlusion = 1.0f32;
+    if let Some(texture) = material.textures.metallic_roughness.as_ref() {
+        let sampled = sample_texture(texture, surface.uv);
+        occlusion = sampled[0];
+        roughness = (roughness * sampled[1]).clamp(0.04, 1.0);
+        metallic = (metallic * sampled[2]).clamp(0.0, 1.0);
+    }
     let mut normal = normalize(surface.normal);
     if let Some(texture) = material.textures.normal.as_ref() {
         let sampled = sample_texture(texture, surface.uv);
@@ -547,10 +568,8 @@ fn shade(
     if dot(normal, view) < 0.0 {
         normal = [-normal[0], -normal[1], -normal[2]];
     }
-    let metallic = material.metallic.clamp(0.0, 1.0);
-    let roughness = material.roughness.clamp(0.04, 1.0);
     let shininess = (2.0 / (roughness * roughness * roughness * roughness)).clamp(4.0, 2048.0);
-    let ambient = settings.ambient_strength;
+    let ambient = settings.ambient_strength * occlusion;
     let mut color = [base[0] * ambient, base[1] * ambient, base[2] * ambient];
     for (direction, light_color, intensity) in lights {
         let light = normalize(*direction);
@@ -569,11 +588,20 @@ fn shade(
             color[channel] += light_channel * specular * specular_strength * intensity;
         }
     }
-    let emissive = material.emissive;
+    let mut emissive = material.emissive;
+    if let Some(texture) = material.textures.emissive.as_ref() {
+        let sampled = sample_texture(texture, surface.uv);
+        emissive = [
+            emissive[0] * srgb_to_linear(sampled[0]),
+            emissive[1] * srgb_to_linear(sampled[1]),
+            emissive[2] * srgb_to_linear(sampled[2]),
+        ];
+    }
     [
         color[0] + emissive[0],
         color[1] + emissive[1],
         color[2] + emissive[2],
+        alpha,
     ]
 }
 
@@ -724,11 +752,13 @@ mod tests {
         let red = scene.add_material(MaterialData {
             name: "Red".to_string(),
             base_color: [1.0, 0.0, 0.0, 1.0],
+            two_sided: true,
             ..MaterialData::default()
         });
         let blue = scene.add_material(MaterialData {
             name: "Blue".to_string(),
             base_color: [0.0, 0.0, 1.0, 1.0],
+            two_sided: true,
             ..MaterialData::default()
         });
         let near_mesh = scene.add_mesh(MeshData::new(
@@ -799,6 +829,117 @@ mod tests {
             }
         }
         assert!(red_pixels > 0, "红色基础色贴图未生效");
+    }
+
+    /// 基础色贴图 alpha < 0.5 的像素被裁剪。
+    #[test]
+    fn alpha_texture_culls_transparent_pixels() {
+        let mut scene = triangle_scene([1.0; 4], 0.0);
+        scene.materials[0].textures.base_color = Some(TextureData {
+            name: "T_Transparent".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![255, 0, 0, 0],
+        });
+        let rgba = render(&scene, 96);
+        let visible = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > pixel[1].saturating_add(10))
+            .count();
+        assert_eq!(visible, 0, "alpha=0 的像素未被裁剪");
+    }
+
+    /// 自发光贴图参与最终颜色。
+    #[test]
+    fn emissive_texture_adds_light() {
+        let mut scene = triangle_scene([0.0, 0.0, 0.0, 1.0], 0.0);
+        scene.materials[0].emissive = [1.0, 1.0, 1.0];
+        scene.materials[0].textures.emissive = Some(TextureData {
+            name: "T_Emissive".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![255, 0, 0, 255],
+        });
+        let rgba = render(&scene, 96);
+        let red = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > pixel[1].saturating_add(10) && pixel[0] > 10)
+            .count();
+        assert!(red > 0, "自发光贴图未生效");
+    }
+
+    /// ORM 贴图的 R 通道控制环境光遮蔽。
+    #[test]
+    fn orm_texture_modulates_occlusion() {
+        let settings = RenderSettings {
+            width: 96,
+            height: 96,
+            supersample: 1,
+            background: [0.0; 3],
+            key_intensity: 0.0,
+            fill_intensity: 0.0,
+            ambient_strength: 1.0,
+            ..RenderSettings::default()
+        };
+        let render_dark = |occlusion: u8| {
+            let mut scene = triangle_scene([1.0, 1.0, 1.0, 1.0], 0.0);
+            scene.materials[0].textures.metallic_roughness = Some(TextureData {
+                name: "T_ORM".to_string(),
+                width: 1,
+                height: 1,
+                rgba: vec![occlusion, 128, 0, 255],
+            });
+            crate::render_scene(&scene, &settings).expect("渲染").rgba
+        };
+        let dark = render_dark(0);
+        let lit = render_dark(255);
+        let lit_count = lit
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > 10)
+            .count();
+        let dark_count = dark
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > 10)
+            .count();
+        assert!(
+            lit_count > 0 && dark_count == 0,
+            "ORM 遮蔽未生效：lit={lit_count} dark={dark_count}"
+        );
+    }
+
+    /// 单面材质剔除背面，双面材质保留。
+    #[test]
+    fn two_sided_controls_backface_culling() {
+        let mut scene = triangle_scene([1.0, 0.0, 0.0, 1.0], 0.0);
+        // 反转绕序制造背面。
+        if let Some(mesh) = scene.meshes.first_mut() {
+            mesh.indices = vec![0, 2, 1];
+        }
+        let culled = render(&scene, 96);
+        let culled_visible = culled
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > pixel[1].saturating_add(10))
+            .count();
+        assert_eq!(culled_visible, 0, "单面材质未剔除背面");
+        scene.materials[0].two_sided = true;
+        let double = render(&scene, 96);
+        let double_visible = double
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > pixel[1].saturating_add(10))
+            .count();
+        assert!(double_visible > 0, "双面材质未渲染背面");
     }
 
     /// 纹理采样支持 repeat 与双线性过滤。
