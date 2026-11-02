@@ -7,8 +7,10 @@
 //! 导出层不依赖任何引擎读取代码，方便查看器、批量导出和未来的 Unity 适配复用。
 
 mod actorx;
+mod gltf;
 
 pub use actorx::{ExportBone, ExportMesh, ExportOptions, MeshSection, MeshVertex, write_psk};
+pub use gltf::{ExportMaterial, ExportTexture, GltfExport, write_glb};
 
 /// 导出错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +38,10 @@ pub enum ExportError {
     },
     /// 蒙皮数组长度与顶点数不一致。
     InvalidSkinLength,
+    /// 序列化失败。
+    Serialization(String),
+    /// 贴图尺寸与像素数据不匹配。
+    InvalidTexture(String),
 }
 
 impl std::fmt::Display for ExportError {
@@ -50,6 +56,8 @@ impl std::fmt::Display for ExportError {
                 write!(formatter, "骨骼 {bone} 的父索引 {parent} 越界")
             }
             Self::InvalidSkinLength => write!(formatter, "蒙皮数组长度与顶点数不一致"),
+            Self::Serialization(error) => write!(formatter, "序列化失败：{error}"),
+            Self::InvalidTexture(name) => write!(formatter, "贴图 {name} 尺寸与像素数据不匹配"),
         }
     }
 }

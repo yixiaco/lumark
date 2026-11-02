@@ -371,7 +371,7 @@ pub fn write_psk(mesh: &ExportMesh, options: &ExportOptions) -> Result<Vec<u8>, 
 }
 
 /// 校验导出网格。
-fn validate(mesh: &ExportMesh) -> Result<(), ExportError> {
+pub(crate) fn validate(mesh: &ExportMesh) -> Result<(), ExportError> {
     if !mesh.indices.len().is_multiple_of(3) {
         return Err(ExportError::InvalidIndexCount);
     }
