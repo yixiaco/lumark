@@ -72,6 +72,11 @@ foreach ($notice in @("README.md", "THIRD_PARTY_NOTICES.md")) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stage $notice) -Force
     }
 }
+# 可选随包 Oodle（build_release.ps1 -OodleDll 会放到 release\oodle）。
+$oodleDir = Join-Path $InputDir "oodle"
+if (Test-Path -LiteralPath $oodleDir) {
+    Copy-Item -LiteralPath $oodleDir -Destination (Join-Path $stage "oodle") -Recurse -Force
+}
 
 function Find-Iscc([string]$Explicit) {
     if ($Explicit) {

@@ -64,6 +64,7 @@
 - [x] V-19 输入/快捷键/动画 Slider：`AssetViewerWindowView` 新增可选 `FocusHandle`；正式窗口通过 `new_with_focus` 创建并在打开时 `window.focus`，根视图 `track_focus + on_key_down`；实现 F 重置、Space 播放/暂停、←/→ 帧步进、L 着色循环、G 网格、B 骨骼线、N 法线；Ctrl/Alt 组合不拦截。正式窗口创建官方 `SliderState`（0–1，step 0.001）并订阅 `SliderEvent::Change`：拖动/点击跳转并暂停播放；播放/步进/重置后在 `Render` 中同步滑块位置。测试：快捷键状态测试（F/G/L/N/未知键 + Slider 存在），查看器 16 个、`lumark-ui` **177 个测试**全过，clippy/fmt/workspace check 全绿。**V-19 完成**。
 - [x] V-16 异步帧泵：拖拽/滚轮改为 `request_preview`：UI 线程构建 `Scene`/`RenderSettings`，900×600 2×SS 离屏渲染交给 `background_executor`；`render_generation` 丢弃过期结果，渲染完成后应用图像/后端/统计并复位 `rendering`；状态栏显示“渲染中…”；骨骼/材质轻量光栅保留同步路径。新增异步完成测试（等待后台结果并确认图像更新）；查看器 17 个测试、`lumark-ui` **178 个测试**全过。**V-16 完成**；V 阶段 13/21。
 - [x] V-18（部分）检查器增强：正式查看器创建骨骼搜索 `InputState`，`inspector_bones` 支持大小写不敏感过滤、显示匹配数/总数、最多 200 行；概要新增渲染后的“可见实例/唯一网格”和“绘制批次”世界统计；新增 `bone_matches` 单测与搜索框存在断言。查看器 18 个、`lumark-ui` **179 个测试**全过，fmt/clippy/workspace check 全绿。缺口：section 材质名。
+- [x] O-4 随包 Oodle 发布流水线：`tools/build_release.ps1` 新增 `-OodleDll`，校验 DLL 并复制到 `target\release\oodle`；`installer/pack-installer.ps1` 把 `oodle/` 复制进 `dist\windows`，Inno 的递归规则与便携 zip 自动包含；未传参数时行为不变。实测占位 `oo2core_9_win64.dll` 进入 `dist\windows\oodle`，`pack-installer.ps1 -Version 0.1.0` Inno 编译成功。O 阶段 7/7 完成。
 
 ## 2026-10-29 本轮升级
 

@@ -85,6 +85,18 @@ DLL 查找顺序：
 
 发布时把已获授权的 `oo2core*.dll` 放到上述目录即可被自动发现；Lumark 仓库不内置二进制。
 
+### 发布流水线
+
+```powershell
+# 把授权 DLL 随安装器/便携包分发（复制到 target\release\oodle\）
+./tools/build_release.ps1 -Version 0.1.0 -OodleDll D:\path\to\oo2core_9_win64.dll
+```
+
+- `build_release.ps1` 校验扩展名并复制到 `target\release\oodle`；
+- `pack-installer.ps1` 将该目录复制到 `dist\windows\oodle`；
+- Inno Setup 的 `dist\windows\*` 递归规则与便携 zip 都会包含它；
+- 未传 `-OodleDll` 时行为不变，仍可使用下载/设置/LUMARK_OODLE_DLL。
+
 ## 设置页（O-5）
 
 游戏设置 → Oodle 区显示：
@@ -134,5 +146,5 @@ cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\FINAL FANTA
 ## 限制
 
 - 默认下载源未内置；调用方必须提供授权 zip 的 URL 与 SHA-256；
-- O-4 仅提供查找路径，仓库不随包分发 Oodle 二进制；
+- 仓库不随包分发 Oodle 二进制，需使用 `-OodleDll` 指向已授权 DLL；
 - O-7 需在 FF7R 等更多容器上验收。

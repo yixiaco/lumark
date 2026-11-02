@@ -36,6 +36,10 @@
 
 .PARAMETER SkipPackage
     只构建、清理并签名 target\release，不生成安装器和便携包。
+
+.PARAMETER OodleDll
+    可选：把已授权的 Oodle DLL（如 oo2core_9_win64.dll）放到随包 `oodle\`
+    目录，安装器和便携包会一并分发。
 #>
 [CmdletBinding()]
 param(
@@ -45,7 +49,8 @@ param(
     [string]$SignPfxPath,
     [string]$SignPfxPassword,
     [switch]$NoTimestamp,
-    [switch]$SkipPackage
+    [switch]$SkipPackage,
+    [string]$OodleDll
 )
 
 $ErrorActionPreference = "Stop"
@@ -336,6 +341,26 @@ foreach ($file in @($app, $sfx)) {
 $targetArtifacts = @($app, $sfx)
 foreach ($file in $targetArtifacts) {
     Repair-ReleaseTrust $file "release 产物" | Out-Null
+}
+
+# 可选随包 Oodle：复制到 release\oodle，pack-installer 会带入暂存目录。
+if ($OodleDll) {
+    if (-not (Test-Path -LiteralPath $OodleDll)) {
+        throw "找不到 Oodle DLL：$OodleDll"
+    }
+    $oodlePath = (Resolve-Path -LiteralPath $OodleDll).ProviderPath
+    if ([IO.Path]::GetExtension($oodlePath) -ne ".dll") {
+        throw "Oodle DLL 必须是 .dll：$oodlePath"
+    }
+    if ([IO.Path]::GetFileName($oodlePath) -notlike "oo2core*.dll") {
+        Write-Warning "Oodle DLL 文件名不是 oo2core*.dll，仍按指定名称随包：$oodlePath"
+    }
+    $oodleDir = Join-Path $releaseDir "oodle"
+    New-Item -ItemType Directory -Force -Path $oodleDir | Out-Null
+    $oodleTarget = Join-Path $oodleDir ([IO.Path]::GetFileName($oodlePath))
+    Copy-Item -LiteralPath $oodlePath -Destination $oodleTarget -Force
+    Repair-ReleaseTrust $oodleTarget "随包 Oodle" | Out-Null
+    Write-Host "随包 Oodle：$oodleTarget"
 }
 foreach ($file in @(
     (Join-Path $repo "target\debug\lumark-app.exe"),

@@ -8,7 +8,7 @@
 | 阶段 | 完成度 | 当前状态 |
 |---|---|---|
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
-| O（Oodle FModel 式） | 6/7 | O-1/O-2/O-3/O-5/O-6/O-7 完成；O-4 部分（查找路径完成，随包发布流水线待做） |
+| O（Oodle FModel 式） | 7/7 | 全部完成 |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
 | V（查看器） | 13/21 | V-2/3/6/13/18 部分；V-8/14 待做 |
 | E（导出） | 18/18 | 全部完成 |
@@ -33,7 +33,7 @@
 | O-1 加载器状态 API | ✅ | 第 38 轮：`OodleStatus{setting,rust_available,dll_supported,dll_configured,dll_loaded}` + `usable()/summary()` + `oodle_status()`；2 测试；游戏设置页显示当前后端摘要 |
 | O-2 容器 needs_oodle 预检 | ✅ | 第 38 轮：`IoStoreContainer::needs_oodle`、`GameAssetSource::oodle_preflight()`（`OodlePreflight{needed,ready,methods,status,summary}`）；BNB 实机 92368 条目、methods=["Oodle"]、needed=true、ready=true（Rust 后端） |
 | O-3 运行时下载与缓存 | ✅ | 第 39 轮：`oodle_download`：reqwest 流式下载 + 进度 → SHA-256 校验 → 原子缓存 `oodle.zip` → zip 安全解压 `oo2core*/oodle*.dll` → 缓存复用；`install_oodle_zip` 离线安装；4 测试（安装/复用、SHA、路径穿越、非法 DLL） |
-| O-4 随包内置 | 🟡 | 第 39 轮：DLL 查找新增 `oodle/`、`resources/oodle/`（exe 同目录已支持）；仓库不内置二进制，发布需放置已授权 DLL |
+| O-4 随包内置 | ✅ | 第 39/61 轮：查找 `oodle/`、`resources/oodle/`；发布流水线新增 `build_release.ps1 -OodleDll <授权 DLL>`，复制到 `target\release\oodle`；`pack-installer.ps1` 将 `oodle/` 带入暂存目录，安装器/便携包自动包含。实测 7 字节占位 DLL 进入 `dist\windows\oodle` 且 Inno 编译成功；仓库仍不内置二进制 |
 | O-5 UI 集成与设置 | ✅ | 第 38/41 轮：游戏设置 Oodle 区显示“当前后端”摘要；新增「下载 Oodle…」入口与 `oodle_download_window`（URL/SHA/缓存目录、进度百分比与字节、下载后自动解压并配置、失败原因）；2 UI 测试 |
 | O-6 诊断与文档 | ✅ | 第 38/39 轮：`docs/oodle-backends.md` 补充下载/缓存 API、随包目录、设置页、诊断；`oodle_preflight` 示例；BNB 实机 |
 | O-7 真实验收 | ✅ | 第 40 轮：BNB IoStore（92,368 条目/Oodle/读取 2,297B 资产）与 FF7R PAK（18,896 条目/None+Zlib+Gzip+Oodle/读取 700B 资产）均 `needed=true ready=true`，Rust 后端真实解码成功 |

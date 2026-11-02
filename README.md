@@ -87,6 +87,8 @@ Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 
 ```powershell
 ./tools/build_release.ps1 -Version 0.1.0
 ./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
+# 可选：随安装器/便携包分发已授权的 Oodle DLL
+./tools/build_release.ps1 -Version 0.1.0 -OodleDll .\oo2core_9_win64.dll
 ```
 
 首次使用开发证书先运行 `./installer/self-sign.ps1`（当前用户级，不需要管理员）。脚本会：
