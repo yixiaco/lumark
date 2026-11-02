@@ -498,7 +498,7 @@ fn add_texture(
 }
 
 /// RGBA8 → PNG。
-fn encode_png(texture: &ExportTexture) -> Result<Vec<u8>, ExportError> {
+pub(crate) fn encode_png(texture: &ExportTexture) -> Result<Vec<u8>, ExportError> {
     use image::{ExtendedColorType, ImageEncoder};
     let buffer = image::RgbaImage::from_raw(texture.width, texture.height, texture.rgba.clone())
         .ok_or_else(|| ExportError::InvalidTexture(texture.name.clone()))?;
