@@ -73,6 +73,17 @@ impl AssetViewerWindowView {
                     .as_ref()
                     .map(|backend| div().child(format!("· {backend}"))),
             )
+            .children(self.last_stats.map(|stats| {
+                div().child(format!(
+                    "· {} {} · {} {} · {} {}",
+                    stats.draw_calls,
+                    tr("批次", "batches"),
+                    stats.vertices,
+                    tr("顶点", "vertices"),
+                    stats.triangles,
+                    tr("三角形", "triangles")
+                ))
+            }))
             .child(format!("{}%", this_zoom_percent(self.zoom)))
     }
 }

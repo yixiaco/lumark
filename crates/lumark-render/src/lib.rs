@@ -18,6 +18,51 @@ pub use gpu::{GpuError, GpuRenderer};
 
 use lumark_scene::Scene;
 
+/// 场景渲染统计（V-20 状态/性能展示）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SceneStats {
+    /// 可见网格实例数。
+    pub mesh_instances: usize,
+    /// 唯一网格数。
+    pub unique_meshes: usize,
+    /// 预计绘制批次（按可见 section 计）。
+    pub draw_calls: usize,
+    /// 顶点数（含实例重复）。
+    pub vertices: usize,
+    /// 三角形数（含实例重复）。
+    pub triangles: usize,
+    /// 含蒙皮的网格实例数。
+    pub skinned_instances: usize,
+}
+
+/// 统计场景中可见网格的规模与预计绘制批次。
+pub fn scene_stats(scene: &Scene) -> SceneStats {
+    use std::collections::HashSet;
+    let mut stats = SceneStats::default();
+    let mut handles = HashSet::new();
+    for node in &scene.nodes {
+        if !node.visible {
+            continue;
+        }
+        let Some(handle) = node.mesh else {
+            continue;
+        };
+        let Some(mesh) = scene.meshes.get(handle.0) else {
+            continue;
+        };
+        stats.mesh_instances += 1;
+        handles.insert(handle.0);
+        stats.vertices += mesh.positions.len();
+        stats.triangles += mesh.indices.len() / 3;
+        stats.draw_calls += mesh.sections.len().max(1);
+        if mesh.skin.is_some() {
+            stats.skinned_instances += 1;
+        }
+    }
+    stats.unique_meshes = handles.len();
+    stats
+}
+
 /// 着色模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShadingMode {
@@ -263,6 +308,38 @@ pub(crate) fn downsample(
 mod tests {
     use super::*;
     use lumark_scene::{MeshData, Scene, SceneNode, Transform};
+
+    /// 场景统计包含实例/唯一网格/批次/顶点/三角形。
+    #[test]
+    fn counts_visible_scene_stats() {
+        let mut scene = triangle_scene();
+        let stats = scene_stats(&scene);
+        assert_eq!(stats.mesh_instances, 1);
+        assert_eq!(stats.unique_meshes, 1);
+        assert_eq!(stats.draw_calls, 1);
+        assert_eq!(stats.vertices, 3);
+        assert_eq!(stats.triangles, 1);
+        assert_eq!(stats.skinned_instances, 0);
+        // 复用同一网格再添加一个实例。
+        let handle = scene.nodes[0].mesh.unwrap();
+        scene.add_node(SceneNode {
+            name: "Tri2".to_string(),
+            parent: None,
+            transform: Transform::IDENTITY,
+            mesh: Some(handle),
+            materials: Vec::new(),
+            visible: true,
+            kind: lumark_scene::NodeKind::StaticMesh,
+            metadata: Vec::new(),
+        });
+        let stats = scene_stats(&scene);
+        assert_eq!(stats.mesh_instances, 2);
+        assert_eq!(stats.unique_meshes, 1);
+        assert_eq!(stats.vertices, 6);
+        scene.nodes[0].visible = false;
+        scene.nodes[1].visible = false;
+        assert_eq!(scene_stats(&scene), SceneStats::default());
+    }
 
     /// 构造只含一个三角形的场景。
     fn triangle_scene() -> Scene {

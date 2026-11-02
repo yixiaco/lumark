@@ -9,6 +9,7 @@
 use std::sync::{Arc, OnceLock};
 
 use gpui_kit::RenderImage;
+use lumark_render::SceneStats;
 use lumark_render::{GpuRenderer, RenderSettings, RenderTarget, render_scene};
 use lumark_scene::Scene;
 
@@ -42,6 +43,8 @@ pub(crate) struct RenderedImage {
     pub image: Arc<RenderImage>,
     /// 实际后端。
     pub backend: RenderBackend,
+    /// 场景规模统计。
+    pub stats: SceneStats,
 }
 
 /// 共享渲染服务。
@@ -104,6 +107,7 @@ impl RenderService {
         Ok(RenderedImage {
             image,
             backend: self.backend.clone(),
+            stats: lumark_render::scene_stats(scene),
         })
     }
 }

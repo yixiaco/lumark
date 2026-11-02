@@ -82,6 +82,8 @@ pub(crate) struct AssetViewerWindowView {
     show_bones: bool,
     /// 最近一次渲染使用的后端标签
     last_backend: Option<String>,
+    /// 最近一次渲染的场景统计
+    last_stats: Option<lumark_render::SceneStats>,
 }
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角
@@ -105,6 +107,7 @@ impl AssetViewerWindowView {
             show_grid: false,
             show_bones: false,
             last_backend: None,
+            last_stats: None,
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();

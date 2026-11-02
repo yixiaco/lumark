@@ -187,6 +187,7 @@ impl AssetViewerWindowView {
             Ok(rendered) => {
                 self.image = Some(rendered.image);
                 self.last_backend = Some(rendered.backend.label());
+                self.last_stats = Some(rendered.stats);
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
@@ -205,6 +206,7 @@ impl AssetViewerWindowView {
         };
         self.image = Some(image);
         self.last_backend = None;
+        self.last_stats = None;
         self.error = None;
     }
 }
