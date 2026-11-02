@@ -231,6 +231,60 @@ impl AssetViewerWindowView {
                 }
                 this.child(pose_button)
             })
+            .when(self.scene_mesh().is_some(), |this| {
+                let shading_label = match self.shading {
+                    lumark_render::ShadingMode::Lit => tr("光照", "Lit"),
+                    lumark_render::ShadingMode::Unlit => tr("无光", "Unlit"),
+                    lumark_render::ShadingMode::Normals => tr("法线", "Normals"),
+                };
+                this.child(
+                    button("model-shading")
+                        .ghost()
+                        .label(format!("{}: {shading_label}", tr("着色", "Shading")))
+                        .tooltip(tr("切换着色模式", "Cycle shading mode"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.shading = match this.shading {
+                                lumark_render::ShadingMode::Lit => {
+                                    lumark_render::ShadingMode::Unlit
+                                }
+                                lumark_render::ShadingMode::Unlit => {
+                                    lumark_render::ShadingMode::Normals
+                                }
+                                lumark_render::ShadingMode::Normals => {
+                                    lumark_render::ShadingMode::Lit
+                                }
+                            };
+                            this.render_preview();
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("model-grid-toggle")
+                        .ghost()
+                        .selected(self.show_grid)
+                        .label(tr("网格", "Grid"))
+                        .tooltip(tr("显示/隐藏地面网格", "Toggle ground grid"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_grid = !this.show_grid;
+                            this.render_preview();
+                            cx.notify();
+                        })),
+                )
+            })
+            .when(self.has_skin(), |this| {
+                this.child(
+                    button("model-bones-toggle")
+                        .ghost()
+                        .selected(self.show_bones)
+                        .label(tr("骨骼线", "Bones"))
+                        .tooltip(tr("显示/隐藏骨骼线段", "Toggle bone lines"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_bones = !this.show_bones;
+                            this.render_preview();
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 button("model-inspector-toggle")
                     .ghost()

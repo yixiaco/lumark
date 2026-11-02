@@ -75,8 +75,10 @@ pub(crate) fn render(
             continue;
         }
         let ranges = section_ranges(mesh);
-        for (first, count, material_index) in ranges {
-            if settings.hidden_material_slots.contains(&material_index) {
+        for (section_index, (first, count, material_index)) in ranges.into_iter().enumerate() {
+            if settings.hidden_material_slots.contains(&material_index)
+                || settings.hidden_sections.contains(&section_index)
+            {
                 continue;
             }
             let material = node

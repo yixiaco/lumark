@@ -27,6 +27,19 @@ impl AssetViewerWindowView {
                     .into_any_element(),
                 None => div().size_full().into_any_element(),
             })
+            .on_scroll(cx.listener(|this, event: &gpui_kit::ScrollEvent, _, cx| {
+                let delta = match event.delta {
+                    gpui_kit::ScrollDelta::Pixels(point) => point.y.as_f32(),
+                    gpui_kit::ScrollDelta::Lines(point) => point.y * 40.0,
+                };
+                if delta.abs() < 0.01 {
+                    return;
+                }
+                let factor = (-delta * 0.0025).exp();
+                this.zoom = (this.zoom * factor).clamp(0.2, 6.0);
+                this.render_preview();
+                cx.notify();
+            }))
             .on_mouse_down(
                 gpui_kit::MouseButton::Left,
                 cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, _| {

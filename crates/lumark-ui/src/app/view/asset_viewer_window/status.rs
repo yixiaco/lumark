@@ -68,6 +68,11 @@ impl AssetViewerWindowView {
                 }
             })
             .child(tr("左键拖拽旋转", "Drag to orbit").to_string())
+            .children(
+                self.last_backend
+                    .as_ref()
+                    .map(|backend| div().child(format!("· {backend}"))),
+            )
             .child(format!("{}%", this_zoom_percent(self.zoom)))
     }
 }

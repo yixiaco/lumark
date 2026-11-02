@@ -9,7 +9,8 @@ use super::components::AppIcon;
 use crate::i18n::tr;
 use gpui_kit::RenderImage;
 use gpui_kit::component::TitleBar;
-use lumark_unreal::{MeshLod, MeshSection, Skeleton};
+use lumark_render::ShadingMode;
+use lumark_unreal::{MeshLod, Skeleton};
 
 mod animation;
 mod app;
@@ -73,6 +74,14 @@ pub(crate) struct AssetViewerWindowView {
     animation_time: f32,
     /// 是否显示右侧检查器
     inspector_open: bool,
+    /// 着色模式
+    shading: ShadingMode,
+    /// 是否显示地面网格
+    show_grid: bool,
+    /// 是否显示骨骼线
+    show_bones: bool,
+    /// 最近一次渲染使用的后端标签
+    last_backend: Option<String>,
 }
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角
@@ -92,6 +101,10 @@ impl AssetViewerWindowView {
             animation_playing: false,
             animation_time: 0.0,
             inspector_open: true,
+            shading: ShadingMode::Lit,
+            show_grid: false,
+            show_bones: false,
+            last_backend: None,
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();

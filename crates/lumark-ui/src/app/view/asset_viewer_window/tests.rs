@@ -481,3 +481,49 @@ fn inspector_panel_renders_and_toggles(cx: &mut gpui_kit::TestAppContext) {
         });
     });
 }
+
+/// 着色模式、网格叠加与 section 隐藏都会改变渲染结果。
+#[test]
+fn viewer_shading_grid_and_sections_render() {
+    let mesh = MeshLod {
+        positions: vec![
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 1.0],
+        ],
+        indices: vec![0, 1, 2, 0, 2, 3],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 2,
+        }],
+        attributes: Default::default(),
+    };
+    let mut view = AssetViewerWindowView::new(
+        "SM_Shading".to_string(),
+        ViewerScene::Mesh { lods: vec![mesh] },
+    );
+    let bytes = |view: &AssetViewerWindowView| {
+        view.image
+            .as_ref()
+            .and_then(|image| image.as_bytes(0))
+            .map(<[u8]>::to_vec)
+            .expect("查看器图像")
+    };
+    assert!(view.error.is_none());
+    assert!(view.last_backend.is_some(), "应记录渲染后端");
+    let lit = bytes(&view);
+    view.shading = lumark_render::ShadingMode::Unlit;
+    view.render_preview();
+    assert_ne!(lit, bytes(&view), "切换无光照着色应改变图像");
+    let unlit = bytes(&view);
+    view.show_grid = true;
+    view.render_preview();
+    assert_ne!(unlit, bytes(&view), "显示网格应改变图像");
+    view.hidden_sections[0] = true;
+    view.render_preview();
+    assert!(view.error.is_none());
+    let hidden = bytes(&view);
+    assert_ne!(hidden, unlit, "隐藏 section 应改变图像");
+}

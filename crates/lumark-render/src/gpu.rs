@@ -863,8 +863,10 @@ fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
                 })
                 .collect()
         };
-        for (first, count, material_slot) in ranges {
-            if settings.hidden_material_slots.contains(&material_slot) {
+        for (section_index, (first, count, material_slot)) in ranges.into_iter().enumerate() {
+            if settings.hidden_material_slots.contains(&material_slot)
+                || settings.hidden_sections.contains(&section_index)
+            {
                 continue;
             }
             let material_handle = node

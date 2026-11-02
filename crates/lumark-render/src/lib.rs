@@ -69,6 +69,8 @@ pub struct RenderSettings {
     pub show_bones: bool,
     /// 隐藏的材质槽（section）索引。
     pub hidden_material_slots: Vec<usize>,
+    /// 隐藏的 section 索引（按网格 section 顺序）。
+    pub hidden_sections: Vec<usize>,
 }
 
 impl Default for RenderSettings {
@@ -92,6 +94,7 @@ impl Default for RenderSettings {
             show_grid: false,
             show_bones: false,
             hidden_material_slots: Vec::new(),
+            hidden_sections: Vec::new(),
         }
     }
 }
