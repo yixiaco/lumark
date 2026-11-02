@@ -35,6 +35,7 @@
 - [x] V-16（资产查看器部分）：`AssetViewerWindowView` 的临时 PNG 链路改为直接 `Arc<RenderImage>`：`render_preview` 用 `RenderTarget` + `render_service::render_target_to_image` 生成图像，画布 `img(image.clone())` 显示，删除临时文件路径、Drop 清理与所有落盘；拖拽/缩放/LOD/材质球/动画仍按需同步重绘。13 个查看器 UI 测试全部通过，`lumark-ui` clippy/fmt 与 workspace check 通过。异步帧泵与详情面板 RenderImage 直连留待 V-16 收尾。
 - [x] V-15 查看器 UI 模块拆分：`asset_viewer_window.rs`（约 978 行）拆为 `asset_viewer_window/{mod,animation,app,body,render,status,toolbar,tests}.rs`：`mod.rs` 保留数据结构/构造/查询/Render 入口，`render.rs` 负责光栅快照与 RenderImage，`toolbar.rs` 标题/工具栏，`body.rs` 画布与输入，`status.rs` 状态栏，`animation.rs` 时间轴与播放循环，`app.rs` 打开入口；跨模块方法统一 `pub(super)`，测试仍走原有公开面。最大源码模块 242 行、测试 434 行，全部 <600；`cargo test -p lumark-ui` **162 个测试全过**，clippy/fmt/workspace check 全绿。
 - [x] V-17（部分）+ V-18（核心）：新增 `asset_viewer_window/inspector.rs`（306 行）右侧检查器：概要（名称/类型/LOD/顶点/三角形/section/骨骼/动画）、LOD 点击切换、section 显隐、骨骼列表（≤200，超出显示总数）、动画时间与播放状态、材质参数/贴图状态、关闭按钮；工具栏新增检查器开关与 `−/+` 缩放按钮（移除误用图标）。查看器模块最大 306 行、UI 总测试 **163 个全过**，clippy/fmt/workspace check 全绿。缺口：着色/网格/骨骼 Toggle 需先把预览切到 `lumark_render` RenderSettings；骨骼搜索/世界统计待补。
+- [x] V-17 收尾 + V-19（部分）：查看器网格/骨骼网格预览从 `lumark_unreal` 光栅切换为 `lumark_render` 场景 + `render_service`（GPU 优先，状态栏显示后端）；工具栏新增着色模式循环（光照/无光/法线）、地面网格开关、骨骼线开关；画布新增滚轮缩放（0.2–6×，指数步进）；`RenderSettings` 新增 `hidden_sections`，section 显隐直接驱动渲染。测试：查看器 15 个、UI **164 个**全过，clippy/fmt/workspace check 全绿；新增着色/网格/section 输出变化测试与后端记录断言。剩余：F 重置、Space/←→、L/G/B/N 快捷键、动画 Slider、骨骼搜索、异步帧泵。
 
 ## 2026-10-29 本轮升级
 
