@@ -106,6 +106,8 @@ pub struct RenderSettings {
     pub ambient_strength: f32,
     /// 超采样倍数（1–4）；提高画质并降低锯齿。
     pub supersample: u32,
+    /// MSAA 采样数（1 或 4）；仅 GPU 后端使用。
+    pub msaa_samples: u32,
     /// 着色模式。
     pub shading: ShadingMode,
     /// 是否显示地面网格。
@@ -135,6 +137,7 @@ impl Default for RenderSettings {
             fill_intensity: 0.35,
             ambient_strength: 0.22,
             supersample: 2,
+            msaa_samples: 1,
             shading: ShadingMode::Lit,
             show_grid: false,
             show_bones: false,

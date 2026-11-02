@@ -65,7 +65,10 @@ pub struct GpuRenderer {
     adapter_backend: String,
     pipeline_single: wgpu::RenderPipeline,
     pipeline_double: wgpu::RenderPipeline,
+    pipeline_single_4x: wgpu::RenderPipeline,
+    pipeline_double_4x: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
+    line_pipeline_4x: wgpu::RenderPipeline,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -122,7 +125,10 @@ impl GpuRenderer {
                 adapter_backend: format!("{:?}", info.backend),
                 pipeline_single: resources.pipeline_single,
                 pipeline_double: resources.pipeline_double,
+                pipeline_single_4x: resources.pipeline_single_4x,
+                pipeline_double_4x: resources.pipeline_double_4x,
                 line_pipeline: resources.line_pipeline,
+                line_pipeline_4x: resources.line_pipeline_4x,
                 camera_layout: resources.camera_layout,
                 material_layout: resources.material_layout,
                 sampler: resources.sampler,
@@ -155,6 +161,7 @@ impl GpuRenderer {
             return Err(GpuError::new("渲染尺寸必须在 1..=4096 之间"));
         }
         let supersample = settings.supersample.clamp(1, 4);
+        let samples = if settings.msaa_samples >= 4 { 4 } else { 1 };
         let width = settings.width * supersample;
         let height = settings.height * supersample;
         let bounds = scene.compute_bounds();
@@ -176,6 +183,26 @@ impl GpuRenderer {
             view_formats: &[],
         });
         let color_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        // MSAA：先渲染到多重采样纹理，再 resolve 到上面的单采样目标。
+        let msaa = if samples > 1 {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("lumark-msaa-color"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: COLOR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            Some(texture.create_view(&wgpu::TextureViewDescriptor::default()))
+        } else {
+            None
+        };
         let depth = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("lumark-depth"),
             size: wgpu::Extent3d {
@@ -184,7 +211,7 @@ impl GpuRenderer {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: samples,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -214,15 +241,33 @@ impl GpuRenderer {
                 label: Some("lumark-render"),
             });
         {
+            let (render_view, resolve_target) = match &msaa {
+                Some(view) => (view, Some(&color_view)),
+                None => (&color_view, None),
+            };
+            let (pipeline_single, pipeline_double) = if samples > 1 {
+                (&self.pipeline_single_4x, &self.pipeline_double_4x)
+            } else {
+                (&self.pipeline_single, &self.pipeline_double)
+            };
+            let line_pipeline = if samples > 1 {
+                &self.line_pipeline_4x
+            } else {
+                &self.line_pipeline
+            };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("lumark-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &color_view,
+                    view: render_view,
                     depth_slice: None,
-                    resolve_target: None,
+                    resolve_target,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_color(settings.background)),
-                        store: wgpu::StoreOp::Store,
+                        store: if samples > 1 {
+                            wgpu::StoreOp::Discard
+                        } else {
+                            wgpu::StoreOp::Store
+                        },
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -235,13 +280,13 @@ impl GpuRenderer {
                 }),
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline_double);
+            pass.set_pipeline(pipeline_double);
             pass.set_bind_group(0, &camera_bind_group, &[]);
             for batch in &batches {
                 pass.set_pipeline(if batch.material.two_sided {
-                    &self.pipeline_double
+                    pipeline_double
                 } else {
-                    &self.pipeline_single
+                    pipeline_single
                 });
                 let vertex_bytes = f32_bytes(&batch.vertices);
                 let vertex_buffer = self.create_buffer(
@@ -358,7 +403,7 @@ impl GpuRenderer {
                     wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 );
                 self.queue.write_buffer(&line_buffer, 0, &line_data);
-                pass.set_pipeline(&self.line_pipeline);
+                pass.set_pipeline(line_pipeline);
                 pass.set_bind_group(0, &camera_bind_group, &[]);
                 pass.set_vertex_buffer(0, line_buffer.slice(..));
                 pass.draw(0..line_count, 0..1);
@@ -497,7 +542,10 @@ impl GpuRenderer {
 struct Resources {
     pipeline_single: wgpu::RenderPipeline,
     pipeline_double: wgpu::RenderPipeline,
+    pipeline_single_4x: wgpu::RenderPipeline,
+    pipeline_double_4x: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
+    line_pipeline_4x: wgpu::RenderPipeline,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -658,7 +706,7 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
             shader_location: 10,
         },
     ];
-    let create_pipeline = |label: &'static str, cull_mode: Option<wgpu::Face>| {
+    let create_pipeline = |label: &'static str, cull_mode: Option<wgpu::Face>, samples: u32| {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(&pipeline_layout),
@@ -692,7 +740,10 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: samples,
+                ..Default::default()
+            },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
@@ -707,8 +758,11 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
             cache: None,
         })
     };
-    let pipeline_single = create_pipeline("lumark-pipeline-single", Some(wgpu::Face::Back));
-    let pipeline_double = create_pipeline("lumark-pipeline-double", None);
+    let pipeline_single = create_pipeline("lumark-pipeline-single", Some(wgpu::Face::Back), 1);
+    let pipeline_double = create_pipeline("lumark-pipeline-double", None, 1);
+    let pipeline_single_4x =
+        create_pipeline("lumark-pipeline-single-4x", Some(wgpu::Face::Back), 4);
+    let pipeline_double_4x = create_pipeline("lumark-pipeline-double-4x", None, 4);
 
     // 叠加层线段管线：LineList、深度测试但不写深度。
     let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -720,55 +774,62 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         bind_group_layouts: &[Some(&camera_layout)],
         immediate_size: 0,
     });
-    let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("lumark-line-pipeline"),
-        layout: Some(&line_pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &line_shader,
-            entry_point: Some("vs_main"),
-            compilation_options: Default::default(),
-            buffers: &[Some(wgpu::VertexBufferLayout {
-                array_stride: 28,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &[
-                    wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Float32x3,
-                        offset: 0,
-                        shader_location: 0,
-                    },
-                    wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Float32x4,
-                        offset: 12,
-                        shader_location: 1,
-                    },
-                ],
-            })],
-        },
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::LineList,
-            ..Default::default()
-        },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(false),
-            depth_compare: Some(wgpu::CompareFunction::LessEqual),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState::default(),
-        fragment: Some(wgpu::FragmentState {
-            module: &line_shader,
-            entry_point: Some("fs_main"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: COLOR_FORMAT,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    });
+    let create_line_pipeline = |label: &'static str, samples: u32| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&line_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &line_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: 28,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x4,
+                            offset: 12,
+                            shader_location: 1,
+                        },
+                    ],
+                })],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: samples,
+                ..Default::default()
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &line_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let line_pipeline = create_line_pipeline("lumark-line-pipeline", 1);
+    let line_pipeline_4x = create_line_pipeline("lumark-line-pipeline-4x", 4);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("lumark-sampler"),
         address_mode_u: wgpu::AddressMode::Repeat,
@@ -791,7 +852,10 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
     Ok(Resources {
         pipeline_single,
         pipeline_double,
+        pipeline_single_4x,
+        pipeline_double_4x,
         line_pipeline,
+        line_pipeline_4x,
         camera_layout,
         material_layout,
         sampler,
@@ -1283,6 +1347,38 @@ mod tests {
             }
         }
         assert!(red_pixels > 0, "GPU 渲染结果缺少红色像素");
+    }
+
+    /// 有 GPU 时以 4×MSAA 渲染三角形并 resolve 到单采样目标。
+    #[test]
+    fn gpu_msaa_renders_triangle_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU MSAA 测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            msaa_samples: 4,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let target = renderer
+            .render(&triangle_scene(), &settings)
+            .expect("GPU MSAA 渲染");
+        assert!(!target.is_uniform(), "MSAA resolve 后没有三角形");
+        let red_pixels = target
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[0] > pixel[2].saturating_add(10) && pixel[0] > 10)
+            .count();
+        assert!(red_pixels > 0, "MSAA 渲染结果缺少红色像素");
     }
 
     /// 同一网格的两个节点应通过实例矩阵渲染到左右两半。

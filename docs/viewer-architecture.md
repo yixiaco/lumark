@@ -69,7 +69,7 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 
 ## 测试与基线
 
-- `lumark-render` 单元测试：**32 个**（CPU：相机裁剪/z-buffer/PBR/ORM/自发光/alpha/双面/蒙皮/着色模式/网格与隐藏槽/场景统计；GPU：三角形/贴图/ORM/自发光/双面/蒙皮/着色模式/网格/两节点实例化，无 GPU 自动跳过）。
+- `lumark-render` 单元测试：**33 个**（CPU：相机裁剪/z-buffer/PBR/ORM/自发光/alpha/双面/蒙皮/着色模式/网格与隐藏槽/场景统计；GPU：三角形/贴图/ORM/自发光/双面/蒙皮/着色模式/网格/两节点实例化/**4×MSAA**，无 GPU 自动跳过）。
 - 本机基线（NVIDIA RTX 5070 Laptop，Vulkan，480×480，2×SS，含回读同步）：
   - `SM_Box_02 + MI_Props`：约 72 ms；
   - `SK_Chicken` 静态：约 83 ms；
@@ -79,7 +79,7 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 ## 已知限制（对应后续步骤）
 
 - 渲染线程/异步双 staging/device lost 重建：待 V-2/V-8；GPU 渲染错误已自动回退 CPU；
-- MSAA、纹理 LRU、sRGB 视图切换：待 V-8；
+- MSAA：支持 4×（`RenderSettings.msaa_samples=4`）；纹理 LRU、sRGB 视图切换待 V-8；
 - wireframe 模式（DX12 兼容方案）与 section 逐项 UI：待 V-6 后续/V-17；
 - 透明仅 alpha-test，无排序混合；
 - 世界 Actor 实例化：静态网格已支持场景级 GPU 实例化（共享顶点 + 实例矩阵，V-7 完成）；世界 Provider 仍待 V-14；
