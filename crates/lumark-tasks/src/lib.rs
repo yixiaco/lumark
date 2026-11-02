@@ -3,5 +3,8 @@
 pub mod manager;
 pub mod progress;
 
-pub use manager::{ArchiveLoadResult, ResolvedPassword, TaskControl, TaskManager, TaskRequest};
+pub use manager::{
+    ArchiveLoadResult, CustomTaskFn, ResolvedPassword, TaskControl, TaskManager, TaskReporter,
+    TaskRequest,
+};
 pub use progress::{TaskEvent, TaskKind, TaskProgress, TaskState};

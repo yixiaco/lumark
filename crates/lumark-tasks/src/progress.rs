@@ -25,6 +25,8 @@ pub enum TaskKind {
     Disguise,
     /// 把伪装文件还原成原归档或原文件。
     Restore,
+    /// 游戏资产导出（自定义任务）。
+    Export,
 }
 
 impl TaskKind {
@@ -42,6 +44,7 @@ impl TaskKind {
                 | Self::Edit
                 | Self::Disguise
                 | Self::Restore
+                | Self::Export
         )
     }
 }

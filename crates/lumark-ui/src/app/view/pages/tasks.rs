@@ -192,6 +192,7 @@ impl LumarkApp {
             TaskKind::PasswordResolve => AppIcon::Key,
             TaskKind::Disguise => AppIcon::Video,
             TaskKind::Restore => AppIcon::Unlock,
+            TaskKind::Export => AppIcon::Download,
         };
         let detail = record
             .message

@@ -144,6 +144,32 @@ pub enum TaskRequest {
         archive: PathBuf,
         output_dir: PathBuf,
     },
+    /// 自定义任务（例如游戏资产导出）；闭包在池工作线程中运行。
+    Custom {
+        kind: TaskKind,
+        label: String,
+        run: Box<CustomTaskFn>,
+    },
+}
+
+/// 自定义任务闭包：接收任务控制器和进度上报器。
+pub type CustomTaskFn = dyn FnOnce(Arc<TaskControl>, TaskReporter) -> Result<String, String> + Send;
+
+/// 自定义任务向任务中心上报进度的句柄。
+#[derive(Clone)]
+pub struct TaskReporter {
+    sender: Sender<TaskEvent>,
+    id: u64,
+}
+
+impl TaskReporter {
+    /// 上报一次任务进度。
+    pub fn progress(&self, progress: TaskProgress) {
+        let _ = self.sender.send(TaskEvent::Progress {
+            id: self.id,
+            progress,
+        });
+    }
 }
 
 impl TaskRequest {
@@ -158,6 +184,7 @@ impl TaskRequest {
                 | Self::Edit { .. }
                 | Self::Disguise { .. }
                 | Self::Restore { .. }
+                | Self::Custom { .. }
         )
     }
 }
@@ -365,6 +392,7 @@ impl TaskManager {
             TaskRequest::Restore { archive, .. } => {
                 (TaskKind::Restore, format!("还原 {}", archive.display()))
             }
+            TaskRequest::Custom { kind, label, .. } => (*kind, label.clone()),
         };
         let _ = self.sender.send(TaskEvent::Queued { id, kind, label });
         self.pool.push(PoolJob {
@@ -808,6 +836,13 @@ fn run_job(
                 format!("已还原为 {}", report.output.display())
             })
         }
+        TaskRequest::Custom { run, .. } => {
+            let reporter = TaskReporter {
+                sender: sender.clone(),
+                id,
+            };
+            run(control.clone(), reporter).map_err(lumark_archive::ArchiveError::InvalidRequest)
+        }
     }));
     let result = match result {
         Ok(result) => result,
@@ -955,5 +990,52 @@ mod tests {
         control.cancel();
         assert_eq!(control.state(), TaskState::Cancelled);
         assert!(worker.join().unwrap());
+    }
+
+    /// 自定义任务可上报进度、读取控制器并完成。
+    #[test]
+    fn custom_task_reports_progress_and_completes() {
+        let manager = TaskManager::with_workers(1);
+        let id = manager.submit(TaskRequest::Custom {
+            kind: TaskKind::Export,
+            label: "导出游戏资产".to_string(),
+            run: Box::new(|control, reporter| {
+                reporter.progress(TaskProgress {
+                    current: "SM_Box".to_string(),
+                    entries_done: 1,
+                    entries_total: 2,
+                    ..TaskProgress::default()
+                });
+                assert!(!control.is_cancelled());
+                Ok("已导出 1/2".to_string())
+            }),
+        });
+        let mut progress = None;
+        let mut completed = None;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && completed.is_none() {
+            while let Some(event) = manager.try_recv() {
+                match event {
+                    TaskEvent::Progress {
+                        id: event_id,
+                        progress: value,
+                    } if event_id == id => {
+                        progress = Some(value);
+                    }
+                    TaskEvent::Completed {
+                        id: event_id,
+                        message,
+                    } if event_id == id => {
+                        completed = Some(message);
+                    }
+                    _ => {}
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let progress = progress.expect("应收到进度");
+        assert_eq!(progress.current, "SM_Box");
+        assert_eq!(progress.entries_done, 1);
+        assert_eq!(completed.as_deref(), Some("已导出 1/2"));
     }
 }

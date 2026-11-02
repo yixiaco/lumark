@@ -76,6 +76,7 @@ impl Render for ProgressWindowView {
             TaskKind::Repair => tr("修复压缩文件", "Repairing archive"),
             TaskKind::Disguise => tr("伪装文件", "Disguising"),
             TaskKind::Restore => tr("还原伪装文件", "Restoring disguise"),
+            TaskKind::Export => tr("导出游戏资产", "Exporting game assets"),
             _ => tr("后台任务", "Background task"),
         };
         let elapsed = if paused || cancelling {

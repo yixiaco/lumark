@@ -3,15 +3,14 @@
 use super::super::*;
 
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 use gpui_kit::AnyElement;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme, Sizable, TitleBar};
 use gpui_kit::{Context, IntoElement, ParentElement, Render, Styled, Window, div, px};
+use lumark_tasks::{TaskControl, TaskKind, TaskManager, TaskProgress, TaskReporter, TaskRequest};
 use lumark_unreal::{
     BatchExportConfig, BatchExportFormat, BatchExportReport, BatchProgress, GameAssetOptions,
     GameAssetSource, Mappings, export_archive_cancellable,
@@ -41,16 +40,18 @@ pub(crate) struct BatchExportTarget {
 pub(crate) struct BatchExportWindowView {
     target: BatchExportTarget,
     config: BatchExportConfig,
+    manager: Arc<TaskManager>,
+    task_id: Option<u64>,
+    result: Arc<Mutex<Option<Result<BatchExportReport, String>>>>,
     running: bool,
     status: String,
     report: Option<BatchExportReport>,
     error: Option<String>,
-    cancel: Arc<AtomicBool>,
 }
 
 impl BatchExportWindowView {
     /// 创建窗口。
-    pub(crate) fn new(target: BatchExportTarget) -> Self {
+    pub(crate) fn new(target: BatchExportTarget, manager: Arc<TaskManager>) -> Self {
         let config = BatchExportConfig {
             output_dir: target.output_dir.clone(),
             formats: vec![BatchExportFormat::Glb, BatchExportFormat::UeModel],
@@ -60,11 +61,13 @@ impl BatchExportWindowView {
         Self {
             target,
             config,
+            manager,
+            task_id: None,
+            result: Arc::new(Mutex::new(None)),
             running: false,
             status: tr("选择格式后开始批量导出", "Choose formats and start").to_string(),
             report: None,
             error: None,
-            cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -95,48 +98,58 @@ impl BatchExportWindowView {
         self.running = true;
         self.error = None;
         self.report = None;
-        self.status = tr("正在枚举容器资产…", "Enumerating assets…").to_string();
-        self.cancel = Arc::new(AtomicBool::new(false));
-        let cancel = self.cancel.clone();
+        self.status = tr("已提交后台导出任务…", "Export task submitted…").to_string();
         let target = self.target.clone();
         let config = self.config.clone().normalized();
-        let (tx, rx) = mpsc::channel::<String>();
-        let rx = Arc::new(std::sync::Mutex::new(rx));
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { run_batch(target, config, cancel, tx) })
-                .await;
-            let _ = this.update(cx, |view, cx| {
-                view.running = false;
-                match result {
-                    Ok(report) => {
-                        view.status = stage_summary(&report);
-                        view.report = Some(report);
-                    }
-                    Err(error) => {
-                        view.status = tr("批量导出失败", "Batch export failed").to_string();
-                        view.error = Some(error);
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        let result = Arc::new(Mutex::new(None));
+        let result_for_task = result.clone();
+        let label = format!(
+            "{} {}",
+            tr("批量导出", "Batch export"),
+            target
+                .archive
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("archive")
+        );
+        let task_id = self.manager.submit(TaskRequest::Custom {
+            kind: TaskKind::Export,
+            label,
+            run: Box::new(move |control, reporter| {
+                run_batch_task(target, config, control, reporter, result_for_task)
+            }),
+        });
+        self.task_id = Some(task_id);
+        self.result = result;
+        cx.notify();
         cx.spawn(async move |this, cx| {
             loop {
-                let rx = rx.clone();
-                let message = cx
-                    .background_executor()
-                    .spawn(async move { rx.lock().ok().and_then(|rx| rx.recv().ok()) })
+                cx.background_executor()
+                    .spawn(async move { std::thread::sleep(std::time::Duration::from_millis(120)) })
                     .await;
-                let Some(message) = message else {
-                    break;
-                };
-                let _ = this.update(cx, |view, cx| {
-                    view.status = message;
-                    cx.notify();
+                let finished = this.update(cx, |view, cx| {
+                    let outcome = view.result.lock().ok().and_then(|mut slot| slot.take());
+                    if let Some(outcome) = outcome {
+                        view.running = false;
+                        match outcome {
+                            Ok(report) => {
+                                view.status = stage_summary(&report);
+                                view.report = Some(report);
+                            }
+                            Err(error) => {
+                                view.status = tr("批量导出失败", "Batch export failed").to_string();
+                                view.error = Some(error);
+                            }
+                        }
+                        cx.notify();
+                        true
+                    } else {
+                        false
+                    }
                 });
+                if matches!(finished, Ok(true)) {
+                    break;
+                }
             }
         })
         .detach();
@@ -353,7 +366,11 @@ impl Render for BatchExportWindowView {
                                 .ghost()
                                 .label(tr("取消", "Cancel"))
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.cancel.store(true, Ordering::Relaxed);
+                                    if let Some(id) = this.task_id
+                                        && let Some(control) = this.manager.control(id)
+                                    {
+                                        control.cancel();
+                                    }
                                     this.status = tr("正在取消…", "Cancelling…").to_string();
                                     cx.notify();
                                 })),
@@ -399,12 +416,27 @@ fn stage_summary(report: &BatchExportReport) -> String {
     }
 }
 
-/// 后台批量导出。
-fn run_batch(
+/// 后台批量导出：写入任务结果并回报完成消息。
+fn run_batch_task(
     target: BatchExportTarget,
     config: BatchExportConfig,
-    cancel: Arc<AtomicBool>,
-    tx: mpsc::Sender<String>,
+    control: Arc<TaskControl>,
+    reporter: TaskReporter,
+    result: Arc<Mutex<Option<Result<BatchExportReport, String>>>>,
+) -> Result<String, String> {
+    let outcome = run_batch_export(target, config, control, reporter);
+    if let Ok(mut slot) = result.lock() {
+        *slot = Some(outcome.clone());
+    }
+    outcome.map(|report| stage_summary(&report))
+}
+
+/// 实际批量导出，并把进度写入任务中心。
+fn run_batch_export(
+    target: BatchExportTarget,
+    config: BatchExportConfig,
+    control: Arc<TaskControl>,
+    reporter: TaskReporter,
 ) -> Result<BatchExportReport, String> {
     let mappings_path = target
         .mappings
@@ -422,41 +454,40 @@ fn run_batch(
         },
     )
     .map_err(|error| error.to_string())?;
-    let mut exported = 0usize;
     let output_dir = config.output_dir.clone();
+    let cancel = control.cancelled_flag();
+    let mut total = 0usize;
+    let mut exported = 0usize;
     let report = export_archive_cancellable(
         &mut source,
         &mappings,
         &config,
         Some(cancel.as_ref()),
         |progress| {
-            let message = match progress {
+            control.wait_if_paused();
+            let (current, entries_done) = match progress {
                 BatchProgress::Analyzing {
                     index,
-                    total,
+                    total: count,
                     asset,
-                } => format!("[{index}/{total}] {asset}"),
-                BatchProgress::Exported { asset, files } => {
+                } => {
+                    total = count;
+                    (asset, index.saturating_sub(1))
+                }
+                BatchProgress::Exported { asset, .. } => {
                     exported += 1;
-                    format!(
-                        "{}{} → {} {}",
-                        tr("已导出 ", "Exported "),
-                        asset,
-                        files.len(),
-                        tr("个文件", "files")
-                    )
+                    (asset, exported)
                 }
-                BatchProgress::Skipped { asset, reason } => {
-                    format!("{}{}：{reason}", tr("跳过 ", "Skipped "), asset)
-                }
-                BatchProgress::Failed { asset, message } => {
-                    format!("{}{}：{message}", tr("失败 ", "Failed "), asset)
-                }
-                BatchProgress::Cancelled { asset } => {
-                    format!("{}{asset}", tr("已取消：", "Cancelled: "))
-                }
+                BatchProgress::Skipped { asset, .. }
+                | BatchProgress::Failed { asset, .. }
+                | BatchProgress::Cancelled { asset } => (asset, exported),
             };
-            let _ = tx.send(message);
+            reporter.progress(TaskProgress {
+                current,
+                entries_done,
+                entries_total: total,
+                ..TaskProgress::default()
+            });
         },
     )?;
     let report_path = output_dir.join("batch-report.json");
@@ -518,6 +549,7 @@ impl LumarkApp {
                 .unwrap_or_else(|| self.temp_root.clone())
                 .join("LumarkExports"),
         };
+        let manager = self.tasks.clone();
         let size = gpui_kit::size(px(720.), px(640.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
@@ -546,7 +578,7 @@ impl LumarkApp {
             ..TitleBar::window_options()
         };
         let result = gpui_kit::open_window(options, cx, move |_window, cx| {
-            cx.new(|_| BatchExportWindowView::new(target.clone()))
+            cx.new(|_| BatchExportWindowView::new(target.clone(), manager.clone()))
         });
         match result {
             Ok(_) => {
@@ -558,47 +590,4 @@ impl LumarkApp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use gpui_kit::test::TestWindowExt;
-
-    fn target() -> BatchExportTarget {
-        BatchExportTarget {
-            archive: PathBuf::from("Game/pakchunk0-Windows.utoc"),
-            global: PathBuf::from("Game/global.utoc"),
-            mappings: Some(PathBuf::from("Game/mapping.usmap")),
-            oodle: None,
-            key: None,
-            output_dir: PathBuf::from("out"),
-        }
-    }
-
-    /// 格式切换与数量限制。
-    #[test]
-    fn batch_window_toggles_formats_and_limits() {
-        let mut view = BatchExportWindowView::new(target());
-        assert_eq!(view.config.formats.len(), 2);
-        view.toggle_format(BatchExportFormat::Glb);
-        assert_eq!(view.config.formats, vec![BatchExportFormat::UeModel]);
-        view.toggle_format(BatchExportFormat::Usda);
-        assert!(view.config.formats.contains(&BatchExportFormat::Usda));
-        view.config.limit = Some(100);
-        assert_eq!(view.config.limit, Some(100));
-        assert!(view.config.include_materials);
-    }
-
-    /// 批量窗口渲染关键控件。
-    #[gpui_kit::test]
-    fn batch_window_renders_controls(cx: &mut gpui_kit::TestAppContext) {
-        cx.update(gpui_kit::init);
-        let (_view, cx) = cx.add_window_view(|_, _| BatchExportWindowView::new(target()));
-        cx.update(|window, cx| {
-            window.draw(cx).clear(cx);
-            assert!(window.find("batch-start").visible());
-            assert!(window.find("batch-format-glb").visible());
-            assert!(window.find("batch-limit-100").visible());
-            assert!(window.find("batch-materials").visible());
-            assert!(window.find("batch-overwrite").visible());
-        });
-    }
-}
+mod tests;

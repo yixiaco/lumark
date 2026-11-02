@@ -95,9 +95,9 @@
 | E-10 USDA | 🟡 | 网格/材质/贴图/GeomSubset；USD Skel 未做 |
 | E-11 单资产编排 | ✅ | 第 33 轮：`asset_export` 模块 `AssetExportConfig`（输出/格式/缩放/旁挂/贴图格式/质量/覆盖）+ `export_asset`（解析→多格式写盘→材质旁挂→报告）+ `AssetExportProgress` + `AssetExportReport` JSON；BNB `SM_Box_02` 实机四格式 + materials.json（0.11s） |
 | E-12 批量枚举/执行 | ✅ | 后端完成（5 测试 + BNB 四格式）；取消、报告 JSON、耗时已实现 |
-| E-13 批量任务接入 | 🟡 | 第 32 轮：`export_archive_cancellable` + `Arc<AtomicBool>` 取消、`BatchProgress::Cancelled`、`BatchExportReport{cancelled,elapsed_seconds}` + `to_json_pretty()`；示例 `batch_export` 支持 cancel-after 并写 `batch-report.json`，BNB 实机取消生效（导出 1 后停止）；`TaskManager`/任务面板接入（E-15）未做 |
+| E-13 批量任务接入 | ✅ | 第 32/36 轮：`export_archive_cancellable` + 取消/报告 JSON；`lumark-tasks` 新增 `TaskKind::Export`、`TaskRequest::Custom`、`TaskReporter`（自定义任务上报 `TaskProgress`）与自定义任务单测；批量导出窗口提交到 `TaskManager`，任务中心显示进度/取消，完成后写 `batch-report.json` |
 | E-14 单资产导出 UI | ✅ | 第 34 轮：详情面板 `.uasset` 新增“导出资产…”入口；独立导出窗口 `export_window.rs`：格式多选（GLB/UEMODEL/USDA/PSK）、材质旁挂开关、贴图格式四选、后台导出、取消、结果统计与“打开输出目录”；默认输出 `桌面/LumarkExports`（暂不可自定义目录）。UI 2 测试（切换/渲染），`lumark-ui` 166 个全过 |
-| E-15 批量导出 UI | 🟡 | 第 35 轮：动作带新增“批量导出”（仅游戏容器）；`batch_export_window.rs`（584 行）：格式多选、材质解析/覆盖开关、数量限制（全部/10/50/100/500）、后台批量导出、实时阶段状态、取消、汇总报告 + 自动写 `batch-report.json`、打开输出目录；默认 `桌面/LumarkExports`。2 UI 测试，`lumark-ui` 168 个全过；未接入 `lumark-tasks` 任务中心/百分比进度 |
+| E-15 批量导出 UI | ✅ | 第 35/36 轮：动作带“批量导出”入口；`batch_export_window/`：格式多选、材质/覆盖开关、数量限制（全部/10/50/100/500）、提交 `TaskManager` 后台任务、任务中心进度/取消、汇总报告 + `batch-report.json`、打开输出目录；3 个 UI 测试（含“提交 Export 类型任务”断言），`lumark-ui` 169 个全过 |
 | E-16 外部验证/真实验收 | 🟡 | GLB 已 gltf crate 校验；PSK/PSA/UEMODEL/USDA reader 已有示例 |
 | E-17 文档（export-formats） | ✅ | 第 32 轮：新增 `docs/export-formats.md`（五种模型格式能力/限制、坐标单位、四种贴图、materials.json、批量 API、验证记录） |
 
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（E-13 TaskManager / E-16）
+## 下一轮（E-16 / E-10 / O）
 
-1. E-13 收尾：将单资产/批量导出接入 `lumark-tasks` 任务中心（任务类型/进度百分比/取消/报告），复用 E-15 后端；
-2. E-16 外部验证：GLB 用 gltf crate、PSK/PSA/UEMODEL/USDA 结构校验脚本 + BNB 验收清单；
-3. E-10 USD Skel 或 O（Oodle）阶段；
+1. E-16 外部验证：GLB 用 gltf crate、PSK/PSA/UEMODEL/USDA 结构校验脚本 + BNB 验收清单；
+2. E-10 USD Skel（骨骼/动画）或 E-9 多 LOD；
+3. 进入 O（Oodle）阶段：解码后端/动态库探测与回退；
 4. 记录进度并提交。
