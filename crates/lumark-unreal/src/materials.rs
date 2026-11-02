@@ -5,6 +5,9 @@
 //! 因此这里以材质槽名、资产目录和贴图命名约定为线索；旧式包则沿导入表读取
 //! 父材质和贴图包。
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use crate::LegacyPackage;
 use crate::package::{
     Mappings, MaterialAppearance, MaterialSlot, MaterialTextureKind, MaterialViewerData,
@@ -13,6 +16,14 @@ use crate::package::{
 };
 use crate::source::GameAssetSource;
 use crate::{is_legacy_package, parse_package, read_legacy_texture};
+
+/// 解码后的贴图缓存（跨资产复用）。
+pub type TextureCache = Arc<Mutex<HashMap<String, Option<MaterialViewerImage>>>>;
+
+/// 创建一个空贴图缓存。
+pub fn texture_cache() -> TextureCache {
+    Arc::new(Mutex::new(HashMap::new()))
+}
 
 /// 材质解析选项。
 #[derive(Debug, Clone)]
@@ -23,6 +34,8 @@ pub struct MaterialResolveOptions {
     pub max_texture_size: u32,
     /// 父材质链最大深度。
     pub max_parent_depth: usize,
+    /// 可选贴图解码缓存（跨资产复用）。
+    pub texture_cache: Option<TextureCache>,
 }
 
 impl Default for MaterialResolveOptions {
@@ -31,6 +44,7 @@ impl Default for MaterialResolveOptions {
             load_textures: true,
             max_texture_size: 512,
             max_parent_depth: 4,
+            texture_cache: None,
         }
     }
 }
@@ -271,8 +285,32 @@ fn load_material(
     Some(read_zen_material_appearance(&package, mappings))
 }
 
-/// 加载一张贴图为查看器图像。
+/// 加载一张贴图为查看器图像（带可选缓存）。
 fn load_texture_image(
+    source: &mut GameAssetSource,
+    path: &str,
+    mappings: Option<&Mappings>,
+    options: &MaterialResolveOptions,
+) -> Option<MaterialViewerImage> {
+    let max_size = options.max_texture_size;
+    let cache_key = format!("{path}|{max_size}");
+    if let Some(cache) = &options.texture_cache
+        && let Ok(cache) = cache.lock()
+        && let Some(cached) = cache.get(&cache_key)
+    {
+        return cached.clone();
+    }
+    let image = decode_texture_image(source, path, mappings, max_size);
+    if let Some(cache) = &options.texture_cache
+        && let Ok(mut cache) = cache.lock()
+    {
+        cache.insert(cache_key, image.clone());
+    }
+    image
+}
+
+/// 解码一张贴图（不含缓存）。
+fn decode_texture_image(
     source: &mut GameAssetSource,
     path: &str,
     mappings: Option<&Mappings>,
@@ -327,25 +365,21 @@ fn resolve_texture(
     if let Some(reference) = appearance.texture(kind) {
         if let Some(package) = &reference.package
             && let Some(relative) = package_to_relative(material_path, package)
-            && let Some(image) =
-                load_texture_image(source, &relative, mappings, options.max_texture_size)
+            && let Some(image) = load_texture_image(source, &relative, mappings, options)
         {
             loaded.push(relative);
             return Some(image);
         }
         if reference.name.to_ascii_lowercase().starts_with("t_")
             && let Some(path) = find_texture_by_filename(packages, &reference.name)
-            && let Some(image) =
-                load_texture_image(source, &path, mappings, options.max_texture_size)
+            && let Some(image) = load_texture_image(source, &path, mappings, options)
         {
             loaded.push(path);
             return Some(image);
         }
     }
     for candidate in texture_candidates(material_path, appearance, kind, packages) {
-        if let Some(image) =
-            load_texture_image(source, &candidate, mappings, options.max_texture_size)
-        {
+        if let Some(image) = load_texture_image(source, &candidate, mappings, options) {
             loaded.push(candidate);
             return Some(image);
         }

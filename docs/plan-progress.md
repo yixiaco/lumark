@@ -66,9 +66,9 @@
 | V-7 实例化/大规模场景 | ⬜ | |
 | V-8 质量/统计/设备丢失 | ⬜ | |
 | V-9 渲染器测试/文档 | ✅ | 第 22 轮：30 个测试 + `docs/viewer-architecture.md`（分层/API/管线/模式/基线/限制） |
-| V-10 UE 静态网格 Provider | 🟡 | `static_mesh_scene` 可用；`UeSceneProvider`/SceneRequest/进度未做 |
-| V-11 UE 材质到 Scene | 🟡 | `scene_material`（base/normal/ORM）；HDR 标记/缓存未做 |
-| V-12 骨骼网格/动画 Provider | 🟡 | `skeletal_mesh_scene`/CPU 蒙皮可用；GPU 蒙皮与动画 Clips 未接 |
+| V-10 UE 静态网格 Provider | ✅ | 第 23 轮：`provider` 模块 `SceneRequest`/`LodPolicy`/`SceneLoadOptions`/`load_scene`/`SceneLoadStage`/`SceneLoadReport`；StaticMesh/SkeletalMesh 按 LOD 选层、材质解析、warning 汇总；BNB `SM_Box_02`（3 LOD）与 `SK_Chicken`（2 LOD）实机加载 |
+| V-11 UE 材质到 Scene | 🟡 | 总贴图缓存 `TextureCache` + `MaterialResolveOptions.texture_cache`、材质缺失/贴图缺失 warning；BNB 样本缺材质时输出可读 warning；HDR 标记待 S-6 |
+| V-12 骨骼网格/动画 Provider | 🟡 | 骨骼网格/动画可加载（V-5）；Provider 已支持 SkeletalMesh+LOD，动画 Clips 未挂入报告 |
 | V-13 独立场景 | 🟡 | 查看器可开 Mesh/Skeleton/SkeletalMaterial；入口/动画待完善 |
 | V-14 世界场景 Provider | ⬜ | 只有 WorldSummary，无 Actor→Scene |
 | V-15 UI 模块拆分 | ⬜ | `asset_viewer_window.rs` 仍单文件 |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-7 / V-10 / V-11）
+## 下一轮（V-7 / V-14）
 
-1. V-10 UE 静态网格 Provider：`UeSceneProvider` / `SceneRequest` / LOD 策略 / 进度回调；
-2. V-11 材质→Scene：纹理解码缓存、失败 warning 兜底、HDR 标记；
-3. V-7 实例化：同网格分组批次、世界 Actor 上限与截断告警（与 V-14 世界 Provider 联动）；
+1. V-14 世界 Provider：`.umap` → WorldSummary → Actor 静态网格 Scene（复用 Provider 的资产读取）；
+2. V-7 实例化：同网格分组实例数据、Actor 上限与截断告警；
+3. V-12 补动画 Clips 接入报告/时间轴；
 4. 记录进度并提交。
