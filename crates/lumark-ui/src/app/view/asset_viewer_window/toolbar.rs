@@ -65,7 +65,7 @@ impl AssetViewerWindowView {
             .child(
                 button("model-zoom-out")
                     .ghost()
-                    .icon(AppIcon::Close.element(12.))
+                    .label("−")
                     .tooltip(tr("缩小", "Zoom out"))
                     .accessibility_label(tr("缩小", "Zoom out"))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -77,7 +77,7 @@ impl AssetViewerWindowView {
             .child(
                 button("model-zoom-in")
                     .ghost()
-                    .icon(AppIcon::Add.element(12.))
+                    .label("+")
                     .tooltip(tr("放大", "Zoom in"))
                     .accessibility_label(tr("放大", "Zoom in"))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -231,6 +231,20 @@ impl AssetViewerWindowView {
                 }
                 this.child(pose_button)
             })
+            .child(
+                button("model-inspector-toggle")
+                    .ghost()
+                    .selected(self.inspector_open)
+                    .label(tr("检查器", "Inspector"))
+                    .tooltip(tr(
+                        "显示/隐藏场景检查器",
+                        "Show or hide the scene inspector",
+                    ))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.inspector_open = !this.inspector_open;
+                        cx.notify();
+                    })),
+            )
             .child(
                 div()
                     .ml_auto()

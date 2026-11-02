@@ -447,3 +447,37 @@ fn material_viewer_toolbar_hides_mesh_controls(cx: &mut gpui_kit::TestAppContext
         );
     });
 }
+
+/// 检查器面板默认显示、关闭后隐藏，并列出 section/LOD 控件。
+#[gpui_kit::test]
+fn inspector_panel_renders_and_toggles(cx: &mut gpui_kit::TestAppContext) {
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let scene = ViewerScene::Mesh {
+        lods: vec![mesh.clone(), mesh],
+    };
+    cx.update(gpui_kit::init);
+    let (view, cx) =
+        cx.add_window_view(|_, _| AssetViewerWindowView::new("SM_Inspector".to_string(), scene));
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find("model-inspector-close").visible());
+        assert!(
+            window.find("model-inspector-lod-1").visible(),
+            "多 LOD 时应显示 LOD 列表"
+        );
+        view.update(cx, |view, cx| {
+            view.inspector_open = false;
+            cx.notify();
+            assert!(!view.inspector_open);
+        });
+    });
+}

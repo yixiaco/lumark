@@ -73,8 +73,8 @@
 | V-14 世界场景 Provider | ⬜ | 依赖 Zen 导入表/组件属性：`WorldSummary` 仅有 Actor 清单，尚无 `StaticMeshComponent` 外部网格引用与 Transform，需先暴露 Zen import map |
 | V-15 UI 模块拆分 | ✅ | 第 26 轮：`asset_viewer_window/` 拆为 `mod/animation/app/body/render/status/toolbar/tests` 8 个文件，最大源码模块 242 行（toolbar）、测试 434 行，均 <600；行为不变，13 个查看器测试与 162 个 UI 总测试全过 |
 | V-16 渲染桥接/帧泵 | 🟡 | 第 25 轮：资产查看器 `image_path` 临时 PNG 改为 `Arc<RenderImage>`（`render_target_to_image` 直连）、删除逐帧落盘/Drop 清理，13 个查看器测试全过；异步帧泵与详情面板 RenderImage 直连待 V-16 后续 |
-| V-17 UI 外壳/工具栏 | ⬜ | |
-| V-18 检查器 | ⬜ | |
+| V-17 UI 外壳/工具栏 | 🟡 | 第 27 轮：新增 `检查器` 开关、缩放按钮改 `−/+` 文本；检查器右侧面板可折叠。着色/网格/骨骼 Toggle 尚未接入（预览仍走 `lumark_unreal` 光栅而非 `lumark_render` RenderSettings） |
+| V-18 检查器 | 🟡 | 第 27 轮：新增 `inspector.rs` 面板：概要（类型/LOD/顶点/三角形/section/骨骼/动画）、LOD 点击切换、section 显隐、骨骼列表（≤200 + 总数）、动画时间/播放状态、材质参数与贴图状态、关闭按钮；缺口：骨骼搜索、世界统计、section 材质名 |
 | V-19 输入/动画/快捷键 | ⬜ | |
 | V-20 状态/入口/性能验收 | ⬜ | |
 
@@ -116,9 +116,8 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-17 / V-18）
+## 下一轮（V-19 / V-17 收尾）
 
-1. V-17 查看器外壳与工具栏：着色 DropdownMenu、网格/骨骼 Toggle、LOD Select、重置/检查器入口，窄窗折叠；
-2. V-18 检查器：场景树、LOD/section 材质、骨骼搜索、动画信息、世界统计；
-3. V-19 输入/快捷键/动画 Slider；
-4. 记录进度并提交。
+1. V-19 输入/快捷键/动画 Slider：滚轮缩放、F 重置、Space/←→ 帧步进、L/G/B/N 着色切换（需先把预览切到 `lumark_render` 管线）；
+2. V-17 收尾：着色 DropdownMenu、网格/骨骼 Toggle，与 V-6 RenderSettings 打通；
+3. 更新进度台账并提交。

@@ -34,6 +34,7 @@
 - [x] V-12 骨骼网格/动画 Provider：`SceneLoadOptions` 新增 `animation`/`animation_time`，Provider 骨骼网格分支新增 `SceneLoadStage::Animation`；读取 AnimSequence、按时间采样并 `apply_animation` 写入场景姿态；`SceneLoadReport` 新增 `bones` 与 `AnimationInfo{asset_path,name,length,frames,tracks,time}`，`LoadedScene` 返回参考骨架。BNB 实机 `SK_Chicken + ANIM_Chicken_Idle2`：42 骨骼、42 轨道、141 帧、4.667s，t=0.5s 加载成功且阶段完整；时间轴 UI 待 V-19。V-14 世界 Provider 的前置依赖（Zen 导入表/组件属性）已记录在 `docs/plan-progress.md`。
 - [x] V-16（资产查看器部分）：`AssetViewerWindowView` 的临时 PNG 链路改为直接 `Arc<RenderImage>`：`render_preview` 用 `RenderTarget` + `render_service::render_target_to_image` 生成图像，画布 `img(image.clone())` 显示，删除临时文件路径、Drop 清理与所有落盘；拖拽/缩放/LOD/材质球/动画仍按需同步重绘。13 个查看器 UI 测试全部通过，`lumark-ui` clippy/fmt 与 workspace check 通过。异步帧泵与详情面板 RenderImage 直连留待 V-16 收尾。
 - [x] V-15 查看器 UI 模块拆分：`asset_viewer_window.rs`（约 978 行）拆为 `asset_viewer_window/{mod,animation,app,body,render,status,toolbar,tests}.rs`：`mod.rs` 保留数据结构/构造/查询/Render 入口，`render.rs` 负责光栅快照与 RenderImage，`toolbar.rs` 标题/工具栏，`body.rs` 画布与输入，`status.rs` 状态栏，`animation.rs` 时间轴与播放循环，`app.rs` 打开入口；跨模块方法统一 `pub(super)`，测试仍走原有公开面。最大源码模块 242 行、测试 434 行，全部 <600；`cargo test -p lumark-ui` **162 个测试全过**，clippy/fmt/workspace check 全绿。
+- [x] V-17（部分）+ V-18（核心）：新增 `asset_viewer_window/inspector.rs`（306 行）右侧检查器：概要（名称/类型/LOD/顶点/三角形/section/骨骼/动画）、LOD 点击切换、section 显隐、骨骼列表（≤200，超出显示总数）、动画时间与播放状态、材质参数/贴图状态、关闭按钮；工具栏新增检查器开关与 `−/+` 缩放按钮（移除误用图标）。查看器模块最大 306 行、UI 总测试 **163 个全过**，clippy/fmt/workspace check 全绿。缺口：着色/网格/骨骼 Toggle 需先把预览切到 `lumark_render` RenderSettings；骨骼搜索/世界统计待补。
 
 ## 2026-10-29 本轮升级
 

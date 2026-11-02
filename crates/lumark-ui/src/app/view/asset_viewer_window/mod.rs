@@ -14,6 +14,7 @@ use lumark_unreal::{MeshLod, MeshSection, Skeleton};
 mod animation;
 mod app;
 mod body;
+mod inspector;
 mod render;
 mod status;
 mod toolbar;
@@ -70,6 +71,8 @@ pub(crate) struct AssetViewerWindowView {
     animation_playing: bool,
     /// 当前动画时间（秒）
     animation_time: f32,
+    /// 是否显示右侧检查器
+    inspector_open: bool,
 }
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角
@@ -88,6 +91,7 @@ impl AssetViewerWindowView {
             lod_index: 0,
             animation_playing: false,
             animation_time: 0.0,
+            inspector_open: true,
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();
@@ -172,7 +176,14 @@ impl Render for AssetViewerWindowView {
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
             .child(self.render_toolbar(cx))
-            .child(self.render_body(cx))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(self.render_body(cx))
+                    .children(self.inspector_open.then(|| self.render_inspector(cx))),
+            )
             .child(self.render_status_bar(cx))
     }
 }
