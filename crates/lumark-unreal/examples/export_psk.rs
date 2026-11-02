@@ -1,11 +1,13 @@
-//! 诊断：把 StaticMesh/SkeletalMesh 导出为 ActorX PSK。
+//! 诊断：把 StaticMesh/SkeletalMesh 导出为 ActorX PSK 或 UEFormat UEMODEL。
 //!
-//! 用法：`export_psk <game-root> <container> <mesh-entry> <mapping.usmap> <out.psk>`
+//! 用法：`export_psk <game-root> <container> <mesh-entry> <mapping.usmap> <out.psk|out.uemodel>`
 
 use std::error::Error;
 use std::path::Path;
 
-use lumark_export::{ExportBone, ExportMesh, ExportOptions, MeshSection, MeshVertex, write_psk};
+use lumark_export::{
+    ExportBone, ExportMesh, ExportOptions, MeshSection, MeshVertex, write_psk, write_ueformat_model,
+};
 use lumark_unreal::{
     AssetKind, GameAssetOptions, GameAssetSource, Mappings, extract_key_for_game, parse_package,
     scan_game,
@@ -131,21 +133,43 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("资产中没有 StaticMesh/SkeletalMesh 导出".into());
     };
 
-    let data = write_psk(&export, &ExportOptions::default())?;
+    let ueformat = Path::new(&output)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("uemodel"));
+    let mut export = export;
+    export.object_path = entry.clone();
+    let data = if ueformat {
+        write_ueformat_model(&export, &ExportOptions::default())?
+    } else {
+        write_psk(&export, &ExportOptions::default())?
+    };
     if let Some(parent) = Path::new(&output).parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&output, &data)?;
-    println!(
-        "psk={} bytes={} verts={} tris={} bones={} sections={} chunks={}",
-        output,
-        data.len(),
-        export.vertices.len(),
-        export.triangle_count(),
-        export.bones.len(),
-        export.sections.len(),
-        chunk_names(&data).join(",")
-    );
+    if ueformat {
+        println!(
+            "uemodel={} bytes={} verts={} tris={} bones={} sections={} header={}",
+            output,
+            data.len(),
+            export.vertices.len(),
+            export.triangle_count(),
+            export.bones.len(),
+            export.sections.len(),
+            String::from_utf8_lossy(&data[..8])
+        );
+    } else {
+        println!(
+            "psk={} bytes={} verts={} tris={} bones={} sections={} chunks={}",
+            output,
+            data.len(),
+            export.vertices.len(),
+            export.triangle_count(),
+            export.bones.len(),
+            export.sections.len(),
+            chunk_names(&data).join(",")
+        );
+    }
     Ok(())
 }
 

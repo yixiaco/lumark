@@ -8,9 +8,11 @@
 
 mod actorx;
 mod gltf;
+mod ueformat;
 
 pub use actorx::{ExportBone, ExportMesh, ExportOptions, MeshSection, MeshVertex, write_psk};
 pub use gltf::{ExportMaterial, ExportTexture, GltfExport, write_glb};
+pub use ueformat::write_ueformat_model;
 
 /// 导出错误。
 #[derive(Debug, Clone, PartialEq, Eq)]

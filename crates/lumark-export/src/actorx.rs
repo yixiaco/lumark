@@ -67,6 +67,8 @@ pub struct ExportBone {
 pub struct ExportMesh {
     /// 网格名。
     pub name: String,
+    /// 资产对象路径（UEFormat 等格式使用）；为空时回退网格名。
+    pub object_path: String,
     /// 顶点。
     pub vertices: Vec<MeshVertex>,
     /// 三角形索引。
