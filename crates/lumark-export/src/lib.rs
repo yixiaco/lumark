@@ -8,6 +8,7 @@
 
 mod actorx;
 mod gltf;
+mod output;
 mod psa;
 mod sidecar;
 mod texture;
@@ -16,6 +17,7 @@ mod usda;
 
 pub use actorx::{ExportBone, ExportMesh, ExportOptions, MeshSection, MeshVertex, write_psk};
 pub use gltf::{ExportMaterial, ExportTexture, GltfExport, write_glb};
+pub use output::write_atomic;
 pub use psa::{AnimKey, PsaExport, write_psa};
 pub use sidecar::{MaterialSidecarOptions, material_sidecars, write_resources};
 pub use texture::{TextureExportFormat, TextureExportOptions, encode_texture};
@@ -54,6 +56,8 @@ pub enum ExportError {
     Serialization(String),
     /// 贴图尺寸与像素数据不匹配。
     InvalidTexture(String),
+    /// 文件写入失败。
+    Io(String),
 }
 
 impl std::fmt::Display for ExportError {
@@ -70,6 +74,7 @@ impl std::fmt::Display for ExportError {
             Self::InvalidSkinLength => write!(formatter, "蒙皮数组长度与顶点数不一致"),
             Self::Serialization(error) => write!(formatter, "序列化失败：{error}"),
             Self::InvalidTexture(name) => write!(formatter, "贴图 {name} 尺寸与像素数据不匹配"),
+            Self::Io(error) => write!(formatter, "文件写入失败：{error}"),
         }
     }
 }

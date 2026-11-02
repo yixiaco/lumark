@@ -231,10 +231,8 @@ fn sanitize_file_stem(value: &str) -> String {
 
 /// 报告写入 JSON 文件。
 pub fn write_report(path: &Path, report: &AssetExportReport) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| format!("创建报告目录失败：{error}"))?;
-    }
-    std::fs::write(path, report.to_json_pretty()?)
+    let json = report.to_json_pretty()?;
+    lumark_export::write_atomic(path, json.as_bytes())
         .map_err(|error| format!("写入导出报告失败：{error}"))
 }
 

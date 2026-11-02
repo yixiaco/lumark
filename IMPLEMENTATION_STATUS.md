@@ -55,6 +55,7 @@
 - [x] M-4/M-5 媒体播放窗口：新增 `media_player_window.rs`（473 行）：异步探测 + 首帧加载、RGBA→RenderImage（BGRA）、播放/暂停、±5s、±1 帧、回到开头、时间显示、状态摘要与抽帧提示；播放循环按帧率推进并用 generation 丢弃过期抽帧；文件系统视频扩展名自动路由到内置播放器，ffmpeg 缺失时回退系统播放器并提示。测试：时间格式/位置限制、扩展名识别、窗口控件渲染 3 个；`lumark-ui` **175 个测试**全过，clippy/fmt/workspace check 全绿。M 阶段 5/8。
 - [x] M-7 归档内媒体：`PendingOpenMode` 新增 `Media`；归档条目解压完成后按扩展名进入内置播放器（ffmpeg 可用时），不可用时保持外部打开；文件名从归档相对路径提取。`lumark-ui` 编译/测试通过，clippy/fmt/workspace check 全绿。M 阶段 6/8。
 - [x] M-6 音频输出：`FfmpegTools` 增加可选 `ffplay`（同目录/PATH 探测）与 `has_audio_backend`；新增 `spawn_audio`（`ffplay -v error -nodisp -autoexit -ss <pos>`，stdout/stderr 丢弃）；播放窗口在播放时启动音频、暂停/关闭/播放结束 kill 子进程，跳转时从新位置重启；无音轨或无 ffplay 时仅画面并提示。新增单测（缺少 ffplay 返回可读错误）；`lumark-media` **4 个测试**、`lumark-ui` **175 个测试**全过，clippy/fmt/workspace check 全绿。M 阶段 8/8；音画同步为“当前位置启动音频”的近似策略。
+- [x] E-0 原子写/公共基础：`lumark-export` 新增 `write_atomic`（同目录 `.<name>.part` + `sync_all` + rename，失败清理临时文件、不覆盖旧文件；错误类型新增 `Io`）并用于批量格式写盘、单资产报告、材质旁挂资源。测试：写入/覆盖/无残留、非法父目录，`lumark-export` **25 个测试**全过。BNB `SM_Box_02` 用 `export_asset` 重导出 GLB/USDA/materials.json，输出完整且无 `.part` 残留。E 阶段 16/18，仅 E-1/E-2 待做。
 
 ## 2026-10-29 本轮升级
 

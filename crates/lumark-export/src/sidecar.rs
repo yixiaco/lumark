@@ -107,12 +107,7 @@ pub fn write_resources(
             }
             path.push(component);
         }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| ExportError::Serialization(error.to_string()))?;
-        }
-        std::fs::write(&path, &resource.bytes)
-            .map_err(|error| ExportError::Serialization(error.to_string()))?;
+        crate::write_atomic(&path, &resource.bytes)?;
         written.push(path);
     }
     Ok(written)

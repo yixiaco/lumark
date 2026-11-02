@@ -82,7 +82,7 @@
 
 | 步骤 | 状态 | 证据/缺口 |
 |---|---|---|
-| E-0 DTO/公共基础 | 🟡 | `ExportMesh/ExportBone/ExportOptions/validate`；原子写/Report 未抽 |
+| E-0 DTO/公共基础 | ✅ | `ExportMesh/ExportBone/ExportOptions/validate` + `write_atomic`（临时 `.part` + fsync + rename，失败清理）统一模型/旁挂/报告落盘；2 测试；BNB 实机重导出无残留 `.part`。Report 仍由批量/单资产各自持有 |
 | E-1 GameExportConfig（settings） | 🟡 | `BatchExportConfig` JSON 在 unreal；settings 版本化未接 |
 | E-2 游戏编辑窗口导出 UI | ⬜ | |
 | E-3 贴图写入器（PNG/JPEG/TGA/WebP/HDR） | ✅ | 第 30/42 轮：`TextureExportFormat{Png,Jpeg,Tga,Webp,Hdr}` + `encode_texture`；PNG/JPEG/WebP 用 image 编码，TGA 手写 18 字节头 + BGRA，HDR 写 Radiance RGBE；4 测试 + BNB `MI_Props` 五格式实机侧车（HDR 512×512、1,048,625B） |

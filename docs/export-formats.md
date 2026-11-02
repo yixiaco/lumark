@@ -69,7 +69,6 @@ materials.json
 `write_resources(base, resources)` 安全落盘，拒绝绝对路径与 `..`。
 
 ## 批量导出（E-12/E-13 部分）
-
 ```rust
 let report = export_archive_cancellable(
     &mut source, &mappings, &config,
@@ -81,6 +80,7 @@ let report = export_archive_cancellable(
 - `BatchExportConfig`：输出目录、格式集合、缩放、材质/贴图上限、过滤、limit、overwrite；
 - `BatchExportReport`：成功资产/文件、跳过、失败、`cancelled`、`elapsed_seconds`，可用 `to_json_pretty()` 写 `batch-report.json`；
 - 每资产失败不中断整批；取消在下一资产开始前生效；
+- 所有模型/旁挂/报告文件使用 `write_atomic`（同目录 `.part` + fsync + rename），失败不会覆盖旧文件；
 - 仍未接入 `TaskManager`/任务面板 UI（E-13 剩余、E-15）。
 
 ## 验证记录

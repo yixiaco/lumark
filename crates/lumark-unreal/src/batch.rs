@@ -417,7 +417,8 @@ pub(crate) fn write_format(
 
 /// 写字节到文件。
 fn write_bytes(path: &Path, data: &[u8]) -> Result<(), String> {
-    std::fs::write(path, data).map_err(|error| format!("写入 {} 失败：{error}", path.display()))
+    lumark_export::write_atomic(path, data)
+        .map_err(|error| format!("写入 {} 失败：{error}", path.display()))
 }
 
 /// 资产路径 → 输出相对路径（保留目录结构、替换扩展名、拒绝路径穿越）。
