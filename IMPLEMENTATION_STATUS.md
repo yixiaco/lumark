@@ -69,6 +69,7 @@
 - [x] V-8 完成：`RenderSettings` 新增 `msaa_samples`（1/4）与 `srgb_textures`；GpuRenderer 创建 1×/4× 三角形与线段管线、4× 多重采样颜色/深度 + resolve；纹理上传 64 项 LRU（键=名称/尺寸/格式/内容指纹）；基础色/自发光 sRGB 开关接入工具栏；`RenderService.gpu` 改为 `Mutex<Option<GpuRenderer>>`，GPU 渲染失败时尝试重建设备并回退 CPU。测试：GPU MSAA、sRGB 开关、纹理缓存；`lumark-render` **35 个测试**、`lumark-ui` **180 个测试**全过，fmt/clippy/workspace check 全绿。V 阶段 16/21。
 - [x] V-3 完成：GPU 新增背景渐变全屏三角形管线（1×/4×，深度只读 Always），顶部/底部线性色 1.25×/0.75× + tone mapping，与 CPU 渐变一致；新增 GPU 背景测试（顶行比底行亮）。`lumark-render` 35 个测试全过。
 - [x] V-6 完成：新增线框模式（`RenderSettings.wireframe`）：`overlay::wireframe_lines` 生成世界空间三角形边，CPU 光栅跳过填充只画线，GPU 追加到 LineList 叠加层；查看器工具栏“线框”按钮与 `W` 快捷键；新增 overlay/CPU/GPU 线框测试。`lumark-render` **37 个测试**、`lumark-ui` **180 个测试**全过。**V-6 完成**，V 阶段 17/21。
+- [x] 台账核对（第 68 轮）：`texture.rs` 已实现浮点/HDR 解码（FloatRGB/FloatRGBA/RGBA16F/R32/R32G32B32F/RGBE）并有 3 个测试，S-6 标为 ✅；材质贴图经 `decode_mip_rgba` tone map，V-11 标为 ✅；异步帧泵 + GPU 设备重建 + CPU 回退完成，V-2 标为 ✅；独立场景入口/动画时间轴完成，V-13 标为 ✅。V 20/21（仅 V-14）、S 7/9（仅 S-2）。
 
 ## 2026-10-29 本轮升级
 

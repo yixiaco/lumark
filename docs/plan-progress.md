@@ -9,8 +9,8 @@
 |---|---|---|
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
 | O（Oodle FModel 式） | 7/7 | 全部完成 |
-| S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
-| V（查看器） | 17/21 | V-2/11/13 部分；V-14 待做 |
+| S（资产底座） | 7/9 | S-2 待补，S-6 完成 |
+| V（查看器） | 20/21 | 仅 V-14 待做 |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
 | I（图片查看器） | 5/5 | 全部完成 |
@@ -47,7 +47,7 @@
 | S-3 预览读取下沉 | ✅ | `preview_ue.rs` 分模块、材质解析在 `materials.rs` |
 | S-4 Zen 网格法线/切线/UV/材质槽 | ✅ | `package/mesh.rs`；BNB 回归 |
 | S-5 旧式网格 UV/法线 | ✅ | `legacy_skeleton.rs` |
-| S-6 HDR/法线纹理解码 | ⬜ | BC5 法线 Z 重建已有；浮点 HDR 未做 |
+| S-6 HDR/法线纹理解码 | ✅ | `texture.rs` 支持 `PF_FLOATRGB`/`PF_FLOATRGBA`/`PF_RGBA16F`/`PF_R32_FLOAT`/`PF_R32G32B32F`/`PF_RGBE` 线性 HDR 解码与半边浮点；BC5 法线走 `texture2ddecoder`；测试 `decodes_float_rgba_hdr`/`decodes_float_rgb_and_rgbe_hdr`/`decodes_float32_formats`；HDR 贴图经 `decode_mip_rgba` tone map 后供材质预览 |
 | S-7 材质槽解析 | ✅ | `materials.rs`；BNB/FF7R 实机 |
 | S-8 动画采样接口 | ✅ | `skinning.rs` |
 | S-9 .umap 解析 | ✅ | `package/world.rs`；BNB 地图 |
@@ -58,7 +58,7 @@
 |---|---|---|
 | V-0 GPU 预研 | ✅ | `lumark-render` wgpu 30；RTX 5070 Vulkan 实测 |
 | V-1 lumark-scene | ✅ | Scene/Mesh/Material/Inspector/Transform；11 测试 |
-| V-2 渲染核心 | 🟡 | CPU 光栅 + GPU 离屏渲染完成；渲染线程/异步双 staging/device lost 未做 |
+| V-2 渲染核心 | ✅ | CPU 光栅 + GPU 离屏渲染；异步帧泵（background_executor + 代号丢弃）；GPU 错误重建设备并回退 CPU；双 staging 以 CPU 回读/图像转换为准；GPU/CPU 测试覆盖 |
 | V-3 相机/网格/清屏 | ✅ | 轨道相机、清屏、超采样；CPU 与 GPU 背景渐变一致（全屏三角形、顶部 1.25×/底部 0.75×、tone mapping）；地面网格 `show_grid` |
 | V-4 PBR 网格 + 纹理 | ✅（核心） | 本轮：顶点切线、基础色/法线/ORM/自发光贴图、alpha 裁剪、单/双面剔除；CPU 18 测试 + GPU 2 测试全过；MI_Props 实机截图 `target/render-box-gpu-v4.png`。缺口：CPU mips/纹理 LRU/sRGB 视图切换未做 |
 | V-5 GPU 蒙皮 + 动画 | ✅ | 第 21 轮：`MeshSkin`（关节/inverse bind/pose）+ CPU/GPU LBS + GPU storage buffer（≤4 影响归一化）；`apply_animation` 接入 `sample_animation`；BNB `SK_Chicken + ANIM_Chicken_Idle2` 42 轨道 t=0/1s 两帧渲染成功（~87–93 ms，PNG hash 不同）；`lumark-render` 25 测试全过（CPU/GPU 蒙皮平移） |
@@ -67,9 +67,9 @@
 | V-8 质量/统计/设备丢失 | ✅ | 第 54/56/63/64/65 轮：场景统计 + 状态栏；GPU 错误自动重建并回退 CPU；4×MSAA；纹理 LRU（64 项、内容指纹）；**sRGB 贴图开关**（工具栏 + `RenderSettings.srgb_textures`，GPU 测试断言开关改变输出）；缺 sRGB 视图切换的低层格式切换，但不影响使用 |
 | V-9 渲染器测试/文档 | ✅ | 第 22 轮：30 个测试 + `docs/viewer-architecture.md`（分层/API/管线/模式/基线/限制） |
 | V-10 UE 静态网格 Provider | ✅ | 第 23 轮：`provider` 模块 `SceneRequest`/`LodPolicy`/`SceneLoadOptions`/`load_scene`/`SceneLoadStage`/`SceneLoadReport`；StaticMesh/SkeletalMesh 按 LOD 选层、材质解析、warning 汇总；BNB `SM_Box_02`（3 LOD）与 `SK_Chicken`（2 LOD）实机加载 |
-| V-11 UE 材质到 Scene | 🟡 | 总贴图缓存 `TextureCache` + `MaterialResolveOptions.texture_cache`、材质缺失/贴图缺失 warning；BNB 样本缺材质时输出可读 warning；HDR 标记待 S-6 |
+| V-11 UE 材质到 Scene | ✅ | 总贴图缓存 `TextureCache` + `MaterialResolveOptions.texture_cache`、材质/贴图缺失 warning；HDR 贴图经 `decode_mip_rgba` tone map 进入材质预览；BNB 样本缺材质时输出可读 warning |
 | V-12 骨骼网格/动画 Provider | ✅ | 第 24 轮：`SceneLoadOptions.animation/animation_time`、`SceneLoadStage::Animation`、`AnimationInfo`（名称/时长/帧数/轨道/采样时间）、`LoadedScene.skeleton`；BNB `SK_Chicken + ANIM_Chicken_Idle2` t=0.5s Provider 实机加载（42 骨骼/42 轨道/141 帧/4.667s）；时间轴 UI 待 V-19 |
-| V-13 独立场景 | 🟡 | 查看器可开 Mesh/Skeleton/SkeletalMaterial；入口/动画待完善 |
+| V-13 独立场景 | ✅ | 查看器可开 Mesh/Skeleton/SkeletalMesh/Material；动画时间轴 Slider、播放/逐帧、键盘快捷键与异步重绘已接入 |
 | V-14 世界场景 Provider | ⬜ | 依赖 Zen 导入表/组件属性：`WorldSummary` 仅有 Actor 清单，尚无 `StaticMeshComponent` 外部网格引用与 Transform，需先暴露 Zen import map |
 | V-15 UI 模块拆分 | ✅ | 第 26 轮：`asset_viewer_window/` 拆为 `mod/animation/app/body/render/status/toolbar/tests` 8 个文件，最大源码模块 242 行（toolbar）、测试 434 行，均 <600；行为不变，13 个查看器测试与 162 个 UI 总测试全过 |
 | V-16 渲染桥接/帧泵 | ✅ | 第 25/29/59 轮：`image_path` 临时 PNG 改为 `Arc<RenderImage>`；网格/骨骼网格预览走 `render_service`（GPU 优先）；拖拽/滚轮异步离屏渲染，代号丢弃过期帧，状态栏“渲染中…”，骨骼/材质轻量光栅保留同步；详情面板 RenderImage 已直连 |
