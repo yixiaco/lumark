@@ -31,8 +31,9 @@
 | JPEG | `.jpg` | 有损、质量 1–100、忽略 alpha |
 | TGA | `.tga` | 未压缩 32 位 BGRA、top-left 原点 |
 | WebP | `.webp` | 无损 |
+| HDR | `.hdr` | Radiance RGBE（32-bit_rle_rgbe 头、非 RLE 扫描线），忽略 alpha |
 
-输入统一为 RGBA8；尺寸/像素长度不一致返回 `InvalidTexture`。HDR 贴图待 S-6/E-5。
+输入统一为 RGBA8；尺寸/像素长度不一致返回 `InvalidTexture`。HDR 按线性 RGB→RGBE 编码，适用于环境/光照类贴图；普通 PBR 基础色建议用 PNG/TGA。BNB `MI_Props` 实机 HDR 侧车：512×512、1,048,625 字节（两张贴图 + materials.json）。
 
 ## 材质旁挂（E-4）
 
@@ -84,6 +85,6 @@ let report = export_archive_cancellable(
 
 ## 验证记录
 
-- `lumark-export` 21 个测试：四模型格式 + 四贴图格式 + 材质旁挂 + PSA；
+- `lumark-export` 21 个测试：五种模型格式 + 五种贴图格式 + 材质旁挂 + PSA；
 - BNB 实机：`SK_Chicken.glb/.psk/.uemodel/.usda/.psa`、`SM_Dry_Goods_04g` 四格式、`SM_Box_02` GLB/USDA、`MI_Props` 四格式贴图侧车；
 - GLB 通过 `gltf::Gltf::from_slice` 校验；PSK/PSA/UEMODEL/USDA 有独立 chunk/结构解析示例。

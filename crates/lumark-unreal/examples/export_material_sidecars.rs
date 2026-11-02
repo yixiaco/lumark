@@ -26,6 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "jpg" | "jpeg" => TextureExportFormat::Jpeg,
         "tga" => TextureExportFormat::Tga,
         "webp" => TextureExportFormat::Webp,
+        "hdr" => TextureExportFormat::Hdr,
         other => return Err(format!("未知贴图格式：{other}").into()),
     };
 

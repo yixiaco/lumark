@@ -21,12 +21,14 @@ pub enum TextureExportFormat {
     Tga,
     /// WebP（无损）。
     Webp,
+    /// Radiance HDR（RGBE，忽略 alpha）。
+    Hdr,
 }
 
 impl TextureExportFormat {
     /// 全部格式。
-    pub fn all() -> [Self; 4] {
-        [Self::Png, Self::Jpeg, Self::Tga, Self::Webp]
+    pub fn all() -> [Self; 5] {
+        [Self::Png, Self::Jpeg, Self::Tga, Self::Webp, Self::Hdr]
     }
 
     /// 文件扩展名。
@@ -36,6 +38,7 @@ impl TextureExportFormat {
             Self::Jpeg => "jpg",
             Self::Tga => "tga",
             Self::Webp => "webp",
+            Self::Hdr => "hdr",
         }
     }
 
@@ -46,6 +49,7 @@ impl TextureExportFormat {
             Self::Jpeg => "JPEG",
             Self::Tga => "TGA",
             Self::Webp => "WebP",
+            Self::Hdr => "HDR",
         }
     }
 }
@@ -84,6 +88,7 @@ pub fn encode_texture(
         TextureExportFormat::Jpeg => encode_jpeg(texture, options.quality),
         TextureExportFormat::Tga => Ok(encode_tga(texture)),
         TextureExportFormat::Webp => encode_webp(texture),
+        TextureExportFormat::Hdr => Ok(encode_hdr(texture)),
     }
 }
 
@@ -136,6 +141,33 @@ fn encode_webp(texture: &ExportTexture) -> Result<Vec<u8>, ExportError> {
         )
         .map_err(|error| ExportError::Serialization(error.to_string()))?;
     Ok(out)
+}
+
+/// HDR：Radiance RGBE（未压缩扫描线）。
+fn encode_hdr(texture: &ExportTexture) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n");
+    out.extend_from_slice(format!("-Y {} +X {}\n", texture.height, texture.width).as_bytes());
+    for pixel in texture.rgba.as_chunks::<4>().0 {
+        let rgb = [
+            pixel[0] as f32 / 255.0,
+            pixel[1] as f32 / 255.0,
+            pixel[2] as f32 / 255.0,
+        ];
+        let max = rgb[0].max(rgb[1]).max(rgb[2]);
+        if max <= 1e-6 {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
+        // frexp：max = f × 2^e，f ∈ [0.5, 1)。
+        let exponent = max.log2().floor() as i32 + 1;
+        let scale = 256.0 / 2f32.powi(exponent);
+        for channel in rgb {
+            out.push((channel * scale).clamp(0.0, 255.0) as u8);
+        }
+        out.push((exponent + 128).clamp(1, 255) as u8);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -208,6 +240,32 @@ mod tests {
         assert_eq!(&webp[8..12], b"WEBP");
         let decoded = image::load_from_memory(&webp).expect("解码 WebP");
         assert_eq!((decoded.width(), decoded.height()), (2, 2));
+
+        let hdr = encode_texture(
+            &texture,
+            &TextureExportOptions {
+                format: TextureExportFormat::Hdr,
+                quality: 90,
+            },
+        )
+        .expect("HDR");
+        assert!(hdr.starts_with(b"#?RADIANCE"));
+        assert!(String::from_utf8_lossy(&hdr).contains("-Y 2 +X 2"));
+        let resolution = hdr
+            .windows(3)
+            .position(|window| window == b"-Y ")
+            .expect("分辨率行");
+        let data_start = hdr[resolution..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|offset| resolution + offset + 1)
+            .expect("分辨率行结束");
+        assert_eq!(
+            &hdr[data_start..data_start + 4],
+            &[128, 0, 0, 129],
+            "红色应为 RGBE(128,0,0,129)"
+        );
+        assert_eq!(hdr.len(), data_start + 4 * 4);
     }
 
     /// 扩展名/标签。
@@ -215,7 +273,9 @@ mod tests {
     fn format_metadata() {
         assert_eq!(TextureExportFormat::Jpeg.extension(), "jpg");
         assert_eq!(TextureExportFormat::Tga.label(), "TGA");
-        assert_eq!(TextureExportFormat::all().len(), 4);
+        assert_eq!(TextureExportFormat::Hdr.extension(), "hdr");
+        assert_eq!(TextureExportFormat::Hdr.label(), "HDR");
+        assert_eq!(TextureExportFormat::all().len(), 5);
     }
 
     /// 尺寸与像素不一致时报错。
