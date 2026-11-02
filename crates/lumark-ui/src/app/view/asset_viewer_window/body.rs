@@ -37,7 +37,7 @@ impl AssetViewerWindowView {
                 }
                 let factor = (-delta * 0.0025).exp();
                 this.zoom = (this.zoom * factor).clamp(0.2, 6.0);
-                this.render_preview();
+                this.request_preview(cx);
                 cx.notify();
             }))
             .on_mouse_down(
@@ -63,7 +63,7 @@ impl AssetViewerWindowView {
                     drag.last = position;
                     this.yaw = (this.yaw + dx * 0.4).rem_euclid(360.0);
                     this.pitch = (this.pitch + dy * 0.4).clamp(-89.0, 89.0);
-                    this.render_preview();
+                    this.request_preview(cx);
                     cx.notify();
                 }),
             )

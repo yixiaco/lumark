@@ -482,6 +482,43 @@ fn inspector_panel_renders_and_toggles(cx: &mut gpui_kit::TestAppContext) {
     });
 }
 
+/// 异步帧泵：后台渲染完成后更新图像，旧代号结果被丢弃。
+#[gpui_kit::test]
+fn viewer_async_preview_updates_image(cx: &mut gpui_kit::TestAppContext) {
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    cx.update(gpui_kit::init);
+    let (view, cx) = cx.add_window_view(|_, _| {
+        AssetViewerWindowView::new(
+            "SM_Async".to_string(),
+            ViewerScene::Mesh { lods: vec![mesh] },
+        )
+    });
+    view.update(cx, |view, cx| {
+        view.image = None;
+        view.request_preview(cx);
+    });
+    for _ in 0..100 {
+        cx.run_until_parked();
+        if view.read_with(cx, |view, _| view.image.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let (has_image, rendering) =
+        view.read_with(cx, |view, _| (view.image.is_some(), view.rendering));
+    assert!(has_image, "异步渲染应更新图像");
+    assert!(!rendering, "渲染完成后应复位 rendering");
+}
+
 /// 快捷键：F 重置、G 网格、L/N 着色，未知键不消费。
 #[gpui_kit::test]
 fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {

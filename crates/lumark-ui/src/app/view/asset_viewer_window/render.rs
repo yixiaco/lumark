@@ -162,6 +162,50 @@ impl AssetViewerWindowView {
         scene
     }
 
+    /// 构建当前场景与渲染设置；骨骼/材质查看器返回 `None`（走轻量光栅）。
+    pub(super) fn scene_and_settings(&self) -> Option<(Scene, RenderSettings)> {
+        let scene = match &self.scene {
+            ViewerScene::Mesh { lods } => {
+                let mesh = lods.get(self.lod_index).or_else(|| lods.first());
+                mesh.map(|mesh| self.static_scene(mesh))
+            }
+            ViewerScene::SkeletalMesh {
+                lods,
+                skeleton,
+                skins,
+                animation,
+            } => {
+                let mesh = lods.get(self.lod_index).or_else(|| lods.first());
+                let skin = skins
+                    .get(self.lod_index)
+                    .and_then(Option::as_ref)
+                    .or_else(|| skins.first().and_then(Option::as_ref));
+                mesh.map(|mesh| self.skeletal_scene(mesh, skeleton, skin, animation.as_deref()))
+            }
+            ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => None,
+        }?;
+        let settings = RenderSettings {
+            width: 900,
+            height: 600,
+            supersample: 2,
+            background: [0.055, 0.06, 0.075],
+            yaw_degrees: self.yaw,
+            pitch_degrees: self.pitch,
+            distance_scale: (2.2 / self.zoom).clamp(0.15, 20.0),
+            shading: self.shading,
+            show_grid: self.show_grid,
+            show_bones: self.show_bones,
+            hidden_sections: self
+                .hidden_sections
+                .iter()
+                .enumerate()
+                .filter_map(|(index, hidden)| hidden.then_some(index))
+                .collect(),
+            ..RenderSettings::default()
+        };
+        Some((scene, settings))
+    }
+
     /// 使用共享渲染服务渲染场景（GPU 优先，失败回退 CPU）。
     fn render_scene_preview(&mut self, scene: Scene) {
         let settings = RenderSettings {
@@ -184,14 +228,17 @@ impl AssetViewerWindowView {
             ..RenderSettings::default()
         };
         match render_scene_image(&scene, &settings) {
-            Ok(rendered) => {
-                self.image = Some(rendered.image);
-                self.last_backend = Some(rendered.backend.label());
-                self.last_stats = Some(rendered.stats);
-                self.error = None;
-            }
+            Ok(rendered) => self.apply_rendered(rendered),
             Err(error) => self.error = Some(error),
         }
+    }
+
+    /// 应用渲染结果。
+    pub(super) fn apply_rendered(&mut self, rendered: crate::render_service::RenderedImage) {
+        self.image = Some(rendered.image);
+        self.last_backend = Some(rendered.backend.label());
+        self.last_stats = Some(rendered.stats);
+        self.error = None;
     }
 
     /// 旧路径 RGBA → RenderImage。

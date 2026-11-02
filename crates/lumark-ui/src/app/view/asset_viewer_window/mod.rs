@@ -15,6 +15,7 @@ use lumark_unreal::{MeshLod, Skeleton};
 
 mod animation;
 mod app;
+mod async_render;
 mod body;
 mod input;
 mod inspector;
@@ -92,6 +93,10 @@ pub(crate) struct AssetViewerWindowView {
     timeline_slider: Option<gpui_kit::Entity<SliderState>>,
     /// Slider 事件订阅
     slider_subscription: Option<gpui_kit::Subscription>,
+    /// 异步渲染代号；旧结果到达时丢弃
+    render_generation: u64,
+    /// 是否有后台渲染进行中
+    rendering: bool,
 }
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角（无键盘焦点，供测试/内部使用）。
@@ -150,6 +155,8 @@ impl AssetViewerWindowView {
             focus,
             timeline_slider: None,
             slider_subscription: None,
+            render_generation: 0,
+            rendering: false,
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();

@@ -69,6 +69,10 @@ impl AssetViewerWindowView {
             })
             .child(tr("左键拖拽旋转", "Drag to orbit").to_string())
             .children(
+                self.rendering
+                    .then(|| div().child(tr("渲染中…", "Rendering…"))),
+            )
+            .children(
                 self.last_backend
                     .as_ref()
                     .map(|backend| div().child(format!("· {backend}"))),

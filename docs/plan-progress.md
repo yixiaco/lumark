@@ -10,7 +10,7 @@
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
 | O（Oodle FModel 式） | 6/7 | O-1/O-2/O-3/O-5/O-6/O-7 完成；O-4 部分（查找路径完成，随包发布流水线待做） |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
-| V（查看器） | 12/21 | V-2/3/6/13/16/18 部分；V-8/14 待做 |
+| V（查看器） | 13/21 | V-2/3/6/13/18 部分；V-8/14 待做 |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
 | I（图片查看器） | 5/5 | 全部完成 |
@@ -72,7 +72,7 @@
 | V-13 独立场景 | 🟡 | 查看器可开 Mesh/Skeleton/SkeletalMaterial；入口/动画待完善 |
 | V-14 世界场景 Provider | ⬜ | 依赖 Zen 导入表/组件属性：`WorldSummary` 仅有 Actor 清单，尚无 `StaticMeshComponent` 外部网格引用与 Transform，需先暴露 Zen import map |
 | V-15 UI 模块拆分 | ✅ | 第 26 轮：`asset_viewer_window/` 拆为 `mod/animation/app/body/render/status/toolbar/tests` 8 个文件，最大源码模块 242 行（toolbar）、测试 434 行，均 <600；行为不变，13 个查看器测试与 162 个 UI 总测试全过 |
-| V-16 渲染桥接/帧泵 | 🟡 | 第 25/29 轮：资产查看器 `image_path` 临时 PNG 改为 `Arc<RenderImage>`；网格/骨骼网格预览改走 `render_service`（GPU 优先）并在状态栏显示后端；异步帧泵与详情面板 RenderImage 直连待收尾 |
+| V-16 渲染桥接/帧泵 | ✅ | 第 25/29/59 轮：`image_path` 临时 PNG 改为 `Arc<RenderImage>`；网格/骨骼网格预览走 `render_service`（GPU 优先）；拖拽/滚轮异步离屏渲染，代号丢弃过期帧，状态栏“渲染中…”，骨骼/材质轻量光栅保留同步；详情面板 RenderImage 已直连 |
 | V-17 UI 外壳/工具栏 | ✅ | 第 29 轮：预览接入 `lumark_render` + `render_service`；着色循环（光照/无光/法线）、地面网格、骨骼线开关、检查器开关、缩放 `−/+`；网格/骨骼网格行为与 V-6 RenderSettings 打通 |
 | V-18 检查器 | 🟡 | 第 27 轮：新增 `inspector.rs` 面板：概要（类型/LOD/顶点/三角形/section/骨骼/动画）、LOD 点击切换、section 显隐、骨骼列表（≤200 + 总数）、动画时间/播放状态、材质参数与贴图状态、关闭按钮；缺口：骨骼搜索、世界统计、section 材质名 |
 | V-19 输入/动画/快捷键 | ✅ | 第 29/57/58 轮：滚轮缩放（0.2–6×）、键盘快捷键（F/Space/←→/L/G/B/N）、**动画时间轴 Slider**（`SliderState` + 订阅 Change，拖动/点击跳转并暂停播放，播放/步进/重置后同步位置）；正式窗口创建 Slider 并保持订阅。测试通过 |

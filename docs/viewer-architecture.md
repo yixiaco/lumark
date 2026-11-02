@@ -37,6 +37,14 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 5. **叠加层**：地面网格与骨骼线段（LineList 管线，深度测试不写深度）；CPU 用 DDA 3D 线段光栅。
 6. **输出**：颜色目标 `Rgba8Unorm`，着色器手动 tone mapping + gamma；超采样后盒式降采样回目标尺寸。
 
+## 异步帧泵（V-16）
+
+- 拖拽/滚轮只更新相机参数并调用 `request_preview`；
+- 场景与 `RenderSettings` 在 UI 线程构建，离屏渲染交给 `background_executor`；
+- `render_generation` 递增，后台结果返回时只应用最新一帧，过期帧直接丢弃；
+- 状态栏显示“渲染中…”；
+- 骨骼/材质查看器的轻量光栅仍走同步路径。
+
 ## 快捷键
 
 | 按键 | 行为 |
