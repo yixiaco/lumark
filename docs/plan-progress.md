@@ -92,7 +92,7 @@
 | E-7 ActorX PSA | ✅ | 第 31 轮：`PsaExport`（帧/骨骼/关键值）+ `write_psa`：ANIMHEAD 20100422、BONENAMES 120B、ANIMINFO 168B、ANIMKEYS 32B、SCALEKEYS 16B；Y 镜像与根骨骼 quat W 取反；2 测试 + BNB `SK_Chicken + ANIM_Chicken_Idle2` 实机 289,624 字节（141 帧 ×42 骨骼，fps 30.214） |
 | E-8 UEFormat 公共写入器 | ✅ | 含在 E-9 |
 | E-9 UEFormat UEMODEL | ✅ | 3 测试 + BNB 实机 |
-| E-10 USDA | 🟡 | 网格/材质/贴图/GeomSubset；USD Skel 未做 |
+| E-10 USDA | 🟡 | 第 43 轮：网格/材质/贴图/GeomSubset 基础 + **USD Skel**：骨骼资产根改为 `SkelRoot`，写 `Skeleton`（joints 层级 token、bindTransforms=世界逆矩阵、restTransforms=局部矩阵）与 Mesh 的 `SkelBindingAPI`、`skel:skeleton` 关系、`jointIndices/jointWeights` primvars；1 单测 + BNB `SK_Chicken` 42 骨骼实机；缺 SkelAnimation/动画采样 |
 | E-11 单资产编排 | ✅ | 第 33 轮：`asset_export` 模块 `AssetExportConfig`（输出/格式/缩放/旁挂/贴图格式/质量/覆盖）+ `export_asset`（解析→多格式写盘→材质旁挂→报告）+ `AssetExportProgress` + `AssetExportReport` JSON；BNB `SM_Box_02` 实机四格式 + materials.json（0.11s） |
 | E-12 批量枚举/执行 | ✅ | 后端完成（5 测试 + BNB 四格式）；取消、报告 JSON、耗时已实现 |
 | E-13 批量任务接入 | ✅ | 第 32/36 轮：`export_archive_cancellable` + 取消/报告 JSON；`lumark-tasks` 新增 `TaskKind::Export`、`TaskRequest::Custom`、`TaskReporter`（自定义任务上报 `TaskProgress`）与自定义任务单测；批量导出窗口提交到 `TaskManager`，任务中心显示进度/取消，完成后写 `batch-report.json` |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（O-4 / M / I）
+## 下一轮（M / I / E-10 动画）
 
-1. O-4 随包资源打包脚本/首启检测（或标记为发布配置项）；
-2. M 媒体播放器（M-1 ffmpeg 后端/播放窗口）或 I 图片查看器收尾；
-3. E-10 USDA Skel 或 V-7 实例化；
+1. M 媒体播放器（ffmpeg 后端/播放窗口）或 I 图片查看器收尾（光标锚点/Zoom 图标/拆分）；
+2. E-10 USD SkelAnimation（动画采样 → translations/rotations/scales）；
+3. V-7 实例化或 O-4 随包流水线；
 4. 记录进度并提交。

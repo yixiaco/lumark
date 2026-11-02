@@ -10,7 +10,7 @@
 | ActorX PSA | `write_psa` | 逐帧骨骼关键值（position/quat/scale），版本 20100422，含 `ANIMKEYS`/`SCALEKEYS` | 参考缩放固定 1（`ExportBone` 无缩放字段）；单动画序列 |
 | glTF 2.0 GLB | `write_glb` | 网格/section、PBR 材质、基础色/法线贴图内嵌 PNG、skin + inverse bind matrices、节点层级；Z-up→Y-up、单位缩放可配 | 不写动画/相机/灯；alpha 仅裁剪；贴图内嵌不外部引用 |
 | UEFormat UEMODEL | `write_ueformat_model` | v10、LOD 属性集、材质、UV0..n、顶点色、蒙皮权重、骨架；TANGENTS 自动估算 | 单 LOD、不写动画/morph/碰撞 |
-| USDA | `write_usda` | Mesh、法线/UV/顶点色、GeomSubset 多材质、`UsdPreviewSurface` 自动材质、基础色贴图侧车 | 网格按 rest pose，无 USD Skel/动画；法线贴图未接线 |
+| USDA | `write_usda` | Mesh、法线/UV/顶点色、GeomSubset 多材质、`UsdPreviewSurface` 自动材质、基础色贴图侧车；骨骼资产写 `SkelRoot/Skeleton`（joints/bindTransforms/restTransforms）与 `SkelBindingAPI` 蒙皮 primvars | 仍按 rest pose，无 SkelAnimation；法线贴图未接线 |
 
 ### 坐标与单位
 

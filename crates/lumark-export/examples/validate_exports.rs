@@ -527,14 +527,26 @@ fn validate_usda(bytes: &[u8], report: &mut Report) {
     if !text.starts_with("#usda 1.0") {
         report.fail("缺少 #usda 1.0 头");
     }
-    for required in [
-        "metersPerUnit",
-        "def Xform \"Root\"",
-        "def Mesh",
-        "def Material",
-    ] {
+    for required in ["metersPerUnit", "def Mesh", "def Material"] {
         if !text.contains(required) {
             report.fail(format!("缺少 {required}"));
+        }
+    }
+    if !text.contains("def Xform \"Root\"") && !text.contains("def SkelRoot \"Root\"") {
+        report.fail("缺少 def Xform/SkelRoot \"Root\"");
+    }
+    if text.contains("def Skeleton") {
+        for required in [
+            "uniform token[] joints =",
+            "matrix4d[] bindTransforms =",
+            "matrix4d[] restTransforms =",
+            "rel skel:skeleton =",
+            "primvars:skel:jointIndices",
+            "primvars:skel:jointWeights",
+        ] {
+            if !text.contains(required) {
+                report.fail(format!("骨骼资产缺少 {required}"));
+            }
         }
     }
     if has_non_finite_token(text) {

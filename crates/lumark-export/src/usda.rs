@@ -52,7 +52,12 @@ pub fn write_usda(
     ));
     text.push_str("    upAxis = \"Y\"\n");
     text.push_str(")\n\n");
-    text.push_str("def Xform \"Root\"\n{\n");
+    if mesh.bones.is_empty() {
+        text.push_str("def Xform \"Root\"\n{\n");
+    } else {
+        // 骨骼资产用 SkelRoot 作为边界，USD 只在该边界内启用蒙皮。
+        text.push_str("def SkelRoot \"Root\"\n{\n");
+    }
 
     // 材质 Scope。
     let material_names = material_names(mesh, materials);
@@ -63,10 +68,223 @@ pub fn write_usda(
     }
     text.push_str("    }\n\n");
 
+    // 骨架（USD Skeleton）。
+    if !mesh.bones.is_empty() {
+        write_skeleton(&mut text, mesh);
+    }
+
     // Mesh。
     write_mesh(&mut text, &mesh_id, mesh, &material_names, scale, options);
     text.push_str("}\n");
     Ok(UsdaOutput { text, resources })
+}
+
+/// 写 USD Skeleton：joints/bindTransforms/restTransforms。
+fn write_skeleton(text: &mut String, mesh: &ExportMesh) {
+    let joints = joint_tokens(mesh);
+    let worlds = world_matrices(mesh);
+    let rest: Vec<[[f32; 4]; 4]> = (0..mesh.bones.len())
+        .map(|index| local_matrix(mesh.bones[index].position, mesh.bones[index].rotation))
+        .collect();
+    text.push_str("    def Skeleton \"Skeleton\"\n    {\n");
+    text.push_str("        uniform token[] joints = [");
+    for (index, joint) in joints.iter().enumerate() {
+        if index > 0 {
+            text.push_str(", ");
+        }
+        text.push_str(&format!("\"{joint}\""));
+    }
+    text.push_str("]\n        matrix4d[] bindTransforms = [");
+    for (index, world) in worlds.iter().enumerate() {
+        if index > 0 {
+            text.push_str(", ");
+        }
+        let inverse = inverse_affine(*world);
+        text.push_str(&format_matrix(inverse));
+    }
+    text.push_str("]\n        matrix4d[] restTransforms = [");
+    for (index, local) in rest.iter().enumerate() {
+        if index > 0 {
+            text.push_str(", ");
+        }
+        text.push_str(&format_matrix(*local));
+    }
+    text.push_str("]\n    }\n\n");
+}
+
+/// 关节 token：按父级拼出层级路径并去重。
+fn joint_tokens(mesh: &ExportMesh) -> Vec<String> {
+    let mut tokens = Vec::with_capacity(mesh.bones.len());
+    for (index, bone) in mesh.bones.iter().enumerate() {
+        let name = sanitize_identifier(&bone.name);
+        let path = if bone.parent_index >= 0
+            && (bone.parent_index as usize) < index
+            && (bone.parent_index as usize) < tokens.len()
+        {
+            format!("{}/{}", tokens[bone.parent_index as usize], name)
+        } else {
+            name
+        };
+        // 重名时追加索引，保证 joints 唯一。
+        let mut unique = path.clone();
+        let mut suffix = 1;
+        while tokens.contains(&unique) {
+            unique = format!("{path}_{suffix}");
+            suffix += 1;
+        }
+        tokens.push(unique);
+    }
+    tokens
+}
+
+/// 计算每根骨骼的世界矩阵（父矩阵 × 局部矩阵）。
+fn world_matrices(mesh: &ExportMesh) -> Vec<[[f32; 4]; 4]> {
+    let count = mesh.bones.len();
+    let mut worlds: Vec<Option<[[f32; 4]; 4]>> = vec![None; count];
+    for index in 0..count {
+        fill_world(mesh, index, &mut worlds, 0);
+    }
+    worlds.into_iter().flatten().collect()
+}
+
+/// 递归填充世界矩阵，父索引非法时按根处理。
+fn fill_world(
+    mesh: &ExportMesh,
+    index: usize,
+    worlds: &mut [Option<[[f32; 4]; 4]>],
+    depth: usize,
+) -> [[f32; 4]; 4] {
+    if let Some(world) = worlds[index] {
+        return world;
+    }
+    if depth > 4096 {
+        return IDENTITY;
+    }
+    let bone = &mesh.bones[index];
+    let local = local_matrix(bone.position, bone.rotation);
+    let world = if bone.parent_index >= 0 && (bone.parent_index as usize) < mesh.bones.len() {
+        let parent = fill_world(mesh, bone.parent_index as usize, worlds, depth + 1);
+        multiply(parent, local)
+    } else {
+        local
+    };
+    worlds[index] = Some(world);
+    world
+}
+
+/// 单位矩阵。
+const IDENTITY: [[f32; 4]; 4] = [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
+];
+
+/// 由平移 + 四元数构造局部矩阵（无缩放）。
+fn local_matrix(translation: [f32; 3], rotation: [f32; 4]) -> [[f32; 4]; 4] {
+    let length = (rotation[0] * rotation[0]
+        + rotation[1] * rotation[1]
+        + rotation[2] * rotation[2]
+        + rotation[3] * rotation[3])
+        .sqrt();
+    let (x, y, z, w) = if length > f32::EPSILON {
+        (
+            rotation[0] / length,
+            rotation[1] / length,
+            rotation[2] / length,
+            rotation[3] / length,
+        )
+    } else {
+        (0.0, 0.0, 0.0, 1.0)
+    };
+    [
+        [
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y - z * w),
+            2.0 * (x * z + y * w),
+            translation[0],
+        ],
+        [
+            2.0 * (x * y + z * w),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z - x * w),
+            translation[1],
+        ],
+        [
+            2.0 * (x * z - y * w),
+            2.0 * (y * z + x * w),
+            1.0 - 2.0 * (x * x + y * y),
+            translation[2],
+        ],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+/// 4×4 矩阵乘法（行主序，列向量）。
+fn multiply(left: [[f32; 4]; 4], right: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let mut out = [[0.0f32; 4]; 4];
+    for row in 0..4 {
+        for column in 0..4 {
+            out[row][column] = (0..4)
+                .map(|index| left[row][index] * right[index][column])
+                .sum();
+        }
+    }
+    out
+}
+
+/// 仿射矩阵求逆（旋转 + 平移）。
+fn inverse_affine(matrix: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let a = matrix[0][0];
+    let b = matrix[0][1];
+    let c = matrix[0][2];
+    let d = matrix[1][0];
+    let e = matrix[1][1];
+    let f = matrix[1][2];
+    let g = matrix[2][0];
+    let h = matrix[2][1];
+    let i = matrix[2][2];
+    let determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    if determinant.abs() <= 1e-12 {
+        return IDENTITY;
+    }
+    let inverse = 1.0 / determinant;
+    let r00 = (e * i - f * h) * inverse;
+    let r01 = (c * h - b * i) * inverse;
+    let r02 = (b * f - c * e) * inverse;
+    let r10 = (f * g - d * i) * inverse;
+    let r11 = (a * i - c * g) * inverse;
+    let r12 = (c * d - a * f) * inverse;
+    let r20 = (d * h - e * g) * inverse;
+    let r21 = (b * g - a * h) * inverse;
+    let r22 = (a * e - b * d) * inverse;
+    let tx = matrix[0][3];
+    let ty = matrix[1][3];
+    let tz = matrix[2][3];
+    [
+        [r00, r01, r02, -(r00 * tx + r01 * ty + r02 * tz)],
+        [r10, r11, r12, -(r10 * tx + r11 * ty + r12 * tz)],
+        [r20, r21, r22, -(r20 * tx + r21 * ty + r22 * tz)],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+/// matrix4d 文本（行主序）。
+fn format_matrix(matrix: [[f32; 4]; 4]) -> String {
+    let mut out = String::from("(");
+    for (row, values) in matrix.iter().enumerate() {
+        if row > 0 {
+            out.push_str(", ");
+        }
+        for (column, value) in values.iter().enumerate() {
+            if column > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&format_float(*value));
+        }
+    }
+    out.push(')');
+    out
 }
 
 /// 每个 section 对应的材质名。
@@ -173,7 +391,13 @@ fn write_mesh(
     options: &ExportOptions,
 ) {
     text.push_str(&format!("    def Mesh \"{mesh_id}\" (\n"));
-    text.push_str("        prepend apiSchemas = [\"MaterialBindingAPI\"]\n");
+    if mesh.bones.is_empty() {
+        text.push_str("        prepend apiSchemas = [\"MaterialBindingAPI\"]\n");
+    } else {
+        text.push_str(
+            "        prepend apiSchemas = [\"MaterialBindingAPI\", \"SkelBindingAPI\"]\n",
+        );
+    }
     text.push_str("    )\n    {\n");
     text.push_str("        uniform bool doubleSided = 0\n");
 
@@ -225,6 +449,48 @@ fn write_mesh(
             ]));
         }
         text.push_str("] (\n            interpolation = \"vertex\"\n        )\n");
+    }
+
+    // 蒙皮 primvars 与骨架关系。
+    if !mesh.bones.is_empty() {
+        text.push_str("        int[] primvars:skel:jointIndices = [");
+        for (vertex, indices) in mesh.bone_indices.iter().enumerate() {
+            if vertex > 0 {
+                text.push_str(", ");
+            }
+            for (slot, index) in indices.iter().enumerate() {
+                if slot > 0 {
+                    text.push_str(", ");
+                }
+                let index = if (*index as usize) < mesh.bones.len() {
+                    *index
+                } else {
+                    0
+                };
+                text.push_str(&index.to_string());
+            }
+        }
+        text.push_str("] (\n            interpolation = \"vertex\"\n        )\n");
+        text.push_str("        float[] primvars:skel:jointWeights = [");
+        for (vertex, weights) in mesh.bone_weights.iter().enumerate() {
+            if vertex > 0 {
+                text.push_str(", ");
+            }
+            let sum: f32 = weights.iter().map(|weight| weight.max(0.0)).sum();
+            for (slot, weight) in weights.iter().enumerate() {
+                if slot > 0 {
+                    text.push_str(", ");
+                }
+                let normalized = if sum > f32::EPSILON {
+                    weight.max(0.0) / sum
+                } else {
+                    0.0
+                };
+                text.push_str(&format_float(normalized));
+            }
+        }
+        text.push_str("] (\n            interpolation = \"vertex\"\n        )\n");
+        text.push_str("        rel skel:skeleton = </Root/Skeleton>\n");
     }
 
     // 面/索引。
@@ -375,7 +641,7 @@ fn format_point(value: [f32; 3]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ExportMesh, MeshSection, MeshVertex};
+    use crate::{ExportBone, ExportMesh, MeshSection, MeshVertex};
 
     /// 构造带两个 section 的矩形（两个三角形）。
     fn quad() -> ExportMesh {
@@ -458,6 +724,47 @@ mod tests {
                 .contains("faceVertexIndices = [0, 1, 2, 0, 2, 3]")
         );
         assert!(output.text.contains("inputs:diffuseColor = (1, 0, 0)"));
+    }
+
+    /// USDA 骨架上架：Skeleton 关系、joints 与蒙皮 primvars。
+    #[test]
+    fn writes_usda_skeleton_and_skinning() {
+        let mut mesh = quad();
+        mesh.bones = vec![
+            ExportBone {
+                name: "Root".to_string(),
+                parent_index: -1,
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            },
+            ExportBone {
+                name: "Child".to_string(),
+                parent_index: 0,
+                position: [0.0, 0.0, 10.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            },
+        ];
+        mesh.bone_indices = vec![[0, 1, 0, 0]; mesh.vertices.len()];
+        mesh.bone_weights = vec![[0.75, 0.25, 0.0, 0.0]; mesh.vertices.len()];
+        let output = write_usda(&mesh, &[], &ExportOptions::default()).expect("usda");
+        assert!(output.text.contains("def SkelRoot \"Root\""));
+        assert!(output.text.contains("def Skeleton \"Skeleton\""));
+        assert!(
+            output
+                .text
+                .contains("uniform token[] joints = [\"Root\", \"Root/Child\"]")
+        );
+        assert!(output.text.contains("matrix4d[] bindTransforms = ["));
+        assert!(output.text.contains("matrix4d[] restTransforms = ["));
+        assert!(output.text.contains("\"SkelBindingAPI\""));
+        assert!(output.text.contains("rel skel:skeleton = </Root/Skeleton>"));
+        assert!(output.text.contains("int[] primvars:skel:jointIndices = ["));
+        assert!(
+            output
+                .text
+                .contains("float[] primvars:skel:jointWeights = [")
+        );
+        assert!(output.text.contains("0.75, 0.25, 0, 0"));
     }
 
     /// 贴图自动旁挂为 textures/*.png，并连接 UsdUVTexture。
