@@ -10,7 +10,7 @@
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
 | O（Oodle FModel 式） | 6/7 | O-1/O-2/O-3/O-5/O-6/O-7 完成；O-4 部分（查找路径完成，随包发布流水线待做） |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
-| V（查看器） | 10/21 | V-2/3/6/13/16/18/19 部分；V-7/8/14 待做 |
+| V（查看器） | 11/21 | V-2/3/6/13/16/18/19 部分；V-8/14 待做 |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
 | I（图片查看器） | 5/5 | 全部完成 |
@@ -63,7 +63,7 @@
 | V-4 PBR 网格 + 纹理 | ✅（核心） | 本轮：顶点切线、基础色/法线/ORM/自发光贴图、alpha 裁剪、单/双面剔除；CPU 18 测试 + GPU 2 测试全过；MI_Props 实机截图 `target/render-box-gpu-v4.png`。缺口：CPU mips/纹理 LRU/sRGB 视图切换未做 |
 | V-5 GPU 蒙皮 + 动画 | ✅ | 第 21 轮：`MeshSkin`（关节/inverse bind/pose）+ CPU/GPU LBS + GPU storage buffer（≤4 影响归一化）；`apply_animation` 接入 `sample_animation`；BNB `SK_Chicken + ANIM_Chicken_Idle2` 42 轨道 t=0/1s 两帧渲染成功（~87–93 ms，PNG hash 不同）；`lumark-render` 25 测试全过（CPU/GPU 蒙皮平移） |
 | V-6 叠加层/着色模式 | 🟡 | 第 22 轮：`ShadingMode{Lit,Unlit,Normals}`、地面网格、骨骼线段（CPU DDA + GPU LineList 管线）、`hidden_material_slots`；CPU+GPU 测试。缺口：wireframe 与 section 逐项 UI |
-| V-7 实例化/大规模场景 | ⬜ | |
+| V-7 实例化/大规模场景 | ✅ | 第 55 轮：静态网格批次键改为「网格+section+材质」，共享本地空间顶点缓冲，每节点仅追加实例矩阵；GPU 新增实例顶点缓冲（step=Instance，4×vec4）与着色器实例变换；蒙皮网格仍独占批次。新增 GPU 两实例左右半屏测试；BNB `SM_Box_02` GPU 480×480 2×SS 81.5ms 截图正常 |
 | V-8 质量/统计/设备丢失 | ⬜ | |
 | V-9 渲染器测试/文档 | ✅ | 第 22 轮：30 个测试 + `docs/viewer-architecture.md`（分层/API/管线/模式/基线/限制） |
 | V-10 UE 静态网格 Provider | ✅ | 第 23 轮：`provider` 模块 `SceneRequest`/`LodPolicy`/`SceneLoadOptions`/`load_scene`/`SceneLoadStage`/`SceneLoadReport`；StaticMesh/SkeletalMesh 按 LOD 选层、材质解析、warning 汇总；BNB `SM_Box_02`（3 LOD）与 `SK_Chicken`（2 LOD）实机加载 |

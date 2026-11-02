@@ -39,6 +39,10 @@ struct VertexIn {
     @location(4) tangent: vec4<f32>,
     @location(5) joints: vec4<f32>,
     @location(6) weights: vec4<f32>,
+    @location(7) instance_c0: vec4<f32>,
+    @location(8) instance_c1: vec4<f32>,
+    @location(9) instance_c2: vec4<f32>,
+    @location(10) instance_c3: vec4<f32>,
 };
 
 struct VertexOut {
@@ -67,6 +71,11 @@ fn vs_main(in: VertexIn) -> VertexOut {
         normal = normalize((blended * vec4<f32>(normal, 0.0)).xyz);
         tangent = vec4<f32>(normalize((blended * vec4<f32>(tangent.xyz, 0.0)).xyz), tangent.w);
     }
+    // 静态网格实例矩阵；蒙皮实例为单位矩阵。
+    let instance = mat4x4<f32>(in.instance_c0, in.instance_c1, in.instance_c2, in.instance_c3);
+    position = (instance * vec4<f32>(position, 1.0)).xyz;
+    normal = normalize((instance * vec4<f32>(normal, 0.0)).xyz);
+    tangent = vec4<f32>(normalize((instance * vec4<f32>(tangent.xyz, 0.0)).xyz), tangent.w);
     out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
     out.world = position;
     out.normal = normal;

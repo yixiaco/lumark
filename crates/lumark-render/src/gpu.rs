@@ -329,7 +329,26 @@ impl GpuRenderer {
                     });
                 pass.set_bind_group(1, &material_bind_group, &[]);
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                pass.draw(0..batch.count, 0..1);
+                let instance_data: Vec<f32> = batch
+                    .instances
+                    .iter()
+                    .flat_map(|matrix| matrix.iter().flat_map(|column| column.iter().copied()))
+                    .collect();
+                let instance_buffer = self.create_buffer(
+                    "lumark-instances",
+                    (instance_data.len() * 4) as u64,
+                    wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                );
+                // f32 切片 → 字节；instance_data 在本次 write_buffer 期间保持存活。
+                let instance_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        instance_data.as_ptr().cast::<u8>(),
+                        instance_data.len() * std::mem::size_of::<f32>(),
+                    )
+                };
+                self.queue.write_buffer(&instance_buffer, 0, instance_bytes);
+                pass.set_vertex_buffer(1, instance_buffer.slice(..));
+                pass.draw(0..batch.count, 0..batch.instances.len() as u32);
             }
             let (line_data, line_count) = overlay_line_vertices(scene, settings);
             if line_count > 0 {
@@ -617,6 +636,28 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
             shader_location: 6,
         },
     ];
+    let instance_attributes = [
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 0,
+            shader_location: 7,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 16,
+            shader_location: 8,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 32,
+            shader_location: 9,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 48,
+            shader_location: 10,
+        },
+    ];
     let create_pipeline = |label: &'static str, cull_mode: Option<wgpu::Face>| {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
@@ -625,11 +666,18 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: (VERTEX_FLOATS * 4) as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &vertex_attributes,
-                })],
+                buffers: &[
+                    Some(wgpu::VertexBufferLayout {
+                        array_stride: (VERTEX_FLOATS * 4) as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &vertex_attributes,
+                    }),
+                    Some(wgpu::VertexBufferLayout {
+                        array_stride: 64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &instance_attributes,
+                    }),
+                ],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -808,6 +856,8 @@ struct Batch {
     material: MaterialData,
     /// 关节最终蒙皮矩阵；未蒙皮时为单个单位矩阵。
     skin_matrices: Vec<[[f32; 4]; 4]>,
+    /// 实例世界矩阵（列主序）；静态网格可复用同一顶点缓冲。
+    instances: Vec<[[f32; 4]; 4]>,
 }
 
 /// GPU 顶点。
@@ -822,11 +872,15 @@ struct GpuVertex {
     weights: [f32; 4],
 }
 
-/// 把所有可见网格按材质展开为世界空间三角形批次。
+/// 把所有可见网格按材质/网格复用为实例批次。
+///
+/// 静态网格共享顶点缓冲，每个节点只追加实例矩阵；蒙皮网格姿态不同，
+/// 每个节点独占批次，实例矩阵为单位矩阵。
 fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
     let default_material = MaterialData::default();
     let mut batches: Vec<Batch> = Vec::new();
-    let mut index_by_key: HashMap<(Option<usize>, Option<usize>), usize> = HashMap::new();
+    let mut index_by_key: HashMap<(usize, usize, Option<usize>, Option<usize>), usize> =
+        HashMap::new();
     for (node_index, node) in scene.nodes.iter().enumerate() {
         if !node.visible {
             continue;
@@ -841,14 +895,16 @@ fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
             continue;
         };
         let matrices = skin::skin_matrices(scene, mesh);
-        let vertices = if matrices.is_some() {
-            gpu_bind_vertices(mesh)
-        } else {
-            gpu_world_vertices(mesh, &world)
-        };
+        let skinned = matrices.is_some();
+        let vertices = gpu_bind_vertices(mesh);
         if vertices.is_empty() {
             continue;
         }
+        let instance = if skinned {
+            skin::IDENTITY
+        } else {
+            world.matrix()
+        };
         let ranges = if mesh.sections.is_empty() {
             vec![(0usize, mesh.indices.len(), 0usize)]
         } else {
@@ -876,10 +932,16 @@ fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
                 .flatten()
                 .filter(|handle| handle.0 < scene.materials.len());
             let key = (
+                mesh_handle.0,
+                material_slot,
                 material_handle.map(|handle| handle.0),
-                matrices.as_ref().map(|_| node_index),
+                skinned.then_some(node_index),
             );
-            let batch_index = *index_by_key.entry(key).or_insert_with(|| {
+            let existing = index_by_key.get(&key).copied();
+            let batch_index = if let Some(index) = existing {
+                batches[index].instances.push(instance);
+                index
+            } else {
                 let material = material_handle
                     .and_then(|handle| scene.materials.get(handle.0))
                     .cloned()
@@ -889,9 +951,15 @@ fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
                     count: 0,
                     material,
                     skin_matrices: matrices.clone().unwrap_or_else(|| vec![skin::IDENTITY]),
+                    instances: vec![instance],
                 });
-                batches.len() - 1
-            });
+                let index = batches.len() - 1;
+                index_by_key.insert(key, index);
+                index
+            };
+            if existing.is_some() && !skinned {
+                continue;
+            }
             let batch = &mut batches[batch_index];
             let end = (first + count).min(mesh.indices.len());
             let mut index = first;
@@ -925,55 +993,6 @@ fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
     }
     batches.retain(|batch| batch.count > 0);
     batches
-}
-
-/// 把网格顶点变换到世界空间。
-fn gpu_world_vertices(mesh: &MeshData, world: &lumark_scene::Transform) -> Vec<GpuVertex> {
-    let mut vertices = Vec::with_capacity(mesh.positions.len());
-    for (index, position) in mesh.positions.iter().enumerate() {
-        let normal = mesh
-            .normals
-            .get(index)
-            .map(|normal| normalize(world.transform_direction(*normal)))
-            .unwrap_or([0.0; 3]);
-        let tangent = mesh
-            .tangents
-            .get(index)
-            .map(|tangent| {
-                let direction =
-                    normalize(world.transform_direction([tangent[0], tangent[1], tangent[2]]));
-                [direction[0], direction[1], direction[2], tangent[3]]
-            })
-            .unwrap_or([1.0, 0.0, 0.0, 1.0]);
-        let uv = mesh
-            .uvs
-            .first()
-            .and_then(|channel| channel.get(index))
-            .copied()
-            .unwrap_or([0.0, 0.0]);
-        let color = mesh
-            .colors
-            .get(index)
-            .map(|color| {
-                [
-                    color[0] as f32 / 255.0,
-                    color[1] as f32 / 255.0,
-                    color[2] as f32 / 255.0,
-                    color[3] as f32 / 255.0,
-                ]
-            })
-            .unwrap_or([1.0; 4]);
-        vertices.push(GpuVertex {
-            position: world.transform_point(*position),
-            normal,
-            uv,
-            color,
-            tangent,
-            joints: [0.0; 4],
-            weights: [0.0; 4],
-        });
-    }
-    vertices
 }
 
 /// bind 空间顶点（带关节索引/权重），供 GPU 蒙皮使用。
@@ -1264,6 +1283,52 @@ mod tests {
             }
         }
         assert!(red_pixels > 0, "GPU 渲染结果缺少红色像素");
+    }
+
+    /// 同一网格的两个节点应通过实例矩阵渲染到左右两半。
+    #[test]
+    fn gpu_instances_share_mesh_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 实例化测试：{error}");
+                return;
+            }
+        };
+        let mut scene = triangle_scene();
+        let mesh = scene.nodes[0].mesh.expect("网格");
+        let material = scene.nodes[0].materials[0];
+        scene.add_node(SceneNode {
+            name: "Triangle2".to_string(),
+            parent: None,
+            transform: Transform::from_translation([4.0, 0.0, 0.0]),
+            mesh: Some(mesh),
+            materials: vec![material],
+            visible: true,
+            kind: NodeKind::StaticMesh,
+            metadata: Vec::new(),
+        });
+        let settings = RenderSettings {
+            width: 128,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let target = renderer.render(&scene, &settings).expect("GPU 渲染");
+        let mut left = 0;
+        let mut right = 0;
+        for (index, pixel) in target.rgba.as_chunks::<4>().0.iter().enumerate() {
+            if pixel[0] > pixel[2].saturating_add(10) && pixel[0] > 10 {
+                if index % 128 < 64 {
+                    left += 1;
+                } else {
+                    right += 1;
+                }
+            }
+        }
+        assert!(left > 0, "实例 1 未渲染");
+        assert!(right > 0, "实例 2 未渲染");
     }
 
     /// 有 GPU 时渲染带基础色贴图的三角形；无 GPU 时跳过。

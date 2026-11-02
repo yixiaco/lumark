@@ -31,7 +31,7 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 ## 渲染管线
 
 1. **相机**：根据场景包围盒自动拟合轨道相机（`Camera::fit`），透视投影深度 0..1。
-2. **批次**：按「材质句柄 + 蒙皮场景节点」合批；静态网格变换到世界空间，蒙皮网格保留 bind 空间顶点。
+2. **批次/实例化**：按「网格 + section + 材质 + 蒙皮节点」合批；静态网格共享本地空间顶点缓冲，每个节点只上传实例矩阵（GPU 实例化）；蒙皮网格保留 bind 空间顶点并独占批次。
 3. **蒙皮**：`MeshData.skin`（关节/inverse bind/≤4 影响/姿态）；CPU 逐顶点 LBS；GPU 顶点含 joints/weights，批次上传关节矩阵 storage buffer，WGSL 内 top-4 归一化混合。
 4. **着色**：基础色/法线/ORM（R=AO/G=粗糙度/B=金属度）/自发光贴图，金属度参与高光强度；alpha < 0.5 裁剪；单面材质剔除背面、双面材质保留。
 5. **叠加层**：地面网格与骨骼线段（LineList 管线，深度测试不写深度）；CPU 用 DDA 3D 线段光栅。
@@ -47,7 +47,7 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 
 ## 测试与基线
 
-- `lumark-render` 单元测试：**30 个**（CPU：相机裁剪/z-buffer/PBR/ORM/自发光/alpha/双面/蒙皮/着色模式/网格与隐藏槽；GPU：三角形/贴图/ORM/自发光/双面/蒙皮/着色模式/网格，无 GPU 自动跳过）。
+- `lumark-render` 单元测试：**32 个**（CPU：相机裁剪/z-buffer/PBR/ORM/自发光/alpha/双面/蒙皮/着色模式/网格与隐藏槽/场景统计；GPU：三角形/贴图/ORM/自发光/双面/蒙皮/着色模式/网格/两节点实例化，无 GPU 自动跳过）。
 - 本机基线（NVIDIA RTX 5070 Laptop，Vulkan，480×480，2×SS，含回读同步）：
   - `SM_Box_02 + MI_Props`：约 72 ms；
   - `SK_Chicken` 静态：约 83 ms；
@@ -60,5 +60,5 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 - MSAA、纹理 LRU、sRGB 视图切换：待 V-8；
 - wireframe 模式（DX12 兼容方案）与 section 逐项 UI：待 V-6 后续/V-17；
 - 透明仅 alpha-test，无排序混合；
-- 世界 Actor 实例化：待 V-7/V-14；
+- 世界 Actor 实例化：静态网格已支持场景级 GPU 实例化（共享顶点 + 实例矩阵，V-7 完成）；世界 Provider 仍待 V-14；
 - 完整查看器仍按需生成 PNG，RenderImage 帧泵待 V-16。
