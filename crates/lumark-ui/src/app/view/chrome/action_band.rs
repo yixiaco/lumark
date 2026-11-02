@@ -66,6 +66,23 @@ impl LumarkApp {
                                     |this, window, cx| this.open_game_assets(window, cx),
                                 ))
                             })
+                            .when(
+                                self.game_session.is_some()
+                                    && matches!(
+                                        &self.browser.location,
+                                        BrowserLocation::Archive { .. }
+                                    ),
+                                |this| {
+                                    this.child(banner_action(
+                                        cx,
+                                        "batch-export",
+                                        AppIcon::Download,
+                                        crate::i18n::tr_key("app.batch_export"),
+                                        BannerTone::Neutral,
+                                        |this, window, cx| this.open_batch_export(window, cx),
+                                    ))
+                                },
+                            )
                             .child(banner_action(
                                 cx,
                                 "browser-delete",

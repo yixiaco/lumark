@@ -18,6 +18,9 @@ app:
   game_assets:
     zh-CN: 游戏资产
     en: Game assets
+  batch_export:
+    zh-CN: 批量导出
+    en: Batch export
   settings:
     zh-CN: 设置
     en: Settings

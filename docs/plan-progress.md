@@ -97,7 +97,7 @@
 | E-12 批量枚举/执行 | ✅ | 后端完成（5 测试 + BNB 四格式）；取消、报告 JSON、耗时已实现 |
 | E-13 批量任务接入 | 🟡 | 第 32 轮：`export_archive_cancellable` + `Arc<AtomicBool>` 取消、`BatchProgress::Cancelled`、`BatchExportReport{cancelled,elapsed_seconds}` + `to_json_pretty()`；示例 `batch_export` 支持 cancel-after 并写 `batch-report.json`，BNB 实机取消生效（导出 1 后停止）；`TaskManager`/任务面板接入（E-15）未做 |
 | E-14 单资产导出 UI | ✅ | 第 34 轮：详情面板 `.uasset` 新增“导出资产…”入口；独立导出窗口 `export_window.rs`：格式多选（GLB/UEMODEL/USDA/PSK）、材质旁挂开关、贴图格式四选、后台导出、取消、结果统计与“打开输出目录”；默认输出 `桌面/LumarkExports`（暂不可自定义目录）。UI 2 测试（切换/渲染），`lumark-ui` 166 个全过 |
-| E-15 批量导出 UI | ⬜ | |
+| E-15 批量导出 UI | 🟡 | 第 35 轮：动作带新增“批量导出”（仅游戏容器）；`batch_export_window.rs`（584 行）：格式多选、材质解析/覆盖开关、数量限制（全部/10/50/100/500）、后台批量导出、实时阶段状态、取消、汇总报告 + 自动写 `batch-report.json`、打开输出目录；默认 `桌面/LumarkExports`。2 UI 测试，`lumark-ui` 168 个全过；未接入 `lumark-tasks` 任务中心/百分比进度 |
 | E-16 外部验证/真实验收 | 🟡 | GLB 已 gltf crate 校验；PSK/PSA/UEMODEL/USDA reader 已有示例 |
 | E-17 文档（export-formats） | ✅ | 第 32 轮：新增 `docs/export-formats.md`（五种模型格式能力/限制、坐标单位、四种贴图、materials.json、批量 API、验证记录） |
 
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（E-15 / E-13 TaskManager）
+## 下一轮（E-13 TaskManager / E-16）
 
-1. E-15 批量导出 UI：配置对话框（格式/过滤/limit/输出）+ `lumark-tasks` 任务面板/取消/报告 JSON；
-2. E-13 收尾：把批量导出接入 TaskManager（新任务类型或通用任务）并显示进度；
-3. E-10 USD Skel 或 E-16 外部验证；
+1. E-13 收尾：将单资产/批量导出接入 `lumark-tasks` 任务中心（任务类型/进度百分比/取消/报告），复用 E-15 后端；
+2. E-16 外部验证：GLB 用 gltf crate、PSK/PSA/UEMODEL/USDA 结构校验脚本 + BNB 验收清单；
+3. E-10 USD Skel 或 O（Oodle）阶段；
 4. 记录进度并提交。
