@@ -57,6 +57,10 @@ pub struct SceneLoadOptions {
     pub max_texture_size: u32,
     /// 跨资产贴图缓存。
     pub texture_cache: Option<TextureCache>,
+    /// 可选动画资产路径；骨骼网格会采样并写入姿态。
+    pub animation: Option<String>,
+    /// 动画采样时间（秒）。
+    pub animation_time: f32,
 }
 
 impl Default for SceneLoadOptions {
@@ -65,6 +69,8 @@ impl Default for SceneLoadOptions {
             load_materials: true,
             max_texture_size: 512,
             texture_cache: None,
+            animation: None,
+            animation_time: 0.0,
         }
     }
 }
@@ -80,6 +86,8 @@ pub enum SceneLoadStage {
     Materials,
     /// 构建场景。
     Building,
+    /// 采样动画并写入姿态。
+    Animation,
     /// 完成。
     Finished {
         /// 顶点数。
@@ -89,8 +97,25 @@ pub enum SceneLoadStage {
     },
 }
 
+/// 动画信息（供时间轴/报告）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationInfo {
+    /// 动画资产路径。
+    pub asset_path: String,
+    /// 动画名。
+    pub name: String,
+    /// 时长（秒）。
+    pub length: f32,
+    /// 帧数。
+    pub frames: u32,
+    /// 轨道数。
+    pub tracks: usize,
+    /// 采样时间（秒）。
+    pub time: f32,
+}
+
 /// 加载报告。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SceneLoadReport {
     /// 资产路径。
     pub asset_path: String,
@@ -106,6 +131,10 @@ pub struct SceneLoadReport {
     pub triangles: usize,
     /// 材质槽数量。
     pub materials: usize,
+    /// 骨骼数量（静态网格为 0）。
+    pub bones: usize,
+    /// 动画信息（未加载动画时为 `None`）。
+    pub animation: Option<AnimationInfo>,
     /// 非致命警告（材质缺失/贴图缺失等）。
     pub warnings: Vec<String>,
 }
@@ -117,6 +146,8 @@ pub struct LoadedScene {
     pub scene: Scene,
     /// 加载报告。
     pub report: SceneLoadReport,
+    /// 参考骨架（骨骼网格才有）。
+    pub skeleton: Option<crate::Skeleton>,
 }
 
 /// 加载场景。
@@ -173,13 +204,19 @@ pub fn load_scene(
             scene.meshes.iter().map(|mesh| mesh.positions.len()).sum(),
             scene.meshes.iter().map(|mesh| mesh.triangle_count()).sum(),
             mesh.material_slots.len(),
+            0,
+            None,
             warnings,
         );
         progress(SceneLoadStage::Finished {
             vertices: report.vertices,
             triangles: report.triangles,
         });
-        return Ok(LoadedScene { scene, report });
+        return Ok(LoadedScene {
+            scene,
+            report,
+            skeleton: None,
+        });
     }
 
     if let Some(index) = exports.iter().position(|export| {
@@ -213,7 +250,29 @@ pub fn load_scene(
             &mut warnings,
         );
         progress(SceneLoadStage::Building);
-        let scene = skeletal_mesh_scene(&preview.skeleton.name, &preview, &resolved);
+        let skeleton = preview.skeleton.clone();
+        let mut scene = skeletal_mesh_scene(&preview.skeleton.name, &preview, &resolved);
+        let animation_info = if skeleton.bones.is_empty() {
+            None
+        } else if let Some(animation_path) = &options.animation {
+            progress(SceneLoadStage::Animation);
+            match load_animation(source, mappings, animation_path, options.animation_time) {
+                Ok((animation, info)) => {
+                    let applied =
+                        crate::scene::apply_animation(&mut scene, &skeleton, &animation, info.time);
+                    if !applied {
+                        warnings.push(format!("动画 {animation_path} 未能写入场景姿态"));
+                    }
+                    Some(info)
+                }
+                Err(error) => {
+                    warnings.push(format!("动画加载失败：{error}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let report = build_report(
             &request.asset_path,
             "SkeletalMesh",
@@ -222,13 +281,19 @@ pub fn load_scene(
             scene.meshes.iter().map(|mesh| mesh.positions.len()).sum(),
             scene.meshes.iter().map(|mesh| mesh.triangle_count()).sum(),
             slots.len(),
+            skeleton.bones.len(),
+            animation_info,
             warnings,
         );
         progress(SceneLoadStage::Finished {
             vertices: report.vertices,
             triangles: report.triangles,
         });
-        return Ok(LoadedScene { scene, report });
+        return Ok(LoadedScene {
+            scene,
+            report,
+            skeleton: Some(skeleton),
+        });
     }
 
     Err("资产中没有 StaticMesh/SkeletalMesh 导出".to_string())
@@ -272,6 +337,38 @@ fn resolve_materials(
     resolved
 }
 
+/// 读取动画并按时间采样。
+fn load_animation(
+    source: &mut GameAssetSource,
+    mappings: &Mappings,
+    animation_path: &str,
+    time: f32,
+) -> Result<(crate::AnimSequenceData, AnimationInfo), String> {
+    let inputs = source
+        .read_package(animation_path)
+        .map_err(|error| format!("读取动画失败：{error}"))?;
+    let package = parse_package(inputs.uasset, source.scripts(), None)
+        .map_err(|error| format!("解析动画包失败：{error}"))?;
+    let index = package
+        .info()
+        .exports
+        .iter()
+        .position(|export| export.class_name == "AnimSequence")
+        .ok_or_else(|| "动画包中没有 AnimSequence 导出".to_string())?;
+    let animation = crate::read_anim_sequence(&package, index, mappings)
+        .map_err(|error| format!("读取 AnimSequence 失败：{error}"))?;
+    let animation_time = time.clamp(0.0, animation.length.max(0.0));
+    let info = AnimationInfo {
+        asset_path: animation_path.to_string(),
+        name: animation.name.clone(),
+        length: animation.length,
+        frames: animation.frames,
+        tracks: animation.track_to_bone.len(),
+        time: animation_time,
+    };
+    Ok((animation, info))
+}
+
 /// 组装报告。
 #[allow(clippy::too_many_arguments)]
 fn build_report(
@@ -282,6 +379,8 @@ fn build_report(
     vertices: usize,
     triangles: usize,
     materials: usize,
+    bones: usize,
+    animation: Option<AnimationInfo>,
     warnings: Vec<String>,
 ) -> SceneLoadReport {
     SceneLoadReport {
@@ -292,6 +391,8 @@ fn build_report(
         vertices,
         triangles,
         materials,
+        bones,
+        animation,
         warnings,
     }
 }

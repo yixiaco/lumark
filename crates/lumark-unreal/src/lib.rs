@@ -46,8 +46,8 @@ pub use package::{
     read_static_mesh, read_world_summary, read_zen_material_appearance, texture_references,
 };
 pub use provider::{
-    LoadedScene, LodPolicy, SceneLoadOptions, SceneLoadReport, SceneLoadStage, SceneRequest,
-    load_scene, lod_index,
+    AnimationInfo, LoadedScene, LodPolicy, SceneLoadOptions, SceneLoadReport, SceneLoadStage,
+    SceneRequest, load_scene, lod_index,
 };
 pub use raster::{
     MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,

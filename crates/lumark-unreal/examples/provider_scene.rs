@@ -16,7 +16,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let root = args.next().ok_or("缺少游戏目录")?;
     let container_name = args.next().ok_or("缺少容器文件名")?;
     let mapping_path = args.next().ok_or("缺少 .usmap")?;
-    let entries: Vec<String> = args.collect();
+    let mut entries = Vec::new();
+    let mut animation = None;
+    while let Some(argument) = args.next() {
+        if argument == "--anim" {
+            animation = args.next();
+        } else {
+            entries.push(argument);
+        }
+    }
     if entries.is_empty() {
         return Err("缺少资产路径".into());
     }
@@ -55,6 +63,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         load_materials: true,
         max_texture_size: 512,
         texture_cache: Some(texture_cache()),
+        animation,
+        animation_time: 0.5,
     };
     for entry in &entries {
         let request = SceneRequest::new(entry.as_str()).with_lod(LodPolicy::First);
@@ -75,6 +85,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         for warning in loaded.report.warnings.iter().take(5) {
             println!("  warning={warning}");
         }
+        if let Some(animation) = &loaded.report.animation {
+            println!(
+                "  animation={} length={:.3}s frames={} tracks={} time={:.3}s",
+                animation.name,
+                animation.length,
+                animation.frames,
+                animation.tracks,
+                animation.time
+            );
+        }
+        println!("  bones={}", loaded.report.bones);
         assert!(scene_stage_reached(&loaded));
     }
     Ok(())

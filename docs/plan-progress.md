@@ -68,9 +68,9 @@
 | V-9 渲染器测试/文档 | ✅ | 第 22 轮：30 个测试 + `docs/viewer-architecture.md`（分层/API/管线/模式/基线/限制） |
 | V-10 UE 静态网格 Provider | ✅ | 第 23 轮：`provider` 模块 `SceneRequest`/`LodPolicy`/`SceneLoadOptions`/`load_scene`/`SceneLoadStage`/`SceneLoadReport`；StaticMesh/SkeletalMesh 按 LOD 选层、材质解析、warning 汇总；BNB `SM_Box_02`（3 LOD）与 `SK_Chicken`（2 LOD）实机加载 |
 | V-11 UE 材质到 Scene | 🟡 | 总贴图缓存 `TextureCache` + `MaterialResolveOptions.texture_cache`、材质缺失/贴图缺失 warning；BNB 样本缺材质时输出可读 warning；HDR 标记待 S-6 |
-| V-12 骨骼网格/动画 Provider | 🟡 | 骨骼网格/动画可加载（V-5）；Provider 已支持 SkeletalMesh+LOD，动画 Clips 未挂入报告 |
+| V-12 骨骼网格/动画 Provider | ✅ | 第 24 轮：`SceneLoadOptions.animation/animation_time`、`SceneLoadStage::Animation`、`AnimationInfo`（名称/时长/帧数/轨道/采样时间）、`LoadedScene.skeleton`；BNB `SK_Chicken + ANIM_Chicken_Idle2` t=0.5s Provider 实机加载（42 骨骼/42 轨道/141 帧/4.667s）；时间轴 UI 待 V-19 |
 | V-13 独立场景 | 🟡 | 查看器可开 Mesh/Skeleton/SkeletalMaterial；入口/动画待完善 |
-| V-14 世界场景 Provider | ⬜ | 只有 WorldSummary，无 Actor→Scene |
+| V-14 世界场景 Provider | ⬜ | 依赖 Zen 导入表/组件属性：`WorldSummary` 仅有 Actor 清单，尚无 `StaticMeshComponent` 外部网格引用与 Transform，需先暴露 Zen import map |
 | V-15 UI 模块拆分 | ⬜ | `asset_viewer_window.rs` 仍单文件 |
 | V-16 渲染桥接/帧泵 | 🟡 | `lumark-ui/render_service` 可渲染 RenderImage（缩略图）；完整查看器仍逐次 PNG |
 | V-17 UI 外壳/工具栏 | ⬜ | |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-7 / V-14）
+## 下一轮（V-14 前置 / V-15）
 
-1. V-14 世界 Provider：`.umap` → WorldSummary → Actor 静态网格 Scene（复用 Provider 的资产读取）；
-2. V-7 实例化：同网格分组实例数据、Actor 上限与截断告警；
-3. V-12 补动画 Clips 接入报告/时间轴；
+1. 暴露 Zen 导入表与 `StaticMeshComponent` 属性读取（Actor→网格包路径/Transform 的前置）；
+2. 实现 V-14 世界 Provider + V-7 实例化（Actor 上限/截断告警）；
+3. 若世界解析受阻，转 V-15 拆分 `asset_viewer_window.rs` 与 V-16 RenderImage 帧泵；
 4. 记录进度并提交。
