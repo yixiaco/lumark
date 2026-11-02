@@ -92,6 +92,10 @@ pub(super) enum AppIcon {
     Video,
     /// Zip 图标。
     Zip,
+    /// ZoomIn 图标。
+    ZoomIn,
+    /// ZoomOut 图标。
+    ZoomOut,
 }
 
 impl AppIcon {
@@ -139,6 +143,8 @@ impl AppIcon {
             Self::Unlock => include_bytes!("../../../assets/icons/iconpark/unlock.svg"),
             Self::Video => include_bytes!("../../../assets/icons/iconpark/video.svg"),
             Self::Zip => include_bytes!("../../../assets/icons/iconpark/zip.svg"),
+            Self::ZoomIn => include_bytes!("../../../assets/icons/iconpark/zoom-in.svg"),
+            Self::ZoomOut => include_bytes!("../../../assets/icons/iconpark/zoom-out.svg"),
         }
     }
 

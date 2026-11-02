@@ -45,6 +45,8 @@ pub(crate) struct ImageViewerWindowView {
     pan: (f32, f32),
     /// 左键拖动平移的上一帧位置。
     drag_pan: Option<(f32, f32)>,
+    /// 最近一次鼠标位置（窗口坐标），用于滚轮缩放锚点。
+    cursor: Option<(f32, f32)>,
     /// 用户手动旋转的 90° 次数（0–3）。
     rotation: u8,
     /// 是否正在后台旋转图片。
@@ -107,6 +109,7 @@ impl ImageViewerWindowView {
             zoom: 1.0,
             pan: (0.0, 0.0),
             drag_pan: None,
+            cursor: None,
             rotation: 0,
             rotating: false,
             notice: None,
@@ -271,7 +274,7 @@ impl ImageViewerWindowView {
             .child(
                 button("image-zoom-out")
                     .ghost()
-                    .label("−")
+                    .icon(AppIcon::ZoomOut.element(16.))
                     .tooltip(tr("缩小", "Zoom out"))
                     .accessibility_label(tr("缩小", "Zoom out"))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -282,7 +285,7 @@ impl ImageViewerWindowView {
             .child(
                 button("image-zoom-in")
                     .ghost()
-                    .label("+")
+                    .icon(AppIcon::ZoomIn.element(16.))
                     .tooltip(tr("放大", "Zoom in"))
                     .accessibility_label(tr("放大", "Zoom in"))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -393,15 +396,26 @@ impl ImageViewerWindowView {
             .items_center()
             .justify_center()
             .child(content)
-            .on_scroll(cx.listener(|this, event: &gpui_kit::ScrollEvent, _, cx| {
-                let delta = wheel_delta_y(event.delta);
-                let zoom = wheel_zoom(this.zoom, delta);
-                if (zoom - this.zoom).abs() > f32::EPSILON {
-                    this.fit = false;
-                    this.zoom = zoom;
-                    cx.notify();
-                }
-            }))
+            .on_scroll(
+                cx.listener(|this, event: &gpui_kit::ScrollEvent, window, cx| {
+                    let delta = wheel_delta_y(event.delta);
+                    let zoom = wheel_zoom(this.zoom, delta);
+                    if (zoom - this.zoom).abs() > f32::EPSILON {
+                        let old_zoom = this.zoom;
+                        this.fit = false;
+                        if let Some(cursor) = this.cursor {
+                            let bounds = window.inner_window_bounds().get_bounds();
+                            let center = wheel_center((
+                                bounds.size.width.as_f32(),
+                                bounds.size.height.as_f32(),
+                            ));
+                            this.pan = anchored_pan(this.pan, cursor, center, old_zoom, zoom);
+                        }
+                        this.zoom = zoom;
+                        cx.notify();
+                    }
+                }),
+            )
             .on_mouse_down(
                 gpui_kit::MouseButton::Left,
                 cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, _| {
@@ -413,6 +427,7 @@ impl ImageViewerWindowView {
             )
             .on_mouse_move(
                 cx.listener(|this, event: &gpui_kit::MouseMoveEvent, _, cx| {
+                    this.cursor = Some((event.position.x.as_f32(), event.position.y.as_f32()));
                     if event.pressed_button != Some(gpui_kit::MouseButton::Left) {
                         this.drag_pan = None;
                         return;
@@ -885,6 +900,31 @@ fn wheel_delta_y(delta: gpui_kit::ScrollDelta) -> f32 {
     }
 }
 
+/// 画布中心（窗口坐标近似值）：标题 38 + 工具栏约 36，状态栏 26。
+fn wheel_center((width, height): (f32, f32)) -> (f32, f32) {
+    (width / 2.0, height / 2.0 + 6.0)
+}
+
+/// 以光标为锚点调整平移：保持光标下的图片位置不漂移。
+fn anchored_pan(
+    pan: (f32, f32),
+    cursor: (f32, f32),
+    center: (f32, f32),
+    old_zoom: f32,
+    new_zoom: f32,
+) -> (f32, f32) {
+    if old_zoom <= f32::EPSILON || (new_zoom - old_zoom).abs() <= f32::EPSILON {
+        return pan;
+    }
+    let factor = new_zoom / old_zoom;
+    let offset_x = cursor.0 - center.0 - pan.0;
+    let offset_y = cursor.1 - center.1 - pan.1;
+    (
+        pan.0 + (1.0 - factor) * offset_x,
+        pan.1 + (1.0 - factor) * offset_y,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -994,4 +1034,21 @@ fn wheel_zoom_directions_and_bounds() {
     assert_eq!(wheel_zoom(1.0, 0.0), 1.0);
     assert!(wheel_zoom(100.0, -100_000.0) <= 16.0);
     assert!(wheel_zoom(0.001, 100_000.0) >= 0.05);
+}
+
+/// 光标锚点：放大时光标下的图片位置保持不动。
+#[test]
+fn anchored_zoom_keeps_cursor_point() {
+    let center = (400.0, 300.0);
+    let cursor = (500.0, 300.0);
+    let pan = (0.0, 0.0);
+    let next = anchored_pan(pan, cursor, center, 1.0, 2.0);
+    assert!((next.0 + 100.0).abs() < f32::EPSILON);
+    assert!(next.1.abs() < f32::EPSILON);
+    // 光标正好在中心时不产生平移。
+    let same = anchored_pan(pan, center, center, 1.0, 2.0);
+    assert_eq!(same, pan);
+    // 已有平移且放大同样满足锚点公式。
+    let moved = anchored_pan((10.0, 0.0), cursor, center, 1.0, 2.0);
+    assert!((moved.0 + 80.0).abs() < f32::EPSILON);
 }
