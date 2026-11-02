@@ -39,6 +39,10 @@ pub use raster::{
     render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
     render_static_mesh_orbit,
 };
+pub use skinning::{
+    AnimationSample, BonePose, BoneRotation, animation_poses, sample_animation,
+    skin_matrices_from_poses, skin_mesh, skin_mesh_animation, skin_mesh_pose,
+};
 pub use source::{
     AssetContainerKind, AssetInputs, AssetPackageRead, AssetSourceError, GameAssetEntry,
     GameAssetOptions, GameAssetSource, read_asset_package,

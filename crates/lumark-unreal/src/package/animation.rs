@@ -152,6 +152,23 @@ impl AnimSequenceData {
     }
 }
 
+#[cfg(test)]
+impl AnimSequenceData {
+    /// 构造无关键帧动画，供采样/蒙皮接口测试使用。
+    pub(crate) fn empty_for_test(track_to_bone: Vec<i32>, length: f32, frames: u32) -> Self {
+        Self {
+            name: "A_Test".to_string(),
+            length,
+            frames,
+            track_to_bone,
+            offsets: Vec::new(),
+            scale_offsets: Vec::new(),
+            key_data: Vec::new(),
+            legacy: None,
+        }
+    }
+}
+
 /// 解析后的压缩头。
 struct CompressedHeader {
     frames: u32,
