@@ -105,7 +105,7 @@
 
 - **M-1** ffmpeg/ffprobe 工具发现：✅；**M-2** 媒体探测：✅；**M-3** 视频抽帧：✅；**M-4** 播放窗口：✅；**M-5** 播放/暂停/±5s/±1 帧/回到开头 + 时间显示：✅；**M-6** 音频输出/同步：✅（同目录 ffplay `-nodisp -autoexit -ss` 子进程；播放/暂停/跳转/关闭窗口同步启停；无音轨或无 ffplay 时仅画面并提示）；**M-7** 归档内媒体：✅；**M-8** 测试/文档：✅。
 - **I-1** 拆分图片查看器：✅（第 46 轮拆为 `mod/title/toolbar/body/status/image_ops/app/tests`，最大 286 行）；**I-2** 滚轮缩放：✅（指数缩放 + 光标锚点）；**I-3** 左键拖拽：✅；**I-4** zoom 图标：✅（IconPark `zoom-in.svg`/`zoom-out.svg`）；**I-5** 文档：✅（新增 `docs/image-viewer.md`）。
-- **A-1** 原始 8 项需求验收清单：✅（`docs/acceptance.md` 表格逐项证据）；**A-2** 构建/运行说明：✅（README + acceptance）；**A-3** 测试/性能报告：✅（fmt/clippy/check/test 命令、各 crate 测试数、BNB/FF7R 实机与渲染耗时）；**A-4** 已知限制/兼容性：✅；**A-5** 发布流程/CI：🟡（本地全绿，P-5 推送后跑 GitHub Actions）；**A-6** 文档索引：✅（`docs/acceptance.md` 第六节）。
+- **A-1** 原始 8 项需求验收清单：✅（`docs/acceptance.md` 表格逐项证据）；**A-2** 构建/运行说明：✅（README + acceptance）；**A-3** 测试/性能报告：✅（`cargo test --workspace --lib` **534 个库测试全过** + fmt/clippy/check；BNB/FF7R 实机与渲染耗时）；**A-4** 已知限制/兼容性：✅；**A-5** 发布流程/CI：🟡（本地全绿，P-5 推送后跑 GitHub Actions）；**A-6** 文档索引：✅（`docs/acceptance.md` 第六节）。
 
 ## 最近提交
 
