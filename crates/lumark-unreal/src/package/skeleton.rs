@@ -423,6 +423,7 @@ fn parse_streamed_lod(data: &[u8]) -> Result<(MeshLod, Option<SkinWeightStats>),
             positions,
             indices,
             sections: Vec::new(),
+            attributes: Default::default(),
         },
         skin,
     ))

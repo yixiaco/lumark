@@ -865,6 +865,7 @@ fn filter_sections(mesh: &MeshLod, hidden: &[bool]) -> MeshLod {
         positions: mesh.positions.clone(),
         indices,
         sections,
+        attributes: Default::default(),
     }
 }
 

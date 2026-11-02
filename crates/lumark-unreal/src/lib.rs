@@ -19,15 +19,16 @@ pub use package::legacy::{
 };
 pub use package::{
     AnimSequenceData, AssetKind, AssetMetadata, Bone, BulkDataEntry, LegacySkeletalMeshGeometry,
-    LegacySkeletalMeshSummary, Mappings, MaterialAppearance, MaterialTextureKind,
+    LegacySkeletalMeshSummary, Mappings, MaterialAppearance, MaterialSlot, MaterialTextureKind,
     MaterialTextureRef, MaterialViewerData, MaterialViewerImage, MeshLod, MeshSection,
-    PackageError, PackageExport, PackageInfo, PropSchema, PropType, PropValue, SkeletalMeshPreview,
-    Skeleton, SkinWeightStats, SkinWeights, StaticMesh, StructSchema, Texture2D, TextureMip,
-    TrackPose, UnrealPackage, UnversionedProperties, ZenScriptObjects, is_material_class,
-    material_parent_package, parse_package, read_anim_sequence, read_asset_metadata,
-    read_legacy_anim_sequence, read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
+    MeshVertexAttributes, PackageError, PackageExport, PackageInfo, PropSchema, PropType,
+    PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, StaticMesh,
+    StructSchema, Texture2D, TextureMip, TrackPose, UnrealPackage, UnversionedProperties,
+    ZenScriptObjects, is_material_class, material_parent_package, parse_package,
+    read_anim_sequence, read_asset_metadata, read_legacy_anim_sequence,
+    read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
-    read_zen_material_appearance, texture_references,
+    read_static_mesh, read_zen_material_appearance, texture_references,
 };
 pub use raster::{
     MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,

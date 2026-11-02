@@ -108,6 +108,8 @@ fn apply_skin(mesh: &MeshLod, reference: &[Mat4], pose: &[Mat4], weights: &SkinW
         positions: positioned,
         indices: mesh.indices.clone(),
         sections: mesh.sections.clone(),
+        // UV/颜色可直接沿用；法线/切线需要按骨骼旋转，当前仅 CPU 调试路径使用位置。
+        attributes: mesh.attributes.clone(),
     }
 }
 
@@ -326,6 +328,7 @@ mod tests {
                 first_index: 0,
                 triangle_count: 0,
             }],
+            attributes: Default::default(),
         };
         let skeleton = Skeleton {
             name: "SK_Test".to_string(),
@@ -365,6 +368,7 @@ mod tests {
             positions: vec![[1.0, 2.0, 3.0]],
             indices: Vec::new(),
             sections: Vec::new(),
+            attributes: Default::default(),
         };
         let skeleton = Skeleton {
             name: "SK_Test".to_string(),
@@ -403,6 +407,7 @@ mod tests {
             positions: vec![[3.0, 4.0, 5.0]],
             indices: Vec::new(),
             sections: Vec::new(),
+            attributes: Default::default(),
         };
         let skeleton = Skeleton {
             name: "SK_Empty".to_string(),

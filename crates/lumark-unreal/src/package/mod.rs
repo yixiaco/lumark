@@ -315,7 +315,9 @@ pub use material::{
     MaterialViewerImage, material_parent_package, read_legacy_material_appearance,
     read_zen_material_appearance, texture_references,
 };
-pub use mesh::{MeshLod, MeshSection, StaticMesh, read_static_mesh};
+pub use mesh::{
+    MaterialSlot, MeshLod, MeshSection, MeshVertexAttributes, StaticMesh, read_static_mesh,
+};
 pub use script_objects::{ScriptObject, ZenScriptObjects};
 pub use skeleton::{
     Bone, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, read_skeleton,

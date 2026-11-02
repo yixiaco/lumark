@@ -209,6 +209,7 @@ pub fn read_legacy_skeletal_mesh_geometry(
             positions,
             indices,
             sections: mesh_sections,
+            attributes: Default::default(),
         },
         lod_count,
         section_count,

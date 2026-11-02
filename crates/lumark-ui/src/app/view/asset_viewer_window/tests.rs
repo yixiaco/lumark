@@ -18,6 +18,7 @@ fn viewer_renders_initial_preview_file() {
             first_index: 0,
             triangle_count: 1,
         }],
+        attributes: Default::default(),
     };
     let view =
         AssetViewerWindowView::new("Mesh".to_string(), ViewerScene::Mesh { lods: vec![mesh] });
@@ -43,6 +44,7 @@ fn viewer_switches_static_lods() {
             first_index: 0,
             triangle_count: 1,
         }],
+        attributes: Default::default(),
     };
     let lod1 = MeshLod {
         positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
@@ -52,6 +54,7 @@ fn viewer_switches_static_lods() {
             first_index: 0,
             triangle_count: 1,
         }],
+        attributes: Default::default(),
     };
     let mut view = AssetViewerWindowView::new(
         "Mesh".to_string(),
@@ -79,11 +82,13 @@ fn viewer_switches_skeletal_lods() {
             first_index: 0,
             triangle_count: 1,
         }],
+        attributes: Default::default(),
     };
     let lod1 = MeshLod {
         positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
         indices: vec![0, 1, 2],
         sections: Vec::new(),
+        attributes: Default::default(),
     };
     let skeleton = Skeleton {
         name: "SKEL_Test".to_string(),
@@ -124,6 +129,7 @@ fn skeletal_mesh_viewer_renders_preview_with_bones() {
             first_index: 0,
             triangle_count: 1,
         }],
+        attributes: Default::default(),
     };
     let skeleton = Skeleton {
         name: "SKEL_Test".to_string(),
@@ -161,6 +167,7 @@ fn skeletal_mesh_viewer_skins_dominant_bone() {
             first_index: 0,
             triangle_count: 1,
         }],
+        attributes: Default::default(),
     };
     let skeleton = Skeleton {
         name: "SKEL_Test".to_string(),
@@ -224,6 +231,7 @@ fn section_filter_hides_triangles() {
                 triangle_count: 1,
             },
         ],
+        attributes: Default::default(),
     };
     let filtered = filter_sections(&mesh, &[false, true]);
     assert_eq!(filtered.sections.len(), 1);

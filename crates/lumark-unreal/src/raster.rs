@@ -781,6 +781,7 @@ mod tests {
                 first_index: 0,
                 triangle_count: 2,
             }],
+            attributes: Default::default(),
         };
         let image = render_static_mesh(&mesh, 96, 96);
         assert!(
@@ -808,6 +809,7 @@ mod tests {
                 first_index: 0,
                 triangle_count: 2,
             }],
+            attributes: Default::default(),
         };
         let front = render_static_mesh_orbit(&mesh, 64, 64, 0.0, 0.0, 1.0);
         let side = render_static_mesh_orbit(&mesh, 64, 64, 70.0, 20.0, 1.0);

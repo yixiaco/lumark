@@ -1,10 +1,10 @@
 //! StaticMesh 几何读取（首个 LOD）。
 //!
-//! 当前面向 UE5.6+ cooked Zen 资产：解析 `FPositionVertexBuffer`、索引缓冲和
-//! section；内联顶点数据是 UE5.6/5.8 fixture 的主要布局。3D 查看器只依赖
-//! 位置和三角形，因此暂不读取切线、UV、颜色和后续 LOD。
+//! 当前面向 UE5.6+ cooked Zen 资产：解析 `FPositionVertexBuffer`、切线/法线、
+//! 全部 UV 通道、顶点颜色、索引缓冲和 section；内联顶点数据是 UE5.6/5.8
+//! fixture 的主要布局。无法识别的可选缓冲会跳过并保留几何，不阻断查看器。
 
-use super::{Mappings, PackageError, UnrealPackage, invalid};
+use super::{AssetMetadata, Mappings, PackageError, UnrealPackage, invalid, read_asset_metadata};
 
 /// 一个 section。
 #[derive(Debug, Clone, Copy)]
@@ -17,6 +17,28 @@ pub struct MeshSection {
     pub triangle_count: i32,
 }
 
+/// 静态网格材质槽。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MaterialSlot {
+    /// 槽位名称（`MaterialSlotName`）。
+    pub name: String,
+    /// 材质包路径；当前大多由上层按同目录命名约定解析。
+    pub package: Option<String>,
+}
+
+/// 顶点属性；空 Vec 表示容器没有提供该属性。
+#[derive(Debug, Clone, Default)]
+pub struct MeshVertexAttributes {
+    /// 法线（归一化 xyz）。
+    pub normals: Vec<[f32; 3]>,
+    /// 切线 xyz + 副切线符号 w。
+    pub tangents: Vec<[f32; 4]>,
+    /// 每个 UV 通道一组，长度与顶点数一致。
+    pub uvs: Vec<Vec<[f32; 2]>>,
+    /// 顶点颜色（RGBA）。
+    pub colors: Vec<[u8; 4]>,
+}
+
 /// 一个 LOD 的 CPU 几何。
 #[derive(Debug, Clone, Default)]
 pub struct MeshLod {
@@ -26,6 +48,8 @@ pub struct MeshLod {
     pub indices: Vec<u32>,
     /// section。
     pub sections: Vec<MeshSection>,
+    /// 法线、切线、UV 和顶点颜色。
+    pub attributes: MeshVertexAttributes,
 }
 
 impl MeshLod {
@@ -46,6 +70,8 @@ pub struct StaticMesh {
     pub lod_count: usize,
     /// 成功解析的 LOD 列表（通常至少包含 LOD0）。
     pub lods: Vec<MeshLod>,
+    /// 材质槽（来自 `StaticMaterials` 属性，顺序与 section.material_index 对应）。
+    pub material_slots: Vec<MaterialSlot>,
 }
 
 /// 从包中读取指定导出的 StaticMesh（仅首个 LOD）。
@@ -100,6 +126,16 @@ pub fn read_static_mesh(
     reader.skip(socket_count * 4)?;
 
     // 尝试 1：有 KeepMobileMinLODSettingOnDesktop 的 int；尝试 2：直接 LOD 数组。
+    let material_slots = match read_asset_metadata(package, export_index, mappings) {
+        Ok(AssetMetadata::StaticMesh { material_names, .. }) => material_names
+            .into_iter()
+            .map(|name| MaterialSlot {
+                name,
+                package: None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
     let base = reader.position;
     let mut last_error = None;
     for skip_min_mobile in [true, false] {
@@ -118,6 +154,7 @@ pub fn read_static_mesh(
                     lod,
                     lod_count,
                     lods,
+                    material_slots,
                 });
             }
             Err(error) => last_error = Some(error),
@@ -234,27 +271,35 @@ fn read_inline_buffers(
     let _vertex_strip_class = reader.u8()?;
     let num_tex_coords = reader.i32()?;
     let num_vertices = reader.count(1, 10_000_000)?;
-    let _use_full_precision_uvs = reader.bool32()?;
-    let _use_high_precision_tangents = reader.bool32()?;
+    let use_full_precision_uvs = reader.bool32()?;
+    let use_high_precision_tangents = reader.bool32()?;
     let tangent_element_size = reader.i32()?;
     let tangent_count = reader.count(1, 10_000_000)?;
     if num_vertices != position_count || tangent_count != num_vertices {
         return Err(invalid("顶点数与切线数不一致"));
     }
-    reader.skip(
-        (tangent_element_size as usize)
-            .checked_mul(tangent_count)
-            .ok_or_else(|| invalid("切线数据长度溢出"))?,
+    let mut attributes = MeshVertexAttributes::default();
+    read_vertex_tangents(
+        reader,
+        tangent_element_size,
+        tangent_count,
+        use_high_precision_tangents,
+        &mut attributes,
     )?;
     if !(0..=8).contains(&num_tex_coords) {
         return Err(invalid(format!("UV 通道数非法：{num_tex_coords}")));
     }
     let uv_element_size = reader.i32()?;
     let uv_count = reader.count(1, 10_000_000)?;
-    let uv_bytes = (uv_element_size as usize)
-        .checked_mul(uv_count)
-        .ok_or_else(|| invalid("UV 数据长度溢出"))?;
-    reader.skip(uv_bytes)?;
+    read_vertex_uvs(
+        reader,
+        num_tex_coords as usize,
+        num_vertices,
+        uv_element_size,
+        uv_count,
+        use_full_precision_uvs,
+        &mut attributes,
+    )?;
 
     // FColorVertexBuffer。
     let _color_strip_global = reader.u8()?;
@@ -267,7 +312,29 @@ fn read_inline_buffers(
         if color_stride != 4 || color_element_size != 4 || color_bulk_count != color_count {
             return Err(invalid("顶点颜色缓冲布局不匹配"));
         }
-        reader.skip(color_bulk_count * 4)?;
+        let bytes = reader.bytes(color_bulk_count * 4)?;
+        attributes.colors = bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
+            .collect();
+    }
+
+    // 属性数量必须与顶点数一致；异常时整体丢弃该属性，避免下游越界。
+    if attributes.normals.len() != positions.len() {
+        attributes.normals.clear();
+        attributes.tangents.clear();
+    }
+    if attributes
+        .uvs
+        .iter()
+        .any(|channel| channel.len() != positions.len())
+    {
+        attributes.uvs.clear();
+    }
+    if attributes.colors.len() != positions.len() {
+        attributes.colors.clear();
     }
 
     // FRawStaticIndexBuffer：bool + bulk array<byte>。
@@ -309,7 +376,184 @@ fn read_inline_buffers(
         positions,
         indices,
         sections,
+        attributes,
     })
+}
+
+/// 读取切线/法线缓冲。
+///
+/// UE5 现代 cooked 布局：
+/// - 普通精度：每顶点 2×`FPackedNormal`（TangentX、TangentZ），8 字节；
+/// - 高精度：每顶点 2×`FPackedRGBA16N`，16 字节。
+///
+/// 旧布局（3×`FPackedNormal`，12 字节）也兼容读取 X/Y/Z；无法识别的布局会
+/// 整体跳过，保留几何而不阻断查看器。
+fn read_vertex_tangents(
+    reader: &mut MeshReader<'_>,
+    element_size: i32,
+    count: usize,
+    high_precision: bool,
+    attributes: &mut MeshVertexAttributes,
+) -> Result<(), PackageError> {
+    attributes.normals.reserve(count);
+    attributes.tangents.reserve(count);
+    if high_precision && element_size == 16 {
+        for _ in 0..count {
+            let tangent = read_rgba16n(reader)?;
+            let normal = read_rgba16n(reader)?;
+            attributes
+                .normals
+                .push(normalize3([normal[0], normal[1], normal[2]]));
+            attributes.tangents.push(build_tangent(tangent, normal));
+        }
+        return Ok(());
+    }
+    if !high_precision && element_size == 8 {
+        for _ in 0..count {
+            let tangent = decode_packed_normal(reader.u32()?);
+            let normal = decode_packed_normal(reader.u32()?);
+            attributes
+                .normals
+                .push(normalize3([normal[0], normal[1], normal[2]]));
+            attributes.tangents.push(build_tangent(tangent, normal));
+        }
+        return Ok(());
+    }
+    if !high_precision && element_size == 12 {
+        for _ in 0..count {
+            let tangent = decode_packed_normal(reader.u32()?);
+            let _tangent_y = reader.u32()?;
+            let normal = decode_packed_normal(reader.u32()?);
+            attributes
+                .normals
+                .push(normalize3([normal[0], normal[1], normal[2]]));
+            attributes.tangents.push(build_tangent(tangent, normal));
+        }
+        return Ok(());
+    }
+    let bytes = (element_size.max(0) as usize)
+        .checked_mul(count)
+        .ok_or_else(|| invalid("切线数据长度溢出"))?;
+    reader.skip(bytes)?;
+    attributes.normals.clear();
+    attributes.tangents.clear();
+    Ok(())
+}
+
+/// 读取全部 UV 通道。
+///
+/// `BulkSerialize` 的 itemSize 是**单个 UV 元素**的字节数（2×f16=4 或
+/// 2×f32=8），itemCount 是“顶点数 × 通道数”；UE 在通道数为奇数时还会填充
+/// 一个顶点。布局不符时整体跳过并保留几何。
+fn read_vertex_uvs(
+    reader: &mut MeshReader<'_>,
+    num_tex_coords: usize,
+    num_vertices: usize,
+    element_size: i32,
+    count: usize,
+    full_precision: bool,
+    attributes: &mut MeshVertexAttributes,
+) -> Result<(), PackageError> {
+    let element_size_expected = if full_precision { 8 } else { 4 };
+    let vertex_count = if num_vertices == 0 {
+        0
+    } else if count == num_vertices.saturating_mul(num_tex_coords) {
+        num_vertices
+    } else {
+        num_vertices + usize::from(!num_tex_coords.is_multiple_of(2))
+    };
+    let expected = vertex_count
+        .checked_mul(num_tex_coords)
+        .ok_or_else(|| invalid("UV 数据长度溢出"))?;
+    if element_size as usize != element_size_expected || count != expected {
+        let bytes = (element_size.max(0) as usize)
+            .checked_mul(count)
+            .ok_or_else(|| invalid("UV 数据长度溢出"))?;
+        reader.skip(bytes)?;
+        attributes.uvs.clear();
+        return Ok(());
+    }
+    let mut uvs: Vec<Vec<[f32; 2]>> = (0..num_tex_coords)
+        .map(|_| Vec::with_capacity(num_vertices))
+        .collect();
+    for vertex in 0..vertex_count {
+        for channel in &mut uvs {
+            let uv = if full_precision {
+                [reader.f32()?, reader.f32()?]
+            } else {
+                [half_to_f32(reader.u16()?), half_to_f32(reader.u16()?)]
+            };
+            if vertex < num_vertices {
+                channel.push(uv);
+            }
+        }
+    }
+    attributes.uvs = uvs;
+    Ok(())
+}
+
+/// 读取一个 `FPackedRGBA16N`（4 个带偏置的 u16 分量）。
+fn read_rgba16n(reader: &mut MeshReader<'_>) -> Result<[f32; 4], PackageError> {
+    let mut components = [0.0f32; 4];
+    for component in &mut components {
+        let raw = reader.u16()? ^ 0x8000;
+        *component = (raw as f32 - 32_767.5) / 32_767.5;
+    }
+    Ok(components)
+}
+
+/// 解码 `FPackedNormal`（4 个字节分量，解码为 [-1, 1]）。
+pub(super) fn decode_packed_normal(data: u32) -> [f32; 4] {
+    // UE4.20+ 使用偏移后的字节编码。
+    let data = data ^ 0x8080_8080;
+    let decode = |byte: u32| byte as f32 / 127.5 - 1.0;
+    [
+        decode(data & 0xFF),
+        decode((data >> 8) & 0xFF),
+        decode((data >> 16) & 0xFF),
+        decode(data >> 24),
+    ]
+}
+
+/// 把切线基转换为渲染/导出使用的 `[x, y, z, 副切线符号]`。
+pub(super) fn build_tangent(tangent: [f32; 4], normal: [f32; 4]) -> [f32; 4] {
+    let tangent = normalize3([tangent[0], tangent[1], tangent[2]]);
+    [
+        tangent[0],
+        tangent[1],
+        tangent[2],
+        if normal[3] < 0.0 { -1.0 } else { 1.0 },
+    ]
+}
+
+/// 归一化三维向量；零向量回退到 +Z。
+pub(super) fn normalize3(value: [f32; 3]) -> [f32; 3] {
+    let length = (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt();
+    if length > f32::EPSILON {
+        [value[0] / length, value[1] / length, value[2] / length]
+    } else {
+        [0.0, 0.0, 1.0]
+    }
+}
+
+/// 把 IEEE 754 half 位模式转换为 f32。
+pub(super) fn half_to_f32(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exponent = ((bits >> 10) & 0x1F) as i32;
+    let mantissa = (bits & 0x03FF) as f32;
+    let value = if exponent == 0 {
+        // 次正规数：mantissa × 2^-24。
+        mantissa / 16_777_216.0
+    } else if exponent == 0x1F {
+        if mantissa == 0.0 {
+            f32::INFINITY
+        } else {
+            f32::NAN
+        }
+    } else {
+        (1.0 + mantissa / 1024.0) * 2.0f32.powi(exponent - 15)
+    };
+    sign * value
 }
 
 /// 跳过 UE5.6 SerializeBuffers 末尾的索引缓冲、RT 数据和采样器。
@@ -457,5 +701,51 @@ impl<'a> MeshReader<'a> {
             return Err(invalid(format!("网格数组数量非法：{count}")));
         }
         Ok(count as usize)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_tangent, decode_packed_normal, half_to_f32, normalize3};
+
+    /// 验证常见 half 位模式的转换。
+    #[test]
+    fn decodes_half_floats() {
+        assert_eq!(half_to_f32(0x0000), 0.0);
+        assert_eq!(half_to_f32(0x3C00), 1.0);
+        assert_eq!(half_to_f32(0x3800), 0.5);
+        assert_eq!(half_to_f32(0xC000), -2.0);
+        assert_eq!(half_to_f32(0x7BFF), 65_504.0);
+        assert!(half_to_f32(0x7C01).is_nan());
+    }
+
+    /// 验证 `FPackedNormal` 的偏移解码：0x7F7F7F7F 异或后为全 1。
+    #[test]
+    fn decodes_packed_normal() {
+        let normal = decode_packed_normal(0x7F7F_7F7F);
+        for component in normal {
+            assert!((component - 1.0).abs() < f32::EPSILON);
+        }
+        let negative = decode_packed_normal(0x8080_8080);
+        for component in negative {
+            assert!((component + 1.0).abs() < f32::EPSILON);
+        }
+    }
+
+    /// 切线副切线符号跟随法线 W 分量。
+    #[test]
+    fn tangent_sign_follows_normal_w() {
+        let positive = build_tangent([1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 0.5]);
+        assert_eq!(positive, [1.0, 0.0, 0.0, 1.0]);
+        let negative = build_tangent([1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, -0.5]);
+        assert_eq!(negative, [1.0, 0.0, 0.0, -1.0]);
+    }
+
+    /// 零向量归一化回退到 +Z。
+    #[test]
+    fn normalizes_zero_vector_safely() {
+        assert_eq!(normalize3([0.0, 0.0, 0.0]), [0.0, 0.0, 1.0]);
+        let normalized = normalize3([0.0, 0.0, 2.0]);
+        assert_eq!(normalized, [0.0, 0.0, 1.0]);
     }
 }
