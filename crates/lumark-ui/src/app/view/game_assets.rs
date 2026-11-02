@@ -739,6 +739,16 @@ fn oodle_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::An
                         })),
                 ),
         )
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(format!(
+                    "{}：{}",
+                    tr("当前后端", "Current backend"),
+                    lumark_archive::oodle_status().summary()
+                )),
+        )
         .into_any_element()
 }
 

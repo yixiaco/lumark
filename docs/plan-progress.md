@@ -8,12 +8,12 @@
 | 阶段 | 完成度 | 当前状态 |
 |---|---|---|
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
-| O（Oodle FModel 式） | 0/7 | 现有加载器可手动指定；自动下载/随包/UI 未做 |
+| O（Oodle FModel 式） | 2/7 | O-1/O-2 完成；O-5/O-6 部分；下载/随包/验收待做 |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
-| V（查看器） | 4/21 | V-0/1 完成，V-2/3 部分，V-4 本轮完成核心 |
-| E（导出） | 8/18 | E-5/E-6/E-8/E-9 完成；E-3/E-7/E-11/E-13…E-17 待做 |
+| V（查看器） | 9/21 | V-2/3/6/13/16/18/19 部分；V-7/8/14/20 待做 |
+| E（导出） | 14/18 | E-0/E-1/E-2/E-10 待补或部分；其余完成 |
 | M（媒体播放器） | 0/8 | 全部待做 |
-| I（图片查看器） | 2/5 | I-2/I-3 已做（光标锚点待补），I-1/I-4 待做 |
+| I（图片查看器） | 1/5 | I-3 完成，I-2/I-4 部分，I-1/I-5 待做 |
 | A（验收/文档/发布） | 0/6 | 待 V/E/M/I 收口 |
 
 ## P：CI 与基础设施
@@ -30,12 +30,12 @@
 
 | 步骤 | 状态 | 备注 |
 |---|---|---|
-| O-1 加载器状态 API | ⬜ | 现有 `configure_oodle_library` 可手动指定 |
-| O-2 容器 needs_oodle 预检 | ⬜ | |
+| O-1 加载器状态 API | ✅ | 第 38 轮：`OodleStatus{setting,rust_available,dll_supported,dll_configured,dll_loaded}` + `usable()/summary()` + `oodle_status()`；2 测试；游戏设置页显示当前后端摘要 |
+| O-2 容器 needs_oodle 预检 | ✅ | 第 38 轮：`IoStoreContainer::needs_oodle`、`GameAssetSource::oodle_preflight()`（`OodlePreflight{needed,ready,methods,status,summary}`）；BNB 实机 92368 条目、methods=["Oodle"]、needed=true、ready=true（Rust 后端） |
 | O-3 运行时下载与缓存 | ⬜ | 计划 reqwest+zip+SHA-256 |
 | O-4 随包内置 | ⬜ | |
-| O-5 UI 集成与设置 | ⬜ | |
-| O-6 诊断与文档 | ⬜ | |
+| O-5 UI 集成与设置 | 🟡 | 第 38 轮：游戏设置 Oodle 区新增“当前后端”摘要；下载/安装向导未做 |
+| O-6 诊断与文档 | 🟡 | 第 38 轮：新增 `docs/oodle-backends.md`（后端/环境变量/状态/预检/BNB 实机/限制）+ `oodle_preflight` 示例 |
 | O-7 真实验收 | ⬜ | |
 
 ## S：共享资产底座
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（E-10 / O）
+## 下一轮（O-3 / O-4）
 
-1. E-10 USDA 补 USD Skel（骨骼/蒙皮/动画）或 E-9 UEMODEL 多 LOD；
-2. 进入 O（Oodle）阶段：`lumark-oodle` 解码后端、动态库探测与回退、BNB/FF7R 实机；
-3. M 阶段媒体播放器或 I 阶段图片查看器收尾；
+1. O-3 运行时下载与缓存：reqwest 下载 → SHA-256 校验 → zip 解压 `oo2core*.dll` → 缓存并 `configure_oodle_library`，缓存命中/失效测试；
+2. O-4 随包内置：构建脚本/资源目录与首启检测；
+3. E-10 USDA Skel 或 V-7 实例化；
 4. 记录进度并提交。

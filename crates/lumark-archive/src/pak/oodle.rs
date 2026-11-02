@@ -38,6 +38,75 @@ pub fn oodle_backend_setting() -> &'static str {
     }
 }
 
+/// Oodle 后端状态快照（O-1）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OodleStatus {
+    /// 环境变量配置：`auto`/`rust`/`dll`。
+    pub setting: &'static str,
+    /// 纯 Rust 解码器是否可用（当前始终可用）。
+    pub rust_available: bool,
+    /// 当前平台是否支持动态库后端。
+    pub dll_supported: bool,
+    /// 显式配置的 DLL 路径。
+    pub dll_configured: Option<std::path::PathBuf>,
+    /// DLL 是否已成功加载。
+    pub dll_loaded: bool,
+}
+
+impl OodleStatus {
+    /// 当前配置下是否存在可用解码后端。
+    pub fn usable(&self) -> bool {
+        match self.setting {
+            "dll" => self.dll_supported && self.dll_loaded,
+            _ => self.rust_available || (self.dll_supported && self.dll_loaded),
+        }
+    }
+
+    /// 界面展示用简短描述。
+    pub fn summary(&self) -> String {
+        let backend = if self.usable() {
+            if self.setting == "dll" && self.dll_loaded {
+                "DLL"
+            } else if self.rust_available && self.setting != "dll" {
+                "Rust"
+            } else {
+                "DLL"
+            }
+        } else {
+            "不可用"
+        };
+        format!(
+            "{}（配置 {}；Rust {}；DLL {}）",
+            backend,
+            self.setting,
+            if self.rust_available {
+                "可用"
+            } else {
+                "不可用"
+            },
+            if self.dll_loaded {
+                "已加载"
+            } else if self.dll_supported {
+                "未加载"
+            } else {
+                "不支持"
+            }
+        )
+    }
+}
+
+/// 返回当前 Oodle 后端状态。
+pub fn oodle_status() -> OodleStatus {
+    let (dll_configured, dll_loaded, dll_supported) = dll::status();
+    OodleStatus {
+        setting: oodle_backend_setting(),
+        rust_available: true,
+        dll_supported,
+        dll_configured,
+        dll_loaded,
+    }
+}
+
 /// 解压一个 Oodle 压缩块。
 pub(crate) fn decompress(input: &[u8], output: &mut [u8]) -> Result<(), String> {
     match parse_backend(std::env::var("LUMARK_OODLE_BACKEND").ok().as_deref()) {
@@ -185,6 +254,17 @@ mod dll {
         Ok(())
     }
 
+    /// 返回 DLL 配置/加载状态。
+    pub(super) fn status() -> (Option<PathBuf>, bool, bool) {
+        let Some(state) = OODLE.get() else {
+            return (None, false, true);
+        };
+        match state.lock() {
+            Ok(state) => (state.configured.clone(), state.library.is_some(), true),
+            Err(_) => (None, false, true),
+        }
+    }
+
     /// 返回已加载的函数指针；首次调用时按候选顺序加载。
     fn decompress_pointer() -> Result<OodleDecompress, String> {
         let state = OODLE.get_or_init(|| {
@@ -303,6 +383,11 @@ mod dll {
             Ok(())
         }
     }
+
+    /// 非 Windows 平台没有 DLL 状态。
+    pub(super) fn status() -> (Option<PathBuf>, bool, bool) {
+        (None, false, false)
+    }
 }
 
 /// 配置 Oodle 动态库路径；`None` 表示恢复自动查找。
@@ -352,5 +437,29 @@ mod tests {
     fn rust_backend_accepts_empty_output() {
         let mut output = [];
         decompress_rust(&[0xFF], &mut output).expect("空输出应直接成功");
+    }
+
+    /// 后端状态快照报告 Rust 可用且可解码。
+    #[test]
+    fn status_reports_available_backend() {
+        let status = super::oodle_status();
+        assert!(status.rust_available);
+        assert!(status.usable(), "默认配置应至少有一个可用后端");
+        assert!(status.summary().contains("配置"));
+        assert!(matches!(status.setting, "auto" | "rust" | "dll"));
+    }
+
+    /// 仅 DLL 模式且 DLL 未加载时不可用。
+    #[test]
+    fn dll_only_status_requires_loaded_dll() {
+        let status = super::OodleStatus {
+            setting: "dll",
+            rust_available: false,
+            dll_supported: true,
+            dll_configured: None,
+            dll_loaded: false,
+        };
+        assert!(!status.usable());
+        assert!(status.summary().contains("不可用"));
     }
 }

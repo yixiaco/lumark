@@ -93,6 +93,58 @@ impl From<ArchiveError> for AssetSourceError {
     }
 }
 
+/// Oodle 预检结果（O-2）。
+#[derive(Debug, Clone)]
+pub struct OodlePreflight {
+    /// 容器是否需要 Oodle。
+    pub needed: bool,
+    /// 当前配置下能否解压所需块。
+    pub ready: bool,
+    /// 容器声明的压缩方法。
+    pub methods: Vec<String>,
+    /// 当前后端状态。
+    pub status: lumark_archive::OodleStatus,
+}
+
+impl OodlePreflight {
+    /// 构造并计算可用性。
+    pub fn new(methods: Vec<String>, status: lumark_archive::OodleStatus) -> Self {
+        let needed = methods
+            .iter()
+            .any(|method| method.eq_ignore_ascii_case("oodle"));
+        let ready = !needed || status.usable();
+        Self {
+            needed,
+            ready,
+            methods,
+            status,
+        }
+    }
+
+    /// 界面展示。
+    pub fn summary(&self) -> String {
+        if !self.needed {
+            return format!(
+                "无需 Oodle；压缩方法：{}",
+                if self.methods.is_empty() {
+                    "无".to_string()
+                } else {
+                    self.methods.join(", ")
+                }
+            );
+        }
+        format!(
+            "需要 Oodle（{}）；后端：{}",
+            if self.ready {
+                "可解压"
+            } else {
+                "缺少后端"
+            },
+            self.status.summary()
+        )
+    }
+}
+
 /// 容器句柄。
 enum Container {
     /// Unreal PAK 按条目读取器。
@@ -241,6 +293,11 @@ impl GameAssetSource {
         methods
     }
 
+    /// 容器 Oodle 预检：是否需要、当前后端能否解压（O-2）。
+    pub fn oodle_preflight(&self) -> OodlePreflight {
+        OodlePreflight::new(self.compression_methods(), lumark_archive::oodle_status())
+    }
+
     /// 列出容器内的全部条目。
     pub fn list(&self) -> Vec<GameAssetEntry> {
         match &self.container {
@@ -360,7 +417,7 @@ fn normalize_container_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_container_path;
+    use super::{OodlePreflight, normalize_container_path};
 
     /// 容器路径应统一为 `/` 分隔并去掉前导斜杠。
     #[test]
@@ -374,5 +431,36 @@ mod tests {
             "Game/A/B.uasset"
         );
         assert_eq!(normalize_container_path("/"), "/");
+    }
+
+    /// Oodle 预检：无需 Oodle 时 ready；需要时依赖后端状态。
+    #[test]
+    fn oodle_preflight_reports_readiness() {
+        let status = lumark_archive::OodleStatus {
+            setting: "auto",
+            rust_available: true,
+            dll_supported: true,
+            dll_configured: None,
+            dll_loaded: false,
+        };
+        let plain = OodlePreflight::new(vec!["Zlib".to_string()], status.clone());
+        assert!(!plain.needed);
+        assert!(plain.ready);
+        assert!(plain.summary().contains("无需 Oodle"));
+        let oodle = OodlePreflight::new(vec!["Oodle".to_string()], status.clone());
+        assert!(oodle.needed);
+        assert!(oodle.ready);
+        let dll_only = OodlePreflight::new(
+            vec!["Oodle".to_string()],
+            lumark_archive::OodleStatus {
+                setting: "dll",
+                rust_available: false,
+                dll_supported: true,
+                dll_configured: None,
+                dll_loaded: false,
+            },
+        );
+        assert!(!dll_only.ready);
+        assert!(dll_only.summary().contains("缺少后端"));
     }
 }

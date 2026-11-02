@@ -76,6 +76,14 @@ impl IoStoreContainer {
         &self.toc.compression_methods
     }
 
+    /// 容器是否包含 Oodle 压缩块。
+    pub fn needs_oodle(&self) -> bool {
+        self.toc
+            .compression_methods
+            .iter()
+            .any(|method| method.eq_ignore_ascii_case("oodle"))
+    }
+
     /// 返回 TOC 文件路径。
     pub fn toc_path(&self) -> &Path {
         &self.toc_path
