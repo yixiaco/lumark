@@ -12,6 +12,7 @@
 - [x] 共享资产底座：新增 `GameAssetSource`（统一 IoStore/PAK 的列表、读取、`.uexp`/`.ubulk` 侧车和 `global.utoc` 脚本对象，暴露加密/Oodle/压缩方法状态）与公开 `PakAssetReader`（按条目读取、大小/路径列表、密码分类错误）；UI 资产预览改走该接口，PAK 预览不再逐资产解压到临时目录。BNB 实机验证：IoStore 92,368 个条目、Oodle 方法、纹理 5.5 MB `.ubulk` 与骨骼包均读取正常。
 - [x] StaticMesh 顶点属性：Zen 内联顶点缓冲补齐法线/切线（含高精度 `FPackedRGBA16N`）/全部 UV 通道/顶点颜色与 `StaticMaterials` 材质槽；无法识别的可选布局会跳过并保留几何。BNB `SM_Dry_Goods_04g` 的 4 个 LOD（3213/1723/923/509 顶点）均解析出法线、切线与 3 组 UV，材质槽为 `M_Dry_Goods_04a`；新增 `inspect_mesh_attrs` 诊断示例与 half/packed-normal 单元测试。
 - [x] SkeletalMesh 顶点属性：流式 LOD 复用同一 `FStaticMeshVertexBuffer` 读取逻辑，补齐法线/切线/UV 后再解析皮肤权重。BNB `SK_Chicken` 两个 LOD（2860/1674 顶点）均取得与顶点等长的法线、切线与 UV；旧式网格顶点属性仍待补齐。
+- [x] 浮点/HDR 纹理：`Texture2D::decode_mip` 支持 `PF_FloatRGB`/`PF_FloatRGBA`/`PF_R16F`/`PF_RGBA16F`/`PF_RGBE`/`PF_R32_FLOAT`/`PF_R32G32B32F`/`PF_A32B32G32R32F`，返回线性 f32 RGBA；`decode_mip_rgba` 保持兼容并对 HDR 做 Reinhard + gamma 近似显示。新增 3 组浮点格式单元测试；`.hdr` 文件导出在导出阶段实现。
 
 ## 2026-10-29 本轮升级
 

@@ -4,6 +4,7 @@
 //! 使用 `FByteBulkData` 的 bulk data map 指向内联 mip 或 `.ubulk` 载荷。
 //! 本模块只提取尺寸、像素格式和 mip 原始字节，BCn 解码由上层完成。
 
+use super::mesh::half_to_f32;
 use super::{Mappings, PackageError, UnrealPackage, invalid};
 
 /// 一个纹理 mip。
@@ -35,8 +36,13 @@ pub struct Texture2D {
 }
 
 impl Texture2D {
-    /// 解码指定 mip 为 RGBA8 像素。
+    /// 解码指定 mip 为 RGBA8 像素；HDR 纹理会做简单色调映射。
     pub fn decode_mip_rgba(&self, index: usize) -> Result<Vec<u8>, PackageError> {
+        Ok(self.decode_mip(index)?.into_rgba8())
+    }
+
+    /// 解码指定 mip；浮点/HDR 格式返回线性 f32 RGBA 数据。
+    pub fn decode_mip(&self, index: usize) -> Result<DecodedTexture, PackageError> {
         let mip = self
             .mips
             .get(index)
@@ -46,8 +52,24 @@ impl Texture2D {
         if width.saturating_mul(height) > 100_000_000 {
             return Err(invalid("纹理尺寸超过 1 亿像素安全上限"));
         }
+        let count = width * height;
         let format = self.pixel_format.to_ascii_uppercase();
-        let mut words = vec![0u32; width * height];
+        match format.as_str() {
+            // 浮点/HDR 格式：直接返回线性 f32，供 .hdr 导出或 HDR 预览使用。
+            "PF_FLOATRGB" => return decode_half_texture(&mip.data, count, 3, width, height),
+            "PF_FLOATRGBA" | "PF_RGBA16F" => {
+                return decode_half_texture(&mip.data, count, 4, width, height);
+            }
+            "PF_R16F" => return decode_single_half_texture(&mip.data, count, width, height),
+            "PF_RGBE" => return decode_rgbe_texture(&mip.data, count, width, height),
+            "PF_R32_FLOAT" => return decode_single_float_texture(&mip.data, count, width, height),
+            "PF_R32G32B32F" => return decode_float_texture(&mip.data, count, width, height),
+            "PF_A32B32G32R32F" => {
+                return decode_float_abgr_texture(&mip.data, count, width, height);
+            }
+            _ => {}
+        }
+        let mut words = vec![0u32; count];
         match format.as_str() {
             "PF_DXT1" | "PF_BC1" => {
                 texture2ddecoder::decode_bc1(&mip.data, width, height, &mut words)
@@ -74,30 +96,34 @@ impl Texture2D {
                     .map_err(|error| invalid(format!("BC7 解码失败：{error}")))?;
             }
             "PF_B8G8R8A8" => {
-                if mip.data.len() < width * height * 4 {
+                if mip.data.len() < count * 4 {
                     return Err(invalid("BGRA 纹理数据长度不足"));
                 }
-                let mut rgba = Vec::with_capacity(width * height * 4);
-                for pixel in mip.data[..width * height * 4].as_chunks::<4>().0 {
+                let mut rgba = Vec::with_capacity(count * 4);
+                for pixel in mip.data[..count * 4].as_chunks::<4>().0 {
                     rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
                 }
-                return Ok(rgba);
+                return Ok(DecodedTexture::ldr(width, height, rgba));
             }
             "PF_R8G8B8A8" => {
-                if mip.data.len() < width * height * 4 {
+                if mip.data.len() < count * 4 {
                     return Err(invalid("RGBA 纹理数据长度不足"));
                 }
-                return Ok(mip.data[..width * height * 4].to_vec());
+                return Ok(DecodedTexture::ldr(
+                    width,
+                    height,
+                    mip.data[..count * 4].to_vec(),
+                ));
             }
             "PF_G8" | "PF_R8" => {
-                if mip.data.len() < width * height {
+                if mip.data.len() < count {
                     return Err(invalid("G8 纹理数据长度不足"));
                 }
-                let mut rgba = Vec::with_capacity(width * height * 4);
-                for value in &mip.data[..width * height] {
+                let mut rgba = Vec::with_capacity(count * 4);
+                for value in &mip.data[..count] {
                     rgba.extend_from_slice(&[*value, *value, *value, 255]);
                 }
-                return Ok(rgba);
+                return Ok(DecodedTexture::ldr(width, height, rgba));
             }
             other => {
                 return Err(PackageError::Unsupported(format!(
@@ -111,8 +137,219 @@ impl Texture2D {
             let [b, g, r, a] = word.to_le_bytes();
             rgba.extend_from_slice(&[r, g, b, a]);
         }
-        Ok(rgba)
+        Ok(DecodedTexture::ldr(width, height, rgba))
     }
+}
+
+/// 解码后的纹素数据。
+#[derive(Debug, Clone)]
+pub enum TexturePixels {
+    /// 8 位 RGBA 数据。
+    Ldr(Vec<u8>),
+    /// 线性 RGBA f32 数据（HDR）。
+    Hdr(Vec<f32>),
+}
+
+/// 解码后的纹理 mip。
+#[derive(Debug, Clone)]
+pub struct DecodedTexture {
+    /// 宽度（像素）。
+    pub width: u32,
+    /// 高度（像素）。
+    pub height: u32,
+    /// 纹素数据。
+    pub pixels: TexturePixels,
+}
+
+impl DecodedTexture {
+    /// 创建 8 位纹理。
+    fn ldr(width: usize, height: usize, rgba: Vec<u8>) -> Self {
+        Self {
+            width: width as u32,
+            height: height as u32,
+            pixels: TexturePixels::Ldr(rgba),
+        }
+    }
+
+    /// 创建 HDR 纹理。
+    fn hdr(width: usize, height: usize, rgba: Vec<f32>) -> Self {
+        Self {
+            width: width as u32,
+            height: height as u32,
+            pixels: TexturePixels::Hdr(rgba),
+        }
+    }
+
+    /// 是否为 HDR 数据。
+    pub fn is_hdr(&self) -> bool {
+        matches!(self.pixels, TexturePixels::Hdr(_))
+    }
+
+    /// 转换为 RGBA8；HDR 使用 Reinhard 映射 + gamma 2.2 近似显示。
+    pub fn into_rgba8(self) -> Vec<u8> {
+        match self.pixels {
+            TexturePixels::Ldr(bytes) => bytes,
+            TexturePixels::Hdr(values) => {
+                let mut rgba = Vec::with_capacity(values.len());
+                for pixel in values.as_chunks::<4>().0 {
+                    let map = |channel: f32| {
+                        let positive = channel.max(0.0);
+                        let mapped = (positive / (1.0 + positive)).powf(1.0 / 2.2);
+                        (mapped.clamp(0.0, 1.0) * 255.0).round() as u8
+                    };
+                    rgba.extend_from_slice(&[
+                        map(pixel[0]),
+                        map(pixel[1]),
+                        map(pixel[2]),
+                        (pixel[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    ]);
+                }
+                rgba
+            }
+        }
+    }
+}
+
+/// 读取每像素 `channels` 个 half 分量的浮点纹理。
+fn decode_half_texture(
+    data: &[u8],
+    count: usize,
+    channels: usize,
+    width: usize,
+    height: usize,
+) -> Result<DecodedTexture, PackageError> {
+    let stride = channels * 2;
+    let needed = count
+        .checked_mul(stride)
+        .ok_or_else(|| invalid("浮点纹理长度溢出"))?;
+    if data.len() < needed {
+        return Err(invalid("浮点纹理数据长度不足"));
+    }
+    let mut values = Vec::with_capacity(count * 4);
+    for pixel in data[..needed].chunks_exact(stride) {
+        let mut rgba = [0.0f32, 0.0, 0.0, 1.0];
+        for (channel, target) in rgba.iter_mut().take(channels).enumerate() {
+            let offset = channel * 2;
+            *target = half_to_f32(u16::from_le_bytes([pixel[offset], pixel[offset + 1]]));
+        }
+        values.extend_from_slice(&rgba);
+    }
+    Ok(DecodedTexture::hdr(width, height, values))
+}
+
+/// 读取单通道 half 浮点纹理，灰度复制到 RGB。
+fn decode_single_half_texture(
+    data: &[u8],
+    count: usize,
+    width: usize,
+    height: usize,
+) -> Result<DecodedTexture, PackageError> {
+    if data.len() < count * 2 {
+        return Err(invalid("R16F 纹理数据长度不足"));
+    }
+    let mut values = Vec::with_capacity(count * 4);
+    for pixel in data[..count * 2].as_chunks::<2>().0 {
+        let value = half_to_f32(u16::from_le_bytes([pixel[0], pixel[1]]));
+        values.extend_from_slice(&[value, value, value, 1.0]);
+    }
+    Ok(DecodedTexture::hdr(width, height, values))
+}
+
+/// 读取 RGBe（共享指数）HDR 纹理。
+fn decode_rgbe_texture(
+    data: &[u8],
+    count: usize,
+    width: usize,
+    height: usize,
+) -> Result<DecodedTexture, PackageError> {
+    if data.len() < count * 4 {
+        return Err(invalid("RGBE 纹理数据长度不足"));
+    }
+    let mut values = Vec::with_capacity(count * 4);
+    for pixel in data[..count * 4].as_chunks::<4>().0 {
+        let exponent = pixel[3] as i32;
+        if exponent == 0 {
+            values.extend_from_slice(&[0.0, 0.0, 0.0, 1.0]);
+            continue;
+        }
+        // RGBE 共享指数：mantissa × 2^(E-136)。
+        let scale = 2.0f32.powi(exponent - 136);
+        values.extend_from_slice(&[
+            pixel[0] as f32 * scale,
+            pixel[1] as f32 * scale,
+            pixel[2] as f32 * scale,
+            1.0,
+        ]);
+    }
+    Ok(DecodedTexture::hdr(width, height, values))
+}
+
+/// 读取单通道 f32 纹理，灰度复制到 RGB。
+fn decode_single_float_texture(
+    data: &[u8],
+    count: usize,
+    width: usize,
+    height: usize,
+) -> Result<DecodedTexture, PackageError> {
+    if data.len() < count * 4 {
+        return Err(invalid("R32F 纹理数据长度不足"));
+    }
+    let mut values = Vec::with_capacity(count * 4);
+    for pixel in data[..count * 4].as_chunks::<4>().0 {
+        let value = f32::from_le_bytes(*pixel);
+        values.extend_from_slice(&[value, value, value, 1.0]);
+    }
+    Ok(DecodedTexture::hdr(width, height, values))
+}
+
+/// 读取每像素 3 个 f32 分量的浮点纹理。
+fn decode_float_texture(
+    data: &[u8],
+    count: usize,
+    width: usize,
+    height: usize,
+) -> Result<DecodedTexture, PackageError> {
+    let needed = count
+        .checked_mul(12)
+        .ok_or_else(|| invalid("浮点纹理长度溢出"))?;
+    if data.len() < needed {
+        return Err(invalid("RGB32F 纹理数据长度不足"));
+    }
+    let mut values = Vec::with_capacity(count * 4);
+    for pixel in data[..needed].as_chunks::<12>().0 {
+        values.extend_from_slice(&[
+            f32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]),
+            f32::from_le_bytes([pixel[4], pixel[5], pixel[6], pixel[7]]),
+            f32::from_le_bytes([pixel[8], pixel[9], pixel[10], pixel[11]]),
+            1.0,
+        ]);
+    }
+    Ok(DecodedTexture::hdr(width, height, values))
+}
+
+/// 读取 `PF_A32B32G32R32F`（内存顺序 A/B/G/R）并转为 RGBA。
+fn decode_float_abgr_texture(
+    data: &[u8],
+    count: usize,
+    width: usize,
+    height: usize,
+) -> Result<DecodedTexture, PackageError> {
+    let needed = count
+        .checked_mul(16)
+        .ok_or_else(|| invalid("浮点纹理长度溢出"))?;
+    if data.len() < needed {
+        return Err(invalid("ABGR32F 纹理数据长度不足"));
+    }
+    let mut values = Vec::with_capacity(count * 4);
+    for pixel in data[..needed].as_chunks::<16>().0 {
+        values.extend_from_slice(&[
+            f32::from_le_bytes([pixel[12], pixel[13], pixel[14], pixel[15]]),
+            f32::from_le_bytes([pixel[8], pixel[9], pixel[10], pixel[11]]),
+            f32::from_le_bytes([pixel[4], pixel[5], pixel[6], pixel[7]]),
+            f32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]),
+        ]);
+    }
+    Ok(DecodedTexture::hdr(width, height, values))
 }
 
 /// 从包中读取指定导出的 UTexture2D。
@@ -474,5 +711,121 @@ mod tests {
             }],
         };
         assert!(texture.decode_mip_rgba(0).is_err());
+    }
+
+    /// 构造单像素纹理，便于验证浮点格式解码。
+    fn pixel_texture(format: &str, data: Vec<u8>) -> Texture2D {
+        Texture2D {
+            name: "T_Hdr".to_string(),
+            width: 1,
+            height: 1,
+            pixel_format: format.to_string(),
+            mips: vec![TextureMip {
+                width: 1,
+                height: 1,
+                depth: 1,
+                data,
+            }],
+        }
+    }
+
+    /// 把 f32 写成 little-endian 字节。
+    fn f32_bytes(value: f32) -> [u8; 4] {
+        value.to_le_bytes()
+    }
+
+    /// `PF_FloatRGBA` 解码为线性 RGBA f32。
+    #[test]
+    fn decodes_float_rgba_hdr() {
+        let mut data = Vec::new();
+        for value in [1.0f32, 2.0, 0.5, 1.0] {
+            data.extend_from_slice(&half_bits(value).to_le_bytes());
+        }
+        let texture = pixel_texture("PF_FloatRGBA", data);
+        let decoded = texture.decode_mip(0).expect("HDR 解码");
+        assert!(decoded.is_hdr());
+        match decoded.pixels {
+            TexturePixels::Hdr(values) => {
+                assert_eq!(values.len(), 4);
+                assert!((values[0] - 1.0).abs() < 1e-3);
+                assert!((values[1] - 2.0).abs() < 1e-2);
+                assert!((values[2] - 0.5).abs() < 1e-3);
+                assert!((values[3] - 1.0).abs() < 1e-3);
+            }
+            TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
+        }
+    }
+
+    /// `PF_FloatRGB` 补 1.0 alpha，`PF_RGBE` 使用共享指数还原。
+    #[test]
+    fn decodes_float_rgb_and_rgbe_hdr() {
+        let mut rgb = Vec::new();
+        for value in [0.25f32, 0.5, 1.0] {
+            rgb.extend_from_slice(&half_bits(value).to_le_bytes());
+        }
+        let decoded = pixel_texture("PF_FloatRGB", rgb)
+            .decode_mip(0)
+            .expect("FloatRGB 解码");
+        match decoded.pixels {
+            TexturePixels::Hdr(values) => {
+                assert!((values[0] - 0.25).abs() < 1e-3);
+                assert!((values[1] - 0.5).abs() < 1e-3);
+                assert!((values[2] - 1.0).abs() < 1e-3);
+                assert_eq!(values[3], 1.0);
+            }
+            TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
+        }
+        // 128 × 2^(128-136) = 0.5。
+        let decoded = pixel_texture("PF_RGBE", vec![128, 128, 128, 128])
+            .decode_mip(0)
+            .expect("RGBE 解码");
+        match decoded.pixels {
+            TexturePixels::Hdr(values) => {
+                for value in &values[..3] {
+                    assert!((value - 0.5).abs() < 1e-5);
+                }
+            }
+            TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
+        }
+    }
+
+    /// `PF_R32_FLOAT` 与 `PF_R32G32B32F` 解码。
+    #[test]
+    fn decodes_float32_formats() {
+        let single = pixel_texture("PF_R32_FLOAT", f32_bytes(2.5).to_vec());
+        match single.decode_mip(0).expect("R32F").pixels {
+            TexturePixels::Hdr(values) => {
+                assert_eq!(values, vec![2.5, 2.5, 2.5, 1.0]);
+            }
+            TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
+        }
+        let mut rgb = Vec::new();
+        for value in [0.1f32, 0.2, 0.3] {
+            rgb.extend_from_slice(&f32_bytes(value));
+        }
+        let decoded = pixel_texture("PF_R32G32B32F", rgb)
+            .decode_mip(0)
+            .expect("RGB32F");
+        match decoded.pixels {
+            TexturePixels::Hdr(values) => {
+                assert_eq!(values, vec![0.1, 0.2, 0.3, 1.0]);
+            }
+            TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
+        }
+    }
+
+    /// 把 f32 转换为 IEEE half 位模式（测试用，输入落在常见可表示范围内）。
+    fn half_bits(value: f32) -> u16 {
+        let bits = value.to_bits();
+        let sign = ((bits >> 16) & 0x8000) as u16;
+        let exponent = ((bits >> 23) & 0xFF) as i32 - 127 + 15;
+        let mantissa = (bits & 0x007F_FFFF) >> 13;
+        if exponent <= 0 {
+            sign
+        } else if exponent >= 31 {
+            sign | 0x7C00
+        } else {
+            sign | ((exponent as u16) << 10) | mantissa as u16
+        }
     }
 }

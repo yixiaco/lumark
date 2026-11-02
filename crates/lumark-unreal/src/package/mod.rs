@@ -322,7 +322,7 @@ pub use script_objects::{ScriptObject, ZenScriptObjects};
 pub use skeleton::{
     Bone, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights, read_skeleton,
 };
-pub use texture::{Texture2D, TextureMip, read_texture2d};
+pub use texture::{DecodedTexture, Texture2D, TextureMip, TexturePixels, read_texture2d};
 pub use unversioned::{PropValue, UnversionedProperties};
 pub use zen::parse_package;
 
