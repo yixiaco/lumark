@@ -11,6 +11,7 @@ members = [
     "crates/lumark-ui",
     "crates/lumark-unreal",
     "crates/lumark-scene",
+    "crates/lumark-render",
     "crates/lumark-viewer",
     "crates/lumark-vault",
     "crates/lumark-app",
@@ -50,6 +51,7 @@ rust-i18n = "4.2"
 lumark-legacy = { path = "crates/lumark-legacy" }
 lumark-unreal = { path = "crates/lumark-unreal" }
 lumark-scene = { path = "crates/lumark-scene" }
+lumark-render = { path = "crates/lumark-render" }
 image = { version = "0.25.10", default-features = false, features = [
     "png",
     "jpeg",

@@ -5327,6 +5327,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumark-render"
+version = "0.1.0"
+dependencies = [
+ "lumark-scene",
+]
+
+[[package]]
 name = "lumark-scene"
 version = "0.1.0"
 
@@ -5414,6 +5421,7 @@ dependencies = [
  "brotli",
  "image",
  "lumark-archive",
+ "lumark-render",
  "lumark-scene",
  "memchr",
  "memmap2",
