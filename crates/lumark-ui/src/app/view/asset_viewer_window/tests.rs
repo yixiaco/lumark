@@ -519,6 +519,15 @@ fn viewer_async_preview_updates_image(cx: &mut gpui_kit::TestAppContext) {
     assert!(!rendering, "渲染完成后应复位 rendering");
 }
 
+/// 骨骼搜索大小写不敏感，空搜索匹配全部。
+#[test]
+fn bone_search_matches_case_insensitive() {
+    assert!(super::inspector::bone_matches("Hand_L", ""));
+    assert!(super::inspector::bone_matches("Hand_L", "hand"));
+    assert!(super::inspector::bone_matches("Chest", "st"));
+    assert!(!super::inspector::bone_matches("Head", "hand"));
+}
+
 /// 快捷键：F 重置、G 网格、L/N 着色，未知键不消费。
 #[gpui_kit::test]
 fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
@@ -533,11 +542,12 @@ fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
         attributes: Default::default(),
     };
     cx.update(gpui_kit::init);
-    let (view, cx) = cx.add_window_view(|_, cx| {
+    let (view, cx) = cx.add_window_view(|window, cx| {
         AssetViewerWindowView::new_with_focus(
             "SM_Keys".to_string(),
             ViewerScene::Mesh { lods: vec![mesh] },
             cx.focus_handle(),
+            window,
             cx,
         )
     });
@@ -547,6 +557,7 @@ fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
                 view.timeline_slider.is_some(),
                 "正式查看器应创建时间轴 Slider"
             );
+            assert!(view.bone_filter.is_some(), "正式查看器应创建骨骼搜索框");
             view.yaw = 90.0;
             view.zoom = 2.0;
             assert!(view.handle_shortcut("f", cx));

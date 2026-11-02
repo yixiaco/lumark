@@ -114,6 +114,18 @@ impl AssetViewerWindowView {
                 &format!("{length:.2}s · {frames} 帧"),
             ));
         }
+        if let Some(stats) = self.last_stats {
+            rows.push(inspector_row(
+                cx,
+                tr("可见实例", "Visible instances"),
+                &format!("{} / {}", stats.mesh_instances, stats.unique_meshes),
+            ));
+            rows.push(inspector_row(
+                cx,
+                tr("绘制批次", "Draw batches"),
+                &stats.draw_calls.to_string(),
+            ));
+        }
         panel_section(
             cx,
             tr("概要", "Overview"),
@@ -178,15 +190,33 @@ impl AssetViewerWindowView {
         panel_section(cx, tr("Section", "Sections"), list.into_any_element())
     }
 
-    /// 骨骼列表（最多 200 根，超出显示总数）。
+    /// 骨骼列表（支持名称搜索，最多 200 根）。
     fn inspector_bones(&self, cx: &mut Context<Self>) -> Option<gpui_kit::AnyElement> {
         let skeleton = match &self.scene {
             ViewerScene::Skeleton(skeleton) => skeleton,
             ViewerScene::SkeletalMesh { skeleton, .. } => skeleton,
             _ => return None,
         };
+        let query = self
+            .bone_filter
+            .as_ref()
+            .map(|input| input.read(cx).value().to_lowercase())
+            .unwrap_or_default();
+        let matched: Vec<_> = skeleton
+            .bones
+            .iter()
+            .filter(|bone| bone_matches(&bone.name, &query))
+            .collect();
         let mut list = v_flex().gap_1();
-        for bone in skeleton.bones.iter().take(200) {
+        if let Some(input) = &self.bone_filter {
+            list = list.child(
+                Input::new(input)
+                    .id("viewer-bone-filter")
+                    .w_full()
+                    .cleanable(true),
+            );
+        }
+        for bone in matched.iter().take(200) {
             list = list.child(
                 div()
                     .text_xs()
@@ -194,11 +224,19 @@ impl AssetViewerWindowView {
                     .child(format!("{} · 父 {}", bone.name, bone.parent_index)),
             );
         }
-        if skeleton.bones.len() > 200 {
+        if matched.len() > 200 {
             list = list.child(
                 div()
                     .text_xs()
-                    .child(format!("… 共 {} 根骨骼", skeleton.bones.len())),
+                    .child(format!("… 共 {} 根匹配骨骼", matched.len())),
+            );
+        }
+        if !query.is_empty() {
+            list = list.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().primary)
+                    .child(format!("匹配 {} / {}", matched.len(), skeleton.bones.len())),
             );
         }
         Some(panel_section(
@@ -295,6 +333,11 @@ fn inspector_row(
                 .child(value.to_string()),
         )
         .into_any_element()
+}
+
+/// 骨骼名称是否匹配搜索词（大小写不敏感）。
+pub(super) fn bone_matches(name: &str, query: &str) -> bool {
+    query.is_empty() || name.to_lowercase().contains(query)
 }
 
 /// 分节容器。

@@ -9,6 +9,7 @@ use super::components::AppIcon;
 use crate::i18n::tr;
 use gpui_kit::RenderImage;
 use gpui_kit::component::TitleBar;
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use lumark_render::ShadingMode;
 use lumark_unreal::{MeshLod, Skeleton};
@@ -97,6 +98,8 @@ pub(crate) struct AssetViewerWindowView {
     render_generation: u64,
     /// 是否有后台渲染进行中
     rendering: bool,
+    /// 骨骼搜索输入（正式窗口创建）
+    bone_filter: Option<gpui_kit::Entity<InputState>>,
 }
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角（无键盘焦点，供测试/内部使用）。
@@ -110,6 +113,7 @@ impl AssetViewerWindowView {
         name: String,
         scene: ViewerScene,
         focus: gpui_kit::FocusHandle,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut view = Self::create(name, scene, Some(focus));
@@ -126,8 +130,12 @@ impl AssetViewerWindowView {
             view.render_preview();
             cx.notify();
         });
+        let bone_filter = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(tr("搜索骨骼…", "Search bones…").to_string())
+        });
         view.timeline_slider = Some(slider);
         view.slider_subscription = Some(subscription);
+        view.bone_filter = Some(bone_filter);
         view
     }
 
@@ -157,6 +165,7 @@ impl AssetViewerWindowView {
             slider_subscription: None,
             render_generation: 0,
             rendering: false,
+            bone_filter: None,
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();
