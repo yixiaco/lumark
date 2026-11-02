@@ -10,7 +10,6 @@ use gpui_kit::component::TitleBar;
 use gpui_kit::component::empty::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle,
 };
-use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tag::Tag;
 use image::GenericImageView as _;
 use image::ImageDecoder as _;
@@ -42,6 +41,10 @@ pub(crate) struct ImageViewerWindowView {
     error: Option<String>,
     fit: bool,
     zoom: f32,
+    /// 手动缩放后的平移偏移（像素）。
+    pan: (f32, f32),
+    /// 左键拖动平移的上一帧位置。
+    drag_pan: Option<(f32, f32)>,
     /// 用户手动旋转的 90° 次数（0–3）。
     rotation: u8,
     /// 是否正在后台旋转图片。
@@ -102,6 +105,8 @@ impl ImageViewerWindowView {
             error: None,
             fit: true,
             zoom: 1.0,
+            pan: (0.0, 0.0),
+            drag_pan: None,
             rotation: 0,
             rotating: false,
             notice: None,
@@ -126,6 +131,14 @@ impl ImageViewerWindowView {
         self.fit = false;
         self.zoom = zoom.clamp(0.05, 16.0);
         cx.notify();
+    }
+
+    /// 重置缩放、平移和适应窗口状态。
+    fn reset_view(&mut self) {
+        self.fit = true;
+        self.zoom = 1.0;
+        self.pan = (0.0, 0.0);
+        self.drag_pan = None;
     }
 
     /// 在后台旋转图片（`delta` 为正表示顺时针），完成后替换临时图片。
@@ -241,8 +254,7 @@ impl ImageViewerWindowView {
                     .selected(self.fit)
                     .label(tr("适应窗口", "Fit"))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.fit = true;
-                        this.zoom = 1.0;
+                        this.reset_view();
                         cx.notify();
                     })),
             )
@@ -251,12 +263,15 @@ impl ImageViewerWindowView {
                     .ghost()
                     .selected(!self.fit && (self.zoom - 1.0).abs() < f32::EPSILON)
                     .label("100%")
-                    .on_click(cx.listener(|this, _, _, cx| this.set_zoom(1.0, cx))),
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.pan = (0.0, 0.0);
+                        this.set_zoom(1.0, cx);
+                    })),
             )
             .child(
                 button("image-zoom-out")
                     .ghost()
-                    .icon(AppIcon::Close.element(13.))
+                    .label("−")
                     .tooltip(tr("缩小", "Zoom out"))
                     .accessibility_label(tr("缩小", "Zoom out"))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -267,7 +282,7 @@ impl ImageViewerWindowView {
             .child(
                 button("image-zoom-in")
                     .ghost()
-                    .icon(AppIcon::Add.element(13.))
+                    .label("+")
                     .tooltip(tr("放大", "Zoom in"))
                     .accessibility_label(tr("放大", "Zoom in"))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -297,8 +312,7 @@ impl ImageViewerWindowView {
                     .icon(AppIcon::Refresh.element(13.))
                     .label(tr("重置", "Reset"))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.fit = true;
-                        this.zoom = 1.0;
+                        this.reset_view();
                         if this.rotation != 0 {
                             let delta = -(this.rotation as i32);
                             this.rotate(delta, cx);
@@ -353,47 +367,74 @@ impl ImageViewerWindowView {
                 .into_any_element();
         }
 
-        if self.fit {
-            v_flex()
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .items_center()
-                .justify_center()
-                .bg(cx.theme().background)
-                .child(
-                    gpui_kit::img(self.display_path.clone())
-                        .size_full()
-                        .object_fit(gpui_kit::ObjectFit::Contain),
-                )
+        let (natural_w, natural_h) = self.natural_size();
+        let content = if self.fit {
+            gpui_kit::img(self.display_path.clone())
+                .size_full()
+                .object_fit(gpui_kit::ObjectFit::Contain)
                 .into_any_element()
         } else {
-            let (natural_w, natural_h) = self.natural_size();
-            let width = (natural_w * self.zoom).max(1.0);
-            let height = (natural_h * self.zoom).max(1.0);
-            div()
-                .id("image-scroll")
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .overflow_scrollbar()
-                .bg(cx.theme().background)
-                .child(
-                    div()
-                        .min_w_full()
-                        .min_h_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            gpui_kit::img(self.display_path.clone())
-                                .w(px(width))
-                                .h(px(height))
-                                .object_fit(gpui_kit::ObjectFit::Fill),
-                        ),
-                )
+            gpui_kit::img(self.display_path.clone())
+                .w(px((natural_w * self.zoom).max(1.0)))
+                .h(px((natural_h * self.zoom).max(1.0)))
+                .ml(px(self.pan.0))
+                .mt(px(self.pan.1))
+                .object_fit(gpui_kit::ObjectFit::Fill)
                 .into_any_element()
-        }
+        };
+        div()
+            .id("image-canvas")
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .overflow_hidden()
+            .bg(cx.theme().background)
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(content)
+            .on_scroll(cx.listener(|this, event: &gpui_kit::ScrollEvent, _, cx| {
+                let delta = wheel_delta_y(event.delta);
+                let zoom = wheel_zoom(this.zoom, delta);
+                if (zoom - this.zoom).abs() > f32::EPSILON {
+                    this.fit = false;
+                    this.zoom = zoom;
+                    cx.notify();
+                }
+            }))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, _| {
+                    if this.fit {
+                        return;
+                    }
+                    this.drag_pan = Some((event.position.x.as_f32(), event.position.y.as_f32()));
+                }),
+            )
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui_kit::MouseMoveEvent, _, cx| {
+                    if event.pressed_button != Some(gpui_kit::MouseButton::Left) {
+                        this.drag_pan = None;
+                        return;
+                    }
+                    let Some(last) = this.drag_pan else {
+                        return;
+                    };
+                    let position = (event.position.x.as_f32(), event.position.y.as_f32());
+                    this.pan.0 += position.0 - last.0;
+                    this.pan.1 += position.1 - last.1;
+                    this.drag_pan = Some(position);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| {
+                    this.drag_pan = None;
+                    cx.notify();
+                }),
+            )
+            .into_any_element()
     }
 
     /// 渲染底部尺寸、格式和缩放状态。
@@ -828,6 +869,22 @@ fn parse_svg_view_box(value: &str) -> Option<(u32, u32)> {
     }
 }
 
+/// 滚轮缩放：向上滚动（负 delta）放大，向下缩小。
+fn wheel_zoom(zoom: f32, delta_y: f32) -> f32 {
+    if delta_y.abs() < 0.01 {
+        return zoom;
+    }
+    (zoom * (-delta_y * 0.0025).exp()).clamp(0.05, 16.0)
+}
+
+/// 滚轮增量换算为像素。
+fn wheel_delta_y(delta: gpui_kit::ScrollDelta) -> f32 {
+    match delta {
+        gpui_kit::ScrollDelta::Pixels(point) => point.y.as_f32(),
+        gpui_kit::ScrollDelta::Lines(point) => point.y * 40.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -927,4 +984,14 @@ fn viewer_display_name_prefers_asset_name() {
         "MAT-ChickenA"
     );
     assert_eq!(viewer_display_name("  ", temporary), "ue-1234.png");
+}
+
+/// 滚轮放大/缩小方向与缩放上下限。
+#[test]
+fn wheel_zoom_directions_and_bounds() {
+    assert!(wheel_zoom(1.0, -120.0) > 1.0);
+    assert!(wheel_zoom(1.0, 120.0) < 1.0);
+    assert_eq!(wheel_zoom(1.0, 0.0), 1.0);
+    assert!(wheel_zoom(100.0, -100_000.0) <= 16.0);
+    assert!(wheel_zoom(0.001, 100_000.0) >= 0.05);
 }

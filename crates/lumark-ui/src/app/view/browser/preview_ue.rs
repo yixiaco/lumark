@@ -74,6 +74,56 @@ pub(super) enum UePreviewResult {
     Error(String),
 }
 
+/// 把单个网格 LOD 包成最小场景，供缩略图渲染。
+fn mesh_preview_scene(
+    name: &str,
+    source: &str,
+    mesh: &lumark_unreal::MeshLod,
+    kind: lumark_scene::NodeKind,
+) -> lumark_scene::Scene {
+    use lumark_scene::{Axis, Scene, SceneNode, Transform};
+    let mut scene = Scene::new(name);
+    scene.source = source.to_string();
+    scene.up_axis = Axis::Z;
+    scene.unit_scale = lumark_unreal::UE_UNIT_SCALE;
+    let handle = scene.add_mesh(lumark_unreal::convert_mesh(mesh, name));
+    scene.add_node(SceneNode {
+        name: name.to_string(),
+        parent: None,
+        transform: Transform::IDENTITY,
+        mesh: Some(handle),
+        materials: Vec::new(),
+        visible: true,
+        kind,
+        metadata: Vec::new(),
+    });
+    scene
+}
+
+/// 用共享渲染服务渲染缩略图到 `output`，返回后端标签。
+fn save_scene_thumbnail(
+    scene: &lumark_scene::Scene,
+    output: &std::path::Path,
+) -> Result<String, String> {
+    let settings = lumark_render::RenderSettings {
+        width: 480,
+        height: 360,
+        supersample: 2,
+        yaw_degrees: 35.0,
+        pitch_degrees: 25.0,
+        ..Default::default()
+    };
+    let service = crate::render_service::render_service();
+    let target = service.render_target(scene, &settings)?;
+    let image = image::RgbaImage::from_raw(target.width, target.height, target.rgba)
+        .ok_or_else(|| "模型渲染尺寸不匹配".to_string())?;
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    image.save(output).map_err(|error| error.to_string())?;
+    Ok(service.backend_label())
+}
+
 /// 后台加载并解码 UE 资产。
 pub(super) fn load_ue_asset_preview(
     archive: &std::path::Path,
@@ -524,32 +574,16 @@ fn load_ue_asset_from_package(
             && let Ok(mesh) = package.read_static_mesh(primary, &mappings)
         {
             // 复用引擎无关场景 + 共享渲染服务（GPU 优先，CPU 回退）。
-            let scene = lumark_unreal::static_mesh_scene(&mesh.name, &mesh, &[]);
-            let settings = lumark_render::RenderSettings {
-                width: 480,
-                height: 360,
-                supersample: 2,
-                yaw_degrees: 35.0,
-                pitch_degrees: 25.0,
-                ..Default::default()
-            };
-            let service = crate::render_service::render_service();
-            let target = match service.render_target(&scene, &settings) {
-                Ok(target) => target,
+            let scene = mesh_preview_scene(
+                &mesh.name,
+                &export.name,
+                &mesh.lod,
+                lumark_scene::NodeKind::StaticMesh,
+            );
+            let backend = match save_scene_thumbnail(&scene, output) {
+                Ok(backend) => backend,
                 Err(error) => return UePreviewResult::Error(error),
             };
-            let Some(image) = image::RgbaImage::from_raw(target.width, target.height, target.rgba)
-            else {
-                return UePreviewResult::Error("模型渲染尺寸不匹配".to_string());
-            };
-            if let Some(parent) = output.parent()
-                && let Err(error) = std::fs::create_dir_all(parent)
-            {
-                return UePreviewResult::Error(error.to_string());
-            }
-            if let Err(error) = image.save(output) {
-                return UePreviewResult::Error(error.to_string());
-            }
             return UePreviewResult::Model {
                 path: output.to_path_buf(),
                 name: export.name.clone(),
@@ -558,7 +592,7 @@ fn load_ue_asset_from_package(
                     mesh.lod_count,
                     mesh.lod.positions.len(),
                     mesh.lod.triangle_count(),
-                    service.backend_label()
+                    backend
                 ),
                 mesh: mesh.lod,
                 lods: mesh.lods,
@@ -649,19 +683,18 @@ fn load_ue_asset_from_package(
                     }
                 }
                 if let Some(mesh) = geometry {
-                    let rgba =
-                        render_skeletal_mesh_orbit(&mesh, &skeleton, 480, 360, 35.0, 25.0, 1.0);
-                    let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) else {
-                        return UePreviewResult::Error("骨骼网格渲染尺寸不匹配".to_string());
+                    // 复用引擎无关场景 + 共享渲染服务。
+                    let scene = mesh_preview_scene(
+                        &skeleton.name,
+                        &export.name,
+                        &mesh,
+                        lumark_scene::NodeKind::SkeletalMesh,
+                    );
+                    let backend = match save_scene_thumbnail(&scene, output) {
+                        Ok(backend) => backend,
+                        Err(error) => return UePreviewResult::Error(error),
                     };
-                    if let Some(parent) = output.parent()
-                        && let Err(error) = std::fs::create_dir_all(parent)
-                    {
-                        return UePreviewResult::Error(error.to_string());
-                    }
-                    if let Err(error) = image.save(output) {
-                        return UePreviewResult::Error(error.to_string());
-                    }
+                    let subtitle = format!("{subtitle} · {backend}");
                     return UePreviewResult::Model {
                         path: output.to_path_buf(),
                         name: export.name.clone(),
