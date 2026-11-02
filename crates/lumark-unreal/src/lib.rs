@@ -2,6 +2,7 @@
 //!
 //! 本 crate 只做本地只读分析，不依赖 UI；容器读取复用 `lumark-archive`。
 
+pub mod asset_export;
 pub mod batch;
 pub mod export_input;
 pub mod game;
@@ -14,6 +15,9 @@ pub mod scene;
 pub mod skinning;
 pub mod source;
 
+pub use asset_export::{
+    AssetExportConfig, AssetExportProgress, AssetExportReport, export_asset, write_report,
+};
 pub use batch::{
     BatchExportConfig, BatchExportFormat, BatchExportReport, BatchFailure, BatchProgress,
     ExportedAsset, export_archive, export_archive_cancellable,

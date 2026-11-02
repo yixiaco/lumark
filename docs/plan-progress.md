@@ -93,7 +93,7 @@
 | E-8 UEFormat 公共写入器 | ✅ | 含在 E-9 |
 | E-9 UEFormat UEMODEL | ✅ | 3 测试 + BNB 实机 |
 | E-10 USDA | 🟡 | 网格/材质/贴图/GeomSubset；USD Skel 未做 |
-| E-11 单资产编排 | ⬜ | |
+| E-11 单资产编排 | ✅ | 第 33 轮：`asset_export` 模块 `AssetExportConfig`（输出/格式/缩放/旁挂/贴图格式/质量/覆盖）+ `export_asset`（解析→多格式写盘→材质旁挂→报告）+ `AssetExportProgress` + `AssetExportReport` JSON；BNB `SM_Box_02` 实机四格式 + materials.json（0.11s） |
 | E-12 批量枚举/执行 | ✅ | 后端完成（5 测试 + BNB 四格式）；取消、报告 JSON、耗时已实现 |
 | E-13 批量任务接入 | 🟡 | 第 32 轮：`export_archive_cancellable` + `Arc<AtomicBool>` 取消、`BatchProgress::Cancelled`、`BatchExportReport{cancelled,elapsed_seconds}` + `to_json_pretty()`；示例 `batch_export` 支持 cancel-after 并写 `batch-report.json`，BNB 实机取消生效（导出 1 后停止）；`TaskManager`/任务面板接入（E-15）未做 |
 | E-14 单资产导出 UI | ⬜ | |
@@ -118,7 +118,7 @@
 
 ## 下一轮（E-11 / E-14 / E-15）
 
-1. E-11 单资产导出编排：统一"解析资产 → 选格式/材质/贴图 → 落盘"的服务函数，供 UI 与批量复用；
-2. E-14 单资产导出 UI：详情/查看器导出入与格式选择、进度、结果打开目录；
-3. E-15 批量导出 UI：配置对话框 + `lumark-tasks` 任务面板/取消/报告 JSON；
+1. E-14 单资产导出 UI：详情/查看器导出入口、格式/贴图/旁挂选择、进度与结果打开目录；
+2. E-15 批量导出 UI：配置对话框 + `lumark-tasks` 任务面板/取消/报告 JSON；
+3. E-10 USD Skel 或 E-13 TaskManager 接入；
 4. 记录进度并提交。

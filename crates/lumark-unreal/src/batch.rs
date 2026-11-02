@@ -374,7 +374,7 @@ pub fn export_archive_cancellable(
 }
 
 /// 写一个格式到路径，并落盘 USDA 旁挂资源。
-fn write_format(
+pub(crate) fn write_format(
     format: BatchExportFormat,
     mesh: &lumark_export::ExportMesh,
     materials: &[lumark_export::ExportMaterial],
