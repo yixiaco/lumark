@@ -22,4 +22,5 @@ zstd.workspace = true
 [dev-dependencies]
 image.workspace = true
 lumark-render = { path = "../lumark-render" }
+lumark-export = { path = "../lumark-export" }
 tempfile.workspace = true

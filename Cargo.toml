@@ -12,6 +12,7 @@ members = [
     "crates/lumark-unreal",
     "crates/lumark-scene",
     "crates/lumark-render",
+    "crates/lumark-export",
     "crates/lumark-viewer",
     "crates/lumark-vault",
     "crates/lumark-app",
@@ -52,6 +53,7 @@ lumark-legacy = { path = "crates/lumark-legacy" }
 lumark-unreal = { path = "crates/lumark-unreal" }
 lumark-scene = { path = "crates/lumark-scene" }
 lumark-render = { path = "crates/lumark-render" }
+lumark-export = { path = "crates/lumark-export" }
 image = { version = "0.25.10", default-features = false, features = [
     "png",
     "jpeg",

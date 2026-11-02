@@ -1,0 +1,8 @@
+[package]
+name = "lumark-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lumark-scene = { path = "../lumark-scene" }
