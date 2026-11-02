@@ -81,6 +81,11 @@ impl IoStoreContainer {
         &self.toc_path
     }
 
+    /// 判断目录索引中是否存在指定路径。
+    pub fn contains_file(&self, path: &str) -> bool {
+        self.toc.file_indices.contains_key(path)
+    }
+
     /// 按目录索引路径读取文件。
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, ArchiveError> {
         let index = self

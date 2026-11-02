@@ -9,6 +9,7 @@
 - [x] CI 增加 Toolchain preflight 步骤，记录编译器与 `CC`/`CXX` 环境，便于定位 LNK2038 一类原生依赖问题。
 - [x] Oodle 解压新增纯 Rust 后端：引入 `oozextract 0.5.7`（MIT），默认 `auto` 先走 Rust、失败回退 DLL；`LUMARK_OODLE_BACKEND=auto|rust|dll` 可切换；未压缩块、非法块头与空输出已有单元测试。随包/下载 DLL 的兜底方案仍保留为后续 O 阶段步骤。
 - [x] 纯 Rust Oodle 实机验证：游戏目录不含任何 Oodle DLL 时，BNB IoStore 的 `SK_Chicken`（244 KB 包，42 骨骼/2860 顶点/3844 三角形）与 `T_ChickenA_BaseColor`（5.5 MB `.ubulk`，2048×2048 PF_DXT5/12 mip）均能通过 Rust 后端解压、解析并渲染；`accept_game` 支持用 `-` 省略 Oodle DLL，`verify_game_assets.ps1` 的 Oodle 参数改为可选。
+- [x] 共享资产底座：新增 `GameAssetSource`（统一 IoStore/PAK 的列表、读取、`.uexp`/`.ubulk` 侧车和 `global.utoc` 脚本对象，暴露加密/Oodle/压缩方法状态）与公开 `PakAssetReader`（按条目读取、大小/路径列表、密码分类错误）；UI 资产预览改走该接口，PAK 预览不再逐资产解压到临时目录。BNB 实机验证：IoStore 92,368 个条目、Oodle 方法、纹理 5.5 MB `.ubulk` 与骨骼包均读取正常。
 
 ## 2026-10-29 本轮升级
 

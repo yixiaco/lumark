@@ -1,16 +1,15 @@
-//! 游戏容器 UE 资产预览：IoStore/PAK 读取与纹理/模型/骨骼渲染。
+//! 游戏容器 UE 资产预览：通过 `GameAssetSource` 读取资产并渲染纹理/模型/骨骼。
 
 use std::path::PathBuf;
 
 use crate::i18n::tr;
-use lumark_archive::{ArchiveService, ExtractionOptions, IoStoreContainer};
 use lumark_unreal::{
     AssetKind, AssetMetadata, LegacyPackage, Mappings, PropValue, ZenScriptObjects,
-    is_legacy_package, parse_legacy_summary, parse_package, read_legacy_anim_sequence,
-    read_legacy_skeletal_mesh_geometry, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
-    read_legacy_texture, render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
+    is_legacy_package, parse_legacy_summary, parse_package, read_asset_package,
+    read_legacy_anim_sequence, read_legacy_skeletal_mesh_geometry,
+    read_legacy_skeletal_mesh_summary, read_legacy_skeleton, read_legacy_texture,
+    render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
 };
-use uuid::Uuid;
 
 mod material;
 
@@ -789,75 +788,23 @@ type UeAssetInputs = (
 );
 
 /// 读取资产字节、`.ubulk` 侧载和脚本对象；支持 IoStore 和普通 PAK。
+///
+/// 容器读取统一走 `lumark_unreal::read_asset_package`：PAK 不再逐资产解压到
+/// 临时目录，IoStore 也不在 UI 层重复解析索引。
 fn read_ue_asset_inputs(
     archive: &std::path::Path,
     global: &std::path::Path,
     relative: &str,
     aes_key: Option<&str>,
 ) -> Result<UeAssetInputs, String> {
-    let extension = archive
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let scripts = global
-        .is_file()
-        .then(|| ZenScriptObjects::from_container(global, aes_key).ok())
-        .flatten();
-    let ubulk_relative = relative
-        .strip_suffix(".uasset")
-        .map(|stem| format!("{stem}.ubulk"));
-    let uexp_relative = relative
-        .strip_suffix(".uasset")
-        .map(|stem| format!("{stem}.uexp"));
-    if extension == "utoc" {
-        let container =
-            IoStoreContainer::open(archive, aes_key).map_err(|error| error.to_string())?;
-        let data = container
-            .read_file(relative)
-            .map_err(|error| error.to_string())?;
-        let ubulk = ubulk_relative.and_then(|path| container.read_file(&path).ok());
-        let uexp = uexp_relative.and_then(|path| container.read_file(&path).ok());
-        return Ok((data, ubulk, uexp, scripts));
-    }
-    if extension == "pak" {
-        let temp = std::env::temp_dir().join(format!("lumark-pak-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&temp).map_err(|error| error.to_string())?;
-        let mut selected = vec![relative.to_string()];
-        if let Some(ubulk) = &ubulk_relative {
-            selected.push(ubulk.clone());
-        }
-        if let Some(uexp) = &uexp_relative {
-            selected.push(uexp.clone());
-        }
-        // 加密 PAK 的目录索引和条目共用同一个 AES 密钥；列表阶段已经用它，
-        // 预览解压也必须带上，否则每个资产都会误报“需要密码”。
-        let password = aes_key.map(|key| zeroize::Zeroizing::new(key.to_string()));
-        let mut options = ExtractionOptions {
-            output_dir: temp.clone(),
-            selected_paths: selected,
-            overwrite: true,
-            password,
-            ..Default::default()
-        };
-        if ArchiveService::extract(archive, &options, |_| {}).is_err() {
-            options.selected_paths = vec![relative.to_string()];
-            if let Err(error) = ArchiveService::extract(archive, &options, |_| {}) {
-                let _ = std::fs::remove_dir_all(&temp);
-                return Err(error.to_string());
-            }
-        }
-        let data = std::fs::read(temp.join(relative)).map_err(|error| error.to_string());
-        let ubulk = ubulk_relative
-            .as_ref()
-            .and_then(|path| std::fs::read(temp.join(path)).ok());
-        let uexp = uexp_relative
-            .as_ref()
-            .and_then(|path| std::fs::read(temp.join(path)).ok());
-        let _ = std::fs::remove_dir_all(&temp);
-        return data.map(|data| (data, ubulk, uexp, scripts));
-    }
-    Err(format!("资产查看暂不支持该容器类型：{}", archive.display()))
+    let read = read_asset_package(archive, global, relative, aes_key)
+        .map_err(|error| error.to_string())?;
+    Ok((
+        read.inputs.uasset,
+        read.inputs.ubulk,
+        read.inputs.uexp,
+        read.scripts,
+    ))
 }
 
 /// 读取旧式包属性并格式化为详情行；无映射或解析失败时返回空。

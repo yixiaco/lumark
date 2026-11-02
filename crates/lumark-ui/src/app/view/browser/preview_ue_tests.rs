@@ -1,5 +1,5 @@
 use super::*;
-use lumark_archive::{ArchiveFormat, CompressionOptions};
+use lumark_archive::{ArchiveFormat, ArchiveService, CompressionOptions, IoStoreContainer};
 
 /// 小型 struct/数组会展开一层，便于详情面板直接读取字段。
 #[test]

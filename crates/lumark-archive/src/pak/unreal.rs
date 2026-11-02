@@ -14,6 +14,8 @@ use lumark_legacy::archive::{ArchiveReader, Entry};
 use lumark_legacy::detect::ArchiveFormat;
 use lumark_legacy::error::{GeeZipError, GeeZipResult};
 
+use crate::error::ArchiveError;
+
 /// Unreal PAK footer 魔数。
 const MAGIC: u32 = 0x5A6F12E1;
 /// 索引读取上限。
@@ -878,6 +880,145 @@ impl ArchiveReader for UnrealPakReader {
             })?;
         extract_entry(&self.path, &self.footer, &self.key, record, writer)
             .map_err(|error| GeeZipError::format(error, ArchiveFormat::UnrealPak))
+    }
+}
+
+/// PAK 索引中的条目元数据（不暴露内部偏移细节）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PakAssetEntry {
+    /// 归档内路径。
+    pub path: String,
+    /// 解压后大小。
+    pub size: u64,
+    /// 压缩后大小。
+    pub compressed_size: u64,
+}
+
+/// Unreal PAK 的按条目读取器。
+///
+/// 与 `ArchiveService::extract` 不同，它保持 PAK 打开状态并按路径返回解压后的
+/// 完整字节，供资产预览、批量导出等需要随机读取的场景使用；密钥只保存在内存中，
+/// 不会写入日志或临时文件。
+pub struct PakAssetReader {
+    reader: UnrealPakReader,
+    has_password: bool,
+}
+
+impl PakAssetReader {
+    /// 打开 PAK；加密索引必须提供有效密钥。
+    pub fn open(path: impl Into<PathBuf>, password: Option<&str>) -> Result<Self, ArchiveError> {
+        let path = path.into();
+        let footer = read_footer(&path)
+            .map_err(|error| ArchiveError::Corrupt(format!("Unreal PAK：{error}")))?;
+        if footer.encrypted && password.is_none() {
+            return Err(ArchiveError::PasswordRequired);
+        }
+        let reader = UnrealPakReader::new(path, password).map_err(|error| {
+            if footer.encrypted {
+                // 打开前已确认提供了密钥；解析加密索引失败即视为密钥错误。
+                ArchiveError::WrongPassword
+            } else {
+                ArchiveError::Corrupt(format!("Unreal PAK：{error}"))
+            }
+        })?;
+        Ok(Self {
+            reader,
+            has_password: password.is_some(),
+        })
+    }
+
+    /// 返回条目数量。
+    pub fn entry_count(&self) -> usize {
+        self.reader.records.len()
+    }
+
+    /// 返回全部条目元数据（保持 PAK 索引顺序）。
+    pub fn entries(&self) -> Vec<PakAssetEntry> {
+        self.reader
+            .records
+            .iter()
+            .map(|record| PakAssetEntry {
+                path: record.path.clone(),
+                size: record.uncompressed,
+                compressed_size: record.compressed,
+            })
+            .collect()
+    }
+
+    /// 返回全部条目路径（保持 PAK 索引顺序）。
+    pub fn paths(&self) -> Vec<String> {
+        self.reader
+            .records
+            .iter()
+            .map(|record| record.path.clone())
+            .collect()
+    }
+
+    /// 判断是否存在指定路径的条目。
+    pub fn contains(&self, path: &str) -> bool {
+        self.reader.records.iter().any(|record| record.path == path)
+    }
+
+    /// 返回指定条目的解压后大小；不存在时返回 `None`。
+    pub fn entry_size(&self, path: &str) -> Option<u64> {
+        self.reader
+            .records
+            .iter()
+            .find(|record| record.path == path)
+            .map(|record| record.uncompressed)
+    }
+
+    /// 容器索引是否加密。
+    pub fn encrypted(&self) -> bool {
+        self.reader.footer.encrypted
+    }
+
+    /// 返回 PAK 索引声明的压缩方法名（去重、保持槽位顺序）。
+    pub fn compression_methods(&self) -> Vec<String> {
+        let mut methods: Vec<String> = Vec::new();
+        for method in self.reader.footer.compression.iter().flatten() {
+            if !methods.iter().any(|existing| existing == method) {
+                methods.push(method.clone());
+            }
+        }
+        methods
+    }
+
+    /// 容器是否需要 Oodle 解压后端。
+    pub fn needs_oodle(&self) -> bool {
+        self.reader
+            .footer
+            .compression
+            .iter()
+            .flatten()
+            .any(|method| method.eq_ignore_ascii_case("Oodle"))
+    }
+
+    /// 读取并解压一个条目；条目加密但未提供密码时返回 `PasswordRequired`。
+    pub fn read_entry(&mut self, path: &str) -> Result<Vec<u8>, ArchiveError> {
+        let record = self
+            .reader
+            .records
+            .iter()
+            .find(|record| record.path == path)
+            .ok_or_else(|| ArchiveError::InvalidRequest(format!("PAK 中不存在条目：{path}")))?;
+        if record.encrypted && !self.has_password {
+            return Err(ArchiveError::PasswordRequired);
+        }
+        // 只为小条目预分配；大条目交给 Vec 按需增长，避免伪造索引触发超大分配。
+        let capacity = usize::try_from(record.uncompressed)
+            .unwrap_or(0)
+            .min(64 * 1024 * 1024);
+        let mut output = Vec::with_capacity(capacity);
+        extract_entry(
+            &self.reader.path,
+            &self.reader.footer,
+            &self.reader.key,
+            record,
+            &mut output,
+        )
+        .map_err(|error| ArchiveError::Corrupt(format!("Unreal PAK 读取 {path} 失败：{error}")))?;
+        Ok(output)
     }
 }
 

@@ -7,6 +7,7 @@ pub mod keys;
 pub mod package;
 pub mod raster;
 pub mod skinning;
+pub mod source;
 
 pub use game::{
     ContainerInfo, ContainerKind, DetectedGame, GameScanError, UnrealEngine, scan_game,
@@ -32,4 +33,8 @@ pub use raster::{
     MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,
     render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
     render_static_mesh_orbit,
+};
+pub use source::{
+    AssetContainerKind, AssetInputs, AssetPackageRead, AssetSourceError, GameAssetEntry,
+    GameAssetOptions, GameAssetSource, read_asset_package,
 };
