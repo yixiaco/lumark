@@ -77,6 +77,13 @@ impl LumarkApp {
             tr("AES 密钥（十六进制）", "AES key (hex)"),
             true,
         );
+        let export_filter = new_input(
+            window,
+            cx,
+            tr("导出过滤（路径子串）", "Export filter (path substring)"),
+            false,
+        );
+        let export = entry.map(|entry| entry.export.clone()).unwrap_or_default();
         let mut setup = GameSetup {
             editing_id: entry.map(|entry| entry.id.clone()),
             directory,
@@ -87,6 +94,8 @@ impl LumarkApp {
             key_state: SetupKeyState::None,
             oodle: entry.and_then(|entry| entry.oodle_dll.clone()),
             mappings: entry.and_then(|entry| entry.mappings.clone()),
+            export,
+            export_filter,
             busy: false,
             message: None,
             engine_override: entry.and_then(|entry| UnrealEngine::from_setting(&entry.engine)),
@@ -94,6 +103,9 @@ impl LumarkApp {
         if let Some(entry) = entry {
             set_input(&setup.directory, &entry.root.to_string_lossy(), window, cx);
             set_input(&setup.name, &entry.name, window, cx);
+            if let Some(filter) = &entry.export.asset_filter {
+                set_input(&setup.export_filter, filter, window, cx);
+            }
             if let Some(blob) = &entry.aes_key
                 && let Ok(key) = platform::secret::unprotect_text(blob)
             {
@@ -485,6 +497,10 @@ impl LumarkApp {
                 }
             }
         }
+        let mut export = setup.export.clone();
+        let filter = setup.export_filter.read(cx).value().trim().to_string();
+        export.asset_filter = (!filter.is_empty()).then_some(filter);
+        let export = export.normalized();
         let entry = GameLibraryEntry {
             id: setup
                 .editing_id
@@ -498,6 +514,7 @@ impl LumarkApp {
             key_source,
             oodle_dll: setup.oodle.clone(),
             mappings: setup.mappings.clone(),
+            export,
             last_opened: Some(chrono::Local::now().to_rfc3339()),
         };
         let id = entry.id.clone();

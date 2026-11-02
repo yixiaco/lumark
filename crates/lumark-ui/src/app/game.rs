@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use gpui_kit::Entity;
 use gpui_kit::component::input::InputState;
 use lumark_browser::{BrowserModel, GameArchiveRow};
+use lumark_settings::GameExportConfig;
 use lumark_unreal::{DetectedGame, UnrealEngine};
 use zeroize::Zeroizing;
 
@@ -133,6 +134,10 @@ pub(crate) struct GameSetup {
     pub(crate) oodle: Option<PathBuf>,
     /// 用户选择的 `.usmap` 映射。
     pub(crate) mappings: Option<PathBuf>,
+    /// 每游戏导出配置。
+    pub(crate) export: GameExportConfig,
+    /// 导出过滤输入框。
+    pub(crate) export_filter: Entity<InputState>,
     /// 是否有后台任务进行中。
     pub(crate) busy: bool,
     /// 行内提示。

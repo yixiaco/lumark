@@ -5,6 +5,7 @@ pub mod store;
 
 pub use model::{
     AesKeySource, ColumnKind, ColumnWidths, CompressionPreset, DisguiseMaskPreference,
-    GameLibraryEntry, MailHistoryEntry, MailQueueEntry, OverwritePolicy, Settings, ThemePreference,
+    GameExportConfig, GameLibraryEntry, MailHistoryEntry, MailQueueEntry, OverwritePolicy,
+    Settings, ThemePreference,
 };
 pub use store::SettingsStore;

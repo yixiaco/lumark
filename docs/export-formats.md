@@ -68,6 +68,27 @@ materials.json
 
 `write_resources(base, resources)` 安全落盘，拒绝绝对路径与 `..`。
 
+## 每游戏导出配置（E-1/E-2）
+
+游戏编辑页的“导出格式/数量”区保存到设置：`GameLibraryEntry.export`（`GameExportConfig`）：
+
+```json
+{
+  "output_dir": null,
+  "formats": ["glb", "uemodel"],
+  "asset_filter": "Meshes",
+  "limit": 100,
+  "overwrite": false,
+  "include_materials": true,
+  "max_texture_size": 512,
+  "scale": 1.0
+}
+```
+
+- `normalized()` 会去重/过滤未知格式、限幅贴图上限与缩放、清空空过滤；
+- 打开批量导出窗口时自动带入当前游戏配置；输出目录默认 `<游戏根>/LumarkExports`；
+- 旧设置文件没有该字段时回退默认（glb+uemodel）。
+
 ## 批量导出（E-12/E-13 部分）
 ```rust
 let report = export_archive_cancellable(

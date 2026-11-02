@@ -198,7 +198,8 @@ impl LumarkApp {
                                                 this.save_game_setup(window, cx);
                                             })),
                                     ),
-                            ),
+                            )
+                            .child(export_section(setup, cx)),
                     ),
             )
             .on_drop(
@@ -696,6 +697,125 @@ fn key_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::AnyE
                     )
                 }),
         )
+        .into_any_element()
+}
+
+/// 渲染每游戏导出配置（E-2）。
+fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::AnyElement {
+    let mut formats = h_flex().gap_1().flex_wrap();
+    for (id, label) in [
+        ("glb", "GLB"),
+        ("uemodel", "UEMODEL"),
+        ("usda", "USDA"),
+        ("psk", "PSK"),
+    ] {
+        let selected = setup.export.formats.iter().any(|format| format == id);
+        let mut format_button = button(format!("game-export-format-{id}"))
+            .xsmall()
+            .label(label)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(setup) = this.game_setup.as_mut() {
+                    if let Some(position) =
+                        setup.export.formats.iter().position(|format| format == id)
+                    {
+                        setup.export.formats.remove(position);
+                    } else {
+                        setup.export.formats.push(id.to_string());
+                    }
+                }
+                cx.notify();
+            }));
+        format_button = if selected {
+            format_button.primary()
+        } else {
+            format_button.ghost()
+        };
+        formats = formats.child(format_button);
+    }
+    let mut limits = h_flex().gap_1().flex_wrap();
+    for (limit, label) in [
+        (None, tr("全部", "All")),
+        (Some(10), "10"),
+        (Some(50), "50"),
+        (Some(100), "100"),
+        (Some(500), "500"),
+    ] {
+        let selected = setup.export.limit == limit;
+        let id = limit.map_or_else(
+            || "game-export-limit-all".to_string(),
+            |limit| format!("game-export-limit-{limit}"),
+        );
+        let mut limit_button = button(id)
+            .xsmall()
+            .label(label.to_string())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(setup) = this.game_setup.as_mut() {
+                    setup.export.limit = limit;
+                }
+                cx.notify();
+            }));
+        limit_button = if selected {
+            limit_button.primary()
+        } else {
+            limit_button.ghost()
+        };
+        limits = limits.child(limit_button);
+    }
+    v_flex()
+        .gap_2()
+        .child(field_label(
+            cx,
+            tr("导出格式/数量（保存后生效）", "Export formats/limit (saved)"),
+        ))
+        .child(formats)
+        .child(limits)
+        .child(
+            h_flex()
+                .gap_2()
+                .child(
+                    button("game-export-overwrite")
+                        .xsmall()
+                        .ghost()
+                        .selected(setup.export.overwrite)
+                        .label(tr("覆盖已有文件", "Overwrite existing"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(setup) = this.game_setup.as_mut() {
+                                setup.export.overwrite = !setup.export.overwrite;
+                            }
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("game-export-materials")
+                        .xsmall()
+                        .ghost()
+                        .selected(setup.export.include_materials)
+                        .label(tr("解析材质", "Resolve materials"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(setup) = this.game_setup.as_mut() {
+                                setup.export.include_materials = !setup.export.include_materials;
+                            }
+                            cx.notify();
+                        })),
+                ),
+        )
+        .child(
+            v_flex()
+                .gap_1()
+                .child(field_label(cx, tr("资产过滤", "Asset filter")))
+                .child(
+                    Input::new(&setup.export_filter)
+                        .id("game-export-filter")
+                        .w_full(),
+                ),
+        )
+        .child(hint_line(
+            cx,
+            tr(
+                "批量导出时使用这些默认值；输出目录默认为游戏目录下的 LumarkExports。",
+                "Batch export uses these defaults; output defaults to LumarkExports under the game folder.",
+            ),
+        ))
         .into_any_element()
 }
 

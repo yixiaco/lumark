@@ -11,7 +11,7 @@
 | O（Oodle FModel 式） | 6/7 | O-1/O-2/O-3/O-5/O-6/O-7 完成；O-4 部分（查找路径完成，随包发布流水线待做） |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
 | V（查看器） | 9/21 | V-2/3/6/13/16/18/19 部分；V-7/8/14/20 待做 |
-| E（导出） | 15/18 | E-0/E-1/E-2 待补或部分；其余完成 |
+| E（导出） | 18/18 | 全部完成（E-0…E-17） |
 | M（媒体播放器） | 8/8 | 全部完成（探测/抽帧/窗口/控制/音频/归档内媒体/文档） |
 | I（图片查看器） | 5/5 | 全部完成（拆分/缩放锚点/拖拽/图标/文档） |
 | A（验收/文档/发布） | 0/6 | 待 V/E/M/I 收口 |
@@ -83,8 +83,8 @@
 | 步骤 | 状态 | 证据/缺口 |
 |---|---|---|
 | E-0 DTO/公共基础 | ✅ | `ExportMesh/ExportBone/ExportOptions/validate` + `write_atomic`（临时 `.part` + fsync + rename，失败清理）统一模型/旁挂/报告落盘；2 测试；BNB 实机重导出无残留 `.part`。Report 仍由批量/单资产各自持有 |
-| E-1 GameExportConfig（settings） | 🟡 | `BatchExportConfig` JSON 在 unreal；settings 版本化未接 |
-| E-2 游戏编辑窗口导出 UI | ⬜ | |
+| E-1 GameExportConfig（settings） | ✅ | 第 52 轮：`lumark-settings::GameExportConfig`（输出目录/格式/过滤/limit/overwrite/材质/贴图上限/缩放，`Default` + `normalized`），每游戏 `GameLibraryEntry.export`，旧 JSON 自动回退默认；2 测试 |
+| E-2 游戏编辑窗口导出 UI | ✅ | 第 52 轮：游戏编辑页新增导出区（格式/数量/覆盖/材质/过滤）；保存时写入规范化配置；批量导出窗口按当前游戏配置初始化（输出默认 `游戏根/LumarkExports`）；批量窗口 4 测试、`lumark-ui` 176 测试全过 |
 | E-3 贴图写入器（PNG/JPEG/TGA/WebP/HDR） | ✅ | 第 30/42 轮：`TextureExportFormat{Png,Jpeg,Tga,Webp,Hdr}` + `encode_texture`；PNG/JPEG/WebP 用 image 编码，TGA 手写 18 字节头 + BGRA，HDR 写 Radiance RGBE；4 测试 + BNB `MI_Props` 五格式实机侧车（HDR 512×512、1,048,625B） |
 | E-4 材质旁挂 | ✅ | 第 30 轮：`material_sidecars` 生成 `textures/<材质>_BaseColor|Normal.<ext>` + `materials.json`（版本/格式/基础色/金属度/粗糙度/自发光/双面/贴图路径），`write_resources` 防路径穿越；3 测试 + BNB 实机 3 文件 × 4 格式 |
 | E-5 glTF 2.0 GLB | ✅ | 4 测试 + BNB 实机 + gltf crate 校验 |

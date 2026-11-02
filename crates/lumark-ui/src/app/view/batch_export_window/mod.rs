@@ -32,8 +32,6 @@ pub(crate) struct BatchExportTarget {
     pub oodle: Option<PathBuf>,
     /// AES 密钥。
     pub key: Option<String>,
-    /// 默认输出目录。
-    pub output_dir: PathBuf,
 }
 
 /// 批量导出窗口状态。
@@ -51,13 +49,12 @@ pub(crate) struct BatchExportWindowView {
 
 impl BatchExportWindowView {
     /// 创建窗口。
-    pub(crate) fn new(target: BatchExportTarget, manager: Arc<TaskManager>) -> Self {
-        let config = BatchExportConfig {
-            output_dir: target.output_dir.clone(),
-            formats: vec![BatchExportFormat::Glb, BatchExportFormat::UeModel],
-            include_materials: true,
-            ..BatchExportConfig::default()
-        };
+    pub(crate) fn new(
+        target: BatchExportTarget,
+        manager: Arc<TaskManager>,
+        config: BatchExportConfig,
+    ) -> Self {
+        let config = config.normalized();
         Self {
             target,
             config,
@@ -539,15 +536,43 @@ impl LumarkApp {
             .map(|parent| parent.join("global.utoc"))
             .filter(|path| path.is_file())
             .unwrap_or_default();
+        let saved = self
+            .settings
+            .get()
+            .games
+            .iter()
+            .find(|game| game.id == session.entry_id)
+            .map(|game| game.export.clone())
+            .unwrap_or_default();
+        let output_dir = saved
+            .output_dir
+            .clone()
+            .unwrap_or_else(|| session.game.root.join("LumarkExports"));
+        let mut formats: Vec<BatchExportFormat> = saved
+            .formats
+            .iter()
+            .filter_map(|format| batch_format_from_setting(format))
+            .collect();
+        if formats.is_empty() {
+            formats = vec![BatchExportFormat::Glb, BatchExportFormat::UeModel];
+        }
+        let config = BatchExportConfig {
+            output_dir: output_dir.clone(),
+            formats,
+            scale: saved.scale,
+            include_materials: saved.include_materials,
+            max_texture_size: saved.max_texture_size,
+            asset_filter: saved.asset_filter.clone(),
+            limit: saved.limit,
+            overwrite: saved.overwrite,
+            ..BatchExportConfig::default()
+        };
         let target = BatchExportTarget {
             archive,
             global,
             mappings: session.mappings.clone(),
             oodle: session.oodle.clone(),
             key: session.key.as_ref().map(|key| key.to_string()),
-            output_dir: dirs::desktop_dir()
-                .unwrap_or_else(|| self.temp_root.clone())
-                .join("LumarkExports"),
         };
         let manager = self.tasks.clone();
         let size = gpui_kit::size(px(720.), px(640.));
@@ -578,7 +603,7 @@ impl LumarkApp {
             ..TitleBar::window_options()
         };
         let result = gpui_kit::open_window(options, cx, move |_window, cx| {
-            cx.new(|_| BatchExportWindowView::new(target.clone(), manager.clone()))
+            cx.new(|_| BatchExportWindowView::new(target.clone(), manager.clone(), config.clone()))
         });
         match result {
             Ok(_) => {
@@ -586,6 +611,17 @@ impl LumarkApp {
             }
             Err(error) => self.status = format!("无法打开批量导出窗口：{error}"),
         }
+    }
+}
+
+/// 设置中的格式字符串 → 批量导出格式。
+fn batch_format_from_setting(value: &str) -> Option<BatchExportFormat> {
+    match value.to_ascii_lowercase().as_str() {
+        "glb" => Some(BatchExportFormat::Glb),
+        "uemodel" => Some(BatchExportFormat::UeModel),
+        "usda" => Some(BatchExportFormat::Usda),
+        "psk" => Some(BatchExportFormat::Psk),
+        _ => None,
     }
 }
 

@@ -161,6 +161,66 @@ pub enum AesKeySource {
     Manual,
 }
 
+/// 单个游戏的默认导出配置（E-1）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GameExportConfig {
+    /// 默认输出目录；`None` 表示 `<游戏目录>/LumarkExports`。
+    pub output_dir: Option<PathBuf>,
+    /// 目标格式：`glb`/`uemodel`/`usda`/`psk`。
+    pub formats: Vec<String>,
+    /// 资产路径子串过滤。
+    pub asset_filter: Option<String>,
+    /// 最多导出资产数。
+    pub limit: Option<usize>,
+    /// 是否覆盖已有文件。
+    pub overwrite: bool,
+    /// 是否解析材质。
+    pub include_materials: bool,
+    /// 贴图最大边长。
+    pub max_texture_size: u32,
+    /// 位置缩放。
+    pub scale: f32,
+}
+
+impl Default for GameExportConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: None,
+            formats: vec!["glb".to_string(), "uemodel".to_string()],
+            asset_filter: None,
+            limit: None,
+            overwrite: false,
+            include_materials: true,
+            max_texture_size: 512,
+            scale: 1.0,
+        }
+    }
+}
+
+impl GameExportConfig {
+    /// 规范化：格式去重/排序、只保留支持格式，数值限幅。
+    pub fn normalized(mut self) -> Self {
+        self.formats = self
+            .formats
+            .into_iter()
+            .map(|format| format.to_ascii_lowercase())
+            .filter(|format| matches!(format.as_str(), "glb" | "uemodel" | "usda" | "psk"))
+            .collect();
+        self.formats.sort();
+        self.formats.dedup();
+        if self.formats.is_empty() {
+            self.formats = vec!["glb".to_string()];
+        }
+        self.max_texture_size = self.max_texture_size.clamp(16, 8192);
+        self.scale = self.scale.clamp(0.0001, 100.0);
+        if self.asset_filter.as_deref().is_some_and(str::is_empty) {
+            self.asset_filter = None;
+        }
+        self
+    }
+}
+
 /// 游戏资产库中的一条游戏记录。
 ///
 /// `aes_key` 只保存 Windows DPAPI 加密后的 blob，不保存明文密钥；
@@ -186,6 +246,8 @@ pub struct GameLibraryEntry {
     pub oodle_dll: Option<PathBuf>,
     /// 用户选择的 `.usmap` 映射文件，用于无版本属性。
     pub mappings: Option<PathBuf>,
+    /// 每游戏默认导出配置。
+    pub export: GameExportConfig,
     /// 最近打开时间的 RFC3339 文本。
     pub last_opened: Option<String>,
 }
@@ -458,6 +520,7 @@ mod tests {
                 r"D:\Games\FModel\Output\.data\oodle-data-shared.dll",
             )),
             mappings: Some(PathBuf::from(r"D:\Games\FModel\BNB.usmap")),
+            export: GameExportConfig::default(),
             last_opened: None,
         };
         let encoded = serde_json::to_string(&entry).unwrap();
@@ -470,5 +533,32 @@ mod tests {
             decoded.mappings,
             Some(PathBuf::from(r"D:\Games\FModel\BNB.usmap"))
         );
+        assert_eq!(decoded.export, GameExportConfig::default());
+    }
+
+    /// 每游戏导出配置默认值、旧 JSON 回退与规范化。
+    #[test]
+    fn game_export_config_defaults_and_normalizes() {
+        let legacy: GameLibraryEntry =
+            serde_json::from_str(r#"{"id":"g","name":"G","root":"D:/G"}"#).expect("旧记录");
+        assert_eq!(legacy.export.formats, vec!["glb", "uemodel"]);
+        assert!(legacy.export.include_materials);
+        let config = GameExportConfig {
+            formats: vec![
+                "PSK".to_string(),
+                "glb".to_string(),
+                "unknown".to_string(),
+                "glb".to_string(),
+            ],
+            max_texture_size: 1,
+            scale: 0.0,
+            asset_filter: Some(String::new()),
+            ..GameExportConfig::default()
+        }
+        .normalized();
+        assert_eq!(config.formats, vec!["glb", "psk"]);
+        assert_eq!(config.max_texture_size, 16);
+        assert!(config.scale > 0.0);
+        assert!(config.asset_filter.is_none());
     }
 }
