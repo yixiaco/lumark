@@ -848,6 +848,10 @@ impl LumarkApp {
             self.open_archive_with_auto_password(entry.path, ArchiveOpenIntent::Browse, window, cx);
             return;
         }
+        if super::super::view::media_player_window::is_media_path(&entry.path) {
+            self.open_media_player(entry.path.clone(), entry.name.clone(), window, cx);
+            return;
+        }
         open_path_external(&entry.path);
     }
 

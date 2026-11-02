@@ -5474,6 +5474,7 @@ dependencies = [
  "lumark-browser",
  "lumark-export",
  "lumark-mail",
+ "lumark-media",
  "lumark-platform-windows",
  "lumark-render",
  "lumark-scene",
