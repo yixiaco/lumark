@@ -49,7 +49,7 @@ pub(crate) struct RenderedImage {
 
 /// 共享渲染服务。
 pub(crate) struct RenderService {
-    gpu: Option<GpuRenderer>,
+    gpu: std::sync::Mutex<Option<GpuRenderer>>,
     backend: RenderBackend,
 }
 
@@ -60,12 +60,12 @@ impl RenderService {
             Ok(gpu) => {
                 let backend = RenderBackend::Gpu(gpu.adapter_name().to_string());
                 Self {
-                    gpu: Some(gpu),
+                    gpu: std::sync::Mutex::new(Some(gpu)),
                     backend,
                 }
             }
             Err(_) => Self {
-                gpu: None,
+                gpu: std::sync::Mutex::new(None),
                 backend: RenderBackend::Cpu,
             },
         }
@@ -97,11 +97,24 @@ impl RenderService {
         scene: &Scene,
         settings: &RenderSettings,
     ) -> Result<(RenderTarget, RenderBackend), String> {
-        if let Some(gpu) = &self.gpu {
-            match gpu.render(scene, settings) {
-                Ok(target) => return Ok((target, self.backend.clone())),
-                Err(error) => {
-                    eprintln!("GPU 渲染失败，回退 CPU：{error}");
+        if let Ok(mut guard) = self.gpu.lock() {
+            if let Some(gpu) = guard.as_ref() {
+                match gpu.render(scene, settings) {
+                    Ok(target) => return Ok((target, self.backend.clone())),
+                    Err(error) => {
+                        eprintln!("GPU 渲染失败，尝试重建并回退 CPU：{error}");
+                        // 设备丢失等错误：下一次尝试重新创建 GPU 渲染器。
+                        *guard = GpuRenderer::new().ok();
+                    }
+                }
+            } else {
+                // 之前失败过，按需重试 GPU 初始化。
+                if let Ok(gpu) = GpuRenderer::new() {
+                    let target = gpu.render(scene, settings);
+                    *guard = Some(gpu);
+                    if let Ok(target) = target {
+                        return Ok((target, self.backend.clone()));
+                    }
                 }
             }
         }

@@ -66,7 +66,7 @@
 - [x] V-18（部分）检查器增强：正式查看器创建骨骼搜索 `InputState`，`inspector_bones` 支持大小写不敏感过滤、显示匹配数/总数、最多 200 行；概要新增渲染后的“可见实例/唯一网格”和“绘制批次”世界统计；新增 `bone_matches` 单测与搜索框存在断言。查看器 18 个、`lumark-ui` **179 个测试**全过，fmt/clippy/workspace check 全绿。
 - [x] V-18 完成：`UePreviewResult::Model` 新增 `material_names`（StaticMesh 来自 `material_slots`，SkeletalMesh 来自预览），详情缓存 `details_material_names` 并透传给查看器；section 列表优先显示材质名，缺失时回退“材质槽 N”。新增材质名透传测试；查看器 19 个、`lumark-ui` **180 个测试**全过。**V-18 完成**，V 阶段 14/21。
 - [x] O-4 随包 Oodle 发布流水线：`tools/build_release.ps1` 新增 `-OodleDll`，校验 DLL 并复制到 `target\release\oodle`；`installer/pack-installer.ps1` 把 `oodle/` 复制进 `dist\windows`，Inno 的递归规则与便携 zip 自动包含；未传参数时行为不变。实测占位 `oo2core_9_win64.dll` 进入 `dist\windows\oodle`，`pack-installer.ps1 -Version 0.1.0` Inno 编译成功。O 阶段 7/7 完成。
-- [x] V-8（MSAA + 纹理 LRU）：`RenderSettings` 新增 `msaa_samples`（1/4）；GpuRenderer 创建 1×/4× 三角形与线段管线；4× 时多重采样颜色/深度 + resolve；新增 GPU MSAA 三角形测试。纹理上传增加 64 项 LRU（键=名称/尺寸/采样格式/内容指纹，跨帧复用；同名不同内容不会误复用），扩展贴图测试断言第二次渲染缓存命中。`lumark-render` **33 个测试**、`lumark-ui` 180 个全过。V-8 仍缺 device lost 重建、sRGB 视图切换。
+- [x] V-8 完成：`RenderSettings` 新增 `msaa_samples`（1/4）与 `srgb_textures`；GpuRenderer 创建 1×/4× 三角形与线段管线、4× 多重采样颜色/深度 + resolve；纹理上传 64 项 LRU（键=名称/尺寸/格式/内容指纹）；基础色/自发光 sRGB 开关接入工具栏；`RenderService.gpu` 改为 `Mutex<Option<GpuRenderer>>`，GPU 渲染失败时尝试重建设备并回退 CPU。测试：GPU MSAA、sRGB 开关、纹理缓存；`lumark-render` **34 个测试**、`lumark-ui` **180 个测试**全过，fmt/clippy/workspace check 全绿。**V-8 完成**，V 阶段 15/21。
 
 ## 2026-10-29 本轮升级
 

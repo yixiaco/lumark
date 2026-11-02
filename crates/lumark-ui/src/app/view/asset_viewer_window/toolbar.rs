@@ -86,6 +86,21 @@ impl AssetViewerWindowView {
                         cx.notify();
                     })),
             )
+            .child(
+                button("model-srgb")
+                    .ghost()
+                    .xsmall()
+                    .label("sRGB")
+                    .tooltip(tr(
+                        "基础色/自发光贴图 sRGB 采样",
+                        "sRGB sampling for base/emissive textures",
+                    ))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.srgb_textures = !this.srgb_textures;
+                        this.render_preview();
+                        cx.notify();
+                    })),
+            )
             .children((0..self.hidden_sections.len()).map(|index| {
                 let visible = !self.hidden_sections[index];
                 let mut section_button = button(format!("model-section-{index}"))

@@ -100,6 +100,8 @@ pub(crate) struct AssetViewerWindowView {
     rendering: bool,
     /// 骨骼搜索输入（正式窗口创建）
     bone_filter: Option<gpui_kit::Entity<InputState>>,
+    /// 基础色/自发光贴图按 sRGB 采样
+    srgb_textures: bool,
     /// 材质槽名称（顺序与 section.material_index 对应）
     material_names: Vec<String>,
 }
@@ -168,6 +170,7 @@ impl AssetViewerWindowView {
             render_generation: 0,
             rendering: false,
             bone_filter: None,
+            srgb_textures: true,
             material_names: Vec::new(),
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];

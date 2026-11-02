@@ -365,7 +365,7 @@ impl GpuRenderer {
                     .textures
                     .base_color
                     .as_ref()
-                    .and_then(|texture| self.upload_texture(texture, true));
+                    .and_then(|texture| self.upload_texture(texture, settings.srgb_textures));
                 let normal_upload = batch
                     .material
                     .textures
@@ -383,7 +383,7 @@ impl GpuRenderer {
                     .textures
                     .emissive
                     .as_ref()
-                    .and_then(|texture| self.upload_texture(texture, true));
+                    .and_then(|texture| self.upload_texture(texture, settings.srgb_textures));
                 let base_view = base_upload.as_ref().unwrap_or(&self.white_view);
                 let normal_view = normal_upload.as_ref().unwrap_or(&self.flat_normal_view);
                 let orm_view = orm_upload.as_ref().unwrap_or(&self.white_view);
@@ -1550,6 +1550,52 @@ mod tests {
             .entries
             .len();
         assert_eq!(cache_len, 1, "同一贴图应复用缓存");
+    }
+
+    /// sRGB 开关应改变基础色贴图采样结果。
+    #[test]
+    fn gpu_srgb_toggle_changes_output_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 sRGB 测试：{error}");
+                return;
+            }
+        };
+        let mut scene = triangle_scene();
+        scene.materials[0].base_color = [1.0; 4];
+        scene.materials[0].textures.base_color = Some(lumark_scene::TextureData {
+            name: "T_Gray".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![128, 128, 128, 255],
+        });
+        let base_settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let srgb = renderer
+            .render(
+                &scene,
+                &RenderSettings {
+                    srgb_textures: true,
+                    ..base_settings.clone()
+                },
+            )
+            .expect("sRGB 渲染");
+        let linear = renderer
+            .render(
+                &scene,
+                &RenderSettings {
+                    srgb_textures: false,
+                    ..base_settings
+                },
+            )
+            .expect("线性渲染");
+        assert_ne!(srgb.rgba, linear.rgba, "sRGB 开关应改变采样结果");
     }
 
     /// 有 GPU 时验证自发光贴图与 ORM 遮蔽；无 GPU 时跳过。

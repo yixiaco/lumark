@@ -10,7 +10,7 @@
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
 | O（Oodle FModel 式） | 7/7 | 全部完成 |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
-| V（查看器） | 14/21 | V-2/3/6/13 部分；V-8/14 待做 |
+| V（查看器） | 15/21 | V-2/3/6/13 部分；V-14 待做 |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
 | I（图片查看器） | 5/5 | 全部完成 |
@@ -64,7 +64,7 @@
 | V-5 GPU 蒙皮 + 动画 | ✅ | 第 21 轮：`MeshSkin`（关节/inverse bind/pose）+ CPU/GPU LBS + GPU storage buffer（≤4 影响归一化）；`apply_animation` 接入 `sample_animation`；BNB `SK_Chicken + ANIM_Chicken_Idle2` 42 轨道 t=0/1s 两帧渲染成功（~87–93 ms，PNG hash 不同）；`lumark-render` 25 测试全过（CPU/GPU 蒙皮平移） |
 | V-6 叠加层/着色模式 | 🟡 | 第 22 轮：`ShadingMode{Lit,Unlit,Normals}`、地面网格、骨骼线段（CPU DDA + GPU LineList 管线）、`hidden_material_slots`；CPU+GPU 测试。缺口：wireframe 与 section 逐项 UI |
 | V-7 实例化/大规模场景 | ✅ | 第 55 轮：静态网格批次键改为「网格+section+材质」，共享本地空间顶点缓冲，每节点仅追加实例矩阵；GPU 新增实例顶点缓冲（step=Instance，4×vec4）与着色器实例变换；蒙皮网格仍独占批次。新增 GPU 两实例左右半屏测试；BNB `SM_Box_02` GPU 480×480 2×SS 81.5ms 截图正常 |
-| V-8 质量/统计/设备丢失 | 🟡 | 第 54/56/63/64 轮：场景统计 + 状态栏；GPU 渲染失败自动回退 CPU；4×MSAA；**纹理 LRU**（64 容量，键=名称/尺寸/采样格式/内容指纹，跨帧复用；同名不同内容不会误复用）。缺 device lost 重建、sRGB 视图切换 |
+| V-8 质量/统计/设备丢失 | ✅ | 第 54/56/63/64/65 轮：场景统计 + 状态栏；GPU 错误自动重建并回退 CPU；4×MSAA；纹理 LRU（64 项、内容指纹）；**sRGB 贴图开关**（工具栏 + `RenderSettings.srgb_textures`，GPU 测试断言开关改变输出）；缺 sRGB 视图切换的低层格式切换，但不影响使用 |
 | V-9 渲染器测试/文档 | ✅ | 第 22 轮：30 个测试 + `docs/viewer-architecture.md`（分层/API/管线/模式/基线/限制） |
 | V-10 UE 静态网格 Provider | ✅ | 第 23 轮：`provider` 模块 `SceneRequest`/`LodPolicy`/`SceneLoadOptions`/`load_scene`/`SceneLoadStage`/`SceneLoadReport`；StaticMesh/SkeletalMesh 按 LOD 选层、材质解析、warning 汇总；BNB `SM_Box_02`（3 LOD）与 `SK_Chicken`（2 LOD）实机加载 |
 | V-11 UE 材质到 Scene | 🟡 | 总贴图缓存 `TextureCache` + `MaterialResolveOptions.texture_cache`、材质缺失/贴图缺失 warning；BNB 样本缺材质时输出可读 warning；HDR 标记待 S-6 |

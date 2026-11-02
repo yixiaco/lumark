@@ -108,6 +108,8 @@ pub struct RenderSettings {
     pub supersample: u32,
     /// MSAA 采样数（1 或 4）；仅 GPU 后端使用。
     pub msaa_samples: u32,
+    /// 基础色/自发光贴图是否按 sRGB 采样（关闭后按线性）。
+    pub srgb_textures: bool,
     /// 着色模式。
     pub shading: ShadingMode,
     /// 是否显示地面网格。
@@ -138,6 +140,7 @@ impl Default for RenderSettings {
             ambient_strength: 0.22,
             supersample: 2,
             msaa_samples: 1,
+            srgb_textures: true,
             shading: ShadingMode::Lit,
             show_grid: false,
             show_bones: false,
