@@ -56,7 +56,8 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **yuhkix/aesdumpster-rs** — MIT — https://github.com/yuhkix/aesdumpster-rs — `C7` AES 密钥签名模式、误报表与熵排序参考；Lumark 独立实现并增加真实容器校验。
 - **GHFear/AESDumpster** — 参考项目 — https://github.com/GHFear/AESDumpster — AES 密钥提取算法来源，未复用其代码或二进制。
 - **4sval/FModel** — GPL-3.0 — https://github.com/4sval/FModel — 仅作为游戏资产浏览、目录选择、容器/包/查看器功能语义的参考；未复制其代码、界面或资源，Lumark 的 UI 与实现独立完成。
-- **Oodle（可选）** — Oodle 数据压缩由用户自行提供的 Oodle 动态库（如游戏目录的 `oo2core*.dll` 或 `oodle-data-shared.dll`）提供，Lumark 不捆绑、不再分发；相关许可由用户与 Epic Games/RAD Game Tools 另行约定。
+- **oozextract** — MIT — https://crates.io/crates/oozextract / https://github.com/lvlvllvlvllvlvl/oozextract — 纯 Rust 的 Oodle 解压实现（Kraken/Mermaid/Selkie/Leviathan/LZNA/Bitknit/LZB16），移植自 powzix/ooz；Lumark 默认用它解压 Oodle 压缩块。上游 `powzix/ooz` 仓库未声明独立许可证，再分发前请自行复核该许可链。
+- **Oodle（可选 DLL 后端）** — Oodle 压缩格式与官方 `OodleLZ_Decompress` 属于 Epic Games/RAD Game Tools；Lumark 不包含、不随包分发官方 Oodle 库。仅当用户显式提供游戏自带的 `oo2core*.dll`、`oodle-data-shared.dll` 或设置 `LUMARK_OODLE_DLL` 时才会动态加载，相关许可由用户与权利人另行约定。
 
 RAR support is read-only. The embedded UnRAR source and its license must be included in release artifacts; no RAR creation is implemented.
 

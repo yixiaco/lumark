@@ -33,7 +33,7 @@ pub use format::{
     ZipCompression, ZipEncryption, ZpaqCompression,
 };
 pub use pak::iostore::{IoStoreContainer, IoStoreFile};
-pub use pak::oodle::configure_oodle_library;
+pub use pak::oodle::{configure_oodle_library, oodle_backend_setting};
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
 pub use service::{
     ArchiveService, CreateProgress, ExtractProgress, SFX_FOOTER_LEN, SFX_MAGIC, SFX_MAGIC_V2,

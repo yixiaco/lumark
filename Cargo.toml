@@ -76,6 +76,7 @@ lz4_flex = { version = "0.13", features = ["frame"] }
 lzma-rust2 = { version = "0.22", default-features = false, features = ["std", "encoder", "lzip"] }
 oxiarc-core = "0.3.6"
 oxiarc-lzhuf = "0.3.6"
+oozextract = "0.5.7"
 natord = "1"
 parking_lot = "0.12"
 quick-xml = "0.41"

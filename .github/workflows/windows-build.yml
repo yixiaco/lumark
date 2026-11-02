@@ -40,6 +40,14 @@ jobs:
         with:
           shared-key: windows-check
 
+      - name: Toolchain preflight
+        shell: pwsh
+        run: |
+          rustc -vV
+          Write-Host "CC=$env:CC CXX=$env:CXX"
+          Get-Command clang++, clang-cl, cl -ErrorAction SilentlyContinue | Format-Table Name, Source
+          exit 0
+
       - name: Format
         shell: pwsh
         run: cargo fmt --all -- --check

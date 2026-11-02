@@ -2,6 +2,13 @@
 
 本文件把完整规划拆成可验收的阶段。当前版本是可运行的桌面原型和核心安全链路，不应把未勾选项目视为已完成。
 
+## 2026-11-02 本轮升级
+
+- [x] CI 行数门禁调整为“超过 1000 行提醒、超过 3000 行失败”，既有 `service.rs`、`virtual_drag.rs` 只提醒不阻塞；文档同步。
+- [x] 修复 GitHub Actions release 链接失败：`vendor/zpaq_rs/build.rs` 不再自动选用 clang++，MSVC 目标显式使用动态 CRT；`tools/build_release.ps1` 编译前清理 `CC`/`CXX`。
+- [x] CI 增加 Toolchain preflight 步骤，记录编译器与 `CC`/`CXX` 环境，便于定位 LNK2038 一类原生依赖问题。
+- [x] Oodle 解压新增纯 Rust 后端：引入 `oozextract 0.5.7`（MIT），默认 `auto` 先走 Rust、失败回退 DLL；`LUMARK_OODLE_BACKEND=auto|rust|dll` 可切换；未压缩块、非法块头与空输出已有单元测试。随包/下载 DLL 的兜底方案仍保留为后续 O 阶段步骤。
+
 ## 2026-10-29 本轮升级
 
 - [x] 新增 `lumark-viewer`：mmap/编码检测、文本索引、十六进制行、PE32/PE32+ 解析、编码/EOL 原样保存。
@@ -21,7 +28,7 @@
 - [x] ASAR 创建与读取：`lumark-archive` 先把载荷流式写入匿名临时文件并计算 SHA-256/4 MiB 分块哈希，再写 header 和载荷；表头字段与 Electron 工具链一致（`offset` 字符串、`blockSize`），支持空文件、大于 4 MiB 的多块文件和无扩展名内容识别。`lumark-legacy` 读取器改为只读 header 后按偏移 seek，不再把整包读入内存；保留 `.asar.unpacked` 和 symlink 安全路径校验。
 - [x] APK/JAR/PAX：APK/JAR 复用 ZIP 容器（密码、注释、AES/ZipCrypto、压缩方法），PAX 复用 TAR 并在每个条目写入 `path`/`mtime` pax 扩展头；三种格式已接入创建/列表/测试/解压/伪装、压缩窗口、设置默认格式和 Shell 关联，并有密码 ZIP、注释 JAR、中文长路径 PAX 回归测试。
 - [x] `.pak` 家族：按二进制头区分 Quake PACK（`PACK`）、Chromium 数据包（v4/v5，gzip 外壳）和 Unreal Engine 4/5 PAK（版本 1–11、v8a/v8b、v10+ 完整目录与编码条目、AES-256-ECB、Store/Zlib/Gzip/LZ4/Zstd）。Unreal 样本来自 trumank/repak（MIT OR Apache-2.0），加密索引/条目和压缩条目均有回归；加密错误区分 `PasswordRequired`/`WrongPassword`。
-- [x] Oodle：`OodleLZ_Decompress` 通过用户提供的 `oo2core*.dll` 加载，只接受 `LUMARK_OODLE_DLL` 或程序目录，不扫描 PAK 所在目录；未提供 DLL 时返回可操作的错误，不静默跳过。
+- [x] Oodle：`OodleLZ_Decompress` 仍可通过用户提供的 `oo2core*.dll` 加载（只接受 `LUMARK_OODLE_DLL`、显式配置或程序目录，不扫描 PAK 所在目录）；当前默认优先使用纯 Rust 解码器，未提供 DLL 时不再强制报错。
 - [x] 文件表框选：明细列表和平铺视图都支持拖拽框选，Ctrl/Shift 追加、边缘自动滚动、空白点击清空，框选矩形和命中计算有单元测试。
 - [x] 拖拽语义：拖出条目时使用 Windows 原生拖拽手势，但只把它当作“选择目标”的动作；释放后由 Lumark 软件层识别桌面/资源管理器路径，提交带进度窗口的解压任务，资源管理器不再读取虚拟文件流。目标已有同名文件时弹出覆盖/跳过/重命名/取消；拖回原归档/原路径忽略；路径栏作为应用内拖放目标，在释放时解压到目标目录；拖入归档自身会被过滤。
 - [x] ZIP 家族修复：扫描本地文件头、保留原始压缩数据/加密 extra/CRC 并重建中央目录，输出新文件且拒绝覆盖原归档；支持带数据描述符和 AES 加密的归档，无法确定边界的条目跳过并报告；接入右键菜单和后台任务。
@@ -32,13 +39,13 @@
 - [x] 真实 BNB 验证：`pakchunk2-Windows.utoc` 列出 1537 个包、`pakchunk0-Windows.utoc` 可解析 9.8 万级包路径，压缩方法为 Oodle。
 - [x] BNB 完整实机验收：自动发现 `5.6.1-.../Mappings/*.usmap`（12749 结构/2386 枚举）；`T_ChickenA_BaseColor` 解码 2048×2048 PF_DXT5/12 mip，StaticMesh `Cube` 24 顶点/12 三角形，SkeletalMesh `SK_Chicken` 42 骨骼/2860 顶点/3844 三角形，Skeleton `SK_Chicken_Skeleton` 42 骨骼，AnimSequence `ANIM_Chicken_Idle1` 时长 4.000s；`tools/verify_game_assets.ps1` 真实 BNB 纹理链路通过。
 - [x] 真实 FF7 Remake 验证：项目目录 `End`，无 `*-Win64-Shipping.exe` 时回退到最大 exe `ff7remake_.exe`；提取的密钥通过 `pakchunk0-WindowsNoEditor.pak` 校验，PAK 可列出 18896 个条目；修正 UE4 旧版 PAK（version < 8）压缩槽位映射后，可成功提取 `.uasset/.uexp/.ubulk`，Oodle 候选已发现。新增 `LegacyPackage`（摘要/名称/导入导出表/导出偏移）与 `read_legacy_texture`：不依赖 `.usmap`，通过原生平台数据特征和 `.ubulk` 基础 mip 解码，`UE4Man_Logo_N` 验证 512×512 PF_BC5；并新增无版本属性头摘要。游戏目录提供 FF7 Remake 专用 `Mappings.usmap`（9736 structs/1939 enums，含 `End*` 类，FModel 日志确认可加载）；修正旧式 bool 允许任意非零字节后，`Texture2D` 可读出 `AddressX`/`VirtualTextureStreaming`/`bApplyResidentLODBias`/`CachedCombinedLODBias`/`NeverStream`，`SkeletalMesh` 可读出 `Skeleton`/`MinLOD`/`bUseHighPrecisionTangentBasis`，并在详情显示；旧式 `Skeleton` 已解析 f32 `FReferenceSkeleton`，`UE4_Mannequin_Skeleton` 验证 68 根参考骨骼并可在骨骼查看器显示；`SK_Mannequin` 的 SkeletalMesh 原生数据也会探测内嵌参考骨架（68 根）并生成骨骼预览，原生蒙皮/LOD 几何仍待解析。
-- [x] Oodle 加载器：支持 `LUMARK_OODLE_DLL`、显式配置路径（游戏目录自动发现）、程序目录内 `oo2core*`/`oodle*` DLL；新增非 Windows 平台的可读错误桩。
+- [x] Oodle 加载器：支持 `LUMARK_OODLE_DLL`、显式配置路径（游戏目录自动发现）、程序目录内 `oo2core*`/`oodle*` DLL；新增 `LUMARK_OODLE_BACKEND=auto|rust|dll` 与纯 Rust 解码后端。
 - [x] 新 crate `lumark-unreal`：游戏目录扫描（安装根/项目根、Shipping.exe、容器、Oodle 候选）、UE 4.27/5.0–5.6 版本字符串探测（ASCII/UTF-16）、AESDumpster 签名 + 容器校验的 AES 密钥提取、手动密钥校验；真实 BNB 已提取并通过校验（密钥不入库/不入日志）。
 - [x] 设置新增游戏库条目（DPAPI 保护的密钥 blob、密钥来源、Oodle 路径、最近打开时间）与 `active_game`，旧设置文件向后兼容。
 - [x] 主界面动作带新增【游戏资产】按钮（Windows）；新增游戏设置页、已保存游戏列表、目录扫描与后台密钥提取、Oodle 选择、游戏侧栏/上下文条。
 - [x] 文件夹式浏览：`BrowserLocation::GameArchives`，容器列表沿用现有搜索/排序/平铺/框选；进入容器后使用现有文件夹浏览，游戏容器隐藏 `.uexp/.ubulk/.uptnl` 伴随文件；返回/退出恢复文件系统位置。
 - [x] 详情面板图片预览：文件系统、普通 ZIP/7Z/PAK、IoStore 项共用的异步预览状态，缓存限制、加密提示、过期结果丢弃，点击打开图片查看器。
-- [x] 平台门控：游戏资产入口在非 Windows 隐藏，Oodle 在非 Windows 返回可读错误。
+- [x] 平台门控：游戏资产入口在非 Windows 隐藏；Oodle 的纯 Rust 后端跨平台，DLL 后端仅 Windows 可用。
 - [x] M4 纹理链路：UE5 Zen 摘要/名称表/导入导出表/导出数据范围、全局 ScriptObjects 类名解析、`.usmap`（v1–v4、未压缩/ZStandard/Brotli）与无版本属性读取、纹理 `FTexturePlatformData`/bulk data map/内联与 `.ubulk` mip 读取。
 - [x] UTexture2D 解码：BC1/BC3/BC4/BC5/BC7、BGRA8/RGBA8/G8；详情面板后台生成纹理缩略图，点击打开图片查看器。已用 CUE4Parse UE5.8 unversioned fixture 的 10 种纹理格式和 BNB 真实纹理包（类名/bulk map）验证。
 - [x] 资产元数据：Skeleton 参考骨骼树（名称/父索引/参考姿态）解析；AnimSequence 时长/RateScale/骨架/压缩轨道数/压缩字节/压缩 codec、Skeleton 骨骼数/根骨骼、StaticMesh 材质槽/插槽在详情面板展示；BNB `ANIM_Chicken_Idle1` 定位到 42 条 `TrackToSkeletonMap`、6144 字节压缩流，codec 为 `AnimCompress_PerTrackCompression_6`（121 帧）。已用 fixture 验证 `SKEL_Fixture` 的 3 根骨骼（Root、Joint_1、Joint_2）和 `AS_Fixture` 的 AnimSequence 元数据。

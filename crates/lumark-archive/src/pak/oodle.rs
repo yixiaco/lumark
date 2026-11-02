@@ -1,12 +1,76 @@
-//! Oodle 解压桥接：只加载用户提供的 Oodle 动态库。
+//! Oodle 解压桥接：优先使用纯 Rust 解码器，动态库作为兼容回退。
 //!
-//! 出于许可和分发考虑，Lumark 不捆绑 Oodle。加载顺序固定为显式配置的
-//! 路径、`LUMARK_OODLE_DLL`，然后是可执行文件同目录下的 Oodle DLL；
-//! 不会扫描归档所在目录，避免被恶意 PAK 旁路加载。非 Windows 平台
-//! 不提供 Oodle 支持，压缩块会返回可操作的错误。
+//! Lumark 支持两种后端：
+//! - `rust`：`oozextract` 纯 Rust 解码器，无外部 DLL，Windows/Linux/macOS 均可用；
+//! - `dll`：加载用户或随包提供的 Oodle 动态库（仅 Windows）。
+//!
+//! 后端可通过 `LUMARK_OODLE_BACKEND=auto|rust|dll` 选择，默认 `auto`：先尝试
+//! Rust 后端，失败后再回退 DLL。DLL 的查找顺序保持原行为：显式配置路径、
+//! `LUMARK_OODLE_DLL`、可执行文件同目录；不会扫描归档所在目录，避免被恶意
+//! PAK 旁路加载。
+
+/// Oodle 解压后端选择。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    /// 先 Rust 后 DLL。
+    Auto,
+    /// 仅使用纯 Rust 解码器。
+    Rust,
+    /// 仅使用动态库。
+    Dll,
+}
+
+/// 解析后端环境变量；非法或缺失时回落到 `auto`。
+fn parse_backend(value: Option<&str>) -> Backend {
+    match value.map(str::trim).map(str::to_ascii_lowercase) {
+        Some(value) if value == "rust" => Backend::Rust,
+        Some(value) if value == "dll" => Backend::Dll,
+        _ => Backend::Auto,
+    }
+}
+
+/// 当前配置的后端名称；用于诊断和界面展示。
+pub fn oodle_backend_setting() -> &'static str {
+    match parse_backend(std::env::var("LUMARK_OODLE_BACKEND").ok().as_deref()) {
+        Backend::Auto => "auto",
+        Backend::Rust => "rust",
+        Backend::Dll => "dll",
+    }
+}
+
+/// 解压一个 Oodle 压缩块。
+pub(crate) fn decompress(input: &[u8], output: &mut [u8]) -> Result<(), String> {
+    match parse_backend(std::env::var("LUMARK_OODLE_BACKEND").ok().as_deref()) {
+        Backend::Rust => decompress_rust(input, output),
+        Backend::Dll => dll::decompress(input, output),
+        Backend::Auto => match decompress_rust(input, output) {
+            Ok(()) => Ok(()),
+            Err(rust_error) => dll::decompress(input, output).map_err(|dll_error| {
+                format!("Oodle 解压失败：Rust 后端（{rust_error}）；DLL 后端（{dll_error}）")
+            }),
+        },
+    }
+}
+
+/// 纯 Rust Oodle 解码；输出缓冲必须恰好等于解压后大小。
+fn decompress_rust(input: &[u8], output: &mut [u8]) -> Result<(), String> {
+    if output.is_empty() {
+        return Ok(());
+    }
+    let written = oozextract::Extractor::new()
+        .read_from_slice(input, output)
+        .map_err(|error| format!("{error}"))?;
+    if written != output.len() {
+        return Err(format!(
+            "Rust 解码输出长度不匹配：期望 {} 字节，实际 {written} 字节",
+            output.len()
+        ));
+    }
+    Ok(())
+}
 
 #[cfg(windows)]
-mod platform {
+mod dll {
     use std::ffi::CString;
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
@@ -63,7 +127,7 @@ mod platform {
     static OODLE: OnceLock<Mutex<OodleState>> = OnceLock::new();
 
     /// 解压一个 Oodle 压缩块。
-    pub(crate) fn decompress(input: &[u8], output: &mut [u8]) -> Result<(), String> {
+    pub(super) fn decompress(input: &[u8], output: &mut [u8]) -> Result<(), String> {
         let decompress = decompress_pointer()?;
         let input_len = isize::try_from(input.len()).map_err(|_| "Oodle 输入过大".to_string())?;
         let output_len = isize::try_from(output.len()).map_err(|_| "Oodle 输出过大".to_string())?;
@@ -95,7 +159,7 @@ mod platform {
     }
 
     /// 设置或清除 Oodle DLL 路径；设置时立即尝试加载并验证导出符号。
-    pub(crate) fn set_library_path(path: Option<PathBuf>) -> Result<(), String> {
+    pub(super) fn set_library_path(path: Option<PathBuf>) -> Result<(), String> {
         let state = OODLE.get_or_init(|| {
             Mutex::new(OodleState {
                 configured: None,
@@ -145,7 +209,7 @@ mod platform {
             .as_ref()
             .map(|library| library.decompress)
             .ok_or_else(|| {
-                "Oodle 压缩数据需要用户提供 Oodle 库（在游戏资产设置中选择，或设置 LUMARK_OODLE_DLL）"
+                "未找到可用的 Oodle DLL（可在游戏资产设置中选择，或设置 LUMARK_OODLE_DLL）"
                     .to_string()
             })
     }
@@ -223,26 +287,70 @@ mod platform {
 }
 
 #[cfg(not(windows))]
-mod platform {
+mod dll {
     use std::path::PathBuf;
 
-    /// 非 Windows 平台没有可用的 Oodle 动态库加载路径。
-    pub(crate) fn decompress(_input: &[u8], _output: &mut [u8]) -> Result<(), String> {
-        Err("Oodle 解压仅支持 Windows".to_string())
+    /// 非 Windows 平台没有动态库后端；由纯 Rust 后端负责解压。
+    pub(super) fn decompress(_input: &[u8], _output: &mut [u8]) -> Result<(), String> {
+        Err("当前平台没有可用的 Oodle DLL，请使用 Rust 后端".to_string())
     }
 
-    /// 非 Windows 平台拒绝配置 Oodle 库。
-    pub(crate) fn set_library_path(_path: Option<PathBuf>) -> Result<(), String> {
-        Err("Oodle 解压仅支持 Windows".to_string())
+    /// 非 Windows 平台不接受显式 DLL 路径。
+    pub(super) fn set_library_path(path: Option<PathBuf>) -> Result<(), String> {
+        if path.is_some() {
+            Err("Oodle DLL 仅支持 Windows；当前平台使用纯 Rust 解码器".to_string())
+        } else {
+            Ok(())
+        }
     }
 }
-
-pub(crate) use platform::decompress;
 
 /// 配置 Oodle 动态库路径；`None` 表示恢复自动查找。
 ///
 /// 游戏目录自带的 `oo2core*.dll` 或 FModel/UE 安装中的
 /// `oodle-data-shared.dll` 均可由上层传入，Lumark 只负责加载和校验符号。
+/// 配置失败不会影响纯 Rust 后端。
 pub fn configure_oodle_library(path: Option<std::path::PathBuf>) -> Result<(), String> {
-    platform::set_library_path(path)
+    dll::set_library_path(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Backend, decompress_rust, parse_backend};
+
+    /// 验证后端配置解析：大小写、空白与非法值。
+    #[test]
+    fn parses_backend_preference() {
+        assert_eq!(parse_backend(None), Backend::Auto);
+        assert_eq!(parse_backend(Some("")), Backend::Auto);
+        assert_eq!(parse_backend(Some("auto")), Backend::Auto);
+        assert_eq!(parse_backend(Some(" Rust ")), Backend::Rust);
+        assert_eq!(parse_backend(Some("DLL")), Backend::Dll);
+        assert_eq!(parse_backend(Some("unknown")), Backend::Auto);
+    }
+
+    /// Rust 后端应能解码未压缩块：块头 0x4C（低半字节 0xC、未压缩位）
+    /// 加解码器类型 0x06（Kraken），随后是原样字节。
+    #[test]
+    fn rust_backend_decodes_uncompressed_block() {
+        let input = [0x4C, 0x06, b'l', b'u', b'm', b'a', b'r', b'k'];
+        let mut output = [0u8; 6];
+        decompress_rust(&input, &mut output).expect("未压缩块应解码成功");
+        assert_eq!(&output, b"lumark");
+    }
+
+    /// 非法块头应返回错误而不是 panic。
+    #[test]
+    fn rust_backend_rejects_invalid_header() {
+        let input = [0x00, 0x00, 0x01];
+        let mut output = [0u8; 4];
+        assert!(decompress_rust(&input, &mut output).is_err());
+    }
+
+    /// 输出长度为 0 时直接成功，不读取输入。
+    #[test]
+    fn rust_backend_accepts_empty_output() {
+        let mut output = [];
+        decompress_rust(&[0xFF], &mut output).expect("空输出应直接成功");
+    }
 }

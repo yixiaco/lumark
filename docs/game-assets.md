@@ -125,11 +125,13 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
 
 ## 已知依赖与限制
 
-- 加密 IoStore 的目录索引本身使用 AES 加密；列包只需要密钥。读取资产数据时，若容器
-  使用 Oodle 压缩，还需要用户提供的 Oodle 库（例如游戏自带的 `oo2core*.dll` 或 FModel
-  安装中的 `oodle-data-shared.dll`）。BNB 本体没有随包 Oodle DLL，需要手动选择。
+- 加密 IoStore 的目录索引本身使用 AES 加密；列包只需要密钥。读取资产数据时，Oodle
+  压缩块默认由内置的纯 Rust 解码器（`oozextract` 0.5.7，MIT）解压，不需要用户安装 DLL；
+  `LUMARK_OODLE_BACKEND=auto|rust|dll` 可切换后端（默认 `auto`：先 Rust，失败回退 DLL）。
+  DLL 后端仍支持游戏自带 `oo2core*.dll`、FModel 的 `oodle-data-shared.dll` 或
+  `LUMARK_OODLE_DLL`，用于特殊格式或对照验证。
 - 仅支持单分区 IoStore；分片容器返回明确错误。签名只跳过，不验证。
-- 游戏资产入口在非 Windows 平台隐藏；Oodle 也仅在 Windows 可用。
+- 游戏资产入口在非 Windows 平台隐藏；Oodle 的纯 Rust 后端本身跨平台，当前入口仍按 Windows 门控。
 - SkeletalMesh 的参考骨架（骨骼名/父索引/参考姿态）和各 LOD 的 rest pose 几何已可读取并
   在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽与其名称、LOD、section/
   顶点/三角形以及蒙皮顶点数/最大影响数。LBS 蒙皮、PerTrack 动画解码、帧采样、查看器连续
@@ -137,9 +139,9 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
   LOD 保存独立蒙皮权重，切到 LOD1 播放动画时使用 LOD1 的权重）。
 - 详情面板 UE 加载器拆分为 `browser/preview.rs`（图片预览）与 `browser/preview_ue.rs`
   （UE IoStore/PAK 资产预览），均在 600 行以内。
-- `tools/check_file_sizes.ps1` 目前仍报告两个既有文件超过 1000 行
-  （`lumark-archive/src/service.rs`、`lumark-platform-windows/src/virtual_drag.rs`），
-  本次新增文件均在限制内（`game_assets.rs`/`game_sidebar.rs` 小于 600 行）。
+- `tools/check_file_sizes.ps1` 的行数门禁为“超过 1000 行提醒、超过 3000 行失败”：
+  `lumark-archive/src/service.rs`、`lumark-platform-windows/src/virtual_drag.rs` 这类
+  既有文件只触发提醒；本次新增文件仍按职责拆分，UI 文件目标 600 行以内。
 
 ## 验收命令
 
@@ -156,6 +158,7 @@ cargo test -p lumark-ui game_assets
 ```powershell
 $env:LUMARK_GAME_ROOT = "D:\Games\BNB"
 $env:LUMARK_GAME_MAPPING = "D:\bnb.usmap"
+# 可选：仅对照 DLL 后端时设置；默认纯 Rust 后端不需要
 $env:LUMARK_GAME_OODLE = "D:\Games\FModel\Output\.data\oodle-data-shared.dll"
 $env:LUMARK_GAME_CONTAINER = "pakchunk0-Windows.utoc"
 $env:LUMARK_GAME_ENTRY = "TogetherBNB/Content/.../T_Example.uasset"
@@ -170,7 +173,8 @@ StaticMesh 到 PNG。
 
 1. 在设置页添加游戏目录后，进入主界面“游戏资产”；可同时打开多个游戏，侧栏标签切换，
    每个会话保留自己的目录位置、选择和前进/后退历史。
-2. 在游戏设置中确认 Oodle 动态库；需要字段级属性的游戏还要选择该游戏的 `.usmap`
+2. Oodle 默认使用内置纯 Rust 解码器；游戏设置中的 Oodle 区显示当前后端，只有需要
+   特殊版本或对照验证时才选择 DLL。需要字段级属性的游戏还要选择该游戏的 `.usmap`
    （扫描目录时会自动发现根目录、`Mappings/`、`Content/Paks/` 下的映射并预填）。
    从 Shipping.exe 提取到密钥后，可点击“查看密钥”在内置文本/十六进制查看器里检查。
 3. 浏览 IoStore/PAK 内的文件夹；单击资产在详情面板预览（游戏容器内的 `.uexp/.ubulk/.uptnl`

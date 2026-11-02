@@ -25,6 +25,7 @@ lz4_flex.workspace = true
 lzma-rust2.workspace = true
 oxiarc-core.workspace = true
 oxiarc-lzhuf.workspace = true
+oozextract.workspace = true
 quick-xml.workspace = true
 libchm.workspace = true
 backhand.workspace = true

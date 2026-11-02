@@ -6,7 +6,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 
 - **内置查看器与 PE 归档**：文本按内容显示文本或十六进制；exe/dll 等 PE 文件默认作为只读归档打开，按节和资源目录浏览，`.rsrc` 下的图标资源重建为 `.ico`，可解压任意节/资源并用内置查看器或图片查看器打开，右键菜单仍保留显式“运行”。大文本使用 mmap + 虚拟行列表，不再按 4 MB 拒绝；图片查看器支持适应窗口、100%、缩放、滚动平移、GIF/WebP 动画和 SVG。归档条目和普通文件都走同一路由，ZIP/ZIPX/7Z 条目可直接保存回原归档。
 - **格式**：ZIPX（`.zipx`，ZIP 容器，独立格式选项）、Snappy Framed（`.sz`/`.snappy`；Raw/Hadoop 流会明确提示只支持 Framed）、BZip3（`.bz3`，按预设使用 4/16/64 MiB 块）、RAR5 列表（RAR4/RAR5 签名区分，只读，方法列显示 RAR5）。
-- **新增容器与 PAK**：ASAR 支持流式创建（SHA-256 + 4 MiB 分块 integrity）和读取，创建不会整包读入内存；APK/JAR 作为 ZIP 容器、PAX 作为带 pax 扩展头的 TAR 容器支持读写；`.pak` 按二进制头区分 Quake PACK、Chromium 数据包和 Unreal Engine 4/5 PAK（版本 1–11、编码索引、AES-256、Zlib/Gzip/LZ4/Zstd），Oodle 压缩需用户自备 `oo2core*.dll`。
+- **新增容器与 PAK**：ASAR 支持流式创建（SHA-256 + 4 MiB 分块 integrity）和读取，创建不会整包读入内存；APK/JAR 作为 ZIP 容器、PAX 作为带 pax 扩展头的 TAR 容器支持读写；`.pak` 按二进制头区分 Quake PACK、Chromium 数据包和 Unreal Engine 4/5 PAK（版本 1–11、编码索引、AES-256、Zlib/Gzip/LZ4/Zstd），Oodle 压缩默认由内置纯 Rust 解码器处理，可选 DLL 回退。
 - **文件表框选**：明细列表和平铺视图都支持按住鼠标拖出选框多选，Ctrl/Shift 可追加或扩展，拖到边缘自动滚动；空白处点击清空选择。
 - **拖拽语义**：拖出条目时用 Windows 原生拖拽手势选择目标，松开后由 Lumark 自己把选中条目解压到桌面或资源管理器当前文件夹，并显示独立进度窗口；目标已有同名文件时弹出“覆盖/跳过/重命名/取消”，拖回同一归档或原路径会忽略；拖入路径栏在松开时解压到目标文件夹，不再提前生成临时文件。
 - **修复压缩包**：ZIP/ZIPX/APK/JAR 可扫描本地文件头并重建中央目录，保留压缩方法、加密数据和 CRC，输出 `<名称>.repaired.<扩展名>` 新文件，原归档不会被修改；无法确定边界的条目会跳过并在结果中报告。
@@ -15,7 +15,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - **主题与 UI**：`app/theme.rs` 改用官方 `ThemeColor` 调色板 + `Theme::update`，只覆盖强调色字段；新增界面从 `cx.theme()` 取色。移除了视图层裸 `hsla`、按钮指针手、自绘进度条、空状态和标题栏徽标的旧实现；统一官方 `Progress`、`Empty`、`Tag`。删除、可执行文件确认、清除密码库、删除密码、新建文件夹、重命名、保存密码、删除主密码、解锁密码库、额外候选确认、加密密码库导入/导出、归档添加模式选择、归档密码输入、自动尝试进度和临时解压进度均已迁移到官方 `Dialog`/`AlertDialog`；`chrome.rs` 不再保留自绘模态遮罩。
 - BZip3 使用 LGPL-3.0-only AND Apache-2.0 的纯 Rust `bzip3-rs`；合规与重链接说明见 [`docs/lgpl-compliance.md`](docs/lgpl-compliance.md)，发布物附带 `licenses/LGPL-3.0-only.txt`。
 - **发布构建与安全警告**：新增 `tools/build_release.ps1`、管理员权限 Inno 安装器和 GitHub Actions 工作流；排查并修复沙箱给工作区写入 Low 完整性标签导致的“打开文件 - 安全警告”，发布脚本会对 MOTW 和 Low 完整性做产物级检查与修复。
-- **游戏资产（Windows）**：主界面新增【游戏资产】入口，扫描游戏目录和 UE 版本，从 `*-Win64-Shipping.exe` 提取 AES 密钥（DPAPI 保存），支持手动密钥和 Oodle/`.usmap` 路径配置；IoStore `.utoc/.ucas` 与 PAK 容器沿用现有文件夹/文件表浏览，容器内隐藏 `.uexp/.ubulk/.uptnl`。详情面板可预览 UE 纹理缩略图、StaticMesh 3D 缩略图、Skeleton 骨骼线条图和 AnimSequence 元数据/只读时间轴；StaticMesh 和 Skeleton 可打开独立查看器窗口，左键拖拽轨道旋转、缩放和重置。无版本属性需要用户提供的 `.usmap` 映射。
+- **游戏资产（Windows）**：主界面新增【游戏资产】入口，扫描游戏目录和 UE 版本，从 `*-Win64-Shipping.exe` 提取 AES 密钥（DPAPI 保存），支持手动密钥、Oodle 后端与 `.usmap` 配置；IoStore `.utoc/.ucas` 与 PAK 容器沿用现有文件夹/文件表浏览，容器内隐藏 `.uexp/.ubulk/.uptnl`。详情面板可预览 UE 纹理缩略图、StaticMesh 3D 缩略图、Skeleton 骨骼线条图和 AnimSequence 元数据/只读时间轴；StaticMesh 和 Skeleton 可打开独立查看器窗口，左键拖拽轨道旋转、缩放和重置。无版本属性需要用户提供的 `.usmap` 映射。
 
 ## 当前功能
 
@@ -54,13 +54,13 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - ISO 虚拟光驱：Lumark 文件列表和资源管理器右键菜单都提供“加载至虚拟光驱/卸载虚拟光驱”；挂载成功后自动打开盘符，使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`。客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。资源管理器菜单位于 `HKCU\Software\Classes\SystemFileAssociations\.iso\shell`，升级后需要重新运行安装脚本或 `Lumark.exe --register-shell`。
 - 单实例多窗口：首个进程创建命名管道和互斥体，后续进程优先通过命名管道转发参数（失败回退请求目录）；每个文件生成独立窗口，窗口之间共享设置和密码库、各自保留浏览状态，关闭全部窗口后退出进程。
 - 内置查看器：文本/十六进制按内容自动选择，支持编辑器保存和归档条目写回；exe/dll 等 PE 文件默认作为只读归档浏览，按节和 `.rsrc` 资源目录展开，图标资源重建为 `.ico`，可解压节/资源并用内置查看器或图片查看器打开，右键“运行”才交给系统执行；图片查看器支持 PNG/JPEG/GIF/WebP/SVG/BMP/TIFF/ICO 等常见格式（实际解码能力取决于 GPUI `Img` 与 image 特性），支持适应窗口、100%、缩放和滚动平移。归档条目先解压到临时目录再打开，临时文件沿用现有查看器生命周期。
-- 游戏资产：Windows 主界面提供游戏库、游戏目录扫描、AES 密钥提取/手动校验、Oodle 与 `.usmap` 配置；可同时打开多个游戏，侧栏标签切换，每个游戏保留独立浏览位置和历史，打开列表在重启后自动恢复；IoStore/PAK 只读浏览复用现有文件表，支持 UTexture2D（BC1/BC3/BC4/BC5/BC7/BGRA8/RGBA8/G8）、StaticMesh/SkeletalMesh 多 LOD 与查看器切换（含逐 LOD 蒙皮权重、LBS 蒙皮变换、动画播放/暂停、section/材质切换）、Skeleton 参考骨骼（含 FF7R 内嵌骨架探测）、AnimSequence 元数据/PerTrack 解码与时间轴、Zen/FF7R 只读字段行。仅 Windows 展示入口；无版本属性需要映射文件，BNB 映射已随游戏目录提供并自动发现，纹理/模型/骨骼/动画已实机验收。使用说明与实现边界见 [`docs/game-assets.md`](docs/game-assets.md)。
+- 游戏资产：Windows 主界面提供游戏库、游戏目录扫描、AES 密钥提取/手动校验、Oodle 后端与 `.usmap` 配置；可同时打开多个游戏，侧栏标签切换，每个游戏保留独立浏览位置和历史，打开列表在重启后自动恢复；IoStore/PAK 只读浏览复用现有文件表，支持 UTexture2D（BC1/BC3/BC4/BC5/BC7/BGRA8/RGBA8/G8）、StaticMesh/SkeletalMesh 多 LOD 与查看器切换（含逐 LOD 蒙皮权重、LBS 蒙皮变换、动画播放/暂停、section/材质切换）、Skeleton 参考骨骼（含 FF7R 内嵌骨架探测）、AnimSequence 元数据/PerTrack 解码与时间轴、Zen/FF7R 只读字段行。仅 Windows 展示入口；无版本属性需要映射文件，BNB 映射已随游戏目录提供并自动发现，纹理/模型/骨骼/动画已实机验收。使用说明与实现边界见 [`docs/game-assets.md`](docs/game-assets.md)。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
 
 ### 格式支持矩阵
 
 - **读写**：ZIP、ZIPX（AES/传统加密、Deflate/Bzip2/XZ/Zstd/PPMd 写入；LZMA/Deflate64 只读）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、WIM（LZX 创建）、TAR、PAX、APK、JAR、ASAR（无密码）、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4、Snappy Framed（`.sz`/`.snappy`）、BZip3（`.bz3`）。
-- **只读解压**：PE（节/资源目录，图标组重建为 ICO）、RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、Quake PAK、Chromium PAK、Unreal PAK（版本 1–11，AES-256，Oodle 需自备 DLL）、CPIO、WIM（仅第一映像，XPRESS/LZX/LZMS，支持 SWM）、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
+- **只读解压**：PE（节/资源目录，图标组重建为 ICO）、RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、Quake PAK、Chromium PAK、Unreal PAK（版本 1–11，AES-256，Oodle 优先内置 Rust 解码、可选 DLL）、CPIO、WIM（仅第一映像，XPRESS/LZX/LZMS，支持 SWM）、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
 - **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
 - **暂不支持**：PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取并还原目录层级，写入未实现；WIM 的 LZMS/SWM 写入、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
 
@@ -264,7 +264,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 
 ## 设计取舍
 
-- 模块按职责拆分并保持单文件不超过 1000 行：`service.rs` 拆为探测、列表、解压、创建、伪装、传统格式、工具、进度和分卷模块；压缩窗口、文件表、标题栏、弹窗、归档动作、应用测试和 roundtrip 测试同样按功能拆分。`tools/check_file_sizes.ps1` 在验证阶段拦截超限文件，避免功能继续堆回单个文件。
+- 模块按职责拆分：单文件超过 1000 行触发提醒、超过 3000 行才失败；`service.rs` 拆为探测、列表、解压、创建、伪装、传统格式、工具、进度和分卷模块；压缩窗口、文件表、标题栏、弹窗、归档动作、应用测试和 roundtrip 测试同样按功能拆分。`tools/check_file_sizes.ps1` 在验证阶段输出超长文件提醒并拦截超过硬上限的文件，避免功能继续无边界堆回单个文件。
 
 - 密码库默认由与当前计算机绑定的 Windows DPAPI 保护；设置主密码后改用 Argon2id + XChaCha20-Poly1305，并移除 DPAPI 包裹。主密码无法找回。
 - 密码列表默认掩码，单条显示 10 秒；复制后 30 秒只在剪贴板内容仍匹配时清空。

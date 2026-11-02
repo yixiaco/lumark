@@ -1,5 +1,4 @@
 use std::env;
-use std::process::Command;
 
 fn rustflags_request_native() -> bool {
     fn iter_flags(var: &str) -> Vec<String> {
@@ -37,32 +36,6 @@ fn rustflags_request_native() -> bool {
     false
 }
 
-fn exe_exists(name: &str) -> bool {
-    #[cfg(unix)]
-    {
-        Command::new("sh")
-            .arg("-lc")
-            .arg(format!("command -v {name} >/dev/null 2>&1"))
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
-
-    #[cfg(windows)]
-    {
-        Command::new("where")
-            .arg(name)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        false
-    }
-}
-
 fn main() {
     println!("cargo:rerun-if-changed=zpaq/libzpaq.cpp");
     println!("cargo:rerun-if-changed=zpaq/libzpaq.h");
@@ -71,15 +44,31 @@ fn main() {
     let mut build = cc::Build::new();
 
     // Toolchain selection:
-    // - If `ZPAQ_RS_CXX` is set, use it (e.g. `clang++` or `g++`).
-    // - Else, if the standard `CXX` env var is set, let the `cc` crate honor it.
-    // - Otherwise, prefer clang++ when available (easy to compare with Rust's LLVM backend).
+    // - 只有显式设置 `ZPAQ_RS_CXX` 时才切换编译器，其余情况交给 cc 默认选择（Windows 上为 MSVC cl.exe）。
+    // - 不再自动探测/优先 clang++：clang 在 Windows 目标上默认使用静态 CRT（/MT），
+    //   与 rustc 默认的 /MD 混链会触发 LNK2038 `RuntimeLibrary` 不匹配。
+    // - 若显式指定 clang 驱动，则强制动态 CRT，与 rustc 保持一致。
+    println!("cargo:rerun-if-env-changed=ZPAQ_RS_CXX");
+    let cxx_hint = env::var("ZPAQ_RS_CXX")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            env::var("CXX")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        });
+    let mut clang_driver = false;
     if let Ok(cxx) = env::var("ZPAQ_RS_CXX") {
-        if !cxx.trim().is_empty() {
+        let cxx = cxx.trim();
+        if !cxx.is_empty() {
+            let lower = cxx.to_ascii_lowercase();
+            clang_driver = lower.contains("clang") && !lower.contains("clang-cl");
             build.compiler(cxx);
         }
-    } else if env::var_os("CXX").is_none() && exe_exists("clang++") {
-        build.compiler("clang++");
+    }
+    if !clang_driver && let Some(cxx) = cxx_hint {
+        let lower = cxx.to_ascii_lowercase();
+        clang_driver = lower.contains("clang") && !lower.contains("clang-cl");
     }
 
     build
@@ -100,12 +89,23 @@ fn main() {
         .flag_if_supported("-Wno-unused-const-variable")
         .define("NDEBUG", None);
 
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+
+    // Windows MSVC 目标必须与 rustc 使用同一 CRT。cc 对 MSVC 家族按 static_crt
+    // 传 -MT/-MD；显式关闭静态 CRT 以对齐 rustc 的 /MD。若显式使用 clang 驱动，
+    // 再追加 clang 的动态运行库开关（不支持的驱动会由 flag_if_supported 丢弃）。
+    if target_os == "windows" && target_env == "msvc" {
+        build.static_crt(false);
+        if clang_driver {
+            build.flag_if_supported("-fms-runtime-lib=dynamic");
+        }
+    }
+
     // Only define unix on UNIX systems (not on Windows)
     #[cfg(unix)]
     build.define("unix", None);
-
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
     // libzpaq JIT is x86_64-specific. Force NOJIT on non-x86_64 targets,
     // while still allowing explicit `--features nojit` on x86_64.

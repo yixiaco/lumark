@@ -319,6 +319,10 @@ foreach ($directory in @(
 }
 
 Write-Host "编译 release 产物..."
+# 原生 C/C++ 依赖必须与 rustc 使用同一 CRT。clang 在 Windows 默认 /MT，而 rustc 使用 /MD；
+# 若宿主环境把 CC/CXX 指向 clang，链接会报 LNK2038。发布构建统一清除这两个变量，
+# 让 cc 走 MSVC cl.exe（/MD），与 Cargo 目标保持一致。
+Remove-Item Env:CC, Env:CXX -ErrorAction SilentlyContinue
 & cargo build --manifest-path $manifest --release --locked -p lumark-app -p lumark-sfx
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build 失败，退出码 $LASTEXITCODE"
