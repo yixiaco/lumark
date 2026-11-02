@@ -4,7 +4,7 @@
 //! 找不到工具时返回可读错误，由界面提示安装或配置路径。
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 
 use serde::Deserialize;
 
@@ -15,6 +15,8 @@ pub struct FfmpegTools {
     pub ffmpeg: PathBuf,
     /// `ffprobe` 路径。
     pub ffprobe: PathBuf,
+    /// `ffplay` 路径（可选，用于音频输出）。
+    pub ffplay: Option<PathBuf>,
 }
 
 impl FfmpegTools {
@@ -32,7 +34,11 @@ impl FfmpegTools {
             let ffmpeg = executable(&directory, "ffmpeg");
             let ffprobe = executable(&directory, "ffprobe");
             if ffmpeg.is_file() && ffprobe.is_file() {
-                return Ok(Self { ffmpeg, ffprobe });
+                return Ok(Self {
+                    ffmpeg,
+                    ffprobe,
+                    ffplay: optional_executable(&directory, "ffplay"),
+                });
             }
             return Err(format!(
                 "LUMARK_FFMPEG 指向的目录缺少 ffmpeg/ffprobe：{}",
@@ -44,11 +50,26 @@ impl FfmpegTools {
             let ffmpeg = executable(&directory, "ffmpeg");
             let ffprobe = executable(&directory, "ffprobe");
             if ffmpeg.is_file() && ffprobe.is_file() {
-                return Ok(Self { ffmpeg, ffprobe });
+                return Ok(Self {
+                    ffmpeg,
+                    ffprobe,
+                    ffplay: optional_executable(&directory, "ffplay"),
+                });
             }
         }
         Err("未找到 ffmpeg/ffprobe；请安装 FFmpeg 或设置 LUMARK_FFMPEG".to_string())
     }
+
+    /// 是否具备音频输出能力（同目录 ffplay）。
+    pub fn has_audio_backend(&self) -> bool {
+        self.ffplay.is_some()
+    }
+}
+
+/// 可选工具路径。
+fn optional_executable(directory: &Path, name: &str) -> Option<PathBuf> {
+    let path = executable(directory, name);
+    path.is_file().then_some(path)
 }
 
 /// 在目录中构造可执行文件名。
@@ -280,6 +301,22 @@ pub fn extract_frame_with(
     })
 }
 
+/// 启动 `ffplay` 播放音频（不显示窗口，播完自动退出）。
+pub fn spawn_audio(tools: &FfmpegTools, path: &Path, seconds: f64) -> Result<Child, String> {
+    let ffplay = tools
+        .ffplay
+        .as_ref()
+        .ok_or_else(|| "未找到 ffplay，无法输出音频".to_string())?;
+    Command::new(ffplay)
+        .args(["-v", "error", "-nodisp", "-autoexit"])
+        .args(["-ss", &format!("{:.3}", seconds.max(0.0))])
+        .arg(path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("启动音频播放失败：{error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +357,19 @@ mod tests {
         assert!(!info.has_video());
         assert!(info.has_audio());
         assert_eq!(info.width, 0);
+    }
+
+    /// 缺少 ffplay 时音频启动返回可读错误；不实际启动进程。
+    #[test]
+    fn audio_requires_ffplay() {
+        let tools = FfmpegTools {
+            ffmpeg: PathBuf::from("ffmpeg"),
+            ffprobe: PathBuf::from("ffprobe"),
+            ffplay: None,
+        };
+        assert!(!tools.has_audio_backend());
+        let error = spawn_audio(&tools, Path::new("sample.mp4"), 0.0).expect_err("应缺少 ffplay");
+        assert!(error.contains("ffplay"));
     }
 
     /// 真实 ffmpeg（缺失时跳过）：生成 1 秒测试视频并探测/抽帧。

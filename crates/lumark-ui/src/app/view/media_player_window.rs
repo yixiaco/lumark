@@ -3,6 +3,7 @@
 use super::super::*;
 
 use std::path::PathBuf;
+use std::process::Child;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -10,7 +11,9 @@ use gpui_kit::RenderImage;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::{ActiveTheme, TitleBar};
 use gpui_kit::{Context, IntoElement, ParentElement, Render, Styled, Window, div, px};
-use lumark_media::{FfmpegTools, MediaFrame, MediaInfo, extract_frame_with, probe_with};
+use lumark_media::{
+    FfmpegTools, MediaFrame, MediaInfo, extract_frame_with, probe_with, spawn_audio,
+};
 
 use crate::app::LumarkApp;
 use crate::i18n::tr;
@@ -26,7 +29,16 @@ pub(crate) struct MediaPlayerWindowView {
     playing: bool,
     loading: bool,
     error: Option<String>,
+    audio: Option<Child>,
+    audio_error: Option<String>,
     generation: Arc<AtomicU64>,
+}
+
+impl Drop for MediaPlayerWindowView {
+    /// 关闭窗口时停止音频子进程。
+    fn drop(&mut self) {
+        self.stop_audio();
+    }
 }
 
 impl MediaPlayerWindowView {
@@ -42,6 +54,8 @@ impl MediaPlayerWindowView {
             playing: false,
             loading: true,
             error: None,
+            audio: None,
+            audio_error: None,
             generation: Arc::new(AtomicU64::new(0)),
         };
         view.initialize(cx);
@@ -120,9 +134,46 @@ impl MediaPlayerWindowView {
         }
         self.playing = !self.playing;
         if self.playing {
+            self.start_audio();
             self.spawn_playback(cx);
+        } else {
+            self.stop_audio();
         }
         cx.notify();
+    }
+
+    /// 从当前位置启动 ffplay 音频；无音轨/无 ffplay 时静默跳过。
+    fn start_audio(&mut self) {
+        self.stop_audio();
+        let Some(info) = self.info.as_ref() else {
+            return;
+        };
+        if !info.has_audio() {
+            return;
+        }
+        let Some(tools) = self.tools.as_ref() else {
+            return;
+        };
+        if !tools.has_audio_backend() {
+            self.audio_error =
+                Some(tr("未找到 ffplay，仅播放画面", "ffplay not found; video only").to_string());
+            return;
+        }
+        match spawn_audio(tools, &self.path, self.position) {
+            Ok(child) => {
+                self.audio = Some(child);
+                self.audio_error = None;
+            }
+            Err(error) => self.audio_error = Some(error),
+        }
+    }
+
+    /// 停止音频子进程。
+    fn stop_audio(&mut self) {
+        if let Some(mut child) = self.audio.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 
     /// 播放循环：按帧率推进时间并请求抽帧。
@@ -149,6 +200,7 @@ impl MediaPlayerWindowView {
                     if duration > 0.0 && view.position >= duration {
                         view.position = duration;
                         view.playing = false;
+                        view.stop_audio();
                         cx.notify();
                         return None;
                     }
@@ -176,6 +228,9 @@ impl MediaPlayerWindowView {
             .unwrap_or(0.0);
         self.position = clamp_position(target, duration);
         self.load_frame(cx);
+        if self.playing {
+            self.start_audio();
+        }
         cx.notify();
     }
 
@@ -344,7 +399,11 @@ impl Render for MediaPlayerWindowView {
                     )
                     .when(self.loading, |this| {
                         this.child(tr("抽帧中…", "Extracting frame…").to_string())
-                    }),
+                    })
+                    .when(self.audio.is_some(), |this| {
+                        this.child(tr("音频播放中", "Audio playing").to_string())
+                    })
+                    .when_some(self.audio_error.clone(), |this, error| this.child(error)),
             )
     }
 }

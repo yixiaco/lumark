@@ -53,7 +53,8 @@
 - [x] I-1 图片查看器拆分 + I-5 文档：`image_viewer_window.rs`（1035 行）拆为 `image_viewer_window/{mod,title,toolbar,body,status,image_ops,app,tests}.rs`，最大 286 行；行为不变，9 个查看器测试与 `lumark-ui` 全量测试通过。新增 `docs/image-viewer.md`：模块职责、交互（滚轮锚点/拖拽/缩放/旋转）、EXIF/SVG 处理、测试与限制。I 阶段 5/5 完成。
 - [x] M-1…M-3 媒体后端：新增 `lumark-media` crate（不链接 FFmpeg 开发库）：`FfmpegTools::locate`（`LUMARK_FFMPEG`/PATH，需同时找到 ffmpeg+ffprobe）、`probe/probe_with`（ffprobe JSON → 格式/时长/分辨率/帧率/视频+音频编码）、`extract_frame/extract_frame_with`（ffmpeg `-ss` + image2pipe PNG → RGBA，可限制宽度）。测试 3 个：JSON 解析/帧率与无视频轨、真实 ffmpeg 集成（生成 160×90@10fps testsrc 1s → 探测 → 80px 抽帧），全部通过；新增 `docs/media-player.md`。M 阶段 3/8。
 - [x] M-4/M-5 媒体播放窗口：新增 `media_player_window.rs`（473 行）：异步探测 + 首帧加载、RGBA→RenderImage（BGRA）、播放/暂停、±5s、±1 帧、回到开头、时间显示、状态摘要与抽帧提示；播放循环按帧率推进并用 generation 丢弃过期抽帧；文件系统视频扩展名自动路由到内置播放器，ffmpeg 缺失时回退系统播放器并提示。测试：时间格式/位置限制、扩展名识别、窗口控件渲染 3 个；`lumark-ui` **175 个测试**全过，clippy/fmt/workspace check 全绿。M 阶段 5/8。
-- [x] M-7 归档内媒体：`PendingOpenMode` 新增 `Media`；归档条目解压完成后按扩展名进入内置播放器（ffmpeg 可用时），不可用时保持外部打开；文件名从归档相对路径提取。`lumark-ui` 编译/测试通过，clippy/fmt/workspace check 全绿。M 阶段 6/8，仅音频输出（M-6）待做。
+- [x] M-7 归档内媒体：`PendingOpenMode` 新增 `Media`；归档条目解压完成后按扩展名进入内置播放器（ffmpeg 可用时），不可用时保持外部打开；文件名从归档相对路径提取。`lumark-ui` 编译/测试通过，clippy/fmt/workspace check 全绿。M 阶段 6/8。
+- [x] M-6 音频输出：`FfmpegTools` 增加可选 `ffplay`（同目录/PATH 探测）与 `has_audio_backend`；新增 `spawn_audio`（`ffplay -v error -nodisp -autoexit -ss <pos>`，stdout/stderr 丢弃）；播放窗口在播放时启动音频、暂停/关闭/播放结束 kill 子进程，跳转时从新位置重启；无音轨或无 ffplay 时仅画面并提示。新增单测（缺少 ffplay 返回可读错误）；`lumark-media` **4 个测试**、`lumark-ui` **175 个测试**全过，clippy/fmt/workspace check 全绿。M 阶段 8/8；音画同步为“当前位置启动音频”的近似策略。
 
 ## 2026-10-29 本轮升级
 
