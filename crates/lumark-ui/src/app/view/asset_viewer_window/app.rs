@@ -78,8 +78,17 @@ impl LumarkApp {
         };
         let display = name.clone();
         let scene_for_window = scene.clone();
-        let result = gpui_kit::open_window(options, cx, move |_window, cx| {
-            cx.new(|_cx| AssetViewerWindowView::new(display.clone(), scene_for_window.clone()))
+        let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            let focus = cx.focus_handle();
+            let view = cx.new(|_cx| {
+                AssetViewerWindowView::new_with_focus(
+                    display.clone(),
+                    scene_for_window.clone(),
+                    focus.clone(),
+                )
+            });
+            window.focus(&focus, cx);
+            view
         });
         match result {
             Ok(_) => self.status = format!("已在内置{display_kind}查看器中打开 {name}"),

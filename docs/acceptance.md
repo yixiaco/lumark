@@ -52,13 +52,13 @@ cargo test --workspace --lib
 | lumark-settings | 7 |
 | lumark-sfx | 7 |
 | lumark-tasks | 8（另有集成测试） |
-| lumark-ui | 176 |
+| lumark-ui | 177 |
 | lumark-unreal | 74 |
 | lumark-vault | 11 |
 | lumark-viewer | 17 |
 | zpaq-rs | 10 |
 
-合计 **535 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
+合计 **536 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
 
 ### 实机样本
 

@@ -482,6 +482,45 @@ fn inspector_panel_renders_and_toggles(cx: &mut gpui_kit::TestAppContext) {
     });
 }
 
+/// 快捷键：F 重置、G 网格、L/N 着色，未知键不消费。
+#[gpui_kit::test]
+fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    cx.update(gpui_kit::init);
+    let (view, cx) = cx.add_window_view(|_, cx| {
+        AssetViewerWindowView::new_with_focus(
+            "SM_Keys".to_string(),
+            ViewerScene::Mesh { lods: vec![mesh] },
+            cx.focus_handle(),
+        )
+    });
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.yaw = 90.0;
+            view.zoom = 2.0;
+            assert!(view.handle_shortcut("f", cx));
+            assert_eq!(view.yaw, 35.0);
+            assert_eq!(view.zoom, 1.0);
+            assert!(view.handle_shortcut("g", cx));
+            assert!(view.show_grid);
+            assert!(view.handle_shortcut("l", cx));
+            assert_eq!(view.shading, lumark_render::ShadingMode::Unlit);
+            assert!(view.handle_shortcut("n", cx));
+            assert_eq!(view.shading, lumark_render::ShadingMode::Normals);
+            assert!(!view.handle_shortcut("z", cx), "未知键不应消费");
+        });
+    });
+}
+
 /// 着色模式、网格叠加与 section 隐藏都会改变渲染结果。
 #[test]
 fn viewer_shading_grid_and_sections_render() {

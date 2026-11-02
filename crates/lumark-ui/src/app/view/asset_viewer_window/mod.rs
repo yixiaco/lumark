@@ -15,6 +15,7 @@ use lumark_unreal::{MeshLod, Skeleton};
 mod animation;
 mod app;
 mod body;
+mod input;
 mod inspector;
 mod render;
 mod status;
@@ -84,10 +85,26 @@ pub(crate) struct AssetViewerWindowView {
     last_backend: Option<String>,
     /// 最近一次渲染的场景统计
     last_stats: Option<lumark_render::SceneStats>,
+    /// 键盘焦点（仅正式窗口创建；测试/内部构造可为空）
+    focus: Option<gpui_kit::FocusHandle>,
 }
 impl AssetViewerWindowView {
-    /// 创建窗口并渲染默认视角
+    /// 创建窗口并渲染默认视角（无键盘焦点，供测试/内部使用）。
+    #[cfg(test)]
     pub(crate) fn new(name: String, scene: ViewerScene) -> Self {
+        Self::create(name, scene, None)
+    }
+
+    /// 创建带键盘焦点的正式查看器窗口。
+    pub(crate) fn new_with_focus(
+        name: String,
+        scene: ViewerScene,
+        focus: gpui_kit::FocusHandle,
+    ) -> Self {
+        Self::create(name, scene, Some(focus))
+    }
+
+    fn create(name: String, scene: ViewerScene, focus: Option<gpui_kit::FocusHandle>) -> Self {
         let mut view = Self {
             name,
             scene,
@@ -108,6 +125,7 @@ impl AssetViewerWindowView {
             show_bones: false,
             last_backend: None,
             last_stats: None,
+            focus,
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view.render_preview();
@@ -190,6 +208,17 @@ impl Render for AssetViewerWindowView {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            .when_some(self.focus.as_ref(), |this, focus| {
+                this.track_focus(focus).on_key_down(cx.listener(
+                    |this, event: &gpui_kit::KeyDownEvent, _, cx| {
+                        let modifiers = &event.keystroke.modifiers;
+                        if modifiers.control || modifiers.alt {
+                            return;
+                        }
+                        this.handle_shortcut(&event.keystroke.key, cx);
+                    },
+                ))
+            })
             .child(self.render_title_bar(cx))
             .child(self.render_toolbar(cx))
             .child(
