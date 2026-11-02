@@ -18,6 +18,7 @@ use crate::{RenderSettings, RenderTarget};
 const SHADER: &str = include_str!("shader.wgsl");
 /// 叠加层线段着色器。
 const LINE_SHADER: &str = include_str!("line.wgsl");
+const BACKGROUND_SHADER: &str = include_str!("background.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -69,6 +70,9 @@ pub struct GpuRenderer {
     pipeline_double_4x: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     line_pipeline_4x: wgpu::RenderPipeline,
+    background_pipeline: wgpu::RenderPipeline,
+    background_pipeline_4x: wgpu::RenderPipeline,
+    background_layout: wgpu::BindGroupLayout,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -186,6 +190,9 @@ impl GpuRenderer {
                 pipeline_double_4x: resources.pipeline_double_4x,
                 line_pipeline: resources.line_pipeline,
                 line_pipeline_4x: resources.line_pipeline_4x,
+                background_pipeline: resources.background_pipeline,
+                background_pipeline_4x: resources.background_pipeline_4x,
+                background_layout: resources.background_layout,
                 camera_layout: resources.camera_layout,
                 material_layout: resources.material_layout,
                 sampler: resources.sampler,
@@ -338,6 +345,29 @@ impl GpuRenderer {
                 }),
                 ..Default::default()
             });
+            let background_data = background_uniform(settings.background);
+            let background_buffer = self.create_buffer(
+                "lumark-background",
+                (background_data.len() * 4) as u64,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+            self.queue
+                .write_buffer(&background_buffer, 0, &f32_bytes(&background_data));
+            let background_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lumark-background"),
+                layout: &self.background_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: background_buffer.as_entire_binding(),
+                }],
+            });
+            pass.set_pipeline(if samples > 1 {
+                &self.background_pipeline_4x
+            } else {
+                &self.background_pipeline
+            });
+            pass.set_bind_group(0, &background_bind_group, &[]);
+            pass.draw(0..3, 0..1);
             pass.set_pipeline(pipeline_double);
             pass.set_bind_group(0, &camera_bind_group, &[]);
             for batch in &batches {
@@ -627,6 +657,9 @@ struct Resources {
     pipeline_double_4x: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     line_pipeline_4x: wgpu::RenderPipeline,
+    background_pipeline: wgpu::RenderPipeline,
+    background_pipeline_4x: wgpu::RenderPipeline,
+    background_layout: wgpu::BindGroupLayout,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -911,6 +944,69 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
     };
     let line_pipeline = create_line_pipeline("lumark-line-pipeline", 1);
     let line_pipeline_4x = create_line_pipeline("lumark-line-pipeline-4x", 4);
+
+    // 背景渐变全屏三角形管线。
+    let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-background-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(BACKGROUND_SHADER)),
+    });
+    let background_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lumark-background-layout"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let background_pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("lumark-background-pipeline-layout"),
+            bind_group_layouts: &[Some(&background_layout)],
+            immediate_size: 0,
+        });
+    let create_background_pipeline = |label: &'static str, samples: u32| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&background_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &background_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: samples,
+                ..Default::default()
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &background_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let background_pipeline = create_background_pipeline("lumark-background", 1);
+    let background_pipeline_4x = create_background_pipeline("lumark-background-4x", 4);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("lumark-sampler"),
         address_mode_u: wgpu::AddressMode::Repeat,
@@ -937,6 +1033,9 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         pipeline_double_4x,
         line_pipeline,
         line_pipeline_4x,
+        background_pipeline,
+        background_pipeline_4x,
+        background_layout,
         camera_layout,
         material_layout,
         sampler,
@@ -1333,6 +1432,20 @@ fn clear_color(background: [f32; 3]) -> wgpu::Color {
     }
 }
 
+/// 背景渐变 uniform：底部/顶部线性色（CPU 端为 0.75×/1.25× 背景色）。
+fn background_uniform(background: [f32; 3]) -> [f32; 8] {
+    [
+        background[0] * 0.75,
+        background[1] * 0.75,
+        background[2] * 0.75,
+        1.0,
+        background[0] * 1.25,
+        background[1] * 1.25,
+        background[2] * 1.25,
+        1.0,
+    ]
+}
+
 /// f32 序列转 little-endian 字节。
 fn f32_bytes(values: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(values.len() * 4);
@@ -1396,6 +1509,32 @@ mod tests {
             metadata: Vec::new(),
         });
         scene
+    }
+
+    /// GPU 背景渐变：顶部比底部亮，与 CPU 后端一致。
+    #[test]
+    fn gpu_background_gradient_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 背景测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 32,
+            height: 32,
+            supersample: 1,
+            background: [0.2, 0.3, 0.4],
+            show_grid: false,
+            ..RenderSettings::default()
+        };
+        let target = renderer
+            .render(&Scene::new("Empty"), &settings)
+            .expect("GPU 背景渲染");
+        let top = &target.rgba[..4];
+        let bottom = &target.rgba[(31 * 32 * 4)..(31 * 32 * 4 + 4)];
+        assert!(top[0] > bottom[0], "顶部背景应更亮");
     }
 
     /// 有 GPU 时渲染三角形；无 GPU 的 CI 环境跳过。
