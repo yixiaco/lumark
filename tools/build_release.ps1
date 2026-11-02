@@ -50,6 +50,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $manifest = Join-Path $repo "Cargo.toml"
 $releaseDir = Join-Path $repo "target\release"
 $app = Join-Path $releaseDir "lumark-app.exe"
@@ -83,6 +84,40 @@ function Get-IntegrityLevel {
     if ($text -match 'Medium Mandatory Level') { return "Medium" }
     if ($text -match 'High Mandatory Level') { return "High" }
     return "Unknown"
+}
+
+# 恢复目录的 Low 完整性；目录标签需要 WRITE_OWNER，权限不足时先为当前用户
+# 补上工作区根的继承完全控制，再重试。
+function Repair-DirectoryIntegrity {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    $level = Get-IntegrityLevel $Path
+    if ($level -ne "Low") {
+        return
+    }
+
+    Write-Warning "目录带 Low 完整性标签：$Path；正在恢复为 Medium。"
+    & icacls.exe $Path /setintegritylevel "(OI)(CI)Medium" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "目录标签修改被拒绝，正在为当前用户添加工作区根的继承完全控制。"
+        & icacls.exe $repo /grant:r "${currentUser}:(OI)(CI)F" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "无法为 ${currentUser} 授予工作区控制；请用管理员会话执行：icacls `"$repo`" /grant:r `"${currentUser}:(OI)(CI)F`""
+        }
+        & icacls.exe $Path /setintegritylevel "(OI)(CI)Medium" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "无法恢复目录完整性：$Path；请用管理员会话执行：icacls `"$Path`" /setintegritylevel `"(OI)(CI)Medium`""
+        }
+    }
+
+    $level = Get-IntegrityLevel $Path
+    if ($level -ne "Medium") {
+        throw "目录完整性未恢复为 Medium：$Path（当前 $level）"
+    }
+    Write-Host "已恢复目录完整性为 Medium：$Path"
 }
 
 # 读取 Zone.Identifier 的内容；没有 MOTW 时返回 $null。
@@ -273,6 +308,16 @@ if ($workspaceLevel -eq "Low") {
     Write-Host "工作区已恢复为 Medium。回退：icacls `"$repo`" /setintegritylevel `"(OI)(CI)Low`""
 }
 
+foreach ($directory in @(
+    (Join-Path $repo "target"),
+    (Join-Path $repo "target\release"),
+    (Join-Path $repo "target\debug"),
+    (Join-Path $repo "dist"),
+    (Join-Path $repo "dist\windows")
+)) {
+    Repair-DirectoryIntegrity $directory
+}
+
 Write-Host "编译 release 产物..."
 & cargo build --manifest-path $manifest --release --locked -p lumark-app -p lumark-sfx
 if ($LASTEXITCODE -ne 0) {
@@ -287,6 +332,14 @@ foreach ($file in @($app, $sfx)) {
 $targetArtifacts = @($app, $sfx)
 foreach ($file in $targetArtifacts) {
     Repair-ReleaseTrust $file "release 产物" | Out-Null
+}
+foreach ($file in @(
+    (Join-Path $repo "target\debug\lumark-app.exe"),
+    (Join-Path $repo "target\debug\lumark-sfx.exe")
+)) {
+    if (Test-Path -LiteralPath $file) {
+        Repair-ReleaseTrust $file "debug 产物" | Out-Null
+    }
 }
 
 $packagedFiles = @()

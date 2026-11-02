@@ -92,7 +92,7 @@ Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 
 首次使用开发证书先运行 `./installer/self-sign.ps1`（当前用户级，不需要管理员）。脚本会：
 
 - 编译 `lumark-app` 和 `lumark-sfx`；
-- 清除 MOTW；发现工作区 Low 完整性时恢复仓库根目录为 Medium（见“打开文件 - 安全警告”章节）；
+- 清除 MOTW；检测并恢复工作区根目录、`target`/`target\release`/`target\debug`/`dist` 的 Low 完整性（见“打开文件 - 安全警告”章节）；
 - 按需用 `-UseDevCert`、`-SignThumbprint` 或 `-SignPfxPath` 签名；
 - 调用 `installer/pack-installer.ps1` 生成 `dist\Lumark-Setup-<版本>.exe` 和 `.sha256`；
 - 生成 `dist\Lumark-<版本>-portable-x64.zip` 和 `dist\SHA256SUMS.txt`。
@@ -342,7 +342,7 @@ Tauri 的 NSIS 安装器本身不会天然绕过这一层：如果它在同一�
 1. **Mark-of-the-Web（MOTW）**：文件带 `Zone.Identifier`，通常来自浏览器、聊天工具或下载的压缩包；`Get-Item <文件> -Stream *` 能看到该流。
 2. **Low 完整性标签**：文件由低完整性沙箱进程创建，`icacls <文件>` 显示 `Mandatory Label\Low Mandatory Level`。本地 Cargo 构建如果发生在被沙箱标记的工作区，`target` 下每次新生成的 exe 都会继承它；**签名不能消除这类提示**。
 
-本仓库在 2026-10-29 排查到工作区被代码代理沙箱加过 Low 标签（ACL 中可见 `CodexSandboxUsers`/`S-1-4-*` 授权），导致 `target\release\lumark-app.exe` 每次编译后双击都弹“未知发布者”。已将仓库根目录恢复为 Medium。若再次出现：
+本仓库在 2026-10-29 排查到工作区被代码代理沙箱加过 Low 标签（ACL 中可见 `CodexSandboxUsers`/`S-1-4-*` 授权），导致 `target\release\lumark-app.exe` 每次编译后双击都弹“未知发布者”。2026-11-02 又出现一次：沙箱重新把根目录标记为 Low，且 `target` 在 Low 状态下重建，新 exe 继承了 Low；修复时除了根目录，还要把 `target\release` 和 exe 设为显式 Medium，并给当前用户补上仓库根的继承完全控制（目录标签需要 WRITE_OWNER；根目录原本只有非继承的 `F`）。现在根目录、`target\release` 和 release exe 均为 Medium。
 
 ```powershell
 # 区分来源
@@ -352,12 +352,16 @@ icacls .\target\release\lumark-app.exe | Select-String 'Mandatory'       # Low �
 # 修复 MOTW
 Unblock-File .\target\release\lumark-app.exe
 
-# 修复 Low 完整性（在仓库根执行；回退用 "(OI)(CI)Low"）
+# 修复 Low 完整性（先补当前用户对仓库根的继承完全控制，再修复根目录和 target）
 $root = (Get-Location).Path
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+icacls $root /grant:r "${user}:(OI)(CI)F"
 icacls $root /setintegritylevel "(OI)(CI)Medium"
+icacls "$root\target\release" /setintegritylevel "(OI)(CI)Medium"
+icacls "$root\target\release\lumark-app.exe" /setintegritylevel Medium
 ```
 
-`tools/build_release.ps1` 在构建前检测工作区完整性：如果是 Low，会先把仓库根目录恢复为 Medium（需要根目录写权限；失败会打印 `icacls` 命令并中止），再对 release exe、安装器和便携包做 MOTW/Low 检查。这样不会产出仍带 Low 标签的发布物。提升工作区标签会削弱低完整性沙箱的写隔离；如果仍要保留沙箱，请不要在工作区内构建发布产物。
+`tools/build_release.ps1` 在构建前检测工作区根目录和 `target`/`target\release`/`target\debug`/`dist` 的 Low 标签并恢复为 Medium；目录标签权限不足时，会为当前用户补上仓库根目录的继承完全控制（只影响此工作区），再重试。随后对 release/debug exe、安装器和便携包做 MOTW/Low 检查。这样不会产出仍带 Low 标签的发布物。提升工作区标签会削弱低完整性沙箱的写隔离；如果仍要保留沙箱，请不要在工作区内构建发布产物。
 
 其它机器从网络下载安装包时，Windows 会重新写入 MOTW；接收方可执行 `Unblock-File`，或直接使用安装器（安装后的文件不再带 MOTW）。Tauri 的 NSIS 安装器同样受 MOTW 影响；MSIX 由包部署栈安装，不走 loose exe 的 MOTW 路径。
 
