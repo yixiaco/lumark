@@ -96,7 +96,7 @@
 | E-11 单资产编排 | ✅ | 第 33 轮：`asset_export` 模块 `AssetExportConfig`（输出/格式/缩放/旁挂/贴图格式/质量/覆盖）+ `export_asset`（解析→多格式写盘→材质旁挂→报告）+ `AssetExportProgress` + `AssetExportReport` JSON；BNB `SM_Box_02` 实机四格式 + materials.json（0.11s） |
 | E-12 批量枚举/执行 | ✅ | 后端完成（5 测试 + BNB 四格式）；取消、报告 JSON、耗时已实现 |
 | E-13 批量任务接入 | 🟡 | 第 32 轮：`export_archive_cancellable` + `Arc<AtomicBool>` 取消、`BatchProgress::Cancelled`、`BatchExportReport{cancelled,elapsed_seconds}` + `to_json_pretty()`；示例 `batch_export` 支持 cancel-after 并写 `batch-report.json`，BNB 实机取消生效（导出 1 后停止）；`TaskManager`/任务面板接入（E-15）未做 |
-| E-14 单资产导出 UI | ⬜ | |
+| E-14 单资产导出 UI | ✅ | 第 34 轮：详情面板 `.uasset` 新增“导出资产…”入口；独立导出窗口 `export_window.rs`：格式多选（GLB/UEMODEL/USDA/PSK）、材质旁挂开关、贴图格式四选、后台导出、取消、结果统计与“打开输出目录”；默认输出 `桌面/LumarkExports`（暂不可自定义目录）。UI 2 测试（切换/渲染），`lumark-ui` 166 个全过 |
 | E-15 批量导出 UI | ⬜ | |
 | E-16 外部验证/真实验收 | 🟡 | GLB 已 gltf crate 校验；PSK/PSA/UEMODEL/USDA reader 已有示例 |
 | E-17 文档（export-formats） | ✅ | 第 32 轮：新增 `docs/export-formats.md`（五种模型格式能力/限制、坐标单位、四种贴图、materials.json、批量 API、验证记录） |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（E-11 / E-14 / E-15）
+## 下一轮（E-15 / E-13 TaskManager）
 
-1. E-14 单资产导出 UI：详情/查看器导出入口、格式/贴图/旁挂选择、进度与结果打开目录；
-2. E-15 批量导出 UI：配置对话框 + `lumark-tasks` 任务面板/取消/报告 JSON；
-3. E-10 USD Skel 或 E-13 TaskManager 接入；
+1. E-15 批量导出 UI：配置对话框（格式/过滤/limit/输出）+ `lumark-tasks` 任务面板/取消/报告 JSON；
+2. E-13 收尾：把批量导出接入 TaskManager（新任务类型或通用任务）并显示进度；
+3. E-10 USD Skel 或 E-16 外部验证；
 4. 记录进度并提交。

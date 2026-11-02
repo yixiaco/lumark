@@ -10,6 +10,7 @@ mod components;
 mod compress_window;
 mod dialogs;
 pub(crate) mod disguise_window;
+pub(crate) mod export_window;
 pub(crate) mod extract_window;
 mod game_assets;
 mod game_sidebar;

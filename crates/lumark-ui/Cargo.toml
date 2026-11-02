@@ -20,6 +20,7 @@ lumark-settings = { path = "../lumark-settings" }
 lumark-tasks = { path = "../lumark-tasks" }
 lumark-render = { path = "../lumark-render" }
 lumark-scene = { path = "../lumark-scene" }
+lumark-export = { path = "../lumark-export" }
 lumark-unreal = { path = "../lumark-unreal" }
 lumark-viewer = { path = "../lumark-viewer" }
 lumark-vault = { path = "../lumark-vault" }

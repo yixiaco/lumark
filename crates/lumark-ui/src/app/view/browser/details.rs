@@ -2,6 +2,8 @@
 
 use super::*;
 use crate::i18n::tr;
+use gpui_kit::AnyElement;
+use gpui_kit::component::button::{Button, ButtonVariants};
 
 impl LumarkApp {
     /// 渲染侧栏下半部分的信息检查器。
@@ -127,6 +129,7 @@ impl LumarkApp {
                                 ),
                         )
                         .child(render_details_preview(self, &entry, cx))
+                        .child(render_asset_export_action(self, &entry, cx))
                         .child(detail_row(cx, tr("类型", "Type"), &kind_text))
                         .child(detail_row(cx, tr("大小", "Size"), &size_text))
                         .when_some(entry.modified, |this, modified| {
@@ -248,6 +251,36 @@ impl LumarkApp {
 }
 
 /// 渲染详情检查器中的图片预览槽，包括加载、错误和不可用状态。
+/// 游戏容器内 `.uasset` 的导出入口；其它位置返回空元素。
+fn render_asset_export_action(
+    app: &LumarkApp,
+    entry: &BrowserEntry,
+    cx: &mut Context<LumarkApp>,
+) -> AnyElement {
+    let eligible = app.game_session.is_some()
+        && matches!(&app.browser.location, BrowserLocation::Archive { .. })
+        && !entry.is_dir
+        && entry
+            .path
+            .extension()
+            .is_some_and(|extension| extension == "uasset");
+    if !eligible {
+        return div().into_any_element();
+    }
+    Button::new("details-export-asset")
+        .xsmall()
+        .ghost()
+        .label(tr("导出资产…", "Export asset…"))
+        .tooltip(tr(
+            "选择模型格式、材质旁挂并导出当前资产",
+            "Choose model formats and material sidecars to export this asset",
+        ))
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.open_asset_export(window, cx);
+        }))
+        .into_any_element()
+}
+
 fn render_details_preview(
     app: &LumarkApp,
     entry: &BrowserEntry,
