@@ -5375,6 +5375,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumark-media"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "lumark-platform-windows"
 version = "0.1.0"
 dependencies = [

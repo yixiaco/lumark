@@ -14,6 +14,7 @@ members = [
     "crates/lumark-render",
     "crates/lumark-export",
     "crates/lumark-viewer",
+    "crates/lumark-media",
     "crates/lumark-vault",
     "crates/lumark-app",
     "crates/lumark-platform-windows",
