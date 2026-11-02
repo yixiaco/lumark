@@ -9,7 +9,7 @@ use lumark_unreal::{
 
 /// 窗口初始化时生成可读取的预览图片
 #[test]
-fn viewer_renders_initial_preview_file() {
+fn viewer_renders_initial_preview_image() {
     let mesh = MeshLod {
         positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
         indices: vec![0, 1, 2],
@@ -24,12 +24,12 @@ fn viewer_renders_initial_preview_file() {
         AssetViewerWindowView::new("Mesh".to_string(), ViewerScene::Mesh { lods: vec![mesh] });
     assert!(view.error.is_none());
     assert_eq!(view.hidden_sections.len(), 1);
-    assert!(view.image_path.is_file());
+    assert!(view.image.is_some());
     assert!(
-        std::fs::metadata(&view.image_path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0)
-            > 0
+        view.image
+            .as_ref()
+            .and_then(|image| image.as_bytes(0))
+            .is_some_and(|bytes| !bytes.is_empty())
     );
 }
 
@@ -66,7 +66,7 @@ fn viewer_switches_static_lods() {
     view.lod_index = 1;
     view.render_preview();
     assert!(view.error.is_none());
-    assert!(view.image_path.is_file());
+    assert!(view.image.is_some());
 }
 
 /// ?LOD SkeletalMesh 也可切换 LOD 并重绘
@@ -113,7 +113,7 @@ fn viewer_switches_skeletal_lods() {
     view.lod_index = 1;
     view.render_preview();
     assert!(view.error.is_none());
-    assert!(view.image_path.is_file());
+    assert!(view.image.is_some());
 }
 
 /// 骨骼查看器同样生成预览图片
@@ -151,7 +151,7 @@ fn skeletal_mesh_viewer_renders_preview_with_bones() {
         },
     );
     assert!(view.error.is_none());
-    assert!(view.image_path.is_file());
+    assert!(view.image.is_some());
 }
 
 /// 蒙皮演示会按权重驱动骨骼变形并重新生成图片
@@ -207,7 +207,7 @@ fn skeletal_mesh_viewer_skins_dominant_bone() {
     view.skin_pose = true;
     view.render_preview();
     assert!(view.error.is_none());
-    assert!(view.image_path.is_file());
+    assert!(view.image.is_some());
 }
 #[test]
 fn section_filter_hides_triangles() {
@@ -265,7 +265,7 @@ fn skeleton_viewer_renders_preview() {
     };
     let view = AssetViewerWindowView::new("SKEL".to_string(), ViewerScene::Skeleton(skeleton));
     assert!(view.error.is_none());
-    assert!(view.image_path.is_file());
+    assert!(view.image.is_some());
 }
 
 /// 时间轴应把时间夹到时长内，并换算成 1 起的帧号。
@@ -393,13 +393,23 @@ fn viewer_renders_material_scene_and_orbits() {
     let mut view =
         AssetViewerWindowView::new("MAT_Teapot".to_string(), ViewerScene::Material { viewer });
     assert!(view.error.is_none());
-    assert!(view.image_path.is_file());
-    let before = std::fs::read(&view.image_path).expect("读取材质球图片");
+    assert!(view.image.is_some());
+    let before = view
+        .image
+        .as_ref()
+        .and_then(|image| image.as_bytes(0))
+        .map(<[u8]>::to_vec)
+        .expect("读取材质球像素");
     view.yaw = 150.0;
     view.pitch = 10.0;
     view.render_preview();
     assert!(view.error.is_none());
-    let after = std::fs::read(&view.image_path).expect("读取旋转后的材质球图片");
+    let after = view
+        .image
+        .as_ref()
+        .and_then(|image| image.as_bytes(0))
+        .map(<[u8]>::to_vec)
+        .expect("读取旋转后的材质球像素");
     assert_ne!(before, after, "旋转后应重绘材质球");
     assert_eq!(
         (view.scene_mesh().is_none(), view.static_lods().is_none()),

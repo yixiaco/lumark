@@ -72,7 +72,7 @@
 | V-13 独立场景 | 🟡 | 查看器可开 Mesh/Skeleton/SkeletalMaterial；入口/动画待完善 |
 | V-14 世界场景 Provider | ⬜ | 依赖 Zen 导入表/组件属性：`WorldSummary` 仅有 Actor 清单，尚无 `StaticMeshComponent` 外部网格引用与 Transform，需先暴露 Zen import map |
 | V-15 UI 模块拆分 | ⬜ | `asset_viewer_window.rs` 仍单文件 |
-| V-16 渲染桥接/帧泵 | 🟡 | `lumark-ui/render_service` 可渲染 RenderImage（缩略图）；完整查看器仍逐次 PNG |
+| V-16 渲染桥接/帧泵 | 🟡 | 第 25 轮：资产查看器 `image_path` 临时 PNG 改为 `Arc<RenderImage>`（`render_target_to_image` 直连）、删除逐帧落盘/Drop 清理，13 个查看器测试全过；异步帧泵与详情面板 RenderImage 直连待 V-16 后续 |
 | V-17 UI 外壳/工具栏 | ⬜ | |
 | V-18 检查器 | ⬜ | |
 | V-19 输入/动画/快捷键 | ⬜ | |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-14 前置 / V-15）
+## 下一轮（V-14 前置 / V-15 / V-16 收尾）
 
-1. 暴露 Zen 导入表与 `StaticMeshComponent` 属性读取（Actor→网格包路径/Transform 的前置）；
-2. 实现 V-14 世界 Provider + V-7 实例化（Actor 上限/截断告警）；
-3. 若世界解析受阻，转 V-15 拆分 `asset_viewer_window.rs` 与 V-16 RenderImage 帧泵；
+1. 暴露 Zen 导入表/`StaticMeshComponent` 属性（世界 Provider 前置）；若仍受阻，继续 UI 线；
+2. V-15 拆分 `asset_viewer_window.rs`（≈978 行）为目录模块，行为不变、测试全绿；
+3. V-16 收尾：详情面板缩略图改 RenderImage、异步渲染帧泵（拖拽不阻塞 UI）；
 4. 记录进度并提交。

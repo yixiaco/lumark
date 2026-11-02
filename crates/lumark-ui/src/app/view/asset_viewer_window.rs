@@ -2,11 +2,13 @@
 //!
 //! 使用 CPU 光栅器在拖拽时重绘；左键拖拽旋转，工具栏缩放/重置。
 //! 该窗口只读，不修改原包或游戏目录?
-use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::super::*;
 use super::components::AppIcon;
 use crate::i18n::tr;
+use crate::render_service::render_target_to_image;
+use gpui_kit::RenderImage;
 use gpui_kit::component::TitleBar;
 use lumark_unreal::{MeshLod, MeshSection, Skeleton};
 
@@ -114,7 +116,8 @@ pub(crate) struct AssetViewerWindowView {
     yaw: f32,
     pitch: f32,
     zoom: f32,
-    image_path: PathBuf,
+    /// 渲染结果（直接交给 GPUI，不再写临时 PNG）
+    image: Option<Arc<RenderImage>>,
     error: Option<String>,
     drag: Option<DragState>,
     /// 被隐藏的 section（材质槽），用于材质切换预览
@@ -132,15 +135,13 @@ pub(crate) struct AssetViewerWindowView {
 impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角
     pub(crate) fn new(name: String, scene: ViewerScene) -> Self {
-        let image_path =
-            std::env::temp_dir().join(format!("lumark-model-{}.png", uuid::Uuid::new_v4()));
         let mut view = Self {
             name,
             scene,
             yaw: 35.0,
             pitch: 25.0,
             zoom: 1.0,
-            image_path,
+            image: None,
             error: None,
             drag: None,
             hidden_sections: Vec::new(),
@@ -274,19 +275,15 @@ impl AssetViewerWindowView {
                 }
             }
         };
-        let Some(image) = image::RgbaImage::from_raw(900, 600, rgba) else {
+        let Some(target) = lumark_render::RenderTarget::new(900, 600, rgba) else {
             self.error = Some(tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string());
             return;
         };
-        let next = std::env::temp_dir().join(format!("lumark-model-{}.png", uuid::Uuid::new_v4()));
-        if let Err(error) = image.save(&next) {
-            self.error = Some(error.to_string());
+        let Some(image) = render_target_to_image(&target) else {
+            self.error = Some(tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string());
             return;
-        }
-        if self.image_path != next {
-            let _ = std::fs::remove_file(&self.image_path);
-        }
-        self.image_path = next;
+        };
+        self.image = Some(image);
         self.error = None;
     }
 
@@ -697,11 +694,13 @@ impl AssetViewerWindowView {
             .w_full()
             .overflow_hidden()
             .bg(cx.theme().background)
-            .child(
-                gpui_kit::img(self.image_path.clone())
+            .child(match &self.image {
+                Some(image) => gpui_kit::img(image.clone())
                     .size_full()
-                    .object_fit(gpui_kit::ObjectFit::Contain),
-            )
+                    .object_fit(gpui_kit::ObjectFit::Contain)
+                    .into_any_element(),
+                None => div().size_full().into_any_element(),
+            })
             .on_mouse_down(
                 gpui_kit::MouseButton::Left,
                 cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, _| {
@@ -822,13 +821,6 @@ impl Render for AssetViewerWindowView {
             .child(self.render_toolbar(cx))
             .child(self.render_body(cx))
             .child(self.render_status_bar(cx))
-    }
-}
-
-impl Drop for AssetViewerWindowView {
-    /// 删除窗口独占的临时预览图片
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.image_path);
     }
 }
 
