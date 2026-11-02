@@ -56,7 +56,7 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 
 ## 已知限制（对应后续步骤）
 
-- 渲染线程/异步双 staging/device lost：待 V-2/V-8；
+- 渲染线程/异步双 staging/device lost 重建：待 V-2/V-8；GPU 渲染错误已自动回退 CPU；
 - MSAA、纹理 LRU、sRGB 视图切换：待 V-8；
 - wireframe 模式（DX12 兼容方案）与 section 逐项 UI：待 V-6 后续/V-17；
 - 透明仅 alpha-test，无排序混合；

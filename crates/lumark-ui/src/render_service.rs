@@ -87,12 +87,27 @@ impl RenderService {
         scene: &Scene,
         settings: &RenderSettings,
     ) -> Result<RenderTarget, String> {
-        match &self.gpu {
-            Some(gpu) => gpu
-                .render(scene, settings)
-                .map_err(|error| format!("GPU 渲染失败：{error}")),
-            None => render_scene(scene, settings).map_err(|error| format!("CPU 渲染失败：{error}")),
+        self.render_target_with_backend(scene, settings)
+            .map(|(target, _)| target)
+    }
+
+    /// 渲染并返回实际使用的后端；GPU 失败时回退 CPU（V-8）。
+    fn render_target_with_backend(
+        &self,
+        scene: &Scene,
+        settings: &RenderSettings,
+    ) -> Result<(RenderTarget, RenderBackend), String> {
+        if let Some(gpu) = &self.gpu {
+            match gpu.render(scene, settings) {
+                Ok(target) => return Ok((target, self.backend.clone())),
+                Err(error) => {
+                    eprintln!("GPU 渲染失败，回退 CPU：{error}");
+                }
+            }
         }
+        let target =
+            render_scene(scene, settings).map_err(|error| format!("CPU 渲染失败：{error}"))?;
+        Ok((target, RenderBackend::Cpu))
     }
 
     /// 渲染场景并转换为 `RenderImage`。
@@ -101,12 +116,12 @@ impl RenderService {
         scene: &Scene,
         settings: &RenderSettings,
     ) -> Result<RenderedImage, String> {
-        let target = self.render_target(scene, settings)?;
+        let (target, backend) = self.render_target_with_backend(scene, settings)?;
         let image = render_target_to_image(&target)
             .ok_or_else(|| "渲染尺寸与像素数量不一致".to_string())?;
         Ok(RenderedImage {
             image,
-            backend: self.backend.clone(),
+            backend,
             stats: lumark_render::scene_stats(scene),
         })
     }
