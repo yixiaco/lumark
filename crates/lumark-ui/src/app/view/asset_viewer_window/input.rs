@@ -42,6 +42,10 @@ impl AssetViewerWindowView {
                 self.show_grid = !self.show_grid;
                 self.render_preview();
             }
+            "w" => {
+                self.wireframe = !self.wireframe;
+                self.render_preview();
+            }
             "b" => {
                 self.show_bones = !self.show_bones;
                 self.render_preview();

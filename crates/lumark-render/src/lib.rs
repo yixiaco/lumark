@@ -110,6 +110,8 @@ pub struct RenderSettings {
     pub msaa_samples: u32,
     /// 基础色/自发光贴图是否按 sRGB 采样（关闭后按线性）。
     pub srgb_textures: bool,
+    /// 线框模式：只绘制三角形边。
+    pub wireframe: bool,
     /// 着色模式。
     pub shading: ShadingMode,
     /// 是否显示地面网格。
@@ -141,6 +143,7 @@ impl Default for RenderSettings {
             supersample: 2,
             msaa_samples: 1,
             srgb_textures: true,
+            wireframe: false,
             shading: ShadingMode::Lit,
             show_grid: false,
             show_bones: false,

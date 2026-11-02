@@ -52,6 +52,11 @@ pub(crate) fn render(
     ];
     let default_material = MaterialData::default();
 
+    // 线框模式跳过三角形填充，只绘制边线。
+    if settings.wireframe {
+        draw_overlays(scene, settings, camera, &mut frame);
+        return frame.to_rgba8();
+    }
     for (node_index, node) in scene.nodes.iter().enumerate() {
         if !node.visible {
             continue;
@@ -108,26 +113,34 @@ pub(crate) fn render(
 
 /// 绘制地面网格与骨骼线段（带深度测试）。
 fn draw_overlays(scene: &Scene, settings: &RenderSettings, camera: &Camera, frame: &mut Frame) {
-    let mut segments = Vec::new();
-    if settings.show_grid {
-        segments.extend(overlay::grid_lines(scene));
-    }
-    if settings.show_bones {
-        segments.extend(overlay::bone_lines(scene));
-    }
+    let mut segments: Vec<overlay::LineSegment> = Vec::new();
+    let mut colors: Vec<[f32; 3]> = Vec::new();
     let grid_color = [0.32f32, 0.35, 0.4];
     let bone_color = [1.0f32, 0.45, 0.08];
-    let grid_count = if settings.show_grid {
-        overlay::grid_lines(scene).len()
-    } else {
-        0
-    };
-    for (index, (start, end)) in segments.iter().enumerate() {
-        let color = if index < grid_count {
-            grid_color
-        } else {
-            bone_color
-        };
+    let wire_color = [0.78f32, 0.84, 0.92];
+    if settings.show_grid {
+        for segment in overlay::grid_lines(scene) {
+            segments.push(segment);
+            colors.push(grid_color);
+        }
+    }
+    if settings.show_bones {
+        for segment in overlay::bone_lines(scene) {
+            segments.push(segment);
+            colors.push(bone_color);
+        }
+    }
+    if settings.wireframe {
+        for segment in overlay::wireframe_lines(
+            scene,
+            &settings.hidden_material_slots,
+            &settings.hidden_sections,
+        ) {
+            segments.push(segment);
+            colors.push(wire_color);
+        }
+    }
+    for ((start, end), color) in segments.iter().zip(colors) {
         draw_line(frame, camera, *start, *end, color);
     }
 }

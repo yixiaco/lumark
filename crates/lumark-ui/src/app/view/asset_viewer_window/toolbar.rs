@@ -87,6 +87,18 @@ impl AssetViewerWindowView {
                     })),
             )
             .child(
+                button("model-wireframe")
+                    .ghost()
+                    .xsmall()
+                    .label("线框")
+                    .tooltip(tr("线框模式", "Wireframe mode"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.wireframe = !this.wireframe;
+                        this.render_preview();
+                        cx.notify();
+                    })),
+            )
+            .child(
                 button("model-srgb")
                     .ghost()
                     .xsmall()

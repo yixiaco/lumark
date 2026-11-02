@@ -584,6 +584,8 @@ fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
             assert_eq!(view.zoom, 1.0);
             assert!(view.handle_shortcut("g", cx));
             assert!(view.show_grid);
+            assert!(view.handle_shortcut("w", cx));
+            assert!(view.wireframe);
             assert!(view.handle_shortcut("l", cx));
             assert_eq!(view.shading, lumark_render::ShadingMode::Unlit);
             assert!(view.handle_shortcut("n", cx));

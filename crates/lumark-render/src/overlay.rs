@@ -59,6 +59,71 @@ pub(crate) fn bone_lines(scene: &Scene) -> Vec<LineSegment> {
     lines
 }
 
+/// 生成线框三角形边（世界空间），跳过隐藏 section/材质槽。
+pub(crate) fn wireframe_lines(
+    scene: &Scene,
+    hidden_material_slots: &[usize],
+    hidden_sections: &[usize],
+) -> Vec<LineSegment> {
+    let mut lines = Vec::new();
+    for (node_index, node) in scene.nodes.iter().enumerate() {
+        if !node.visible {
+            continue;
+        }
+        let Some(handle) = node.mesh else {
+            continue;
+        };
+        let Some(mesh) = scene.meshes.get(handle.0) else {
+            continue;
+        };
+        let Some(world) = scene.world_transform(lumark_scene::SceneNodeId(node_index)) else {
+            continue;
+        };
+        let positions: Vec<[f32; 3]> = mesh
+            .positions
+            .iter()
+            .map(|position| world.transform_point(*position))
+            .collect();
+        let ranges: Vec<(usize, usize, usize)> = if mesh.sections.is_empty() {
+            vec![(0, mesh.indices.len(), 0)]
+        } else {
+            mesh.sections
+                .iter()
+                .map(|section| {
+                    (
+                        section.first_index as usize,
+                        section.index_count as usize,
+                        section.material_index,
+                    )
+                })
+                .collect()
+        };
+        for (section_index, (first, count, material_index)) in ranges.into_iter().enumerate() {
+            if hidden_material_slots.contains(&material_index)
+                || hidden_sections.contains(&section_index)
+            {
+                continue;
+            }
+            let end = (first + count).min(mesh.indices.len());
+            let mut index = first;
+            while index + 3 <= end {
+                let a = mesh.indices[index] as usize;
+                let b = mesh.indices[index + 1] as usize;
+                let c = mesh.indices[index + 2] as usize;
+                if let (Some(a), Some(b), Some(c)) =
+                    (positions.get(a), positions.get(b), positions.get(c))
+                {
+                    lines.push((*a, *b));
+                    lines.push((*b, *c));
+                    lines.push((*c, *a));
+                }
+                index += 3;
+            }
+        }
+    }
+    lines
+}
+
 /// 关节世界位置：有姿态时用姿态矩阵变换 bind 位置。
 fn joint_world_position(
     scene: &Scene,
@@ -90,6 +155,29 @@ mod tests {
     fn grid_has_lines_for_empty_scene() {
         let scene = Scene::new("Empty");
         assert_eq!(grid_lines(&scene).len(), 42);
+    }
+
+    /// 线框为每个三角形生成 3 条边。
+    #[test]
+    fn wireframe_lines_cover_triangle_edges() {
+        let mut scene = Scene::new("Wire");
+        let mesh = scene.add_mesh(MeshData::new(
+            "Tri",
+            vec![[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]],
+            vec![0, 1, 2],
+        ));
+        scene.add_node(SceneNode {
+            name: "Tri".to_string(),
+            parent: None,
+            transform: Transform::IDENTITY,
+            mesh: Some(mesh),
+            materials: Vec::new(),
+            visible: true,
+            kind: NodeKind::StaticMesh,
+            metadata: Vec::new(),
+        });
+        assert_eq!(wireframe_lines(&scene, &[], &[]).len(), 3);
+        assert!(wireframe_lines(&scene, &[0], &[]).is_empty());
     }
 
     /// 骨骼线连接父子关节。

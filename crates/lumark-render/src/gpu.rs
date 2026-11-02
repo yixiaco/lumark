@@ -1338,6 +1338,15 @@ fn overlay_line_vertices(scene: &Scene, settings: &RenderSettings) -> (Vec<u8>, 
             push_segment(start, end, [1.0, 0.45, 0.08, 1.0]);
         }
     }
+    if settings.wireframe {
+        for (start, end) in crate::overlay::wireframe_lines(
+            scene,
+            &settings.hidden_material_slots,
+            &settings.hidden_sections,
+        ) {
+            push_segment(start, end, [0.78, 0.84, 0.92, 1.0]);
+        }
+    }
     (f32_bytes(&values), count)
 }
 
@@ -1535,6 +1544,30 @@ mod tests {
         let top = &target.rgba[..4];
         let bottom = &target.rgba[(31 * 32 * 4)..(31 * 32 * 4 + 4)];
         assert!(top[0] > bottom[0], "顶部背景应更亮");
+    }
+
+    /// 线框模式只画边线，仍能产生非背景像素。
+    #[test]
+    fn gpu_wireframe_renders_edges_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 线框测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            wireframe: true,
+            ..RenderSettings::default()
+        };
+        let target = renderer
+            .render(&triangle_scene(), &settings)
+            .expect("线框渲染");
+        assert!(!target.is_uniform(), "线框未绘制边线");
     }
 
     /// 有 GPU 时渲染三角形；无 GPU 的 CI 环境跳过。

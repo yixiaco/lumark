@@ -47,7 +47,7 @@ cargo test --workspace --lib
 | lumark-mail | 4 |
 | lumark-media | 4 |
 | lumark-platform-windows | 21 |
-| lumark-render | 35 |
+| lumark-render | 37 |
 | lumark-scene | 11 |
 | lumark-settings | 7 |
 | lumark-sfx | 7 |
@@ -58,7 +58,7 @@ cargo test --workspace --lib
 | lumark-viewer | 17 |
 | zpaq-rs | 10 |
 
-合计 **542 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
+合计 **544 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
 
 ### 实机样本
 
