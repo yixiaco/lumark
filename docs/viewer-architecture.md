@@ -79,7 +79,7 @@ lumark-ui/render_service：RenderImage（缩略图）；完整查看器帧泵见
 ## 已知限制（对应后续步骤）
 
 - 渲染线程/异步双 staging/device lost 重建：待 V-2/V-8；GPU 渲染错误已自动回退 CPU；
-- MSAA：支持 4×（`RenderSettings.msaa_samples=4`）；纹理 LRU、sRGB 视图切换待 V-8；
+- MSAA：支持 4×（`RenderSettings.msaa_samples=4`）；纹理上传有 64 项 LRU 缓存（名称/尺寸/格式/内容指纹）；device lost 重建、sRGB 视图切换待 V-8；
 - wireframe 模式（DX12 兼容方案）与 section 逐项 UI：待 V-6 后续/V-17；
 - 透明仅 alpha-test，无排序混合；
 - 世界 Actor 实例化：静态网格已支持场景级 GPU 实例化（共享顶点 + 实例矩阵，V-7 完成）；世界 Provider 仍待 V-14；

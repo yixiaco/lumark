@@ -74,7 +74,64 @@ pub struct GpuRenderer {
     sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
+    /// 纹理 LRU：跨帧复用已上传的 GPU 纹理。
+    texture_cache: std::sync::Mutex<TextureCache>,
 }
+
+/// 纹理缓存键：名称/尺寸/采样格式/内容指纹（材质批次每帧克隆）。
+type TextureKey = (String, u32, u32, bool, u64);
+
+/// 采样内容指纹：避免同名不同内容的纹理错误复用。
+fn texture_fingerprint(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.len().hash(&mut hasher);
+    let step = (bytes.len() / 256).max(1);
+    for byte in bytes.iter().step_by(step) {
+        byte.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// 缓存中的 GPU 纹理（视图持有纹理引用）。
+struct CachedTexture {
+    _texture: wgpu::Texture,
+    view: wgpu::TextureView,
+}
+
+/// 简单 LRU 纹理缓存。
+#[derive(Default)]
+struct TextureCache {
+    entries: HashMap<TextureKey, CachedTexture>,
+    order: std::collections::VecDeque<TextureKey>,
+}
+
+impl TextureCache {
+    /// 命中并把键移到队尾。
+    fn get(&mut self, key: &TextureKey) -> Option<wgpu::TextureView> {
+        let view = self.entries.get(key)?.view.clone();
+        if let Some(position) = self.order.iter().position(|entry| entry == key) {
+            self.order.remove(position);
+        }
+        self.order.push_back(key.clone());
+        Some(view)
+    }
+
+    /// 插入并淘汰最久未使用的纹理。
+    fn insert(&mut self, key: TextureKey, texture: CachedTexture, capacity: usize) {
+        self.entries.insert(key.clone(), texture);
+        self.order.push_back(key);
+        while self.order.len() > capacity {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+    }
+}
+
+/// 纹理缓存容量。
+const TEXTURE_CACHE_CAPACITY: usize = 64;
 
 impl fmt::Debug for GpuRenderer {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -134,6 +191,7 @@ impl GpuRenderer {
                 sampler: resources.sampler,
                 white_view: resources.white_view,
                 flat_normal_view: resources.flat_normal_view,
+                texture_cache: std::sync::Mutex::new(TextureCache::default()),
             });
         }
         Err(GpuError::new(format!(
@@ -501,6 +559,18 @@ impl GpuRenderer {
         } else {
             wgpu::TextureFormat::Rgba8Unorm
         };
+        let key = (
+            texture.name.clone(),
+            texture.width,
+            texture.height,
+            srgb,
+            texture_fingerprint(&texture.rgba),
+        );
+        if let Ok(mut cache) = self.texture_cache.lock()
+            && let Some(view) = cache.get(&key)
+        {
+            return Some(view);
+        }
         let gpu_texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some(&texture.name),
             size: wgpu::Extent3d {
@@ -534,7 +604,18 @@ impl GpuRenderer {
                 depth_or_array_layers: 1,
             },
         );
-        Some(gpu_texture.create_view(&wgpu::TextureViewDescriptor::default()))
+        let view = gpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        if let Ok(mut cache) = self.texture_cache.lock() {
+            cache.insert(
+                key,
+                CachedTexture {
+                    _texture: gpu_texture,
+                    view: view.clone(),
+                },
+                TEXTURE_CACHE_CAPACITY,
+            );
+        }
+        Some(view)
     }
 }
 
@@ -1460,6 +1541,15 @@ mod tests {
             }
         }
         assert!(red_pixels > 0, "GPU 基础色贴图未生效");
+        // 第二次渲染应命中 LRU，不重复上传。
+        renderer.render(&scene, &settings).expect("第二次 GPU 渲染");
+        let cache_len = renderer
+            .texture_cache
+            .lock()
+            .expect("纹理缓存锁")
+            .entries
+            .len();
+        assert_eq!(cache_len, 1, "同一贴图应复用缓存");
     }
 
     /// 有 GPU 时验证自发光贴图与 ORM 遮蔽；无 GPU 时跳过。
