@@ -58,7 +58,7 @@ cargo test --workspace --lib
 | lumark-viewer | 17 |
 | zpaq-rs | 10 |
 
-合计 **541 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
+合计 **540 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
 
 ### 实机样本
 
