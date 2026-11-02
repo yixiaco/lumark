@@ -103,19 +103,31 @@ cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\BNB" "pakch
 
 输出容器条目数、压缩方法、是否需要 Oodle、当前后端是否可解压。
 
-## 实机结果
+## 实机结果（2026-11-02）
 
-BNB（`pakchunk0-Windows.utoc`，IoStore）：
+### BNB（IoStore）
 
 ```text
 kind=IoStore entries=92368 methods=["Oodle"] needed=true ready=true
 summary=需要 Oodle（可解压）；后端：Rust（配置 auto；Rust 可用；DLL 未加载）
+read=Engine/Content/Animation/DefaultAnimBoneCompressionSettings.uasset bytes=2297
 ```
+
+### FINAL FANTASY VII REMAKE（UE4 PAK）
+
+```text
+kind=Pak entries=18896 methods=["None", "Zlib", "Gzip", "Oodle"] needed=true ready=true
+summary=需要 Oodle（可解压）；后端：Rust（配置 auto；Rust 可用；DLL 未加载）
+read=End/Content/GameContents/Animation/BonamikWind/LV0_BonamikWind.uasset bytes=700
+```
+
+两个容器都能通过内置 Rust 后端完成真实资产读取。
 
 诊断命令：
 
 ```powershell
 cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\BNB" "pakchunk0-Windows.utoc"
+cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\FINAL FANTASY VII REMAKE" "pakchunk0-WindowsNoEditor.pak"
 ```
 
 ## 限制

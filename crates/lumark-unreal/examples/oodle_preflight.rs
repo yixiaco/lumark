@@ -53,5 +53,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("summary={}", preflight.summary());
     println!("backend={}", preflight.status.summary());
+    // 实际读取一个 .uasset，验证 Oodle 解码路径（若该块压缩）。
+    if let Some(entry) = source
+        .list()
+        .into_iter()
+        .find(|entry| entry.path.to_ascii_lowercase().ends_with(".uasset"))
+    {
+        match source.read_bytes(&entry.path) {
+            Ok(bytes) => println!("read={} bytes={}", entry.path, bytes.len()),
+            Err(error) => println!("read={} failed={error}", entry.path),
+        }
+    }
     Ok(())
 }
