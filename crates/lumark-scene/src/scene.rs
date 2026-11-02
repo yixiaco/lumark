@@ -175,6 +175,30 @@ pub struct MeshSection {
     pub index_count: u32,
 }
 
+/// 网格蒙皮数据（LBS，最多 4 影响/顶点）。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MeshSkin {
+    /// 关节对应的场景节点（顺序与 `inverse_bind_matrices` 一致）。
+    pub joints: Vec<SceneNodeId>,
+    /// 每顶点的关节索引（与 `joint_weights` 对齐）。
+    pub joint_indices: Vec<[u16; 4]>,
+    /// 每顶点的关节权重（0–1，渲染前会归一化）。
+    pub joint_weights: Vec<[f32; 4]>,
+    /// 关节的 inverse bind 矩阵（列主序 4×4）。
+    pub inverse_bind_matrices: Vec<[f32; 16]>,
+    /// 姿态覆盖：每关节最终蒙皮矩阵（列主序）；为空时使用关节节点世界变换 × inverse bind。
+    pub pose: Option<Vec<[f32; 16]>>,
+}
+
+impl MeshSkin {
+    /// 是否包含有效的逐顶点影响。
+    pub fn is_valid(&self) -> bool {
+        !self.joint_indices.is_empty()
+            && self.joint_indices.len() == self.joint_weights.len()
+            && self.inverse_bind_matrices.len() == self.joints.len()
+    }
+}
+
 /// 引擎无关的 CPU 网格。
 #[derive(Debug, Clone, Default)]
 pub struct MeshData {
@@ -196,6 +220,8 @@ pub struct MeshData {
     pub sections: Vec<MeshSection>,
     /// 局部包围盒。
     pub bounds: Bounds,
+    /// 蒙皮数据（静态网格为 `None`）。
+    pub skin: Option<MeshSkin>,
 }
 
 impl MeshData {

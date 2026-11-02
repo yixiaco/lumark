@@ -13,7 +13,7 @@ pub mod transform;
 pub use inspector::{InspectorModel, InspectorRow, InspectorSection, scene_inspector};
 pub use scene::{
     Axis, Bounds, Camera, CameraProjection, Light, LightKind, MaterialData, MaterialHandle,
-    MaterialTextures, MeshData, MeshHandle, MeshSection, NodeKind, Scene, SceneError, SceneNode,
-    SceneNodeId, SceneProvider, SceneStats, TextureData,
+    MaterialTextures, MeshData, MeshHandle, MeshSection, MeshSkin, NodeKind, Scene, SceneError,
+    SceneNode, SceneNodeId, SceneProvider, SceneStats, TextureData,
 };
 pub use transform::Transform;

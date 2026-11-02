@@ -11,6 +11,7 @@
 mod camera;
 mod gpu;
 mod raster;
+mod skin;
 
 pub use gpu::{GpuError, GpuRenderer};
 

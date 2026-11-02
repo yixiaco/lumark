@@ -61,7 +61,7 @@
 | V-2 渲染核心 | 🟡 | CPU 光栅 + GPU 离屏渲染完成；渲染线程/异步双 staging/device lost 未做 |
 | V-3 相机/网格/清屏 | 🟡 | 轨道相机、清屏、超采样完成；网格地板/背景渐变未做 |
 | V-4 PBR 网格 + 纹理 | ✅（核心） | 本轮：顶点切线、基础色/法线/ORM/自发光贴图、alpha 裁剪、单/双面剔除；CPU 18 测试 + GPU 2 测试全过；MI_Props 实机截图 `target/render-box-gpu-v4.png`。缺口：CPU mips/纹理 LRU/sRGB 视图切换未做 |
-| V-5 GPU 蒙皮 + 动画 | ⬜ | 下一轮 |
+| V-5 GPU 蒙皮 + 动画 | ✅ | 第 21 轮：`MeshSkin`（关节/inverse bind/pose）+ CPU/GPU LBS + GPU storage buffer（≤4 影响归一化）；`apply_animation` 接入 `sample_animation`；BNB `SK_Chicken + ANIM_Chicken_Idle2` 42 轨道 t=0/1s 两帧渲染成功（~87–93 ms，PNG hash 不同）；`lumark-render` 25 测试全过（CPU/GPU 蒙皮平移） |
 | V-6 叠加层/着色模式 | ⬜ | |
 | V-7 实例化/大规模场景 | ⬜ | |
 | V-8 质量/统计/设备丢失 | ⬜ | |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-5）
+## 下一轮（V-6/V-7）
 
-1. GPU 蒙皮：joint matrix storage buffer（≤256/拆 draw）、top-4 归一化、rest/bind 矩阵；
-2. 动画采样 → 每帧骨骼矩阵（复用 `sample_animation`/`skin_matrices_from_poses`）；
-3. 与 CPU 蒙皮误差 <1e-4 单测；BNB `SK_Chicken` GPU 动画截图；
+1. V-6 叠加层/着色模式：骨骼线段、wireframe、Unlit/Normals、section 显隐、网格开关；
+2. V-7 实例化/大规模场景：同网格分组实例，世界 Actor 上限与截断告警；
+3. 同步补 V-9 渲染器文档 `docs/viewer-architecture.md`；
 4. 记录进度并提交。

@@ -5,12 +5,12 @@
 
 use lumark_scene::{
     Axis, Bounds, MaterialData, MaterialHandle, MaterialTextures, MeshData, MeshHandle,
-    MeshSection, NodeKind, Scene, SceneNode, SceneNodeId, TextureData, Transform,
+    MeshSection, MeshSkin, NodeKind, Scene, SceneNode, SceneNodeId, TextureData, Transform,
 };
 
 use crate::{
-    MaterialAppearance, MaterialViewerData, MeshLod, ResolvedMaterial, SkeletalMeshPreview,
-    StaticMesh,
+    AnimSequenceData, MaterialAppearance, MaterialViewerData, MeshLod, ResolvedMaterial,
+    SkeletalMeshPreview, Skeleton, StaticMesh, sample_animation,
 };
 
 /// 1 UE 单位（厘米）对应的场景单位（米）。
@@ -98,7 +98,11 @@ pub fn skeletal_mesh_scene(
     }
 
     if let Some(lod) = preview.lods.first().or(preview.geometry.as_ref()) {
-        let mesh_handle = scene.add_mesh(convert_mesh(lod, &preview.skeleton.name));
+        let mut mesh_data = convert_mesh(lod, &preview.skeleton.name);
+        if let Some(skin) = &preview.skin {
+            fill_mesh_skin(&mut mesh_data, &preview.skeleton, skin, &bone_nodes);
+        }
+        let mesh_handle = scene.add_mesh(mesh_data);
         let node = SceneNode {
             name: preview.skeleton.name.clone(),
             parent: bone_nodes.first().copied().flatten(),
@@ -124,6 +128,205 @@ pub fn skeletal_mesh_scene(
         scene.add_node(node);
     }
     scene
+}
+
+/// 用动画在指定时间更新场景蒙皮姿态。
+pub fn apply_animation(
+    scene: &mut Scene,
+    skeleton: &Skeleton,
+    animation: &AnimSequenceData,
+    time_seconds: f32,
+) -> bool {
+    let sample = sample_animation(skeleton, animation, time_seconds);
+    apply_skin_pose(scene, &sample.skin_matrices)
+}
+
+/// 把最终蒙皮矩阵写入场景中第一个蒙皮网格。
+pub fn apply_skin_pose(scene: &mut Scene, skin_matrices: &[[f32; 16]]) -> bool {
+    for mesh in &mut scene.meshes {
+        let Some(skin) = mesh.skin.as_mut() else {
+            continue;
+        };
+        if skin_matrices.len() != skin.joints.len() {
+            return false;
+        }
+        skin.pose = Some(skin_matrices.to_vec());
+        return true;
+    }
+    false
+}
+
+/// 填充逐顶点关节索引、权重与 inverse bind 矩阵。
+fn fill_mesh_skin(
+    mesh: &mut MeshData,
+    skeleton: &Skeleton,
+    skin: &crate::SkinWeights,
+    bone_nodes: &[Option<SceneNodeId>],
+) {
+    let joints: Vec<SceneNodeId> = bone_nodes.iter().flatten().copied().collect();
+    if joints.len() != skeleton.bones.len() {
+        return;
+    }
+    let inverse_bind_matrices = bind_inverse_matrices(skeleton);
+    let mut joint_indices = Vec::with_capacity(mesh.positions.len());
+    let mut joint_weights = Vec::with_capacity(mesh.positions.len());
+    for vertex in 0..mesh.positions.len() {
+        let mut indices = [0u16; 4];
+        let mut weights = [0f32; 4];
+        if let (Some(influences), Some(raw_weights)) =
+            (skin.influences.get(vertex), skin.weights.get(vertex))
+        {
+            let total: f32 = raw_weights.iter().map(|weight| f32::from(*weight)).sum();
+            let mut slot = 0;
+            for influence in 0..raw_weights.len().min(4) {
+                let weight = f32::from(raw_weights[influence]);
+                let bone = influences[influence];
+                if weight <= 0.0 || bone as usize >= joints.len() || slot >= 4 {
+                    continue;
+                }
+                indices[slot] = bone;
+                weights[slot] = if total > 0.0 { weight / total } else { 0.0 };
+                slot += 1;
+            }
+        }
+        joint_indices.push(indices);
+        joint_weights.push(weights);
+    }
+    mesh.skin = Some(MeshSkin {
+        joints,
+        joint_indices,
+        joint_weights,
+        inverse_bind_matrices,
+        pose: None,
+    });
+}
+
+/// 计算每个关节的 inverse bind 矩阵（列主序 4×4）。
+fn bind_inverse_matrices(skeleton: &Skeleton) -> Vec<[f32; 16]> {
+    let mut worlds: Vec<[[f32; 4]; 4]> = Vec::with_capacity(skeleton.bones.len());
+    for bone in &skeleton.bones {
+        let local = Transform {
+            translation: [
+                bone.translation[0] as f32,
+                bone.translation[1] as f32,
+                bone.translation[2] as f32,
+            ],
+            rotation: [
+                bone.rotation[0] as f32,
+                bone.rotation[1] as f32,
+                bone.rotation[2] as f32,
+                bone.rotation[3] as f32,
+            ],
+            scale: [
+                bone.scale[0] as f32,
+                bone.scale[1] as f32,
+                bone.scale[2] as f32,
+            ],
+        }
+        .matrix();
+        let world = usize::try_from(bone.parent_index)
+            .ok()
+            .and_then(|parent| worlds.get(parent))
+            .map(|parent| multiply_matrix(parent, &local))
+            .unwrap_or(local);
+        worlds.push(world);
+    }
+    worlds.iter().map(inverse_matrix).collect()
+}
+
+/// 列主序 4×4 乘法。
+fn multiply_matrix(a: &[[f32; 4]; 4], b: &[[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let mut result = [[0.0f32; 4]; 4];
+    for (column, target) in result.iter_mut().enumerate() {
+        for (row, value) in target.iter_mut().enumerate() {
+            *value = (0..4).map(|index| a[index][row] * b[column][index]).sum();
+        }
+    }
+    result
+}
+
+/// 列主序 4×4 求逆。
+fn inverse_matrix(input: &[[f32; 4]; 4]) -> [f32; 16] {
+    let m: Vec<f64> = (0..4)
+        .flat_map(|column| input[column].iter().map(|value| f64::from(*value)))
+        .collect();
+    let mut inverse = [0.0f64; 16];
+    inverse[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
+        + m[9] * m[7] * m[14]
+        + m[13] * m[6] * m[11]
+        - m[13] * m[7] * m[10];
+    inverse[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
+        - m[8] * m[7] * m[14]
+        - m[12] * m[6] * m[11]
+        + m[12] * m[7] * m[10];
+    inverse[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
+        + m[8] * m[7] * m[13]
+        + m[12] * m[5] * m[11]
+        - m[12] * m[7] * m[9];
+    inverse[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
+        - m[8] * m[6] * m[13]
+        - m[12] * m[5] * m[10]
+        + m[12] * m[6] * m[9];
+    inverse[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
+        - m[9] * m[3] * m[14]
+        - m[13] * m[2] * m[11]
+        + m[13] * m[3] * m[10];
+    inverse[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
+        + m[8] * m[3] * m[14]
+        + m[12] * m[2] * m[11]
+        - m[12] * m[3] * m[10];
+    inverse[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
+        - m[8] * m[3] * m[13]
+        - m[12] * m[1] * m[11]
+        + m[12] * m[3] * m[9];
+    inverse[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
+        + m[8] * m[2] * m[13]
+        + m[12] * m[1] * m[10]
+        - m[12] * m[2] * m[9];
+    inverse[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
+        + m[5] * m[3] * m[14]
+        + m[13] * m[2] * m[7]
+        - m[13] * m[3] * m[6];
+    inverse[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
+        - m[4] * m[3] * m[14]
+        - m[12] * m[2] * m[7]
+        + m[12] * m[3] * m[6];
+    inverse[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
+        + m[4] * m[3] * m[13]
+        + m[12] * m[1] * m[7]
+        - m[12] * m[3] * m[5];
+    inverse[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
+        - m[4] * m[2] * m[13]
+        - m[12] * m[1] * m[6]
+        + m[12] * m[2] * m[5];
+    inverse[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
+        - m[5] * m[3] * m[10]
+        - m[9] * m[2] * m[7]
+        + m[9] * m[3] * m[6];
+    inverse[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
+        + m[4] * m[3] * m[10]
+        + m[8] * m[2] * m[7]
+        - m[8] * m[3] * m[6];
+    inverse[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
+        - m[4] * m[3] * m[9]
+        - m[8] * m[1] * m[7]
+        + m[8] * m[3] * m[5];
+    inverse[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
+        + m[4] * m[2] * m[9]
+        + m[8] * m[1] * m[6]
+        - m[8] * m[2] * m[5];
+    let determinant =
+        m[0] * inverse[0] + m[1] * inverse[4] + m[2] * inverse[8] + m[3] * inverse[12];
+    let scale = if determinant.abs() <= f64::EPSILON {
+        0.0
+    } else {
+        1.0 / determinant
+    };
+    let mut output = [0.0f32; 16];
+    for (index, value) in inverse.iter().enumerate() {
+        output[index] = (*value * scale) as f32;
+    }
+    output
 }
 
 /// 把一个已解析材质加入场景，返回句柄。
@@ -372,5 +575,71 @@ mod tests {
             .find(|node| node.kind == NodeKind::SkeletalMesh)
             .expect("骨骼网格节点");
         assert_eq!(mesh_node.parent, Some(SceneNodeId(0)));
+    }
+
+    /// 骨骼网格写出蒙皮数据，姿态可写入场景。
+    #[test]
+    fn builds_skin_and_applies_pose() {
+        let skeleton = crate::Skeleton {
+            name: "SK_Test".to_string(),
+            bones: vec![
+                crate::Bone {
+                    name: "Root".to_string(),
+                    parent_index: -1,
+                    translation: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale: [1.0; 3],
+                },
+                crate::Bone {
+                    name: "Child".to_string(),
+                    parent_index: 0,
+                    translation: [0.0, 0.0, 10.0],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale: [1.0; 3],
+                },
+            ],
+        };
+        let preview = SkeletalMeshPreview {
+            skeleton: skeleton.clone(),
+            material_slots: 1,
+            material_names: vec!["M_Test".to_string()],
+            lod_count: 1,
+            lod_sections: 1,
+            required_bones: 2,
+            bone_map: vec![0, 1],
+            lod_vertices: 3,
+            lod_triangles: 1,
+            geometry: Some(test_lod()),
+            lods: vec![test_lod()],
+            lod_skins: Vec::new(),
+            skin: Some(crate::SkinWeights {
+                vertices: 3,
+                max_influences: 1,
+                variable: false,
+                influences: vec![[0; 12]; 3],
+                weights: vec![[65535, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 3],
+            }),
+        };
+        let mut scene = skeletal_mesh_scene("Test", &preview, &[test_material()]);
+        let skin = scene.meshes[0].skin.as_ref().expect("蒙皮数据");
+        assert!(skin.is_valid());
+        assert_eq!(skin.joints.len(), 2);
+        assert_eq!(skin.joint_weights[0], [1.0, 0.0, 0.0, 0.0]);
+        let identity = [
+            1.0f32, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        assert!(apply_skin_pose(&mut scene, &[identity, identity]));
+        assert_eq!(
+            scene.meshes[0]
+                .skin
+                .as_ref()
+                .unwrap()
+                .pose
+                .as_ref()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(!apply_skin_pose(&mut scene, &[identity]));
     }
 }

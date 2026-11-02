@@ -11,6 +11,7 @@ use std::fmt;
 use lumark_scene::{MaterialData, MeshData, Scene};
 
 use crate::camera::{Camera, normalize};
+use crate::skin;
 use crate::{RenderSettings, RenderTarget};
 
 /// WGSL 着色器。
@@ -20,8 +21,8 @@ const SHADER: &str = include_str!("shader.wgsl");
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// 深度格式。
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-/// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4。
-const VERTEX_FLOATS: usize = 16;
+/// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4 + joints4 + weights4。
+const VERTEX_FLOATS: usize = 24;
 /// 相机 uniform 大小（字节）。
 const CAMERA_UNIFORM_SIZE: u64 = 160;
 /// 材质 uniform 大小（字节）。
@@ -280,6 +281,13 @@ impl GpuRenderer {
                 let normal_view = normal_upload.as_ref().unwrap_or(&self.flat_normal_view);
                 let orm_view = orm_upload.as_ref().unwrap_or(&self.white_view);
                 let emissive_view = emissive_upload.as_ref().unwrap_or(&self.white_view);
+                let skin_data = skin_bytes(&batch.skin_matrices);
+                let skin_buffer = self.create_buffer(
+                    "lumark-skin",
+                    skin_data.len() as u64,
+                    wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                );
+                self.queue.write_buffer(&skin_buffer, 0, &skin_data);
                 let material_bind_group =
                     self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("lumark-material"),
@@ -308,6 +316,10 @@ impl GpuRenderer {
                             wgpu::BindGroupEntry {
                                 binding: 5,
                                 resource: wgpu::BindingResource::TextureView(emissive_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 6,
+                                resource: skin_buffer.as_entire_binding(),
                             },
                         ],
                     });
@@ -533,6 +545,16 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
                 },
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 6,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -565,6 +587,16 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
             format: wgpu::VertexFormat::Float32x4,
             offset: 48,
             shader_location: 4,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 64,
+            shader_location: 5,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 80,
+            shader_location: 6,
         },
     ];
     let create_pipeline = |label: &'static str, cull_mode: Option<wgpu::Face>| {
@@ -690,11 +722,13 @@ fn create_solid_texture(
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-/// 一个材质批次（同材质的三角形合并为一次绘制）。
+/// 一个材质批次（同材质/同蒙皮姿态的三角形合并为一次绘制）。
 struct Batch {
     vertices: Vec<f32>,
     count: u32,
     material: MaterialData,
+    /// 关节最终蒙皮矩阵；未蒙皮时为单个单位矩阵。
+    skin_matrices: Vec<[[f32; 4]; 4]>,
 }
 
 /// GPU 顶点。
@@ -705,13 +739,15 @@ struct GpuVertex {
     uv: [f32; 2],
     color: [f32; 4],
     tangent: [f32; 4],
+    joints: [f32; 4],
+    weights: [f32; 4],
 }
 
 /// 把所有可见网格按材质展开为世界空间三角形批次。
 fn build_batches(scene: &Scene) -> Vec<Batch> {
     let default_material = MaterialData::default();
     let mut batches: Vec<Batch> = Vec::new();
-    let mut index_by_key: HashMap<Option<usize>, usize> = HashMap::new();
+    let mut index_by_key: HashMap<(Option<usize>, Option<usize>), usize> = HashMap::new();
     for (node_index, node) in scene.nodes.iter().enumerate() {
         if !node.visible {
             continue;
@@ -725,7 +761,12 @@ fn build_batches(scene: &Scene) -> Vec<Batch> {
         let Some(world) = scene.world_transform(lumark_scene::SceneNodeId(node_index)) else {
             continue;
         };
-        let vertices = gpu_world_vertices(mesh, &world);
+        let matrices = skin::skin_matrices(scene, mesh);
+        let vertices = if matrices.is_some() {
+            gpu_bind_vertices(mesh)
+        } else {
+            gpu_world_vertices(mesh, &world)
+        };
         if vertices.is_empty() {
             continue;
         }
@@ -750,7 +791,10 @@ fn build_batches(scene: &Scene) -> Vec<Batch> {
                 .copied()
                 .flatten()
                 .filter(|handle| handle.0 < scene.materials.len());
-            let key = material_handle.map(|handle| handle.0);
+            let key = (
+                material_handle.map(|handle| handle.0),
+                matrices.as_ref().map(|_| node_index),
+            );
             let batch_index = *index_by_key.entry(key).or_insert_with(|| {
                 let material = material_handle
                     .and_then(|handle| scene.materials.get(handle.0))
@@ -760,6 +804,7 @@ fn build_batches(scene: &Scene) -> Vec<Batch> {
                     vertices: Vec::new(),
                     count: 0,
                     material,
+                    skin_matrices: matrices.clone().unwrap_or_else(|| vec![skin::IDENTITY]),
                 });
                 batches.len() - 1
             });
@@ -840,18 +885,89 @@ fn gpu_world_vertices(mesh: &MeshData, world: &lumark_scene::Transform) -> Vec<G
             uv,
             color,
             tangent,
+            joints: [0.0; 4],
+            weights: [0.0; 4],
         });
     }
     vertices
 }
 
-/// 追加一个顶点的 16 个 f32。
+/// bind 空间顶点（带关节索引/权重），供 GPU 蒙皮使用。
+fn gpu_bind_vertices(mesh: &MeshData) -> Vec<GpuVertex> {
+    let skin = mesh.skin.as_ref();
+    let mut vertices = Vec::with_capacity(mesh.positions.len());
+    for (index, position) in mesh.positions.iter().enumerate() {
+        let normal = mesh.normals.get(index).copied().unwrap_or([0.0, 0.0, 0.0]);
+        let uv = mesh
+            .uvs
+            .first()
+            .and_then(|channel| channel.get(index))
+            .copied()
+            .unwrap_or([0.0, 0.0]);
+        let color = mesh
+            .colors
+            .get(index)
+            .map(|color| {
+                [
+                    color[0] as f32 / 255.0,
+                    color[1] as f32 / 255.0,
+                    color[2] as f32 / 255.0,
+                    color[3] as f32 / 255.0,
+                ]
+            })
+            .unwrap_or([1.0; 4]);
+        let tangent = mesh
+            .tangents
+            .get(index)
+            .copied()
+            .unwrap_or([1.0, 0.0, 0.0, 1.0]);
+        let (joints, weights) = skin
+            .filter(|skin| skin.is_valid())
+            .map(|skin| {
+                let joints = skin.joint_indices.get(index).copied().unwrap_or([0; 4]);
+                let weights = skin.joint_weights.get(index).copied().unwrap_or([0.0; 4]);
+                (
+                    [
+                        f32::from(joints[0]),
+                        f32::from(joints[1]),
+                        f32::from(joints[2]),
+                        f32::from(joints[3]),
+                    ],
+                    weights,
+                )
+            })
+            .unwrap_or(([0.0; 4], [0.0; 4]));
+        vertices.push(GpuVertex {
+            position: *position,
+            normal,
+            uv,
+            color,
+            tangent,
+            joints,
+            weights,
+        });
+    }
+    vertices
+}
+
+/// 追加一个顶点的 24 个 f32。
 fn push_vertex(values: &mut Vec<f32>, vertex: &GpuVertex) {
     values.extend_from_slice(&vertex.position);
     values.extend_from_slice(&vertex.normal);
     values.extend_from_slice(&vertex.uv);
     values.extend_from_slice(&vertex.color);
     values.extend_from_slice(&vertex.tangent);
+    values.extend_from_slice(&vertex.joints);
+    values.extend_from_slice(&vertex.weights);
+}
+
+/// 关节矩阵 storage 数据（每个关节 16 个 f32）。
+fn skin_bytes(matrices: &[[[f32; 4]; 4]]) -> Vec<u8> {
+    let mut values = Vec::with_capacity(matrices.len() * 16);
+    for matrix in matrices {
+        values.extend_from_slice(&skin::flatten(matrix));
+    }
+    f32_bytes(&values)
 }
 
 /// 相机 uniform（160 字节）。
@@ -1166,5 +1282,62 @@ mod tests {
         scene.materials[0].two_sided = true;
         let double = renderer.render(&scene, &settings).expect("GPU 渲染");
         assert!(!double.is_uniform(), "GPU 双面材质未渲染背面");
+    }
+
+    /// 有 GPU 时验证蒙皮姿态平移；无 GPU 时跳过。
+    #[test]
+    fn gpu_skinned_pose_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 蒙皮测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let scene = |offset: f32| {
+            let mut scene = triangle_scene();
+            let mesh = scene.meshes.first_mut().expect("网格");
+            mesh.skin = Some(lumark_scene::MeshSkin {
+                joints: vec![lumark_scene::SceneNodeId(0)],
+                joint_indices: vec![[0; 4]; 3],
+                joint_weights: vec![[1.0, 0.0, 0.0, 0.0]; 3],
+                inverse_bind_matrices: vec![[
+                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                ]],
+                pose: Some(vec![[
+                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, offset, 0.0, 0.0,
+                    1.0,
+                ]]),
+            });
+            scene
+        };
+        let centroid = |offset: f32| {
+            let target = renderer
+                .render(&scene(offset), &settings)
+                .expect("GPU 渲染");
+            let mut sum = 0.0f32;
+            let mut count = 0.0f32;
+            for (index, pixel) in target.rgba.as_chunks::<4>().0.iter().enumerate() {
+                if pixel[0] > pixel[2].saturating_add(10) {
+                    sum += (index % 64) as f32;
+                    count += 1.0;
+                }
+            }
+            assert!(count > 0.0, "GPU 蒙皮三角形不可见");
+            sum / count
+        };
+        let base = centroid(0.0);
+        let shifted = centroid(1.5);
+        assert!(
+            (shifted - base).abs() > 2.0,
+            "GPU 蒙皮平移未生效：{base} → {shifted}"
+        );
     }
 }

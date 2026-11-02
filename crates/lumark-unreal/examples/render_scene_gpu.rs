@@ -8,8 +8,9 @@ use std::time::Instant;
 use lumark_render::{GpuRenderer, RenderSettings};
 use lumark_unreal::{
     AssetKind, GameAssetOptions, GameAssetSource, Mappings, MaterialResolveOptions, MaterialSlot,
-    extract_key_for_game, parse_package, resolve_material_asset, resolve_material_slots, scan_game,
-    scene_material, skeletal_mesh_scene, static_mesh_scene,
+    apply_animation, extract_key_for_game, parse_package, read_anim_sequence,
+    resolve_material_asset, resolve_material_slots, scan_game, scene_material, skeletal_mesh_scene,
+    static_mesh_scene,
 };
 
 /// 运行诊断。
@@ -26,6 +27,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         .transpose()?
         .unwrap_or(640);
     let material_entry = args.next();
+    let animation_entry = args.next();
+    let animation_time: f32 = args
+        .next()
+        .map(|value| value.parse())
+        .transpose()?
+        .unwrap_or(0.0);
+    let mut animation_data = None;
 
     let renderer = GpuRenderer::new()?;
     println!(
@@ -103,10 +111,34 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(&mappings),
             &MaterialResolveOptions::default(),
         );
+        if let Some(animation_entry) = &animation_entry {
+            let animation_inputs = source.read_package(animation_entry)?;
+            let animation_package = parse_package(animation_inputs.uasset, source.scripts(), None)?;
+            let animation_index = animation_package
+                .info()
+                .exports
+                .iter()
+                .position(|export| export.class_name == "AnimSequence")
+                .ok_or("未找到 AnimSequence 导出")?;
+            let animation = read_anim_sequence(&animation_package, animation_index, &mappings)?;
+            println!(
+                "anim={} length={:.3}s frames={} tracks={}",
+                animation.name,
+                animation.length,
+                animation.frames,
+                animation.track_to_bone.len()
+            );
+            animation_data = Some((preview.skeleton.clone(), animation));
+        }
         skeletal_mesh_scene(&preview.skeleton.name, &preview, &resolved)
     } else {
         return Err("资产中没有 StaticMesh/SkeletalMesh 导出".into());
     };
+
+    if let Some((skeleton, animation)) = &animation_data {
+        let applied = apply_animation(&mut scene, skeleton, animation, animation_time);
+        println!("animation time={:.3}s skin_pose={applied}", animation_time);
+    }
 
     // 可选：用一个真实材质覆盖第一个材质槽，验证 GPU 贴图/法线链路。
     if let Some(material_entry) = material_entry {

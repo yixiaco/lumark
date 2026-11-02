@@ -29,6 +29,7 @@ struct Material {
 @group(1) @binding(3) var tex_sampler: sampler;
 @group(1) @binding(4) var orm_texture: texture_2d<f32>;
 @group(1) @binding(5) var emissive_texture: texture_2d<f32>;
+@group(1) @binding(6) var<storage, read> joint_matrices: array<mat4x4<f32>>;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -36,6 +37,8 @@ struct VertexIn {
     @location(2) uv: vec2<f32>,
     @location(3) color: vec4<f32>,
     @location(4) tangent: vec4<f32>,
+    @location(5) joints: vec4<f32>,
+    @location(6) weights: vec4<f32>,
 };
 
 struct VertexOut {
@@ -50,12 +53,26 @@ struct VertexOut {
 @vertex
 fn vs_main(in: VertexIn) -> VertexOut {
     var out: VertexOut;
-    out.clip_position = camera.view_proj * vec4<f32>(in.position, 1.0);
-    out.world = in.position;
-    out.normal = in.normal;
+    var position = in.position;
+    var normal = in.normal;
+    var tangent = in.tangent;
+    let weight_sum = in.weights.x + in.weights.y + in.weights.z + in.weights.w;
+    if (weight_sum > 0.0) {
+        let inverse = 1.0 / weight_sum;
+        var blended = in.weights.x * inverse * joint_matrices[u32(in.joints.x)];
+        blended = blended + in.weights.y * inverse * joint_matrices[u32(in.joints.y)];
+        blended = blended + in.weights.z * inverse * joint_matrices[u32(in.joints.z)];
+        blended = blended + in.weights.w * inverse * joint_matrices[u32(in.joints.w)];
+        position = (blended * vec4<f32>(position, 1.0)).xyz;
+        normal = normalize((blended * vec4<f32>(normal, 0.0)).xyz);
+        tangent = vec4<f32>(normalize((blended * vec4<f32>(tangent.xyz, 0.0)).xyz), tangent.w);
+    }
+    out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
+    out.world = position;
+    out.normal = normal;
     out.uv = in.uv;
     out.color = in.color;
-    out.tangent = in.tangent;
+    out.tangent = tangent;
     return out;
 }
 

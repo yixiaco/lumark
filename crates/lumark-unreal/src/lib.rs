@@ -49,7 +49,8 @@ pub use raster::{
     render_static_mesh_orbit,
 };
 pub use scene::{
-    UE_UNIT_SCALE, convert_mesh, scene_material, skeletal_mesh_scene, static_mesh_scene,
+    UE_UNIT_SCALE, apply_animation, apply_skin_pose, convert_mesh, scene_material,
+    skeletal_mesh_scene, static_mesh_scene,
 };
 pub use skinning::{
     AnimationSample, BonePose, BoneRotation, animation_poses, sample_animation,

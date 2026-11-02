@@ -4,6 +4,7 @@ use lumark_scene::{MaterialData, MeshData, Scene, TextureData};
 
 use crate::RenderSettings;
 use crate::camera::{Camera, cross, dot, normalize, sub};
+use crate::skin;
 
 /// 近裁面阈值（裁剪空间 w）。
 const NEAR_EPSILON: f32 = 1.0e-4;
@@ -62,7 +63,12 @@ pub(crate) fn render(
         let Some(world) = scene.world_transform(lumark_scene::SceneNodeId(node_index)) else {
             continue;
         };
-        let vertices = world_vertices(mesh, &world);
+        // 蒙皮网格使用 bind 空间顶点 + 关节矩阵；其余网格应用节点世界变换。
+        let vertices = if let Some(matrices) = skin::skin_matrices(scene, mesh) {
+            skinned_vertices(mesh, &matrices)
+        } else {
+            world_vertices(mesh, &world)
+        };
         if vertices.is_empty() {
             continue;
         }
@@ -140,6 +146,61 @@ fn world_vertices(mesh: &MeshData, world: &lumark_scene::Transform) -> Vec<World
             .unwrap_or([1.0, 1.0, 1.0, 1.0]);
         vertices.push(WorldVertex {
             position: world.transform_point(*position),
+            normal,
+            tangent,
+            uv,
+            color,
+        });
+    }
+    vertices
+}
+
+/// 应用关节矩阵后的世界空间顶点（bind 空间顶点直接乘蒙皮矩阵）。
+fn skinned_vertices(mesh: &MeshData, matrices: &[[[f32; 4]; 4]]) -> Vec<WorldVertex> {
+    let skin = mesh.skin.as_ref();
+    let mut vertices = Vec::with_capacity(mesh.positions.len());
+    for (index, position) in mesh.positions.iter().enumerate() {
+        let base_normal = mesh.normals.get(index).copied().unwrap_or([0.0, 0.0, 0.0]);
+        let base_tangent = mesh
+            .tangents
+            .get(index)
+            .copied()
+            .unwrap_or([1.0, 0.0, 0.0, 1.0]);
+        let (position, normal, tangent) = skin
+            .filter(|skin| skin.is_valid())
+            .map(|skin| {
+                let joints = skin.joint_indices.get(index).copied().unwrap_or([0; 4]);
+                let weights = skin.joint_weights.get(index).copied().unwrap_or([0.0; 4]);
+                skin::skin_vertex(
+                    matrices,
+                    joints,
+                    weights,
+                    *position,
+                    base_normal,
+                    base_tangent,
+                )
+            })
+            .unwrap_or((*position, base_normal, base_tangent));
+        let uv = mesh
+            .uvs
+            .first()
+            .and_then(|channel| channel.get(index))
+            .copied()
+            .unwrap_or([0.0, 0.0]);
+        let color = mesh
+            .colors
+            .get(index)
+            .map(|color| {
+                [
+                    color[0] as f32 / 255.0,
+                    color[1] as f32 / 255.0,
+                    color[2] as f32 / 255.0,
+                    color[3] as f32 / 255.0,
+                ]
+            })
+            .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+        vertices.push(WorldVertex {
+            position,
             normal,
             tangent,
             uv,
@@ -684,7 +745,7 @@ impl Frame {
 mod tests {
     use super::*;
     use crate::RenderSettings;
-    use lumark_scene::{MeshSection, NodeKind, Scene, SceneNode, Transform};
+    use lumark_scene::{MeshSection, NodeKind, Scene, SceneNode, SceneNodeId, Transform};
 
     fn triangle_scene(color: [f32; 4], z: f32) -> Scene {
         let mut scene = Scene::new("Test");
@@ -940,6 +1001,72 @@ mod tests {
             .filter(|pixel| pixel[0] > pixel[1].saturating_add(10))
             .count();
         assert!(double_visible > 0, "双面材质未渲染背面");
+    }
+
+    /// 蒙皮姿态平移会移动三角形。
+    #[test]
+    fn skinned_pose_moves_triangle() {
+        let skinned_scene = |offset: f32| {
+            let mut scene = Scene::new("Skin");
+            let material = scene.add_material(MaterialData {
+                name: "Red".to_string(),
+                base_color: [1.0, 0.0, 0.0, 1.0],
+                ..MaterialData::default()
+            });
+            let mut mesh = MeshData::new(
+                "Tri",
+                vec![[-50.0, 0.0, 0.0], [50.0, 0.0, 0.0], [0.0, 100.0, 0.0]],
+                vec![0, 1, 2],
+            );
+            mesh.sections = vec![MeshSection {
+                material_index: 0,
+                first_index: 0,
+                index_count: 3,
+            }];
+            mesh.skin = Some(lumark_scene::MeshSkin {
+                joints: vec![SceneNodeId(0)],
+                joint_indices: vec![[0; 4]; 3],
+                joint_weights: vec![[1.0, 0.0, 0.0, 0.0]; 3],
+                inverse_bind_matrices: vec![[
+                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                ]],
+                pose: Some(vec![[
+                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, offset, 0.0, 0.0,
+                    1.0,
+                ]]),
+            });
+            let handle = scene.add_mesh(mesh);
+            scene.add_node(SceneNode {
+                name: "Tri".to_string(),
+                parent: None,
+                transform: Transform::IDENTITY,
+                mesh: Some(handle),
+                materials: vec![Some(material)],
+                visible: true,
+                kind: NodeKind::SkeletalMesh,
+                metadata: Vec::new(),
+            });
+            scene
+        };
+        let centroid = |offset: f32| {
+            let rgba = render(&skinned_scene(offset), 96);
+            let mut sum = 0.0f32;
+            let mut count = 0.0f32;
+            for (index, pixel) in rgba.as_chunks::<4>().0.iter().enumerate() {
+                if pixel[0] > pixel[1].saturating_add(10) {
+                    sum += (index % 96) as f32;
+                    count += 1.0;
+                }
+            }
+            assert!(count > 0.0, "蒙皮三角形不可见");
+            sum / count
+        };
+        let base = centroid(0.0);
+        let shifted = centroid(40.0);
+        assert!(
+            (shifted - base).abs() > 5.0,
+            "蒙皮平移未生效：{base} → {shifted}"
+        );
     }
 
     /// 纹理采样支持 repeat 与双线性过滤。
