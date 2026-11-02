@@ -134,6 +134,15 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     if (dot(normal, view) < 0.0) {
         normal = -normal;
     }
+    // 着色模式：y=0 Lit、1 Unlit、2 Normals。
+    if (camera.ambient.y > 1.5) {
+        return vec4<f32>(normal * 0.5 + vec3<f32>(0.5), 1.0);
+    }
+    if (camera.ambient.y > 0.5) {
+        let non_negative = max(base, vec3<f32>(0.0));
+        let mapped = non_negative / (vec3<f32>(1.0) + non_negative);
+        return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), 1.0);
+    }
     var metallic = material.params.x;
     var roughness = material.params.y;
     var occlusion = 1.0;

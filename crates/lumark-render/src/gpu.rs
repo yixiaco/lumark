@@ -16,6 +16,8 @@ use crate::{RenderSettings, RenderTarget};
 
 /// WGSL 着色器。
 const SHADER: &str = include_str!("shader.wgsl");
+/// 叠加层线段着色器。
+const LINE_SHADER: &str = include_str!("line.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -63,6 +65,7 @@ pub struct GpuRenderer {
     adapter_backend: String,
     pipeline_single: wgpu::RenderPipeline,
     pipeline_double: wgpu::RenderPipeline,
+    line_pipeline: wgpu::RenderPipeline,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -119,6 +122,7 @@ impl GpuRenderer {
                 adapter_backend: format!("{:?}", info.backend),
                 pipeline_single: resources.pipeline_single,
                 pipeline_double: resources.pipeline_double,
+                line_pipeline: resources.line_pipeline,
                 camera_layout: resources.camera_layout,
                 material_layout: resources.material_layout,
                 sampler: resources.sampler,
@@ -155,7 +159,7 @@ impl GpuRenderer {
         let height = settings.height * supersample;
         let bounds = scene.compute_bounds();
         let camera = Camera::fit(&bounds, settings);
-        let batches = build_batches(scene);
+        let batches = build_batches(scene, settings);
 
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("lumark-color"),
@@ -327,6 +331,19 @@ impl GpuRenderer {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.draw(0..batch.count, 0..1);
             }
+            let (line_data, line_count) = overlay_line_vertices(scene, settings);
+            if line_count > 0 {
+                let line_buffer = self.create_buffer(
+                    "lumark-overlay-lines",
+                    line_data.len() as u64,
+                    wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                );
+                self.queue.write_buffer(&line_buffer, 0, &line_data);
+                pass.set_pipeline(&self.line_pipeline);
+                pass.set_bind_group(0, &camera_bind_group, &[]);
+                pass.set_vertex_buffer(0, line_buffer.slice(..));
+                pass.draw(0..line_count, 0..1);
+            }
         }
 
         // 回读：copy_texture_to_buffer 的每行字节数必须是 256 的倍数。
@@ -461,6 +478,7 @@ impl GpuRenderer {
 struct Resources {
     pipeline_single: wgpu::RenderPipeline,
     pipeline_double: wgpu::RenderPipeline,
+    line_pipeline: wgpu::RenderPipeline,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -643,6 +661,66 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
     };
     let pipeline_single = create_pipeline("lumark-pipeline-single", Some(wgpu::Face::Back));
     let pipeline_double = create_pipeline("lumark-pipeline-double", None);
+
+    // 叠加层线段管线：LineList、深度测试但不写深度。
+    let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-line-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(LINE_SHADER)),
+    });
+    let line_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lumark-line-layout"),
+        bind_group_layouts: &[Some(&camera_layout)],
+        immediate_size: 0,
+    });
+    let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lumark-line-pipeline"),
+        layout: Some(&line_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &line_shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: 28,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x3,
+                        offset: 0,
+                        shader_location: 0,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x4,
+                        offset: 12,
+                        shader_location: 1,
+                    },
+                ],
+            })],
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::LineList,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &line_shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: COLOR_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("lumark-sampler"),
         address_mode_u: wgpu::AddressMode::Repeat,
@@ -665,6 +743,7 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
     Ok(Resources {
         pipeline_single,
         pipeline_double,
+        line_pipeline,
         camera_layout,
         material_layout,
         sampler,
@@ -744,7 +823,7 @@ struct GpuVertex {
 }
 
 /// 把所有可见网格按材质展开为世界空间三角形批次。
-fn build_batches(scene: &Scene) -> Vec<Batch> {
+fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
     let default_material = MaterialData::default();
     let mut batches: Vec<Batch> = Vec::new();
     let mut index_by_key: HashMap<(Option<usize>, Option<usize>), usize> = HashMap::new();
@@ -785,6 +864,9 @@ fn build_batches(scene: &Scene) -> Vec<Batch> {
                 .collect()
         };
         for (first, count, material_slot) in ranges {
+            if settings.hidden_material_slots.contains(&material_slot) {
+                continue;
+            }
             let material_handle = node
                 .materials
                 .get(material_slot)
@@ -970,6 +1052,30 @@ fn skin_bytes(matrices: &[[[f32; 4]; 4]]) -> Vec<u8> {
     f32_bytes(&values)
 }
 
+/// 叠加层线段顶点（pos3 + color4）与顶点数。
+fn overlay_line_vertices(scene: &Scene, settings: &RenderSettings) -> (Vec<u8>, u32) {
+    let mut values = Vec::new();
+    let mut count = 0u32;
+    let mut push_segment = |start: [f32; 3], end: [f32; 3], color: [f32; 4]| {
+        for position in [start, end] {
+            values.extend_from_slice(&position);
+            values.extend_from_slice(&color);
+        }
+        count += 2;
+    };
+    if settings.show_grid {
+        for (start, end) in crate::overlay::grid_lines(scene) {
+            push_segment(start, end, [0.32, 0.35, 0.4, 1.0]);
+        }
+    }
+    if settings.show_bones {
+        for (start, end) in crate::overlay::bone_lines(scene) {
+            push_segment(start, end, [1.0, 0.45, 0.08, 1.0]);
+        }
+    }
+    (f32_bytes(&values), count)
+}
+
 /// 相机 uniform（160 字节）。
 fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
     let mut values = Vec::with_capacity(40);
@@ -987,7 +1093,16 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
     ]);
     values.extend_from_slice(&[-key[0], -key[1], -key[2], settings.fill_intensity]);
     values.extend_from_slice(&[0.55, 0.62, 0.75, 0.0]);
-    values.extend_from_slice(&[settings.ambient_strength, 0.0, 0.0, 0.0]);
+    values.extend_from_slice(&[
+        settings.ambient_strength,
+        match settings.shading {
+            crate::ShadingMode::Lit => 0.0,
+            crate::ShadingMode::Unlit => 1.0,
+            crate::ShadingMode::Normals => 2.0,
+        },
+        0.0,
+        0.0,
+    ]);
     f32_bytes(&values)
 }
 
@@ -1339,5 +1454,80 @@ mod tests {
             (shifted - base).abs() > 2.0,
             "GPU 蒙皮平移未生效：{base} → {shifted}"
         );
+    }
+
+    /// 有 GPU 时验证着色模式与网格叠加层；无 GPU 时跳过。
+    #[test]
+    fn gpu_shading_and_grid_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 着色模式测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            key_intensity: 0.0,
+            fill_intensity: 0.0,
+            ambient_strength: 0.0,
+            ..RenderSettings::default()
+        };
+        let mut scene = triangle_scene();
+        scene.materials[0].base_color = [1.0, 0.0, 0.0, 1.0];
+        if let Some(mesh) = scene.meshes.first_mut() {
+            mesh.normals = vec![[0.0, 0.0, 1.0]; 3];
+        }
+        let unlit = renderer
+            .render(
+                &scene,
+                &RenderSettings {
+                    shading: crate::ShadingMode::Unlit,
+                    ..settings.clone()
+                },
+            )
+            .expect("GPU 渲染");
+        assert!(
+            unlit
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0] > pixel[2].saturating_add(10) && pixel[0] > 10),
+            "GPU Unlit 模式未输出基础色"
+        );
+        let normals = renderer
+            .render(
+                &scene,
+                &RenderSettings {
+                    shading: crate::ShadingMode::Normals,
+                    ..settings.clone()
+                },
+            )
+            .expect("GPU 渲染");
+        assert!(
+            normals
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[2] > pixel[0].saturating_add(20)),
+            "GPU Normals 模式未输出法线颜色"
+        );
+
+        let empty = Scene::new("Empty");
+        let grid = renderer
+            .render(
+                &empty,
+                &RenderSettings {
+                    show_grid: true,
+                    ..settings
+                },
+            )
+            .expect("GPU 渲染");
+        assert!(!grid.is_uniform(), "GPU 网格叠加层未生效");
     }
 }

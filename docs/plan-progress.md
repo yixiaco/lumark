@@ -62,10 +62,10 @@
 | V-3 相机/网格/清屏 | 🟡 | 轨道相机、清屏、超采样完成；网格地板/背景渐变未做 |
 | V-4 PBR 网格 + 纹理 | ✅（核心） | 本轮：顶点切线、基础色/法线/ORM/自发光贴图、alpha 裁剪、单/双面剔除；CPU 18 测试 + GPU 2 测试全过；MI_Props 实机截图 `target/render-box-gpu-v4.png`。缺口：CPU mips/纹理 LRU/sRGB 视图切换未做 |
 | V-5 GPU 蒙皮 + 动画 | ✅ | 第 21 轮：`MeshSkin`（关节/inverse bind/pose）+ CPU/GPU LBS + GPU storage buffer（≤4 影响归一化）；`apply_animation` 接入 `sample_animation`；BNB `SK_Chicken + ANIM_Chicken_Idle2` 42 轨道 t=0/1s 两帧渲染成功（~87–93 ms，PNG hash 不同）；`lumark-render` 25 测试全过（CPU/GPU 蒙皮平移） |
-| V-6 叠加层/着色模式 | ⬜ | |
+| V-6 叠加层/着色模式 | 🟡 | 第 22 轮：`ShadingMode{Lit,Unlit,Normals}`、地面网格、骨骼线段（CPU DDA + GPU LineList 管线）、`hidden_material_slots`；CPU+GPU 测试。缺口：wireframe 与 section 逐项 UI |
 | V-7 实例化/大规模场景 | ⬜ | |
 | V-8 质量/统计/设备丢失 | ⬜ | |
-| V-9 渲染器测试/文档 | 🟡 | 20 测试；`docs/viewer-architecture.md` 未补 |
+| V-9 渲染器测试/文档 | ✅ | 第 22 轮：30 个测试 + `docs/viewer-architecture.md`（分层/API/管线/模式/基线/限制） |
 | V-10 UE 静态网格 Provider | 🟡 | `static_mesh_scene` 可用；`UeSceneProvider`/SceneRequest/进度未做 |
 | V-11 UE 材质到 Scene | 🟡 | `scene_material`（base/normal/ORM）；HDR 标记/缓存未做 |
 | V-12 骨骼网格/动画 Provider | 🟡 | `skeletal_mesh_scene`/CPU 蒙皮可用；GPU 蒙皮与动画 Clips 未接 |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（V-6/V-7）
+## 下一轮（V-7 / V-10 / V-11）
 
-1. V-6 叠加层/着色模式：骨骼线段、wireframe、Unlit/Normals、section 显隐、网格开关；
-2. V-7 实例化/大规模场景：同网格分组实例，世界 Actor 上限与截断告警；
-3. 同步补 V-9 渲染器文档 `docs/viewer-architecture.md`；
+1. V-10 UE 静态网格 Provider：`UeSceneProvider` / `SceneRequest` / LOD 策略 / 进度回调；
+2. V-11 材质→Scene：纹理解码缓存、失败 warning 兜底、HDR 标记；
+3. V-7 实例化：同网格分组批次、世界 Actor 上限与截断告警（与 V-14 世界 Provider 联动）；
 4. 记录进度并提交。

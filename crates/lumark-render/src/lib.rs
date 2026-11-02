@@ -10,12 +10,25 @@
 
 mod camera;
 mod gpu;
+mod overlay;
 mod raster;
 mod skin;
 
 pub use gpu::{GpuError, GpuRenderer};
 
 use lumark_scene::Scene;
+
+/// 着色模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShadingMode {
+    /// 近似 PBR 光照（默认）。
+    #[default]
+    Lit,
+    /// 无光照基础色。
+    Unlit,
+    /// 世界空间法线可视化。
+    Normals,
+}
 
 /// 渲染设置。
 #[derive(Debug, Clone)]
@@ -48,6 +61,14 @@ pub struct RenderSettings {
     pub ambient_strength: f32,
     /// 超采样倍数（1–4）；提高画质并降低锯齿。
     pub supersample: u32,
+    /// 着色模式。
+    pub shading: ShadingMode,
+    /// 是否显示地面网格。
+    pub show_grid: bool,
+    /// 是否显示骨骼线段。
+    pub show_bones: bool,
+    /// 隐藏的材质槽（section）索引。
+    pub hidden_material_slots: Vec<usize>,
 }
 
 impl Default for RenderSettings {
@@ -67,6 +88,10 @@ impl Default for RenderSettings {
             fill_intensity: 0.35,
             ambient_strength: 0.22,
             supersample: 2,
+            shading: ShadingMode::Lit,
+            show_grid: false,
+            show_bones: false,
+            hidden_material_slots: Vec::new(),
         }
     }
 }

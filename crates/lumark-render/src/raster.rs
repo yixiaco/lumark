@@ -3,7 +3,9 @@
 use lumark_scene::{MaterialData, MeshData, Scene, TextureData};
 
 use crate::RenderSettings;
+use crate::ShadingMode;
 use crate::camera::{Camera, cross, dot, normalize, sub};
+use crate::overlay;
 use crate::skin;
 
 /// 近裁面阈值（裁剪空间 w）。
@@ -74,6 +76,9 @@ pub(crate) fn render(
         }
         let ranges = section_ranges(mesh);
         for (first, count, material_index) in ranges {
+            if settings.hidden_material_slots.contains(&material_index) {
+                continue;
+            }
             let material = node
                 .materials
                 .get(material_index)
@@ -95,7 +100,75 @@ pub(crate) fn render(
             }
         }
     }
+    draw_overlays(scene, settings, camera, &mut frame);
     frame.to_rgba8()
+}
+
+/// 绘制地面网格与骨骼线段（带深度测试）。
+fn draw_overlays(scene: &Scene, settings: &RenderSettings, camera: &Camera, frame: &mut Frame) {
+    let mut segments = Vec::new();
+    if settings.show_grid {
+        segments.extend(overlay::grid_lines(scene));
+    }
+    if settings.show_bones {
+        segments.extend(overlay::bone_lines(scene));
+    }
+    let grid_color = [0.32f32, 0.35, 0.4];
+    let bone_color = [1.0f32, 0.45, 0.08];
+    let grid_count = if settings.show_grid {
+        overlay::grid_lines(scene).len()
+    } else {
+        0
+    };
+    for (index, (start, end)) in segments.iter().enumerate() {
+        let color = if index < grid_count {
+            grid_color
+        } else {
+            bone_color
+        };
+        draw_line(frame, camera, *start, *end, color);
+    }
+}
+
+/// 3D 线段投影 + DDA 光栅化。
+fn draw_line(frame: &mut Frame, camera: &Camera, start: [f32; 3], end: [f32; 3], color: [f32; 3]) {
+    let start_clip = camera.clip_position(start);
+    let end_clip = camera.clip_position(end);
+    if start_clip[3] < NEAR_EPSILON || end_clip[3] < NEAR_EPSILON {
+        return;
+    }
+    let project = |clip: [f32; 4]| {
+        let inverse = 1.0 / clip[3];
+        let x = (clip[0] * inverse * 0.5 + 0.5) * frame.width as f32;
+        let y = (1.0 - (clip[1] * inverse * 0.5 + 0.5)) * frame.height as f32;
+        (x, y, clip[2] * inverse)
+    };
+    let (x0, y0, z0) = project(start_clip);
+    let (x1, y1, z1) = project(end_clip);
+    let steps = (x1 - x0).abs().max((y1 - y0).abs()).ceil() as i32;
+    if steps <= 0 {
+        return;
+    }
+    for step in 0..=steps {
+        let ratio = step as f32 / steps as f32;
+        let x = x0 + (x1 - x0) * ratio;
+        let y = y0 + (y1 - y0) * ratio;
+        let depth = z0 + (z1 - z0) * ratio;
+        if !(0.0..=1.0).contains(&depth) {
+            continue;
+        }
+        let xi = x.round() as i32;
+        let yi = y.round() as i32;
+        if xi < 0 || yi < 0 || xi >= frame.width as i32 || yi >= frame.height as i32 {
+            continue;
+        }
+        let offset = yi as usize * frame.width as usize + xi as usize;
+        if depth >= frame.depth[offset] {
+            continue;
+        }
+        frame.color[offset] = color;
+        frame.depth[offset] = depth;
+    }
 }
 
 /// 世界空间顶点。
@@ -584,6 +657,9 @@ fn shade(
         base[1] * surface.color[1],
         base[2] * surface.color[2],
     ];
+    if settings.shading == ShadingMode::Unlit {
+        return [base[0], base[1], base[2], alpha];
+    }
     // ORM：R=环境光遮蔽、G=粗糙度、B=金属度（线性数据）。
     let mut metallic = material.metallic.clamp(0.0, 1.0);
     let mut roughness = material.roughness.clamp(0.04, 1.0);
@@ -628,6 +704,14 @@ fn shade(
     let view = normalize(sub(camera.eye, surface.world));
     if dot(normal, view) < 0.0 {
         normal = [-normal[0], -normal[1], -normal[2]];
+    }
+    if settings.shading == ShadingMode::Normals {
+        return [
+            normal[0] * 0.5 + 0.5,
+            normal[1] * 0.5 + 0.5,
+            normal[2] * 0.5 + 0.5,
+            alpha,
+        ];
     }
     let shininess = (2.0 / (roughness * roughness * roughness * roughness)).clamp(4.0, 2048.0);
     let ambient = settings.ambient_strength * occlusion;
@@ -1066,6 +1150,120 @@ mod tests {
         assert!(
             (shifted - base).abs() > 5.0,
             "蒙皮平移未生效：{base} → {shifted}"
+        );
+    }
+
+    /// 无光照模式忽略灯光；法线模式输出法线颜色。
+    #[test]
+    fn shading_modes_override_lighting() {
+        let dark = RenderSettings {
+            width: 96,
+            height: 96,
+            supersample: 1,
+            background: [0.0; 3],
+            key_intensity: 0.0,
+            fill_intensity: 0.0,
+            ambient_strength: 0.0,
+            ..RenderSettings::default()
+        };
+        let scene = || {
+            let mut scene = triangle_scene([1.0, 0.0, 0.0, 1.0], 0.0);
+            if let Some(mesh) = scene.meshes.first_mut() {
+                mesh.normals = vec![[0.0, 0.0, 1.0]; 3];
+            }
+            scene
+        };
+        let lit = crate::render_scene(&scene(), &dark).expect("渲染").rgba;
+        assert!(
+            lit.as_chunks::<4>().0.iter().all(|pixel| pixel[0] < 10),
+            "Lit 模式在无灯光下仍产生亮色"
+        );
+        let unlit = crate::render_scene(
+            &scene(),
+            &RenderSettings {
+                shading: ShadingMode::Unlit,
+                ..dark.clone()
+            },
+        )
+        .expect("渲染")
+        .rgba;
+        assert!(
+            unlit
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0] > pixel[2].saturating_add(10) && pixel[0] > 10),
+            "Unlit 模式未输出基础色"
+        );
+        let normals = crate::render_scene(
+            &scene(),
+            &RenderSettings {
+                shading: ShadingMode::Normals,
+                ..dark
+            },
+        )
+        .expect("渲染")
+        .rgba;
+        assert!(
+            normals
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[2] > pixel[0].saturating_add(20)),
+            "Normals 模式未输出法线颜色"
+        );
+    }
+
+    /// 网格叠加层与隐藏材质槽。
+    #[test]
+    fn grid_overlay_and_hidden_slots() {
+        let base = RenderSettings {
+            width: 96,
+            height: 96,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let empty = Scene::new("Empty");
+        let without_grid = crate::render_scene(&empty, &base).expect("渲染").rgba;
+        assert!(
+            without_grid
+                .as_chunks::<4>()
+                .0
+                .windows(2)
+                .all(|pair| pair[0] == pair[1]),
+            "空场景不应有叠加层"
+        );
+        let with_grid = crate::render_scene(
+            &empty,
+            &RenderSettings {
+                show_grid: true,
+                ..base.clone()
+            },
+        )
+        .expect("渲染")
+        .rgba;
+        assert!(
+            !with_grid
+                .as_chunks::<4>()
+                .0
+                .windows(2)
+                .all(|pair| pair[0] == pair[1]),
+            "网格叠加层未生效"
+        );
+
+        let hidden = crate::render_scene(
+            &triangle_scene([1.0, 0.0, 0.0, 1.0], 0.0),
+            &RenderSettings {
+                hidden_material_slots: vec![0],
+                ..base
+            },
+        )
+        .expect("渲染")
+        .rgba;
+        assert!(
+            hidden.as_chunks::<4>().0.iter().all(|pixel| pixel[0] < 10),
+            "隐藏材质槽后仍渲染几何"
         );
     }
 
