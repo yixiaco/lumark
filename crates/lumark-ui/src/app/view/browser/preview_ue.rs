@@ -8,7 +8,7 @@ use lumark_unreal::{
     is_legacy_package, parse_legacy_summary, parse_package, read_asset_package,
     read_legacy_anim_sequence, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_summary, read_legacy_skeleton, read_legacy_texture,
-    render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
+    render_skeletal_mesh_orbit, render_skeleton_orbit,
 };
 
 mod material;
@@ -523,8 +523,23 @@ fn load_ue_asset_from_package(
         if export.class_name == "StaticMesh"
             && let Ok(mesh) = package.read_static_mesh(primary, &mappings)
         {
-            let rgba = render_static_mesh(&mesh.lod, 480, 360);
-            let Some(image) = image::RgbaImage::from_raw(480, 360, rgba) else {
+            // 复用引擎无关场景 + 共享渲染服务（GPU 优先，CPU 回退）。
+            let scene = lumark_unreal::static_mesh_scene(&mesh.name, &mesh, &[]);
+            let settings = lumark_render::RenderSettings {
+                width: 480,
+                height: 360,
+                supersample: 2,
+                yaw_degrees: 35.0,
+                pitch_degrees: 25.0,
+                ..Default::default()
+            };
+            let service = crate::render_service::render_service();
+            let target = match service.render_target(&scene, &settings) {
+                Ok(target) => target,
+                Err(error) => return UePreviewResult::Error(error),
+            };
+            let Some(image) = image::RgbaImage::from_raw(target.width, target.height, target.rgba)
+            else {
                 return UePreviewResult::Error("模型渲染尺寸不匹配".to_string());
             };
             if let Some(parent) = output.parent()
@@ -539,10 +554,11 @@ fn load_ue_asset_from_package(
                 path: output.to_path_buf(),
                 name: export.name.clone(),
                 subtitle: format!(
-                    "StaticMesh · {} LOD · {} 顶点 · {} 三角形",
+                    "StaticMesh · {} LOD · {} 顶点 · {} 三角形 · {}",
                     mesh.lod_count,
                     mesh.lod.positions.len(),
-                    mesh.lod.triangle_count()
+                    mesh.lod.triangle_count(),
+                    service.backend_label()
                 ),
                 mesh: mesh.lod,
                 lods: mesh.lods,

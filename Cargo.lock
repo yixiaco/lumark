@@ -5400,6 +5400,8 @@ dependencies = [
  "lumark-browser",
  "lumark-mail",
  "lumark-platform-windows",
+ "lumark-render",
+ "lumark-scene",
  "lumark-settings",
  "lumark-tasks",
  "lumark-unreal",
