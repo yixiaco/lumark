@@ -7,5 +7,6 @@ pub(crate) mod chromium;
 pub(crate) mod codec;
 pub(crate) mod iostore;
 pub(crate) mod oodle;
+pub mod oodle_download;
 pub(crate) mod quake;
 pub(crate) mod unreal;

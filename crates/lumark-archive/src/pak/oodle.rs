@@ -307,15 +307,24 @@ mod dll {
         }
         if let Ok(executable) = std::env::current_exe()
             && let Some(directory) = executable.parent()
-            && let Ok(entries) = std::fs::read_dir(directory)
         {
-            let mut local: Vec<PathBuf> = entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| is_oodle_file_name(path))
-                .collect();
-            local.sort();
-            candidates.extend(local);
+            // 支持随包内置：exe 同目录、`oodle/` 与 `resources/oodle/`。
+            for root in [
+                directory.to_path_buf(),
+                directory.join("oodle"),
+                directory.join("resources").join("oodle"),
+            ] {
+                let Ok(entries) = std::fs::read_dir(&root) else {
+                    continue;
+                };
+                let mut local: Vec<PathBuf> = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| is_oodle_file_name(path))
+                    .collect();
+                local.sort();
+                candidates.extend(local);
+            }
         }
         for path in candidates {
             if let Some(library) = load_one(&path) {

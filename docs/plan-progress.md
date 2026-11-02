@@ -8,7 +8,7 @@
 | 阶段 | 完成度 | 当前状态 |
 |---|---|---|
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
-| O（Oodle FModel 式） | 2/7 | O-1/O-2 完成；O-5/O-6 部分；下载/随包/验收待做 |
+| O（Oodle FModel 式） | 4/7 | O-1/O-2/O-3/O-6 完成；O-4/O-5 部分；O-7 验收待做 |
 | S（资产底座） | 6/9 | S-2/S-6 待补，其余已完成 |
 | V（查看器） | 9/21 | V-2/3/6/13/16/18/19 部分；V-7/8/14/20 待做 |
 | E（导出） | 14/18 | E-0/E-1/E-2/E-10 待补或部分；其余完成 |
@@ -32,10 +32,10 @@
 |---|---|---|
 | O-1 加载器状态 API | ✅ | 第 38 轮：`OodleStatus{setting,rust_available,dll_supported,dll_configured,dll_loaded}` + `usable()/summary()` + `oodle_status()`；2 测试；游戏设置页显示当前后端摘要 |
 | O-2 容器 needs_oodle 预检 | ✅ | 第 38 轮：`IoStoreContainer::needs_oodle`、`GameAssetSource::oodle_preflight()`（`OodlePreflight{needed,ready,methods,status,summary}`）；BNB 实机 92368 条目、methods=["Oodle"]、needed=true、ready=true（Rust 后端） |
-| O-3 运行时下载与缓存 | ⬜ | 计划 reqwest+zip+SHA-256 |
-| O-4 随包内置 | ⬜ | |
-| O-5 UI 集成与设置 | 🟡 | 第 38 轮：游戏设置 Oodle 区新增“当前后端”摘要；下载/安装向导未做 |
-| O-6 诊断与文档 | 🟡 | 第 38 轮：新增 `docs/oodle-backends.md`（后端/环境变量/状态/预检/BNB 实机/限制）+ `oodle_preflight` 示例 |
+| O-3 运行时下载与缓存 | ✅ | 第 39 轮：`oodle_download`：reqwest 流式下载 + 进度 → SHA-256 校验 → 原子缓存 `oodle.zip` → zip 安全解压 `oo2core*/oodle*.dll` → 缓存复用；`install_oodle_zip` 离线安装；4 测试（安装/复用、SHA、路径穿越、非法 DLL） |
+| O-4 随包内置 | 🟡 | 第 39 轮：DLL 查找新增 `oodle/`、`resources/oodle/`（exe 同目录已支持）；仓库不内置二进制，发布需放置已授权 DLL |
+| O-5 UI 集成与设置 | 🟡 | 第 38 轮：游戏设置 Oodle 区新增“当前后端”摘要；下载/安装向导未接入 |
+| O-6 诊断与文档 | ✅ | 第 38/39 轮：`docs/oodle-backends.md` 补充下载/缓存 API、随包目录、设置页、诊断；`oodle_preflight` 示例；BNB 实机 |
 | O-7 真实验收 | ⬜ | |
 
 ## S：共享资产底座
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（O-3 / O-4）
+## 下一轮（O-5 / O-4 / O-7）
 
-1. O-3 运行时下载与缓存：reqwest 下载 → SHA-256 校验 → zip 解压 `oo2core*.dll` → 缓存并 `configure_oodle_library`，缓存命中/失效测试；
-2. O-4 随包内置：构建脚本/资源目录与首启检测；
-3. E-10 USDA Skel 或 V-7 实例化；
+1. O-5 设置页接入下载/安装向导（URL/SHA/缓存目录、进度、失败提示）；
+2. O-4 随包资源目录/打包脚本与首启检测；
+3. O-7 FF7R 等更多容器预检/解压实机验收；
 4. 记录进度并提交。

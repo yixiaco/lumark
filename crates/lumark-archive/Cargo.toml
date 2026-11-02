@@ -27,6 +27,7 @@ oxiarc-core.workspace = true
 oxiarc-lzhuf.workspace = true
 oozextract.workspace = true
 quick-xml.workspace = true
+reqwest.workspace = true
 libchm.workspace = true
 backhand.workspace = true
 nsis.workspace = true

@@ -47,6 +47,62 @@ preflight.summary();// 界面展示文本
 
 `GameAssetSource::needs_oodle()` / `compression_methods()` 也可单独使用；IoStore 与 PAK 都支持。
 
+## 运行时下载与缓存（O-3）
+
+```rust
+use lumark_archive::{OodleDownloadOptions, download_and_cache_oodle};
+
+let result = download_and_cache_oodle(
+    &OodleDownloadOptions {
+        url: "https://.../oodle.zip".to_string(),
+        cache_dir: cache_dir.clone(),
+        expected_sha256: Some("...".to_string()),
+        preferred_library: Some("oo2core_9_win64.dll".to_string()),
+    },
+    |downloaded, total| { /* 进度 */ },
+)?;
+lumark_archive::configure_oodle_library(Some(result.library.clone()))?;
+```
+
+- 下载到 `cache_dir/oodle.zip`（临时 `.part`，完成后原子改名）；
+- 可选 SHA-256 校验，不匹配不会留下缓存/库；
+- zip 解压只取文件名，拒绝 `../` 目录穿越；
+- 只接受 `oo2core*.dll` / `oodle*.dll`；
+- 已缓存且校验通过时不再联网；
+- `install_oodle_zip(zip_bytes, cache_dir, sha, preferred)` 用于离线导入。
+
+离线测试（4 个）：安装/复用、SHA 不匹配、路径穿越、非 Oodle DLL 拒绝。
+
+## 随包内置（O-4）
+
+DLL 查找顺序：
+
+1. `configure_oodle_library(Some(path))` 显式路径；
+2. `LUMARK_OODLE_DLL`；
+3. 可执行文件同目录；
+4. `oodle/`；
+5. `resources/oodle/`。
+
+发布时把已获授权的 `oo2core*.dll` 放到上述目录即可被自动发现；Lumark 仓库不内置二进制。
+
+## 设置页（O-5）
+
+游戏设置 → Oodle 区显示：
+
+- 当前选择或自动发现的库路径；
+- 「当前后端」摘要（配置模式、Rust/DLL 可用性、是否已加载）；
+- 「选择 Oodle 库…」按钮。
+
+下载/安装向导尚未接入设置页。
+
+## 诊断与文档
+
+```powershell
+cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\BNB" "pakchunk0-Windows.utoc"
+```
+
+输出容器条目数、压缩方法、是否需要 Oodle、当前后端是否可解压。
+
 ## 实机结果
 
 BNB（`pakchunk0-Windows.utoc`，IoStore）：
@@ -64,6 +120,6 @@ cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\BNB" "pakch
 
 ## 限制
 
-- O-3 运行时下载/缓存、O-4 随包内置尚未实现；目前依赖内置 Rust 解码器或用户自备 DLL；
-- O-5 设置页已显示当前后端摘要，但尚无“下载/安装 Oodle”向导；
+- 默认下载源未内置；调用方必须提供授权 zip 的 URL 与 SHA-256；
+- O-4 仅提供查找路径，仓库不随包分发 Oodle 二进制；
 - O-7 需在 FF7R 等更多容器上验收。

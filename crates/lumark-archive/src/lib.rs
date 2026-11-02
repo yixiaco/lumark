@@ -34,6 +34,10 @@ pub use format::{
 };
 pub use pak::iostore::{IoStoreContainer, IoStoreFile};
 pub use pak::oodle::{OodleStatus, configure_oodle_library, oodle_backend_setting, oodle_status};
+pub use pak::oodle_download::{
+    OodleDownloadOptions, OodleDownloadResult, download_and_cache_oodle, extract_oodle_library,
+    install_oodle_zip,
+};
 pub use pak::unreal::{PakAssetEntry, PakAssetReader};
 pub use path::{ArchivePath, ensure_no_symlink_components, safe_join};
 pub use service::{
