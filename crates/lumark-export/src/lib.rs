@@ -8,6 +8,7 @@
 
 mod actorx;
 mod gltf;
+mod psa;
 mod sidecar;
 mod texture;
 mod ueformat;
@@ -15,6 +16,7 @@ mod usda;
 
 pub use actorx::{ExportBone, ExportMesh, ExportOptions, MeshSection, MeshVertex, write_psk};
 pub use gltf::{ExportMaterial, ExportTexture, GltfExport, write_glb};
+pub use psa::{AnimKey, PsaExport, write_psa};
 pub use sidecar::{MaterialSidecarOptions, material_sidecars, write_resources};
 pub use texture::{TextureExportFormat, TextureExportOptions, encode_texture};
 pub use ueformat::write_ueformat_model;

@@ -89,7 +89,7 @@
 | E-4 材质旁挂 | ✅ | 第 30 轮：`material_sidecars` 生成 `textures/<材质>_BaseColor|Normal.<ext>` + `materials.json`（版本/格式/基础色/金属度/粗糙度/自发光/双面/贴图路径），`write_resources` 防路径穿越；3 测试 + BNB 实机 3 文件 × 4 格式 |
 | E-5 glTF 2.0 GLB | ✅ | 4 测试 + BNB 实机 + gltf crate 校验 |
 | E-6 ActorX PSK | ✅ | 3 测试 + BNB 实机 + chunk 校验 |
-| E-7 ActorX PSA | ⬜ | |
+| E-7 ActorX PSA | ✅ | 第 31 轮：`PsaExport`（帧/骨骼/关键值）+ `write_psa`：ANIMHEAD 20100422、BONENAMES 120B、ANIMINFO 168B、ANIMKEYS 32B、SCALEKEYS 16B；Y 镜像与根骨骼 quat W 取反；2 测试 + BNB `SK_Chicken + ANIM_Chicken_Idle2` 实机 289,624 字节（141 帧 ×42 骨骼，fps 30.214） |
 | E-8 UEFormat 公共写入器 | ✅ | 含在 E-9 |
 | E-9 UEFormat UEMODEL | ✅ | 3 测试 + BNB 实机 |
 | E-10 USDA | 🟡 | 网格/材质/贴图/GeomSubset；USD Skel 未做 |
@@ -116,9 +116,9 @@
 - `3a7e173` ActorX PSK 导出
 - 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
 
-## 下一轮（E-7 / E-13）
+## 下一轮（E-13 / E-17）
 
-1. E-7 ActorX PSA：动画采样 → PSA 序列（bone tracks/quat keys/fps），PSK 配套验证；
-2. E-13 批量任务接入：复用 `lumark-tasks` 的任务模型与进度/取消，报告 JSON；
-3. E-14/E-15 导出 UI 或 E-17 `docs/export-formats.md`；
+1. E-13 批量任务接入：复用 `lumark-tasks` 的任务模型与进度/取消，报告 JSON；
+2. E-17 `docs/export-formats.md`：四种模型格式 + 四种贴图 + materials.json 的字段/兼容性/限制；
+3. E-14/E-15 导出 UI（单资产/批量）或 E-11 单资产编排；
 4. 记录进度并提交。
