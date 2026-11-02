@@ -5,8 +5,8 @@
 use std::error::Error;
 
 use lumark_unreal::{
-    AssetKind, GameAssetOptions, GameAssetSource, Mappings, extract_key_for_game, parse_package,
-    read_static_mesh, scan_game,
+    AssetKind, GameAssetOptions, GameAssetSource, Mappings, MeshLod, extract_key_for_game,
+    parse_package, read_static_mesh, scan_game,
 };
 
 /// 运行诊断。
@@ -49,24 +49,50 @@ fn main() -> Result<(), Box<dyn Error>> {
     let inputs = source.read_package(&entry)?;
     let mappings = Mappings::parse_file(std::path::Path::new(&mapping_path))?;
     let package = parse_package(inputs.uasset, source.scripts(), None)?;
-    let mesh_index = package
+    if let Some(mesh_index) = package
         .info()
         .exports
         .iter()
         .position(|export| export.kind == AssetKind::StaticMesh)
-        .ok_or("资产中没有 StaticMesh 导出")?;
-    let mesh = read_static_mesh(&package, mesh_index, &mappings)?;
-    println!(
-        "mesh={} lod_count={} parsed_lods={} material_slots={:?}",
-        mesh.name,
-        mesh.lod_count,
-        mesh.lods.len(),
-        mesh.material_slots
-            .iter()
-            .map(|slot| slot.name.as_str())
-            .collect::<Vec<_>>()
-    );
-    for (index, lod) in mesh.lods.iter().enumerate() {
+    {
+        let mesh = read_static_mesh(&package, mesh_index, &mappings)?;
+        println!(
+            "mesh={} lod_count={} parsed_lods={} material_slots={:?}",
+            mesh.name,
+            mesh.lod_count,
+            mesh.lods.len(),
+            mesh.material_slots
+                .iter()
+                .map(|slot| slot.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        print_lod_attributes(&mesh.lods);
+        return Ok(());
+    }
+    if let Some(index) = package
+        .info()
+        .exports
+        .iter()
+        .position(|export| export.kind == AssetKind::SkeletalMesh)
+    {
+        let preview =
+            package.read_skeletal_mesh_preview(index, &mappings, inputs.ubulk.as_deref())?;
+        println!(
+            "skeletal_mesh={} bones={} lods={} material_names={:?}",
+            preview.skeleton.name,
+            preview.skeleton.bones.len(),
+            preview.lods.len(),
+            preview.material_names
+        );
+        print_lod_attributes(&preview.lods);
+        return Ok(());
+    }
+    Err("资产中没有 StaticMesh/SkeletalMesh 导出".into())
+}
+
+/// 打印每个 LOD 的顶点属性统计。
+fn print_lod_attributes(lods: &[MeshLod]) {
+    for (index, lod) in lods.iter().enumerate() {
         let attributes = &lod.attributes;
         println!(
             "lod{index} verts={} tris={} sections={} normals={} tangents={} uvs={:?} colors={}",
@@ -95,5 +121,4 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("  color0={color:?}");
         }
     }
-    Ok(())
 }

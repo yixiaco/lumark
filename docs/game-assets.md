@@ -131,7 +131,7 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
   DLL 后端仍支持游戏自带 `oo2core*.dll`、FModel 的 `oodle-data-shared.dll` 或
   `LUMARK_OODLE_DLL`，用于特殊格式或对照验证。
 - 仅支持单分区 IoStore；分片容器返回明确错误。签名只跳过，不验证。
-- StaticMesh 现可读取法线、切线、全部 UV 通道和顶点颜色（UE5 Zen 内联缓冲），并暴露 `StaticMaterials` 材质槽名；旧式网格与 SkeletalMesh 的对应顶点属性仍在后续补步骤中。
+- StaticMesh 与 SkeletalMesh 现可读取法线、切线、全部 UV 通道和顶点颜色（Zen 内联/流式缓冲），并暴露 `StaticMaterials` 材质槽名；旧式（UE4.18）网格的对应顶点属性仍在后续步骤补齐。
 - 游戏资产入口在非 Windows 平台隐藏；Oodle 的纯 Rust 后端本身跨平台，当前入口仍按 Windows 门控。
 - SkeletalMesh 的参考骨架（骨骼名/父索引/参考姿态）和各 LOD 的 rest pose 几何已可读取并
   在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽与其名称、LOD、section/

@@ -266,40 +266,11 @@ fn read_inline_buffers(
         }
     }
 
-    // FStaticMeshVertexBuffer：metadata + tangent bulk + texcoord bulk。
-    let _vertex_strip_global = reader.u8()?;
-    let _vertex_strip_class = reader.u8()?;
-    let num_tex_coords = reader.i32()?;
-    let num_vertices = reader.count(1, 10_000_000)?;
-    let use_full_precision_uvs = reader.bool32()?;
-    let use_high_precision_tangents = reader.bool32()?;
-    let tangent_element_size = reader.i32()?;
-    let tangent_count = reader.count(1, 10_000_000)?;
-    if num_vertices != position_count || tangent_count != num_vertices {
-        return Err(invalid("顶点数与切线数不一致"));
-    }
-    let mut attributes = MeshVertexAttributes::default();
-    read_vertex_tangents(
-        reader,
-        tangent_element_size,
-        tangent_count,
-        use_high_precision_tangents,
-        &mut attributes,
-    )?;
-    if !(0..=8).contains(&num_tex_coords) {
-        return Err(invalid(format!("UV 通道数非法：{num_tex_coords}")));
-    }
-    let uv_element_size = reader.i32()?;
-    let uv_count = reader.count(1, 10_000_000)?;
-    read_vertex_uvs(
-        reader,
-        num_tex_coords as usize,
-        num_vertices,
-        uv_element_size,
-        uv_count,
-        use_full_precision_uvs,
-        &mut attributes,
-    )?;
+    // FStaticMeshVertexBuffer（strip flags + 元数据 + 切线/UV bulk）；骨骼网格
+    // 流式数据复用同一读取函数。
+    let (mut attributes, next_position) =
+        read_vertex_buffer(reader.data, reader.position, position_count)?;
+    reader.position = next_position;
 
     // FColorVertexBuffer。
     let _color_strip_global = reader.u8()?;
@@ -378,6 +349,53 @@ fn read_inline_buffers(
         sections,
         attributes,
     })
+}
+
+/// 读取一个 `FStaticMeshVertexBuffer`：strip flags、元数据、切线与全部 UV。
+///
+/// 静态网格内联缓冲和骨骼网格流式数据使用同一序列化布局；返回解析后的属性
+/// 与缓冲区结束位置。`expected_vertices` 用于校验顶点数一致。
+pub(super) fn read_vertex_buffer(
+    data: &[u8],
+    position: usize,
+    expected_vertices: usize,
+) -> Result<(MeshVertexAttributes, usize), PackageError> {
+    let mut reader = MeshReader { data, position };
+    let _ = reader.bytes(2)?; // FStripDataFlags
+    let num_tex_coords = reader.i32()?;
+    let num_vertices = reader.count(1, 10_000_000)?;
+    let use_full_precision_uvs = reader.bool32()?;
+    let use_high_precision_tangents = reader.bool32()?;
+    let tangent_element_size = reader.i32()?;
+    let tangent_count = reader.count(1, 10_000_000)?;
+    if num_vertices != expected_vertices || tangent_count != num_vertices {
+        return Err(invalid(format!(
+            "顶点数与切线数不一致：位置 {expected_vertices} / 顶点缓冲 {num_vertices} / 切线 {tangent_count}"
+        )));
+    }
+    let mut attributes = MeshVertexAttributes::default();
+    read_vertex_tangents(
+        &mut reader,
+        tangent_element_size,
+        tangent_count,
+        use_high_precision_tangents,
+        &mut attributes,
+    )?;
+    if !(0..=8).contains(&num_tex_coords) {
+        return Err(invalid(format!("UV 通道数非法：{num_tex_coords}")));
+    }
+    let uv_element_size = reader.i32()?;
+    let uv_count = reader.count(1, 10_000_000)?;
+    read_vertex_uvs(
+        &mut reader,
+        num_tex_coords as usize,
+        num_vertices,
+        uv_element_size,
+        uv_count,
+        use_full_precision_uvs,
+        &mut attributes,
+    )?;
+    Ok((attributes, reader.position))
 }
 
 /// 读取切线/法线缓冲。

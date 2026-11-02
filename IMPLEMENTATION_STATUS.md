@@ -10,7 +10,8 @@
 - [x] Oodle 解压新增纯 Rust 后端：引入 `oozextract 0.5.7`（MIT），默认 `auto` 先走 Rust、失败回退 DLL；`LUMARK_OODLE_BACKEND=auto|rust|dll` 可切换；未压缩块、非法块头与空输出已有单元测试。随包/下载 DLL 的兜底方案仍保留为后续 O 阶段步骤。
 - [x] 纯 Rust Oodle 实机验证：游戏目录不含任何 Oodle DLL 时，BNB IoStore 的 `SK_Chicken`（244 KB 包，42 骨骼/2860 顶点/3844 三角形）与 `T_ChickenA_BaseColor`（5.5 MB `.ubulk`，2048×2048 PF_DXT5/12 mip）均能通过 Rust 后端解压、解析并渲染；`accept_game` 支持用 `-` 省略 Oodle DLL，`verify_game_assets.ps1` 的 Oodle 参数改为可选。
 - [x] 共享资产底座：新增 `GameAssetSource`（统一 IoStore/PAK 的列表、读取、`.uexp`/`.ubulk` 侧车和 `global.utoc` 脚本对象，暴露加密/Oodle/压缩方法状态）与公开 `PakAssetReader`（按条目读取、大小/路径列表、密码分类错误）；UI 资产预览改走该接口，PAK 预览不再逐资产解压到临时目录。BNB 实机验证：IoStore 92,368 个条目、Oodle 方法、纹理 5.5 MB `.ubulk` 与骨骼包均读取正常。
-- [x] StaticMesh 顶点属性：Zen 内联顶点缓冲补齐法线/切线（含高精度 `FPackedRGBA16N`）/全部 UV 通道/顶点颜色与 `StaticMaterials` 材质槽；无法识别的可选布局会跳过并保留几何。BNB `SM_Dry_Goods_04g` 的 4 个 LOD（3213/1723/923/509 顶点）均解析出法线、切线与 3 组 UV，材质槽为 `M_Dry_Goods_04a`；新增 `inspect_mesh_attrs` 诊断示例与 half/packed-normal 单元测试。旧式网格与 SkeletalMesh 的对应属性在后续步骤补齐。
+- [x] StaticMesh 顶点属性：Zen 内联顶点缓冲补齐法线/切线（含高精度 `FPackedRGBA16N`）/全部 UV 通道/顶点颜色与 `StaticMaterials` 材质槽；无法识别的可选布局会跳过并保留几何。BNB `SM_Dry_Goods_04g` 的 4 个 LOD（3213/1723/923/509 顶点）均解析出法线、切线与 3 组 UV，材质槽为 `M_Dry_Goods_04a`；新增 `inspect_mesh_attrs` 诊断示例与 half/packed-normal 单元测试。
+- [x] SkeletalMesh 顶点属性：流式 LOD 复用同一 `FStaticMeshVertexBuffer` 读取逻辑，补齐法线/切线/UV 后再解析皮肤权重。BNB `SK_Chicken` 两个 LOD（2860/1674 顶点）均取得与顶点等长的法线、切线与 UV；旧式网格顶点属性仍待补齐。
 
 ## 2026-10-29 本轮升级
 

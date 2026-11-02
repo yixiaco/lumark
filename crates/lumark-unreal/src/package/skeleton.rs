@@ -417,35 +417,27 @@ fn parse_streamed_lod(data: &[u8]) -> Result<(MeshLod, Option<SkinWeightStats>),
             "SkeletalMesh 顶点 stride {stride} 暂不支持"
         )));
     }
+    // FStaticMeshVertexBuffer（法线/切线/UV），随后是 FSkinWeightVertexBuffer。
+    let (attributes, next_position) =
+        super::mesh::read_vertex_buffer(data, reader.position, positions.len())?;
+    reader.position = next_position;
     let skin = read_skin_weight_stats(&mut reader, positions.len()).ok();
     Ok((
         MeshLod {
             positions,
             indices,
             sections: Vec::new(),
-            attributes: Default::default(),
+            attributes,
         },
         skin,
     ))
 }
 
-/// 跳过 FStaticMeshVertexBuffer，读取皮肤权重统计。
+/// 读取 `FSkinWeightVertexBuffer`；顶点属性缓冲由调用方先行读取。
 fn read_skin_weight_stats(
     reader: &mut BoneReader<'_>,
     expected_vertices: usize,
 ) -> Result<SkinWeights, PackageError> {
-    // FStaticMeshVertexBuffer：strip + metadata + tangent/UV bulk 数组。
-    let _ = reader.bytes(2)?;
-    let _ = reader.i32()?; // NumTexCoords
-    let num_vertices = reader.count(1, 10_000_000)?;
-    let _ = reader.i32()?; // UseFullPrecisionUVs
-    let _ = reader.i32()?; // UseHighPrecisionTangentBasis
-    skip_bulk_array(reader)?; // tangents
-    skip_bulk_array(reader)?; // UVs
-    if num_vertices != expected_vertices {
-        return Err(invalid("蒙皮顶点数与位置顶点数不一致"));
-    }
-
     // FSkinWeightVertexBuffer 的 data strip flags + 元数据。
     let _ = reader.bytes(2)?;
     let variable = reader.i32()? != 0;
@@ -553,16 +545,6 @@ fn decode_vertex_weights(
         };
     }
     Ok(())
-}
-
-/// 跳过 `ReadBulkArray<T>`。
-fn skip_bulk_array(reader: &mut BoneReader<'_>) -> Result<(), PackageError> {
-    let element_size = reader.i32()?;
-    let count = reader.count(1, 10_000_000)?;
-    let bytes = (element_size.max(0) as usize)
-        .checked_mul(count)
-        .ok_or_else(|| invalid("bulk 数组长度溢出"))?;
-    reader.skip(bytes)
 }
 
 /// 读取 `ReadBulkArray<byte>`。
@@ -714,12 +696,6 @@ impl<'a> BoneReader<'a> {
             .ok_or_else(|| invalid("骨骼数据被截断"))?;
         self.position = end;
         Ok(bytes)
-    }
-
-    /// 跳过指定长度。
-    fn skip(&mut self, length: usize) -> Result<(), PackageError> {
-        let _ = self.bytes(length)?;
-        Ok(())
     }
 
     /// 读取 i32。
