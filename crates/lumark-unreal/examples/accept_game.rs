@@ -1,12 +1,14 @@
 //! 端到端验收：扫描游戏、提取密钥、读取映射并预览一个资产。
 //!
-//! 用法：`accept_game <game-root> <mapping.usmap> <oodle-dll> <container> <entry> <out.png>`
-//! 不打印完整 AES 密钥。
+//! 用法：`accept_game <game-root> <mapping.usmap> <oodle-dll|-> <container> <entry> <out.png>`
+//! Oodle 参数传 `-` 表示使用内置纯 Rust 解码器（不加载 DLL）。不打印完整 AES 密钥。
 
 use std::error::Error;
 use std::path::Path;
 
-use lumark_archive::{ArchiveService, IoStoreContainer, configure_oodle_library};
+use lumark_archive::{
+    ArchiveService, IoStoreContainer, configure_oodle_library, oodle_backend_setting,
+};
 use lumark_unreal::{
     AssetKind, Mappings, ZenScriptObjects, extract_key_for_game, parse_package, scan_game,
 };
@@ -16,12 +18,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args().skip(1);
     let root = args.next().ok_or("缺少游戏目录")?;
     let mapping_path = args.next().ok_or("缺少 .usmap")?;
-    let oodle = args.next().ok_or("缺少 Oodle DLL")?;
+    let oodle = args
+        .next()
+        .ok_or("缺少 Oodle DLL（使用 - 表示内置 Rust 后端）")?;
     let container_name = args.next().ok_or("缺少容器文件名")?;
     let entry = args.next().ok_or("缺少资产路径")?;
     let output = args.next().ok_or("缺少输出 PNG")?;
 
-    configure_oodle_library(Some(oodle.into())).map_err(|error| format!("Oodle：{error}"))?;
+    println!("oodle_backend={}", oodle_backend_setting());
+    if oodle != "-" {
+        configure_oodle_library(Some(oodle.into())).map_err(|error| format!("Oodle：{error}"))?;
+    }
     let game = scan_game(Path::new(&root))?;
     let container_path = game
         .containers
