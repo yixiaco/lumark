@@ -14,6 +14,7 @@
 - [x] SkeletalMesh 顶点属性：流式 LOD 复用同一 `FStaticMeshVertexBuffer` 读取逻辑，补齐法线/切线/UV 后再解析皮肤权重。BNB `SK_Chicken` 两个 LOD（2860/1674 顶点）均取得与顶点等长的法线、切线与 UV。
 - [x] 旧式（FF7R/UE4.18）骨骼网格顶点属性：修正长期存在的位置偏移错误（旧实现读 12..24，实际为 8..20，导致 Y/Z 分量错位、模型 z≈0），并按 `TangentX(4)+TangentZ(4)+Position(12)+UV` 解析法线/切线/UV。FF7R `SK_Mannequin`（68 骨骼/23297 顶点/41052 三角形）现在得到正确包围盒（x ±69、y −22..14.7、z 0..182.5 厘米）与 UV，蒙皮动画链路复验通过（最大顶点位移 200.7）；新增 `inspect_legacy_mesh` 诊断示例与 2 个顶点解码单测。
 - [x] 浮点/HDR 纹理：`Texture2D::decode_mip` 支持 `PF_FloatRGB`/`PF_FloatRGBA`/`PF_R16F`/`PF_RGBA16F`/`PF_RGBE`/`PF_R32_FLOAT`/`PF_R32G32B32F`/`PF_A32B32G32R32F`，返回线性 f32 RGBA；`decode_mip_rgba` 保持兼容并对 HDR 做 Reinhard + gamma 近似显示。新增 3 组浮点格式单元测试；`.hdr` 文件导出在导出阶段实现。
+- [x] 网格材质槽解析（S-7）：新增 `resolve_material_slots` / `resolve_material_asset` 与 `ResolvedMaterial`：槽位名 → 材质包（同目录优先、容器索引按公共前缀排序）→ 旧式父材质链合并 → 基础色/法线/ORM 贴图解码（`MaterialViewerData`），Zen 包按材质名与用途后缀搜索贴图，旧式包走导入表精确路径。实机验证：BNB `MI_Props`/`MI_Crate_04`/`MI_Lamps` 均解析出外观与基础色/法线/ORM；FF7R `M_UE4Man_Body` 合并参数并加载法线贴图。BNB 样本包常缺少网格引用的材质资产，此时返回可读 warning。新增 5 个候选路径/排序单测。
 
 ## 2026-10-29 本轮升级
 

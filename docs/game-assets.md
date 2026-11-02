@@ -132,6 +132,7 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
   `LUMARK_OODLE_DLL`，用于特殊格式或对照验证。
 - 仅支持单分区 IoStore；分片容器返回明确错误。签名只跳过，不验证。
 - StaticMesh、SkeletalMesh 与旧式（UE4.18）骨骼网格现均可读取法线、切线、UV 通道和顶点颜色（旧式暂不含顶点颜色），并暴露 `StaticMaterials` 材质槽名；FF7R 的位置偏移已修正，包围盒与蒙皮动画链路复验通过。
+- 材质槽解析 API：`resolve_material_slots` 从槽位名定位材质包并合并旧式父材质链，再按命名约定加载基础色/法线/ORM 贴图；`resolve_material_asset` 可直接解析单个材质或材质实例。Zen 包缺少对象引用包路径时按资产目录/文件名启发式搜索，找不到时返回 warning 而非失败。
 - 游戏资产入口在非 Windows 平台隐藏；Oodle 的纯 Rust 后端本身跨平台，当前入口仍按 Windows 门控。
 - SkeletalMesh 的参考骨架（骨骼名/父索引/参考姿态）和各 LOD 的 rest pose 几何已可读取并
   在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽与其名称、LOD、section/

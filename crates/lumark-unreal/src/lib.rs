@@ -4,6 +4,7 @@
 
 pub mod game;
 pub mod keys;
+pub mod materials;
 pub mod package;
 pub mod raster;
 pub mod skinning;
@@ -13,6 +14,9 @@ pub use game::{
     ContainerInfo, ContainerKind, DetectedGame, GameScanError, UnrealEngine, scan_game,
 };
 pub use keys::{KeyExtraction, KeyStage, extract_key, extract_key_for_game, verify_container_key};
+pub use materials::{
+    MaterialResolveOptions, ResolvedMaterial, resolve_material_asset, resolve_material_slots,
+};
 pub use package::legacy::{
     LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader, is_legacy_package,
     parse_legacy_summary, read_legacy_property_header, read_legacy_texture,
