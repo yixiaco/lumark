@@ -136,6 +136,7 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
 - 动画采样 API：`sample_animation` 按秒采样（自动钳制到 `[0, length]`）并输出局部姿态与列主序蒙皮矩阵，`skin_mesh_animation` 提供 CPU LBS 预览（位置/法线/切线同步蒙皮），可供后续 GPU 蒙皮与 glTF/PSA 导出复用。
 - World 摘要 API：`read_world_summary` 解析 `.umap` 的 PersistentLevel、StreamingLevels 与 Actors 数组，输出 Actor 清单和类别统计；World Partition 子关卡在属性流无法解析时用全数据扫描回退，SoftObjectPath 等未支持属性会记录 warning。
 - 引擎无关场景层：`lumark-scene` 提供 `Scene`/`SceneNode`/`MeshData`/`MaterialData`/`Transform`/`InspectorModel` 等类型，`lumark-unreal` 的 `static_mesh_scene`/`skeletal_mesh_scene` 把 UE 资产转换为该场景（Z-up、0.01 单位标记），渲染层与未来 Unity 适配共用这一入口。
+- 渲染层：`lumark-render` 提供 CPU 参考光栅化器与 wgpu 30 离屏后端（优先独显，失败回退软件适配器；无 GPU 时上层可回退 CPU）。两者输出同一 `RenderTarget`（RGBA8 / `to_bgra`），支持材质基础色/法线贴图、双灯+环境光与超采样，供查看器以 `RenderImage` 显示或离屏截图。
 - 游戏资产入口在非 Windows 平台隐藏；Oodle 的纯 Rust 后端本身跨平台，当前入口仍按 Windows 门控。
 - SkeletalMesh 的参考骨架（骨骼名/父索引/参考姿态）和各 LOD 的 rest pose 几何已可读取并
   在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽与其名称、LOD、section/

@@ -9,7 +9,10 @@
 //! 由上层决定是否缩放，本模块直接使用场景坐标。
 
 mod camera;
+mod gpu;
 mod raster;
+
+pub use gpu::{GpuError, GpuRenderer};
 
 use lumark_scene::Scene;
 
@@ -194,7 +197,7 @@ pub fn render_scene(scene: &Scene, settings: &RenderSettings) -> Result<RenderTa
 }
 
 /// 盒式滤波降采样。
-fn downsample(
+pub(crate) fn downsample(
     source: &[u8],
     width: u32,
     height: u32,

@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 lumark-scene = { path = "../lumark-scene" }
+pollster.workspace = true
+wgpu.workspace = true

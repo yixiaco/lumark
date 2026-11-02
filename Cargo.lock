@@ -5331,6 +5331,8 @@ name = "lumark-render"
 version = "0.1.0"
 dependencies = [
  "lumark-scene",
+ "pollster 0.4.0",
+ "wgpu",
 ]
 
 [[package]]
