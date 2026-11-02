@@ -5493,6 +5493,7 @@ dependencies = [
  "memmap2",
  "rayon",
  "serde",
+ "serde_json",
  "tempfile",
  "texture2ddecoder",
  "thiserror 2.0.21",

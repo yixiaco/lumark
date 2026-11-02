@@ -2,6 +2,8 @@
 //!
 //! 本 crate 只做本地只读分析，不依赖 UI；容器读取复用 `lumark-archive`。
 
+pub mod batch;
+pub mod export_input;
 pub mod game;
 pub mod keys;
 pub mod materials;
@@ -10,6 +12,12 @@ pub mod raster;
 pub mod scene;
 pub mod skinning;
 pub mod source;
+
+pub use batch::{
+    BatchExportConfig, BatchExportFormat, BatchExportReport, BatchFailure, BatchProgress,
+    ExportedAsset, export_archive,
+};
+pub use export_input::{MeshExportBundle, build_mesh_export, export_materials};
 
 pub use game::{
     ContainerInfo, ContainerKind, DetectedGame, GameScanError, UnrealEngine, scan_game,
