@@ -13,7 +13,7 @@
 | 5 | 整包批量导出 + 每游戏导出配置 | ✅ | `export_archive_cancellable`、任务中心（取消/进度/报告 JSON）、批量/单资产导出窗口；`GameExportConfig` + 游戏编辑导出区；E-12/13/14/15/E-1/E-2 |
 | 6 | 图片查看器滚轮缩放/平移/图标修复 | ✅ | 光标锚点、拖拽、EXIF/SVG、IconPark `zoom-in/zoom-out`；模块拆分；`docs/image-viewer.md`；I 阶段 5/5 |
 | 7 | 媒体播放器（ffmpeg） | ✅ | `lumark-media` ffmpeg/ffprobe 探测/抽帧、ffplay 音频；播放窗口 + 归档内媒体；`docs/media-player.md`；M 阶段 8/8 |
-| 8 | GitHub CI 修复 | 🟡 | 本地 `fmt/clippy/check/test` 全绿；`master` 领先 origin 待推送，GitHub Actions 尚未验证（P-5 等待用户确认） |
+| 8 | GitHub CI 修复 | ✅ | 已推送 `master`；GitHub Actions run [41588158621](https://github.com/yixiaco/lumark/actions/runs/41588158621) success：Format/File sizes/Clippy/Test 与 Build/package/artifact 全通过 |
 
 ## 二、构建与运行
 
@@ -69,19 +69,16 @@ cargo test --workspace --lib
 
 ## 四、已知限制
 
-1. **P-5**：当前分支领先 origin 55 个提交，CI 未在 GitHub 验证；
-2. **V-7**：GPU 实例化未实现（当前按材质合并 draw batch，非 instancing）；
-3. **V-14**：世界 Provider 已支持 StaticMeshActor（BNB `GinkgoTree.umap` 11 个网格 / 105,348 三角形）；蓝图 Actor、Skeletal/Landscape Actor 与材质解析尚未展开，暂无 UI 入口；
-4. **V-16/V-18/V-19**：异步帧泵、骨骼搜索、快捷键与动画 Slider 未完成；
-5. **O-4**：随包发布流水线/首启检测仅完成查找路径；
-6. **媒体**：按帧抽图 + ffplay 音频，非硬解音画同步播放器；归档内媒体依赖临时解压；
-7. **USDA**：未在 UE/Blender/USD Composer 实际导入，只做结构/gltf crate 等外部校验；
-8. **Oodle**：默认下载源未内置，需用户提供授权 zip URL/SHA-256。
+1. **V-14**：世界 Provider 已支持 StaticMeshActor（BNB `GinkgoTree.umap` 11 个网格 / 105,348 三角形）；蓝图 Actor、Skeletal/Landscape Actor 与材质解析尚未展开，暂无 UI 入口；
+2. **媒体**：按帧抽图 + ffplay 音频，非硬解音画同步播放器；归档内媒体依赖临时解压；
+3. **USDA**：未在 UE/Blender/USD Composer 实际导入，只做结构/gltf crate 等外部校验；
+4. **Oodle**：默认下载源未内置，需用户提供授权 zip URL/SHA-256；随包分发需 `-OodleDll`；
+5. **签名**：GitHub Actions 未配置签名证书时产物未签名（流程会给出 warning，不阻断构建）。
 
 ## 五、发布流程（A-5）
 
-1. 用户确认后推送 `master`（P-5）；
-2. 观察 GitHub Actions；修复 CI 平台差异；
+1. `master` 已推送（P-5）；
+2. GitHub Actions run [41588158621](https://github.com/yixiaco/lumark/actions/runs/41588158621) 已通过（Format/File sizes/Clippy/Test/Build/package/artifact）；
 3. `tools/build_release.ps1 -Version <v> -UseDevCert` 生成安装器/便携包/SHA256；
 4. 复核 `docs/lgpl-compliance.md`、`licenses/` 与 IconPark 许可；
 5. 打 tag、上传 Release、更新变更说明。

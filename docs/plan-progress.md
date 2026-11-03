@@ -7,14 +7,14 @@
 
 | 阶段 | 完成度 | 当前状态 |
 |---|---|---|
-| P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
+| P（CI 与基础设施） | 5/5 | 全部完成（P-5 已推送并 CI 成功） |
 | O（Oodle FModel 式） | 7/7 | 全部完成 |
 | S（资产底座） | 9/9 | 全部完成 |
 | V（查看器） | 21/21 | 全部完成（V-14 世界 Provider 已落地） |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
 | I（图片查看器） | 5/5 | 全部完成 |
-| A（验收/文档/发布） | 5/6 | A-5 待推送后 CI 验证 |
+| A（验收/文档/发布） | 6/6 | 全部完成（A-5 已由 GitHub Actions 验证） |
 
 ## P：CI 与基础设施
 
@@ -24,7 +24,7 @@
 | P-2 zpaq CRT 修复 | ✅ | `vendor/zpaq_rs/build.rs`；release 链接通过 |
 | P-3 发布脚本清理 CC/CXX | ✅ | `tools/build_release.ps1` |
 | P-4 Workflow 收尾 | ✅ | `.github/workflows/windows-build.yml` |
-| P-5 推送并观察 CI | ⬜ | 本地 `master` 领先 origin 22+ 提交，未推送 |
+| P-5 推送并观察 CI | ✅ | 第 74 轮推送 `dc85d36` 后修复 CI 流程；run 41588158621（`2b510dd`）Check/Build 全部成功：Format、File sizes、Clippy、Test、Package、Artifact 均通过 |
 
 ## O：Oodle（FModel 式）
 
@@ -105,7 +105,7 @@
 
 - **M-1** ffmpeg/ffprobe 工具发现：✅；**M-2** 媒体探测：✅；**M-3** 视频抽帧：✅；**M-4** 播放窗口：✅；**M-5** 播放/暂停/±5s/±1 帧/回到开头 + 时间显示：✅；**M-6** 音频输出/同步：✅（同目录 ffplay `-nodisp -autoexit -ss` 子进程；播放/暂停/跳转/关闭窗口同步启停；无音轨或无 ffplay 时仅画面并提示）；**M-7** 归档内媒体：✅；**M-8** 测试/文档：✅。
 - **I-1** 拆分图片查看器：✅（第 46 轮拆为 `mod/title/toolbar/body/status/image_ops/app/tests`，最大 286 行）；**I-2** 滚轮缩放：✅（指数缩放 + 光标锚点）；**I-3** 左键拖拽：✅；**I-4** zoom 图标：✅（IconPark `zoom-in.svg`/`zoom-out.svg`）；**I-5** 文档：✅（新增 `docs/image-viewer.md`）。
-- **A-1** 原始 8 项需求验收清单：✅（`docs/acceptance.md` 表格逐项证据）；**A-2** 构建/运行说明：✅（README + acceptance）；**A-3** 测试/性能报告：✅（`cargo test --workspace --lib` **534 个库测试全过** + fmt/clippy/check；BNB/FF7R 实机与渲染耗时）；**A-4** 已知限制/兼容性：✅；**A-5** 发布流程/CI：🟡（本地全绿，P-5 推送后跑 GitHub Actions）；**A-6** 文档索引：✅（`docs/acceptance.md` 第六节）。
+- **A-1** 原始 8 项需求验收清单：✅（`docs/acceptance.md` 表格逐项证据）；**A-2** 构建/运行说明：✅（README + acceptance）；**A-3** 测试/性能报告：✅（`cargo test --workspace --lib` **534 个库测试全过** + fmt/clippy/check；BNB/FF7R 实机与渲染耗时）；**A-4** 已知限制/兼容性：✅；**A-5** 发布流程/CI：✅（GitHub Actions run 41588158621 success：Check + Build/package/artifact 全通过）；**A-6** 文档索引：✅（`docs/acceptance.md` 第六节）。
 
 ## 最近提交
 
@@ -114,11 +114,8 @@
 - `6afb4e8` UEFormat UEMODEL 导出
 - `66c5a05` glTF 2.0 binary 导出
 - `3a7e173` ActorX PSK 导出
-- 当前 `master` 领先 origin 22 个提交（P-5 待推送）。
+- 当前 `master` 已推送并与 origin 同步；GitHub Actions run 41588158621 全绿。
 
-## 下一轮（V-7 / V-20 / A-5）
+## 完成状态
 
-1. V-7 GPU 实例化与大场景批处理（或明确标记为后续版本）；
-2. V-20 状态/入口/性能验收；V-16 异步帧泵；
-3. A-5 推送/CI（需用户确认）与发布脚本复核；
-4. 记录进度并提交。
+计划全部步骤完成：P 5/5、O 7/7、S 9/9、V 21/21、E 18/18、M 8/8、I 5/5、A 6/6。
