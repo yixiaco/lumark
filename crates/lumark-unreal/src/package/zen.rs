@@ -195,7 +195,7 @@ fn parse_with_version(
         let class_index = read_u64(&mut cursor)?;
         let _super_index = read_u64(&mut cursor)?;
         let _template_index = read_u64(&mut cursor)?;
-        let _public_export_hash = read_u64(&mut cursor)?;
+        let public_export_hash = read_u64(&mut cursor)?;
         let _object_flags = read_u32(&mut cursor)?;
         let _filter_and_padding = read_bytes(&mut cursor, 4)?;
         raw_exports.push((
@@ -204,6 +204,7 @@ fn parse_with_version(
             object_name,
             outer_index,
             class_index,
+            public_export_hash,
         ));
     }
 
@@ -211,7 +212,7 @@ fn parse_with_version(
     let base = u64::from(summary.header_size);
     let mut exports = Vec::with_capacity(raw_exports.len());
     let mut ranges = Vec::with_capacity(raw_exports.len());
-    for (index, (offset, size, object_name, outer_index, class_index)) in
+    for (index, (offset, size, object_name, outer_index, class_index, public_export_hash)) in
         raw_exports.iter().enumerate()
     {
         if *size > MAX_EXPORT_BYTES || base + offset + size > data.len() as u64 {
@@ -234,8 +235,17 @@ fn parse_with_version(
             data_offset: start,
             data_size: *size as usize,
             kind,
+            public_export_hash: *public_export_hash,
         });
     }
+
+    // 导入公共导出哈希表与 ImportMap（`FPackageObjectIndex` 原始 u64）。
+    let imported_public_export_hashes = read_u64_table(
+        data,
+        summary.imported_public_export_hashes_offset,
+        summary.import_map_offset,
+    )?;
+    let import_map = read_u64_table(data, summary.import_map_offset, summary.export_map_offset)?;
     // 避免未使用字段告警，同时保留摘要中的布局信息用于调试。
     let _ = (
         summary.cooked_header_size,
@@ -250,6 +260,8 @@ fn parse_with_version(
             file_version_ue5: versioning.file_version_ue5,
             header_version,
             names: names.names().to_vec(),
+            import_map,
+            imported_public_export_hashes,
             bulk_data,
             exports,
         },
@@ -312,6 +324,24 @@ fn read_versioning(cursor: &mut Cursor<&[u8]>) -> Result<Versioning, PackageErro
         file_version_ue4,
         file_version_ue5,
     })
+}
+
+/// 读取 `[start, end)` 区间的 u64 表（用于 ImportMap/公共导出哈希）。
+fn read_u64_table(data: &[u8], start: i32, end: i32) -> Result<Vec<u64>, PackageError> {
+    if start < 0 || end < start {
+        return Ok(Vec::new());
+    }
+    let start = start as usize;
+    let end = end as usize;
+    if end > data.len() || !(end - start).is_multiple_of(8) {
+        return Err(invalid("Zen 导入表范围非法"));
+    }
+    Ok(data[start..end]
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|chunk| u64::from_le_bytes(*chunk))
+        .collect())
 }
 
 /// `FPackageObjectIndex` 的顶层类型位。

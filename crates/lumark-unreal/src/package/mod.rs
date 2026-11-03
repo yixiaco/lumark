@@ -90,6 +90,8 @@ pub struct PackageExport {
     pub data_size: usize,
     /// 推断的资产种类。
     pub kind: AssetKind,
+    /// 公共导出哈希（UE5 Zen；0 表示旧版本未序列化）。
+    pub public_export_hash: u64,
 }
 
 /// 包内一个 bulk data（`.ubulk`/内联）条目。
@@ -120,6 +122,10 @@ pub struct PackageInfo {
     pub header_version: u8,
     /// 名称表。
     pub names: Vec<String>,
+    /// Zen ImportMap（`FPackageObjectIndex` 原始 u64，按导入索引排列）。
+    pub import_map: Vec<u64>,
+    /// 被导入包的公共导出哈希表。
+    pub imported_public_export_hashes: Vec<u64>,
     /// bulk data 映射。
     pub bulk_data: Vec<BulkDataEntry>,
     /// 导出对象。

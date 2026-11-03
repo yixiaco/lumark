@@ -40,7 +40,7 @@ cargo test --workspace --lib
 
 | crate | 通过数 |
 |---|---|
-| lumark-archive | 63 |
+| lumark-archive | 66 |
 | lumark-browser | 14 |
 | lumark-export | 25 |
 | lumark-legacy | 54 |
@@ -58,7 +58,7 @@ cargo test --workspace --lib
 | lumark-viewer | 17 |
 | zpaq-rs | 10 |
 
-合计 **546 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
+合计 **549 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
 
 ### 实机样本
 

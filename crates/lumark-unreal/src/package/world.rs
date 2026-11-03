@@ -471,6 +471,7 @@ mod tests {
             data_offset: 0,
             data_size: 0,
             kind: AssetKind::Other,
+            public_export_hash: 0,
         };
         let exports = vec![
             export("Level", "Level"),

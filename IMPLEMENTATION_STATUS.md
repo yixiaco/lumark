@@ -71,7 +71,7 @@
 - [x] V-6 完成：新增线框模式（`RenderSettings.wireframe`）：`overlay::wireframe_lines` 生成世界空间三角形边，CPU 光栅跳过填充只画线，GPU 追加到 LineList 叠加层；查看器工具栏“线框”按钮与 `W` 快捷键；新增 overlay/CPU/GPU 线框测试。`lumark-render` **37 个测试**、`lumark-ui` **180 个测试**全过。**V-6 完成**，V 阶段 17/21。
 - [x] 台账核对（第 68 轮）：`texture.rs` 已实现浮点/HDR 解码（FloatRGB/FloatRGBA/RGBA16F/R32/R32G32B32F/RGBE）并有 3 个测试，S-6 标为 ✅；材质贴图经 `decode_mip_rgba` tone map，V-11 标为 ✅；异步帧泵 + GPU 设备重建 + CPU 回退完成，V-2 标为 ✅；独立场景入口/动画时间轴完成，V-13 标为 ✅。V 20/21（仅 V-14）、S 7/9（仅 S-2）。
 - [x] S-2 完成：为已有的 `PakAssetReader` 补独立按条目读取测试（v11 未压缩/压缩 PAK）：打开、条目数、路径、大小、按路径读取、缺失报错；`lumark-archive` **63 个测试**全过。**S 阶段 9/9 完成**；剩余 V-14 与 A-5/P-5。
-- [⛔→🟡] V-14 进展（第 72 轮，按 FModel/CUE4Parse 参考）：新增 `pak/cityhash.rs`（CityHash64 + 小写 UTF-16 `package_id`，2 测试）；新增 `iostore/container_header.rs`（版本/容器 ID/PackageIds/StoreEntries.ImportedPackages，1 测试）；`IoStoreContainer` 新增 `container_header`/`imported_packages`/`read_package_by_id`/`read_bulk_by_id`。BNB 实机验证：ContainerHeader version=5、67406 包；`/Game/KingS/GinkgoTree` 的包 ID `0xB1D6A692541282E9` 与 TOC 一致，按包 ID 读出 1,151,790 字节。剩余：Zen ImportMap、public export hash、导入对象解析、Actor 组件与场景组装。
+- [🟡] V-14 进展（第 72 轮，按 FModel/CUE4Parse 参考）：新增 `pak/cityhash.rs`（CityHash64 + 小写 UTF-16 `package_id`，2 测试）；新增 `iostore/container_header.rs`（版本/容器 ID/PackageIds/StoreEntries.ImportedPackages，1 测试）；`IoStoreContainer` 新增 `container_header`/`imported_packages`/`read_package_by_id`/`read_bulk_by_id`。Zen 包新增 `import_map`/`imported_public_export_hashes` 与导出 `public_export_hash` 解析。BNB 实机：ContainerHeader v5、67406 包；`/Game/KingS/GinkgoTree` CityHash 与 TOC 一致；世界包 imports=855/hashes=503；`StaticMeshActor`→组件 export 805→`StaticMesh=Object(-757)`→目标包 `0xADF719E28B82DF48`→`SM_SkySphere` 解析成功。剩余：全部 Actor Transform、批量网格加载、Scene 组装。
 
 ## 2026-10-29 本轮升级
 
