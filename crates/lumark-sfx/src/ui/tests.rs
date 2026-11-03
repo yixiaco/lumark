@@ -94,9 +94,7 @@ fn view_for<'a>(
 
 /// 直接驱动一次事件消费，避免测试依赖后台计时器。
 fn pump(cx: &mut gpui_kit::VisualTestContext, view: &gpui_kit::Entity<SfxView>) -> bool {
-    cx.update(|window, cx| {
-        view.update(cx, |view, cx| view.drain_events(window, cx))
-    })
+    cx.update(|window, cx| view.update(cx, |view, cx| view.drain_events(window, cx)))
 }
 
 /// 等待视图进入指定阶段。
@@ -216,7 +214,9 @@ fn wrong_password_returns_to_setup(cx: &mut gpui_kit::TestAppContext) {
     for _ in 0..200 {
         cx.run_until_parked();
         let _ = pump(cx, &view);
-        if view.update(cx, |view, _| view.stage == Stage::Setup && view.error.is_some()) {
+        if view.update(cx, |view, _| {
+            view.stage == Stage::Setup && view.error.is_some()
+        }) {
             returned = true;
             break;
         }

@@ -220,11 +220,14 @@ fn setup_body(view: &SfxView, cx: &mut Context<SfxView>) -> impl IntoElement {
 
 /// 渲染解压中/完成后的进度面板。
 fn progress_body(view: &SfxView, cx: &Context<SfxView>) -> impl IntoElement {
-    let elapsed = view.progress.elapsed_seconds.max(
-        view.started
-            .map(|value| value.elapsed().as_secs())
-            .unwrap_or(0),
-    );
+    let elapsed = match view.stage {
+        Stage::Extracting => view.progress.elapsed_seconds.max(
+            view.started
+                .map(|value| value.elapsed().as_secs())
+                .unwrap_or(0),
+        ),
+        _ => view.progress.elapsed_seconds,
+    };
     v_flex()
         .flex_1()
         .min_h_0()

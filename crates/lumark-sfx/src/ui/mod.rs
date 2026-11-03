@@ -27,8 +27,21 @@ use view::SfxView;
 
 /// 自解压主窗口宽度。
 const WINDOW_WIDTH: f32 = 620.;
-/// 自解压主窗口高度；需要同时容纳设置表单和完整进度面板。
-const WINDOW_HEIGHT: f32 = 540.;
+/// 无密码设置阶段的窗口高度；表单内容较少，保持紧凑。
+const PLAIN_SETUP_WINDOW_HEIGHT: f32 = 340.;
+/// 加密包设置阶段的窗口高度；为密码输入行预留空间。
+const ENCRYPTED_SETUP_WINDOW_HEIGHT: f32 = 390.;
+/// 解压/完成阶段窗口高度；需要容纳完整进度面板和指标。
+pub(crate) const PROGRESS_WINDOW_HEIGHT: f32 = 540.;
+
+/// 返回设置阶段窗口高度，按是否需要密码选择。
+pub(crate) fn setup_window_height(encrypted: bool) -> f32 {
+    if encrypted {
+        ENCRYPTED_SETUP_WINDOW_HEIGHT
+    } else {
+        PLAIN_SETUP_WINDOW_HEIGHT
+    }
+}
 
 /// 启动 GPUI 应用并打开交互式自解压窗口。
 pub(crate) fn run(
@@ -43,8 +56,9 @@ pub(crate) fn run(
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
-            let options = window_options(cx);
+            let options = window_options(cx, footer.encrypted);
             let result = gpui_kit::open_window(options, cx, move |window, cx| {
+                apply_theme(window, cx);
                 cx.new(|cx| {
                     SfxView::new(
                         exe,
@@ -72,7 +86,8 @@ pub(crate) fn run_error(message: String) {
         .run(move |cx| {
             gpui_kit::init(cx);
             let options = error_window_options(cx);
-            let result = gpui_kit::open_window(options, cx, move |_, cx| {
+            let result = gpui_kit::open_window(options, cx, move |window, cx| {
+                apply_theme(window, cx);
                 cx.new(move |_| ErrorView { message })
             });
             if let Err(error) = result {
@@ -88,10 +103,22 @@ fn apply_language() {
     gpui_kit::component::set_locale(locale());
 }
 
+/// 应用主程序同款主题；自解压窗口跟随系统深浅色并使用默认强调色。
+fn apply_theme(window: &mut Window, cx: &mut App) {
+    let mode = lumark_ui_shared::theme_mode_for_appearance(window.appearance());
+    lumark_ui_shared::theme::apply_theme(
+        mode,
+        lumark_ui_shared::theme::DEFAULT_ACCENT_COLOR,
+        window,
+        cx,
+    );
+}
+
 /// 生成自解压主窗口选项：居中、固定尺寸、透明自绘标题栏。
-fn window_options(cx: &mut App) -> WindowOptions {
-    let size = size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT));
-    let origin = centered_origin(cx, WINDOW_WIDTH, WINDOW_HEIGHT);
+fn window_options(cx: &mut App, encrypted: bool) -> WindowOptions {
+    let height = setup_window_height(encrypted);
+    let size = size(px(WINDOW_WIDTH), px(height));
+    let origin = centered_origin(cx, WINDOW_WIDTH, height);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds { origin, size })),
         titlebar: Some(TitlebarOptions {

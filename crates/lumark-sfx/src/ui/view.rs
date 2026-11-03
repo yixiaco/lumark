@@ -9,6 +9,7 @@ use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
     App, AppContext as _, Context, Entity, Focusable as _, PathPromptOptions, Subscription, Window,
+    px, size,
 };
 use lumark_sfx::{SfxError, SfxFooter, SfxPlan};
 use lumark_ui_shared::i18n::tr;
@@ -17,6 +18,7 @@ use zeroize::Zeroizing;
 
 use super::render;
 use super::worker::{self, ExtractionEvent, ExtractionTask};
+use super::{PROGRESS_WINDOW_HEIGHT, WINDOW_WIDTH, setup_window_height};
 
 /// 自解压窗口当前阶段。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -238,6 +240,7 @@ impl SfxView {
                 self.completed_target = Some(target);
                 self.started = Some(Instant::now());
                 self.close_after_cancel = false;
+                resize_window(window, PROGRESS_WINDOW_HEIGHT);
                 self.poll_events(window, cx);
                 cx.notify();
             }
@@ -310,16 +313,22 @@ impl SfxView {
                     self.running = None;
                     self.stage = Stage::Completed;
                     self.progress_state = ProgressState::Completed;
+                    if self.progress.bytes_total > 0 {
+                        self.progress.bytes_done = self.progress.bytes_total;
+                    }
                     self.progress.display_bytes = self.progress.bytes_done;
+                    if let Some(started) = self.started.take() {
+                        self.progress.elapsed_seconds = started.elapsed().as_secs();
+                    }
                     if let Some(target) = &self.completed_target {
                         reveal(target);
                         self.message = Some(format!(
-                            "{}{}（{}）",
+                            "{}{}",
                             tr("已解压到：", "Extracted to: "),
-                            target.display(),
-                            files
+                            target.display()
                         ));
                     }
+                    let _ = files;
                     finished = true;
                 }
                 ExtractionEvent::Cancelled => {
@@ -331,6 +340,7 @@ impl SfxView {
                     self.stage = Stage::Setup;
                     self.progress_state = ProgressState::Cancelled;
                     self.error = Some(tr("已取消解压", "Extraction cancelled").to_string());
+                    resize_window(window, setup_window_height(self.footer.encrypted));
                     finished = true;
                 }
                 ExtractionEvent::Failed { error } => {
@@ -355,6 +365,7 @@ impl SfxView {
                             self.error = Some(localized_error(&other));
                         }
                     }
+                    resize_window(window, setup_window_height(self.footer.encrypted));
                 }
             }
         }
@@ -368,6 +379,7 @@ impl SfxView {
                 )
                 .to_string(),
             );
+            resize_window(window, setup_window_height(self.footer.encrypted));
             finished = true;
         }
         if finished {
@@ -538,6 +550,11 @@ impl gpui_kit::Render for SfxView {
     ) -> impl gpui_kit::IntoElement {
         render::render(self, window, cx)
     }
+}
+
+/// 在设置阶段和进度阶段之间切换窗口高度。
+fn resize_window(window: &mut Window, height: f32) {
+    window.resize(size(px(WINDOW_WIDTH), px(height)));
 }
 
 /// 在资源管理器中打开解压目录。
