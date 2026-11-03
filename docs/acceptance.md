@@ -71,7 +71,7 @@ cargo test --workspace --lib
 
 1. **P-5**：当前分支领先 origin 55 个提交，CI 未在 GitHub 验证；
 2. **V-7**：GPU 实例化未实现（当前按材质合并 draw batch，非 instancing）；
-3. **V-14**：世界场景 Provider 依赖 Zen 导入表/组件属性，尚未暴露；
+3. **V-14**：世界场景 Provider 阻塞于 Zen 导入表只有对象哈希、缺少导入包名/对象名表；`.umap` Actor 清单可读（BNB 45 Actors），但无法解析外部 StaticMesh 引用；
 4. **V-16/V-18/V-19**：异步帧泵、骨骼搜索、快捷键与动画 Slider 未完成；
 5. **O-4**：随包发布流水线/首启检测仅完成查找路径；
 6. **媒体**：按帧抽图 + ffplay 音频，非硬解音画同步播放器；归档内媒体依赖临时解压；
