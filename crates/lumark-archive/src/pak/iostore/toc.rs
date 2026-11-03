@@ -40,6 +40,8 @@ pub(crate) struct Header {
     pub(crate) compression_block_size: u32,
     pub(crate) directory_index_size: u32,
     pub(crate) partition_count: u32,
+    /// 容器 ID（ContainerHeader chunk 的 chunk id）。
+    pub(crate) container_id: u64,
     pub(crate) container_flags: u8,
     pub(crate) perfect_hash_seeds_count: u32,
     pub(crate) chunks_without_perfect_hash_count: u32,
@@ -304,7 +306,7 @@ fn read_header(cursor: &mut Bytes<'_>) -> Result<Header, ArchiveError> {
     }
     let directory_index_size = cursor.u32()?;
     let partition_count = cursor.u32()?;
-    let _container_id = cursor.u64()?;
+    let container_id = cursor.u64()?;
     let _encryption_key_guid = cursor.take(16)?;
     let container_flags = cursor.u8()?;
     let _reserved3 = cursor.u8()?;
@@ -333,6 +335,7 @@ fn read_header(cursor: &mut Bytes<'_>) -> Result<Header, ArchiveError> {
         compression_block_size,
         directory_index_size,
         partition_count,
+        container_id,
         container_flags,
         perfect_hash_seeds_count,
         chunks_without_perfect_hash_count,

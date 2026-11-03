@@ -10,7 +10,7 @@
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
 | O（Oodle FModel 式） | 7/7 | 全部完成 |
 | S（资产底座） | 9/9 | 全部完成 |
-| V（查看器） | 20/21 | V-14 阻塞于 Zen 导入对象名映射；其余完成 |
+| V（查看器） | 20/21 | V-14 已打通包 ID/容器头/按包 ID 读包，继续对象解析 |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
 | I（图片查看器） | 5/5 | 全部完成 |
@@ -70,7 +70,7 @@
 | V-11 UE 材质到 Scene | ✅ | 总贴图缓存 `TextureCache` + `MaterialResolveOptions.texture_cache`、材质/贴图缺失 warning；HDR 贴图经 `decode_mip_rgba` tone map 进入材质预览；BNB 样本缺材质时输出可读 warning |
 | V-12 骨骼网格/动画 Provider | ✅ | 第 24 轮：`SceneLoadOptions.animation/animation_time`、`SceneLoadStage::Animation`、`AnimationInfo`（名称/时长/帧数/轨道/采样时间）、`LoadedScene.skeleton`；BNB `SK_Chicken + ANIM_Chicken_Idle2` t=0.5s Provider 实机加载（42 骨骼/42 轨道/141 帧/4.667s）；时间轴 UI 待 V-19 |
 | V-13 独立场景 | ✅ | 查看器可开 Mesh/Skeleton/SkeletalMesh/Material；动画时间轴 Slider、播放/逐帧、键盘快捷键与异步重绘已接入 |
-| V-14 世界场景 Provider | ⛔ 阻塞 | 已能读 `.umap` 摘要：BNB `GinkgoTree.umap` World/PersistentLevel、45 个 Actor、11 个 StaticMeshActor、类别统计。阻塞点：Zen 导入表条目只有 8 字节 `FPackageObjectIndex` 哈希，解析器未保留导入包名/对象名表，无法把 StaticMeshComponent 的导入引用还原为可加载资产路径，因而无法生成世界 Scene。需要 Zen 导入包名/对象名表映射，或用户提供 resolved import map；其余 V/E/M/I/O/S 不依赖该步 |
+| V-14 世界场景 Provider | 🟡 | 第 72 轮进展：已实现 CityHash64/UE5 `package_id`、IoStore `ContainerHeader`（版本 5，67406 包）与按包 ID 读 ExportBundleData；BNB 实测 `/Game/KingS/GinkgoTree` 的 CityHash 与 TOC 包 ID `0xB1D6A692541282E9` 完全一致，按包 ID 读出 1,151,790 字节世界包。剩余：Zen ImportMap/ImportedPublicExportHashes/ExportMap public hash 解析、导入对象解析、Actor 组件 Transform 与场景组装 |
 | V-15 UI 模块拆分 | ✅ | 第 26 轮：`asset_viewer_window/` 拆为 `mod/animation/app/body/render/status/toolbar/tests` 8 个文件，最大源码模块 242 行（toolbar）、测试 434 行，均 <600；行为不变，13 个查看器测试与 162 个 UI 总测试全过 |
 | V-16 渲染桥接/帧泵 | ✅ | 第 25/29/59 轮：`image_path` 临时 PNG 改为 `Arc<RenderImage>`；网格/骨骼网格预览走 `render_service`（GPU 优先）；拖拽/滚轮异步离屏渲染，代号丢弃过期帧，状态栏“渲染中…”，骨骼/材质轻量光栅保留同步；详情面板 RenderImage 已直连 |
 | V-17 UI 外壳/工具栏 | ✅ | 第 29 轮：预览接入 `lumark_render` + `render_service`；着色循环（光照/无光/法线）、地面网格、骨骼线开关、检查器开关、缩放 `−/+`；网格/骨骼网格行为与 V-6 RenderSettings 打通 |

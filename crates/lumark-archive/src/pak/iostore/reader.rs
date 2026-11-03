@@ -8,6 +8,7 @@ use crate::error::ArchiveError;
 use crate::format::{ArchiveEntry, ArchiveFormat, ArchiveInfo};
 
 use super::super::codec::{decode_key, decompress_block, decrypt_ecb};
+use super::container_header::IoContainerHeader;
 use super::toc::{FileRecord, Toc, probe_header, read_toc};
 
 /// 单个块读取上限，防止损坏索引要求分配过大内存。
@@ -120,6 +121,65 @@ impl IoStoreContainer {
                 ((id[11] & 0b0011_1111) == chunk_type).then_some(index as u32)
             })
             .collect()
+    }
+
+    /// 读取 IoStore ContainerHeader（chunk 类型 6）。
+    pub fn container_header(&self) -> Result<IoContainerHeader, ArchiveError> {
+        let mut chunks = self.find_chunks_by_type(6);
+        if chunks.is_empty() {
+            return Err(ArchiveError::Corrupt(
+                "IoStore 容器没有 ContainerHeader chunk".to_string(),
+            ));
+        }
+        chunks.sort_unstable();
+        let container_id = self.toc.header.container_id;
+        let index = chunks
+            .iter()
+            .copied()
+            .find(|index| self.package_id(*index) == Some(container_id))
+            .unwrap_or(chunks[0]);
+        let data = self.read_chunk(index)?;
+        IoContainerHeader::parse(&data)
+    }
+
+    /// 按包 ID 读取 StoreEntry 中的直接导入包 ID。
+    pub fn imported_packages(&self, package_id: u64) -> Result<Vec<u64>, ArchiveError> {
+        let header = self.container_header()?;
+        Ok(header
+            .package(package_id)
+            .map(|package| package.imported_packages.clone())
+            .unwrap_or_default())
+    }
+
+    /// 按包 ID 读取包的 ExportBundleData（uasset）字节。
+    pub fn read_package_by_id(&self, package_id: u64) -> Result<Vec<u8>, ArchiveError> {
+        self.read_package_chunk(package_id, 1, "ExportBundleData")
+    }
+
+    /// 按包 ID 读取 BulkData（ubulk）字节。
+    pub fn read_bulk_by_id(&self, package_id: u64) -> Result<Vec<u8>, ArchiveError> {
+        self.read_package_chunk(package_id, 2, "BulkData")
+    }
+
+    /// 按包 ID 合并指定类型的 chunk。
+    fn read_package_chunk(
+        &self,
+        package_id: u64,
+        chunk_type: u8,
+        label: &str,
+    ) -> Result<Vec<u8>, ArchiveError> {
+        let mut chunks = self.find_package_chunks(package_id, chunk_type);
+        if chunks.is_empty() {
+            return Err(ArchiveError::Corrupt(format!(
+                "IoStore 包 0x{package_id:016X} 没有 {label} chunk"
+            )));
+        }
+        chunks.sort_unstable();
+        let mut output = Vec::new();
+        for chunk in chunks {
+            output.extend_from_slice(&self.read_chunk(chunk)?);
+        }
+        Ok(output)
     }
 
     /// 读取 TOC 指定索引的块。

@@ -4,6 +4,7 @@
 //! `quake`、`chromium` 和 `unreal` 子模块解析。
 
 pub(crate) mod chromium;
+pub mod cityhash;
 pub(crate) mod codec;
 pub(crate) mod iostore;
 pub(crate) mod oodle;
