@@ -9,7 +9,7 @@
 |---|---|---|
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
 | O（Oodle FModel 式） | 7/7 | 全部完成 |
-| S（资产底座） | 7/9 | S-2 待补，S-6 完成 |
+| S（资产底座） | 9/9 | 全部完成 |
 | V（查看器） | 20/21 | 仅 V-14 待做 |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
@@ -43,7 +43,7 @@
 | 步骤 | 状态 | 证据 |
 |---|---|---|
 | S-1 GameAssetSource | ✅ | `crates/lumark-unreal/src/source.rs` |
-| S-2 PAK 按条目读 API | 🟡 | 现有预览/导出可读 PAK；独立 `PakAssetReader` 未抽 |
+| S-2 PAK 按条目读 API | ✅ | `PakAssetReader`（`pak/unreal.rs`）：`open`/`entries`/`paths`/`contains`/`entry_size`/`read_entry`/`compressed`/`compression_methods`/`needs_oodle`；不落临时文件、密钥仅内存。新增 v11 未压缩与压缩 PAK 实机测试（按路径读取、大小一致、缺失报错） |
 | S-3 预览读取下沉 | ✅ | `preview_ue.rs` 分模块、材质解析在 `materials.rs` |
 | S-4 Zen 网格法线/切线/UV/材质槽 | ✅ | `package/mesh.rs`；BNB 回归 |
 | S-5 旧式网格 UV/法线 | ✅ | `legacy_skeleton.rs` |

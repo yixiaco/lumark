@@ -1057,6 +1057,35 @@ mod tests {
         assert_eq!(actual, reference);
     }
 
+    /// 独立 PakAssetReader：列出条目、按路径读取、大小一致；缺失路径报错。
+    #[test]
+    fn pak_asset_reader_reads_entries_by_path() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/unreal/pack_v11.pak");
+        let mut reader = PakAssetReader::open(&path, None).expect("打开 PAK");
+        assert!(!reader.encrypted());
+        assert!(reader.entry_count() > 0);
+        let paths = reader.paths();
+        assert!(!paths.is_empty());
+        let first = paths[0].clone();
+        assert!(reader.contains(&first));
+        let expected_size = reader.entry_size(&first).expect("条目大小");
+        let data = reader.read_entry(&first).expect("按条目读取");
+        assert_eq!(data.len() as u64, expected_size);
+        assert!(reader.read_entry("missing/asset.uasset").is_err());
+    }
+
+    /// 压缩 PAK 也走同一个按条目读取器。
+    #[test]
+    fn pak_asset_reader_reads_compressed_entries() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/unreal/pack_v11_compress.pak");
+        let mut reader = PakAssetReader::open(&path, None).expect("打开压缩 PAK");
+        assert!(!reader.compression_methods().is_empty());
+        let first = reader.paths().into_iter().next().expect("至少一个条目");
+        let data = reader.read_entry(&first).expect("读取压缩条目");
+        assert_eq!(data.len() as u64, reader.entry_size(&first).unwrap());
+    }
+
     /// 用真实样本验证首块解密结果。
     #[test]
     fn decrypt_sample_block() {

@@ -70,6 +70,7 @@
 - [x] V-3 完成：GPU 新增背景渐变全屏三角形管线（1×/4×，深度只读 Always），顶部/底部线性色 1.25×/0.75× + tone mapping，与 CPU 渐变一致；新增 GPU 背景测试（顶行比底行亮）。`lumark-render` 35 个测试全过。
 - [x] V-6 完成：新增线框模式（`RenderSettings.wireframe`）：`overlay::wireframe_lines` 生成世界空间三角形边，CPU 光栅跳过填充只画线，GPU 追加到 LineList 叠加层；查看器工具栏“线框”按钮与 `W` 快捷键；新增 overlay/CPU/GPU 线框测试。`lumark-render` **37 个测试**、`lumark-ui` **180 个测试**全过。**V-6 完成**，V 阶段 17/21。
 - [x] 台账核对（第 68 轮）：`texture.rs` 已实现浮点/HDR 解码（FloatRGB/FloatRGBA/RGBA16F/R32/R32G32B32F/RGBE）并有 3 个测试，S-6 标为 ✅；材质贴图经 `decode_mip_rgba` tone map，V-11 标为 ✅；异步帧泵 + GPU 设备重建 + CPU 回退完成，V-2 标为 ✅；独立场景入口/动画时间轴完成，V-13 标为 ✅。V 20/21（仅 V-14）、S 7/9（仅 S-2）。
+- [x] S-2 完成：为已有的 `PakAssetReader` 补独立按条目读取测试（v11 未压缩/压缩 PAK）：打开、条目数、路径、大小、按路径读取、缺失报错；`lumark-archive` **63 个测试**全过。**S 阶段 9/9 完成**；剩余 V-14 与 A-5/P-5。
 
 ## 2026-10-29 本轮升级
 
