@@ -190,13 +190,25 @@ fn localized_error(error: SfxError) -> String {
 mod tests {
     use super::*;
 
-    /// 验证静默解压错误文本按语言切换。
+    /// 验证静默解压错误文本跟随当前语言（CI 英语环境同样成立）。
     #[test]
     fn silent_error_follows_language() {
+        let english = lang::is_english();
         assert_eq!(
             localized_error(SfxError::WrongPassword),
-            "密码错误，请重新输入"
+            if english {
+                "Wrong password; please try again"
+            } else {
+                "密码错误，请重新输入"
+            }
         );
-        assert_eq!(localized_error(SfxError::Cancelled), "已取消解压");
+        assert_eq!(
+            localized_error(SfxError::Cancelled),
+            if english {
+                "Extraction cancelled"
+            } else {
+                "已取消解压"
+            }
+        );
     }
 }
