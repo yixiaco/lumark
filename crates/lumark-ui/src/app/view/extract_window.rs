@@ -1,7 +1,7 @@
 //! 独立解压窗口。
 
 use super::super::*;
-use super::components::{AppIcon, classic_field, dialog_banner, hint_text};
+use super::components::{AppIcon, classic_field, dialog_banner, dialog_tagline, hint_text};
 use crate::i18n::tr;
 use gpui_kit::Entity;
 use gpui_kit::component::checkbox::Checkbox;
@@ -316,7 +316,7 @@ impl Render for ExtractWindowView {
             .bg(cx.theme().popover)
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
-            .child(dialog_banner(cx, 46.))
+            .child(dialog_banner(cx, 46., dialog_tagline()))
             .child(self.render_body(cx))
             .child(self.render_footer(cx))
     }

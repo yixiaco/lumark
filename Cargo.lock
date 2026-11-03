@@ -5432,7 +5432,8 @@ name = "lumark-sfx"
 version = "0.1.0"
 dependencies = [
  "embed-resource",
- "flate2",
+ "gpui-kit",
+ "lumark-ui-shared",
  "sevenz-rust2 0.24.1",
  "tempfile",
  "windows-sys 0.59.0",
@@ -5480,6 +5481,7 @@ dependencies = [
  "lumark-scene",
  "lumark-settings",
  "lumark-tasks",
+ "lumark-ui-shared",
  "lumark-unreal",
  "lumark-vault",
  "lumark-viewer",
@@ -5490,6 +5492,13 @@ dependencies = [
  "tempfile",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "lumark-ui-shared"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
 ]
 
 [[package]]

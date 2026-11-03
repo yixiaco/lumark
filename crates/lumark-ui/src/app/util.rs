@@ -2,6 +2,9 @@
 
 use super::*;
 
+pub(crate) use lumark_ui_shared::format::{format_duration, format_size};
+pub(crate) use lumark_ui_shared::widgets::button;
+
 /// 创建带可选密码掩码的主题文本输入框。
 pub(crate) fn new_input(
     window: &mut Window,
@@ -622,23 +625,6 @@ pub(crate) fn parse_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     ))
 }
 
-/// 使用二进制单位格式化字节数，供紧凑界面标签显示。
-pub(crate) fn format_size(bytes: u64) -> String {
-    /// 字节格式化使用的二进制单位。
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1024.0 && unit + 1 < UNITS.len() {
-        value /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{value:.1} {}", UNITS[unit])
-    }
-}
-
 /// 使用最多两位二进制单位格式化分卷大小。
 ///
 /// 与 [`format_size`] 的固定一位小数不同，这里去掉末尾的零，让
@@ -658,16 +644,6 @@ pub(crate) fn format_size_precise(bytes: u64) -> String {
     let text = format!("{value:.2}");
     let text = text.trim_end_matches('0').trim_end_matches('.');
     format!("{text} {}", UNITS[unit])
-}
-
-/// 把秒数格式化为 HH:MM:SS，供任务进度窗口显示。
-pub(crate) fn format_duration(seconds: u64) -> String {
-    format!(
-        "{:02}:{:02}:{:02}",
-        seconds / 3600,
-        (seconds % 3600) / 60,
-        seconds % 60
-    )
 }
 
 /// 把密码记录时间转换为本地时区的紧凑文本。
@@ -696,11 +672,6 @@ pub(crate) fn app_select_row(
         // 的行仍然立即切换为单选。
         app.browser.selection.select_only(target_id);
     }
-}
-
-/// 创建统一使用指针手的按钮。
-pub(crate) fn button(id: impl Into<gpui_kit::ElementId>) -> Button {
-    Button::new(id).cursor(gpui_kit::CursorStyle::PointingHand)
 }
 
 #[cfg(test)]

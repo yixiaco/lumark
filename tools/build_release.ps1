@@ -1,10 +1,11 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
 .SYNOPSIS
     构建 Lumark Windows 发布产物，并修复 MOTW / Low 完整性标签。
 
 .DESCRIPTION
-    统一发布入口：编译 lumark-app、lumark-sfx，检查并修复 release 产物的
+    统一发布入口：用 release profile 编译 lumark-app，用体积优化的 sfx
+    profile 编译 lumark-sfx，检查并修复 release 产物的
     Mark-of-the-Web 和 Low Mandatory Level，按需做 Authenticode 签名，
     调用 installer/pack-installer.ps1 生成安装器，最后生成便携包和
     dist\SHA256SUMS.txt。
@@ -54,6 +55,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# PowerShell 7.3+ 默认把原生程序 stderr 当作错误；cargo 会正常写 stderr，
+# 这里改为只依据退出码判断，避免 Release 构建被误判为失败。
+if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 $repo = Split-Path -Parent $PSScriptRoot
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $manifest = Join-Path $repo "Cargo.toml"
@@ -328,10 +334,21 @@ Write-Host "编译 release 产物..."
 # 若宿主环境把 CC/CXX 指向 clang，链接会报 LNK2038。发布构建统一清除这两个变量，
 # 让 cc 走 MSVC cl.exe（/MD），与 Cargo 目标保持一致。
 Remove-Item Env:CC, Env:CXX -ErrorAction SilentlyContinue
-& cargo build --manifest-path $manifest --release --locked -p lumark-app -p lumark-sfx
+& cargo build --manifest-path $manifest --release --locked -p lumark-app
 if ($LASTEXITCODE -ne 0) {
-    throw "cargo build 失败，退出码 $LASTEXITCODE"
+    throw "cargo build（主程序）失败，退出码 $LASTEXITCODE"
 }
+Write-Host "编译自解压运行时（体积优化 profile）..."
+& cargo build --manifest-path $manifest --profile sfx --locked -p lumark-sfx
+if ($LASTEXITCODE -ne 0) {
+    throw "cargo build（自解压运行时）失败，退出码 $LASTEXITCODE"
+}
+$sfxProfile = Join-Path $repo "target\sfx\lumark-sfx.exe"
+if (-not (Test-Path -LiteralPath $sfxProfile)) {
+    throw "缺少自解压运行时产物：$sfxProfile"
+}
+# 安装器、签名和校验脚本统一读取 target\release，体积优化产物复制到该位置。
+Copy-Item -LiteralPath $sfxProfile -Destination $sfx -Force
 foreach ($file in @($app, $sfx)) {
     if (-not (Test-Path -LiteralPath $file)) {
         throw "缺少 release 产物：$file"

@@ -27,7 +27,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 独立任务进度窗口：压缩、解压和测试任务启动后自动弹出，显示目标路径、当前文件进度、总进度、已用/剩余时间、总大小、已压缩、压缩后、压缩率、文件数、处理速度和暂停、继续、取消、后台；取消需要二次确认，确认后立即停止并清理临时文件，关闭窗口不中断任务。
 - 压缩后端使用 zlib-ng 和新版 ZIP/7Z 编码器，ZIP 按 1 MiB 分块读写并按块检查取消；7Z 多线程 LZMA2 默认按 16 MiB 编码块完成量报告真实进度（字典更大时随库钳制），两次块事件之间按最近速度平滑显示并在块完成时校正；单线程/其他算法按已写入编码器的字节更新，加密归档保留读取进度，7Z 解压按 256 KiB 分块、100 毫秒节流上报单文件内部进度。
 - 标题栏工作区按钮和模态遮罩使用阻塞命中区域，右上角密码库/设置按钮不再被拖拽区域吞掉，压缩/解压设置对话框也不会把鼠标事件穿透到下层文件表。
-- IconPark 官方 SVG 图标已本地打包并按主题着色，运行时不依赖网络；来源与许可保存在 `crates/lumark-ui/assets/icons/iconpark/`。
+- IconPark 官方 SVG 图标已本地打包并按主题着色，运行时不依赖网络；来源与许可保存在 `crates/lumark-ui-shared/assets/icons/iconpark/`。
 - ZIP、7Z、LZH、TAR、TAR.GZ/BZ2/XZ/ZST/BR/LZ4/LZ/LZMA；GZ、BZ2、XZ、ZSTD、Brotli、LZ4、Snappy、BZip3；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode 只读解压。LZH 创建底层支持 lh0、lh4–lh7，界面预设使用 lh4/lh5/lh7；lh0 条目已分块流式写入，lh4/lh5/lh7 仍需要整块输入，超过 512 MiB 会提前拒绝。
 - ZPAQ 读写（内嵌 libzpaq/JIDAC 引擎）：创建标准归档、AES-256 密码、列表、完整测试、预算解压、分卷和密码库联动；压缩级别 1–5 可选，轻巧模式的“体积小”对应 5 级，默认保留源文件原始时间，≥32 MiB 的单文件批次交给可杀死的隐藏工作进程执行，压缩中可直接取消；解压和完整测试也通过该工作进程执行，任务取消时终止子进程并清理暂存区；普通小文件批次按 32 MiB / 64 文件分批上报进度。创建时会跳过符号链接和 Windows 目录联接，避免归档条目与源计划不一致；输出同名旧压缩包在任务成功后原子替换。PAQ8/LPAQ 系列暂无许可兼容的成熟后端，不在支持范围。
 - RAR 只读列表、密码验证、解压和完整性测试（UnRAR 后端，保留许可声明）；Unix `.Z`、AES `.enc`、ALZ（Store/Deflate/ALZ 改造 Bzip2，支持 ZipCrypto 和 `.a00` 分卷）只读解压。
@@ -42,7 +42,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 后台任务：固定工作线程池按提交顺序排队执行归档加载、压缩、解压、测试、编辑和记录密码验证，排队中的任务可直接取消；支持进度、暂停/继续、取消、状态栏和独立进度窗口，任务中心同时显示运行中/排队中/已完成数量和跨任务合并进度。
 - 压缩后可测试归档并在成功时删除源文件。
 - 压缩完成邮件通知：设置窗口“通知”页配置 SMTP 主机、端口、1–300 秒超时、账号、DPAPI 加密密码/XOAUTH2 访问令牌/客户端密钥/刷新令牌、发件人和收件人，支持隐式 TLS/STARTTLS/无 TLS 及测试发送；瞬时网络/4xx 错误最多退避重试 3 次，保留最近 8 条发送结果，并把失败通知持久化到待重试队列；配置刷新令牌后通过 `reqwest` 从令牌端点自动获取访问令牌。
-- 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z，可带密码，不支持分卷），生成的可执行文件内置 `lumark-sfx` 运行时；双击后可在窗口中选择解压目录、输入密码，密码错误可重试，也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。
+- 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z，可带密码，不支持分卷），生成的可执行文件内置 `lumark-sfx` 运行时；双击后打开与主程序同主题的 GPUI 窗口，用官方 `Input`/`Button`/`AlertDialog` 完成目录选择、密码输入、覆盖确认、解压进度和取消，密码错误可重试；也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数，静默模式不初始化界面且失败返回非零退出码；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。运行时使用专用 `sfx` 发布 profile（`opt-level="s"`、fat LTO、strip、panic=abort）压缩 stub 体积。
 - 伪装压缩（全格式）：压缩窗口可勾选“伪装为媒体文件”，把 ZIP、7Z、LZH、ZPAQ、TAR 系列、GZ/BZ2/XZ/ZST/Brotli/LZ4 的输出包装成可正常播放/查看的 MP4/JPG 外观；ZIP、7Z、LZH、TAR 系列和单文件流边生成边写入伪装容器，不再额外保留完整内层文件；内层归档格式保持不变，载荷按 128 KiB 分块用 BLAKE3 密钥流混淆，尾部 512 字节记录载荷偏移/长度、原文件名、混淆盐和载荷类型。内置视频/图片面具，也可选择自定义媒体文件；伪装不提供加密。
 - 一键打开与一键还原：Lumark 文件表双击伪装归档、或资源管理器“用 Lumark 打开”，直接浏览/选择性解压/测试内层归档；ZIP/7Z/TAR 系列/单文件流/LZH 使用读取视图不复制载荷，ZPAQ/RAR/ALZ/传统只读格式物化到临时目录并做进程内缓存。右键“还原伪装文件”或资源管理器“Lumark 一键还原”把真身写回伪装文件旁，同名文件自动追加序号；伪装 ZIP/7Z 还支持原地重命名、删除和添加，自动复用原面具重新包装。
 - 任意文件伪装：文件或归档右键“伪装为媒体文件…”打开独立伪装窗口，资源管理器右键菜单也提供“伪装为媒体文件…”入口；可选择输出目录、面具和“伪装后删除源文件”；已有 ZIP/7Z 等归档伪装后仍可直接浏览，普通文件伪装只能还原。
@@ -72,11 +72,19 @@ cargo run -p lumark-app
 
 要求 Rust stable（当前环境为 1.99，工作区 MSRV 为 1.96），Windows x64，MSVC 工具链。首次构建会下载 GPUI Kit 及其依赖。
 
-生成安装包或自解压功能需要同时构建运行时模块：
+生成安装包或自解压功能需要同时构建运行时模块。自解压运行时使用体积优化的
+`sfx` profile，产物位于 `target\sfx\lumark-sfx.exe`；发布脚本会把它复制到
+`target\release` 方便安装器打包：
 
 ```powershell
-cargo build --release --locked -p lumark-app -p lumark-sfx
+cargo build --release --locked -p lumark-app
+cargo build --profile sfx --locked -p lumark-sfx
+Copy-Item target\sfx\lumark-sfx.exe target\release\lumark-sfx.exe -Force
 ```
+
+`sfx` profile 继承 release，并启用 `opt-level="s"`、fat LTO、`codegen-units=1`、
+`panic="abort"` 和 strip，优先压缩会嵌入每个自解压 EXE 的 stub 体积；主程序
+仍使用常规 release profile。
 
 Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 `lib.exe`/`link.exe` 在系统临时目录创建 `lnk*.tmp` 时被安全软件拦截的 `LNK1104`。
 
@@ -93,7 +101,7 @@ Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 
 
 首次使用开发证书先运行 `./installer/self-sign.ps1`（当前用户级，不需要管理员）。脚本会：
 
-- 编译 `lumark-app` 和 `lumark-sfx`；
+- 编译 `lumark-app`（release）和 `lumark-sfx`（`sfx` 体积优化 profile）；
 - 清除 MOTW；检测并恢复工作区根目录、`target`/`target\release`/`target\debug`/`dist` 的 Low 完整性（见“打开文件 - 安全警告”章节）；
 - 按需用 `-UseDevCert`、`-SignThumbprint` 或 `-SignPfxPath` 签名；
 - 调用 `installer/pack-installer.ps1` 生成 `dist\Lumark-Setup-<版本>.exe` 和 `.sha256`；

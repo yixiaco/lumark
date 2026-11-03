@@ -1,7 +1,7 @@
 use super::super::*;
 use super::components::{
-    AppIcon, choice_select, classic_field, classic_group, dialog_banner, hint_text, segmented_tab,
-    segmented_tab_bar,
+    AppIcon, choice_select, classic_field, classic_group, dialog_banner, dialog_tagline, hint_text,
+    segmented_tab, segmented_tab_bar,
 };
 use crate::i18n::tr;
 use gpui_kit::Entity;
@@ -631,7 +631,7 @@ impl Render for CompressWindowView {
             .bg(cx.theme().popover)
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
-            .child(dialog_banner(cx, 50.))
+            .child(dialog_banner(cx, 50., dialog_tagline()))
             .child(if self.classic {
                 self.render_classic(cx)
             } else {

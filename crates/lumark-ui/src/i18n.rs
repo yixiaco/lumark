@@ -1,30 +1,17 @@
-﻿//! 主界面最小本地化状态。
+//! 主界面最小本地化状态。
 //!
-//! 设置中的 `language` 字段切换当前 UI 语言；当前先接入动作带等核心文本，
-//! 其余页面按模块逐步迁移，避免一次性替换全部中文。
+//! 设置中的 `language` 字段切换当前 UI 语言；语言开关和共享文案位于
+//! `lumark-ui-shared`，主程序额外同步 rust-i18n 与 gpui-component locale。
 
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// 当前是否英文。
-static ENGLISH: AtomicBool = AtomicBool::new(false);
+pub(crate) use lumark_ui_shared::i18n::{is_english, tr};
 
 /// 根据设置值更新当前语言。
 pub(crate) fn set_language(language: &str) {
     let english = language.trim().to_ascii_lowercase().starts_with("en");
-    ENGLISH.store(english, Ordering::Relaxed);
-    let locale = if english { "en" } else { "zh-CN" };
+    lumark_ui_shared::i18n::set_english(english);
+    let locale = lumark_ui_shared::i18n::locale();
     rust_i18n::set_locale(locale);
     gpui_kit::component::set_locale(locale);
-}
-
-/// 返回当前语言是否为英文。
-pub(crate) fn is_english() -> bool {
-    ENGLISH.load(Ordering::Relaxed)
-}
-
-/// 按当前语言选择中文或英文文本。
-pub(crate) fn tr(zh: &'static str, en: &'static str) -> &'static str {
-    if is_english() { en } else { zh }
 }
 
 /// 从应用 locale 文件读取 key。

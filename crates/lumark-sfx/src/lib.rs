@@ -11,8 +11,9 @@
 
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod plan;
 
@@ -54,6 +55,38 @@ pub struct SfxFooter {
     pub length: u64,
 }
 
+/// 一次解压任务的进度快照。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SfxProgress {
+    /// 当前处理的条目名称。
+    pub current: String,
+    /// 已处理字节数。
+    pub bytes_done: u64,
+    /// 计划处理的总字节数；无法统计时为 0。
+    pub bytes_total: u64,
+    /// 当前条目已处理字节数。
+    pub current_file_done: u64,
+    /// 当前条目总字节数。
+    pub current_file_total: u64,
+    /// 已处理条目数。
+    pub entries_done: usize,
+    /// 计划处理的总条目数。
+    pub entries_total: usize,
+}
+
+/// 一次解压的可选行为：密码、覆盖策略、取消标记与进度回调。
+#[derive(Default)]
+pub struct SfxExtractOptions<'a> {
+    /// 解密密码；未提供时按未加密处理。
+    pub password: Option<&'a str>,
+    /// 目标目录已有同名文件时是否覆盖。
+    pub overwrite: bool,
+    /// 取消标记；置位后解压尽快停止并返回 [`SfxError::Cancelled`]。
+    pub cancel: Option<&'a AtomicBool>,
+    /// 进度回调；解压过程中每次进度变化都会收到快照。
+    pub progress: Option<&'a mut dyn FnMut(SfxProgress)>,
+}
+
 /// 自解压运行时可区分的错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SfxError {
@@ -61,6 +94,8 @@ pub enum SfxError {
     PasswordRequired,
     /// 密码错误。
     WrongPassword,
+    /// 用户在解压过程中请求取消。
+    Cancelled,
     /// 其他解压错误。
     Other(String),
 }
@@ -71,6 +106,7 @@ impl fmt::Display for SfxError {
         match self {
             Self::PasswordRequired => formatter.write_str("该自解压包需要密码"),
             Self::WrongPassword => formatter.write_str("密码错误"),
+            Self::Cancelled => formatter.write_str("已取消解压"),
             Self::Other(message) => formatter.write_str(message),
         }
     }
@@ -139,11 +175,16 @@ pub fn default_target(exe: &Path) -> PathBuf {
 }
 
 /// 把页脚指向的数据解压到目标目录，返回写出的文件数。
+///
+/// 使用默认选项：无密码、不覆盖、不回调进度、不可取消。
 pub fn extract_payload(file: File, footer: SfxFooter, target: &Path) -> Result<usize, SfxError> {
-    extract_payload_with_password(file, footer, target, None, false)
+    extract_payload_with_options(file, footer, target, SfxExtractOptions::default())
 }
 
 /// 按页脚格式解压，支持密码和覆盖策略。
+///
+/// 保留为兼容入口，等价于不带进度回调和取消标记的
+/// [`extract_payload_with_options`]。
 pub fn extract_payload_with_password(
     file: File,
     footer: SfxFooter,
@@ -151,7 +192,33 @@ pub fn extract_payload_with_password(
     password: Option<&str>,
     overwrite: bool,
 ) -> Result<usize, SfxError> {
-    if footer.encrypted && password.is_none_or(str::is_empty) {
+    extract_payload_with_options(
+        file,
+        footer,
+        target,
+        SfxExtractOptions {
+            password,
+            overwrite,
+            cancel: None,
+            progress: None,
+        },
+    )
+}
+
+/// 按页脚格式解压，支持密码、覆盖策略、进度回调和取消。
+///
+/// 预取消优先于密码校验：用户主动取消时不再要求输入密码。ZIP 和 7Z
+/// 的条目路径校验、密码尝试和覆盖策略都保持不变。
+pub fn extract_payload_with_options(
+    file: File,
+    footer: SfxFooter,
+    target: &Path,
+    mut options: SfxExtractOptions<'_>,
+) -> Result<usize, SfxError> {
+    if is_cancelled(options.cancel) {
+        return Err(SfxError::Cancelled);
+    }
+    if footer.encrypted && options.password.is_none_or(str::is_empty) {
         return Err(SfxError::PasswordRequired);
     }
     let reader = PayloadReader {
@@ -161,24 +228,47 @@ pub fn extract_payload_with_password(
         pos: 0,
     };
     match footer.format {
-        SfxFormat::Zip => extract_zip(reader, target, password, overwrite),
-        SfxFormat::SevenZip => extract_seven_zip(reader, target, password, footer, overwrite),
+        SfxFormat::Zip => extract_zip(reader, target, &mut options),
+        SfxFormat::SevenZip => extract_seven_zip(reader, target, footer, &mut options),
     }
 }
 
 /// 解压 ZIP 载荷；加密条目逐个尝试密码。
+///
+/// 先遍历中央目录统计条目数和总字节数，再逐条目上报进度；复制按块进行，
+/// 每块之间检查取消标记。
 fn extract_zip(
     reader: PayloadReader,
     target: &Path,
-    password: Option<&str>,
-    overwrite: bool,
+    options: &mut SfxExtractOptions<'_>,
 ) -> Result<usize, SfxError> {
     let mut archive = zip::ZipArchive::new(reader)
         .map_err(|error| SfxError::Other(format!("自解压数据损坏：{error}")))?;
+    // 中央目录已包含全部条目元数据，先统计以便进度回调给出总量。
+    let mut entries_total = 0usize;
+    let mut bytes_total = 0u64;
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index_raw(index)
+            .map_err(|error| SfxError::Other(format!("解压失败：{error}")))?;
+        if entry.is_dir() {
+            continue;
+        }
+        entries_total += 1;
+        bytes_total = bytes_total.saturating_add(entry.size());
+    }
     fs::create_dir_all(target)
         .map_err(|error| SfxError::Other(format!("无法创建解压目录：{error}")))?;
+    let password = options.password;
+    let overwrite = options.overwrite;
+    let mut reporter = ProgressReporter::new(options);
+    reporter.entries_total = entries_total;
+    reporter.bytes_total = bytes_total;
     let mut files = 0;
     for index in 0..archive.len() {
+        if reporter.is_cancelled() {
+            return Err(SfxError::Cancelled);
+        }
         let mut entry = if archive
             .by_index_raw(index)
             .map(|entry| entry.encrypted())
@@ -210,31 +300,42 @@ fn extract_zip(
                 .map_err(|error| SfxError::Other(format!("无法创建目录：{error}")))?;
             continue;
         }
+        let size = entry.size();
         if destination.exists() && !overwrite {
+            // 跳过的文件同样计入已完成字节和条目数，进度才不会停在半路。
+            reporter.skip_entry(size);
             continue;
         }
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| SfxError::Other(format!("无法创建目录：{error}")))?;
         }
+        let name = entry
+            .name()
+            .map(|name| name.to_string())
+            .unwrap_or_else(|_| "<未知条目>".to_string());
         let mut output = File::create(&destination)
             .map_err(|error| SfxError::Other(format!("无法写入文件：{error}")))?;
-        io::copy(&mut entry, &mut output)
-            .map_err(|error| SfxError::Other(format!("解压失败：{error}")))?;
+        reporter.begin_entry(&name, size);
+        copy_chunked(&mut entry, &mut output, &mut reporter)?;
+        reporter.finish_entry();
         files += 1;
     }
     Ok(files)
 }
 
-/// 解压 7Z 载荷；路径安全由本函数统一检查。
+/// 解压 7Z 载荷；路径安全由 `extract_seven_zip_entry` 统一检查。
+///
+/// 先用归档元数据统计非目录条目和总字节数，再在 `for_each_entries` 回调里
+/// 逐条目上报进度并检查取消；取消统一映射为 [`SfxError::Cancelled`]，
+/// 不会误报成密码错误。加密归档头解析失败仍按 [`SfxError::WrongPassword`] 处理。
 fn extract_seven_zip(
     reader: PayloadReader,
     target: &Path,
-    password: Option<&str>,
     footer: SfxFooter,
-    overwrite: bool,
+    options: &mut SfxExtractOptions<'_>,
 ) -> Result<usize, SfxError> {
-    let password = password.unwrap_or_default();
+    let password = options.password.unwrap_or_default();
     let mut archive =
         sevenz_rust2::ArchiveReader::new(reader, sevenz_rust2::Password::from(password)).map_err(
             |error| {
@@ -247,29 +348,80 @@ fn extract_seven_zip(
         )?;
     fs::create_dir_all(target)
         .map_err(|error| SfxError::Other(format!("无法创建解压目录：{error}")))?;
+    let mut entries_total = 0usize;
+    let mut bytes_total = 0u64;
+    for entry in &archive.archive().files {
+        if entry.is_directory() {
+            continue;
+        }
+        entries_total += 1;
+        bytes_total = bytes_total.saturating_add(entry.size);
+    }
+    let overwrite = options.overwrite;
+    let mut reporter = ProgressReporter::new(options);
+    reporter.entries_total = entries_total;
+    reporter.bytes_total = bytes_total;
     let mut files = 0usize;
-    archive
-        .for_each_entries(|entry, input| {
-            if entry.is_directory() {
-                let destination = safe_destination(target, &entry.name, true)?;
-                fs::create_dir_all(destination)?;
-                return Ok(true);
+    let mut cancelled = false;
+    let result = archive.for_each_entries(|entry, input| {
+        match extract_seven_zip_entry(entry, input, target, overwrite, &mut reporter) {
+            Ok(true) => {
+                files += 1;
+                Ok(true)
             }
-            let destination = safe_destination(target, &entry.name, false)?;
-            if destination.exists() && !overwrite {
-                io::copy(input, &mut io::sink())?;
-                return Ok(true);
+            Ok(false) => Ok(true),
+            Err(SfxError::Cancelled) => {
+                // 用内部 IO 错误让解码器立即停止，再由外层统一转换成 Cancelled。
+                cancelled = true;
+                Err(cancelled_io_error().into())
             }
-            if let Some(parent) = destination.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let mut output = File::create(&destination)?;
-            io::copy(input, &mut output)?;
-            files += 1;
-            Ok(true)
-        })
-        .map_err(|error| SfxError::Other(format!("解压失败：{error}")))?;
-    Ok(files)
+            Err(error) => Err(io::Error::other(error.to_string()).into()),
+        }
+    });
+    match result {
+        Ok(()) => Ok(files),
+        Err(_) if cancelled => Err(SfxError::Cancelled),
+        Err(error) => Err(SfxError::Other(format!("解压失败：{error}"))),
+    }
+}
+
+/// 解压 7Z 的单个条目，返回是否实际写出文件。
+///
+/// 目录只创建目录；目标已存在且不覆盖时仍然读完条目数据，保证 solid 归档
+/// 的后续条目可以正常解码，同时把跳过的字节计入进度。
+fn extract_seven_zip_entry(
+    entry: &sevenz_rust2::ArchiveEntry,
+    input: &mut dyn Read,
+    target: &Path,
+    overwrite: bool,
+    reporter: &mut ProgressReporter<'_>,
+) -> Result<bool, SfxError> {
+    if reporter.is_cancelled() {
+        return Err(SfxError::Cancelled);
+    }
+    if entry.is_directory() {
+        let destination = safe_destination(target, &entry.name, true)
+            .map_err(|error| SfxError::Other(error.to_string()))?;
+        fs::create_dir_all(destination).map_err(|error| SfxError::Other(error.to_string()))?;
+        return Ok(false);
+    }
+    let destination = safe_destination(target, &entry.name, false)
+        .map_err(|error| SfxError::Other(error.to_string()))?;
+    reporter.begin_entry(&entry.name, entry.size);
+    if destination.exists() && !overwrite {
+        let mut sink = io::sink();
+        copy_chunked(input, &mut sink, reporter)?;
+        reporter.finish_entry();
+        return Ok(false);
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| SfxError::Other(error.to_string()))?;
+    }
+    let mut output =
+        File::create(&destination).map_err(|error| SfxError::Other(error.to_string()))?;
+    copy_chunked(input, &mut output, reporter)?;
+    reporter.finish_entry();
+    Ok(true)
 }
 
 /// 把归档内路径拼到目标目录，并拒绝绝对路径和 `..`。
@@ -292,6 +444,138 @@ fn safe_destination(target: &Path, name: &str, is_dir: bool) -> io::Result<PathB
         destination.push("");
     }
     Ok(destination)
+}
+
+/// 单次复制块大小：256 KiB。
+///
+/// 分块复制让取消请求能在一两秒内生效，同时避免过于频繁的进度回调。
+const COPY_CHUNK: usize = 256 * 1024;
+
+/// 判断取消标记是否已置位。
+fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
+    cancel.is_some_and(|flag| flag.load(Ordering::Relaxed))
+}
+
+/// 构造表示“已取消解压”的内部 IO 错误，供 7Z 回调中断解码器。
+fn cancelled_io_error() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "已取消解压")
+}
+
+/// 解压过程中的进度汇总器。
+///
+/// 持有进度回调和取消标记，累计字节与条目计数，并在每个变化点生成一次
+/// [`SfxProgress`]；未提供回调时只更新内部计数。
+struct ProgressReporter<'a> {
+    /// 取消标记；置位后读写循环尽快停止。
+    cancel: Option<&'a AtomicBool>,
+    /// 进度回调；仅在解压线程内独占调用。
+    progress: Option<&'a mut dyn FnMut(SfxProgress)>,
+    /// 已处理字节数。
+    bytes_done: u64,
+    /// 计划处理的总字节数。
+    bytes_total: u64,
+    /// 已处理条目数。
+    entries_done: usize,
+    /// 计划处理的总条目数。
+    entries_total: usize,
+    /// 当前条目名称。
+    current: String,
+    /// 当前条目已处理字节数。
+    current_file_done: u64,
+    /// 当前条目总字节数。
+    current_file_total: u64,
+}
+
+impl<'a> ProgressReporter<'a> {
+    /// 从解压选项中取出进度回调并初始化计数器。
+    fn new(options: &mut SfxExtractOptions<'a>) -> Self {
+        Self {
+            cancel: options.cancel,
+            progress: options.progress.take(),
+            bytes_done: 0,
+            bytes_total: 0,
+            entries_done: 0,
+            entries_total: 0,
+            current: String::new(),
+            current_file_done: 0,
+            current_file_total: 0,
+        }
+    }
+
+    /// 返回是否已经收到取消请求。
+    fn is_cancelled(&self) -> bool {
+        is_cancelled(self.cancel)
+    }
+
+    /// 上报一次当前进度快照；没有回调时不做任何事。
+    fn emit(&mut self) {
+        let snapshot = SfxProgress {
+            current: self.current.clone(),
+            bytes_done: self.bytes_done,
+            bytes_total: self.bytes_total,
+            current_file_done: self.current_file_done,
+            current_file_total: self.current_file_total,
+            entries_done: self.entries_done,
+            entries_total: self.entries_total,
+        };
+        if let Some(callback) = self.progress.as_mut() {
+            callback(snapshot);
+        }
+    }
+
+    /// 进入新条目并上报起始进度。
+    fn begin_entry(&mut self, name: &str, size: u64) {
+        self.current.clear();
+        self.current.push_str(name);
+        self.current_file_done = 0;
+        self.current_file_total = size;
+        self.emit();
+    }
+
+    /// 累计已处理字节并上报。
+    fn advance(&mut self, delta: u64) {
+        self.bytes_done = self.bytes_done.saturating_add(delta);
+        self.current_file_done = self.current_file_done.saturating_add(delta);
+        self.emit();
+    }
+
+    /// 跳过已有文件时把计划字节和条目计入已完成进度。
+    fn skip_entry(&mut self, size: u64) {
+        self.bytes_done = self.bytes_done.saturating_add(size);
+        self.entries_done += 1;
+        self.emit();
+    }
+
+    /// 条目处理完成后更新条目计数并上报。
+    fn finish_entry(&mut self) {
+        self.entries_done += 1;
+        self.emit();
+    }
+}
+
+/// 分块复制条目数据，逐块累计进度并在块之间检查取消。
+fn copy_chunked(
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+    reporter: &mut ProgressReporter<'_>,
+) -> Result<(), SfxError> {
+    let mut buffer = vec![0u8; COPY_CHUNK];
+    loop {
+        if reporter.is_cancelled() {
+            return Err(SfxError::Cancelled);
+        }
+        let read = input
+            .read(&mut buffer)
+            .map_err(|error| SfxError::Other(format!("解压失败：{error}")))?;
+        if read == 0 {
+            break;
+        }
+        output
+            .write_all(&buffer[..read])
+            .map_err(|error| SfxError::Other(format!("无法写入文件：{error}")))?;
+        reporter.advance(read as u64);
+    }
+    Ok(())
 }
 
 /// 只暴露文件中数据段的读写视图，供归档解码器顺序读取。

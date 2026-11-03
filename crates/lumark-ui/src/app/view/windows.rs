@@ -1,11 +1,10 @@
 //! 独立窗口类型和窗口级状态。
 
 use super::super::*;
-use super::components::{AppIcon, dialog_banner};
+use super::components::{AppIcon, dialog_banner, dialog_tagline};
 use crate::i18n::tr;
 use gpui_kit::component::TitleBar;
-use gpui_kit::component::progress::Progress;
-use gpui_kit::component::tag::Tag;
+use lumark_ui_shared::progress::{ProgressKind, ProgressPanel, ProgressSnapshot, ProgressState};
 
 /// 独立任务进度窗口的视图。
 ///
@@ -58,27 +57,12 @@ impl Render for ProgressWindowView {
         let cancelling = !terminal && live_state == Some(lumark_tasks::TaskState::Cancelled);
         let progress = &self.progress;
         let ratio = progress.ratio().clamp(0.0, 1.0);
-        let file_ratio = if progress.current_file_total > 0 {
-            progress.current_file_ratio()
-        } else {
-            ratio
-        };
-        let compression_ratio = progress.compression_ratio();
         let target = self
             .label
             .split_once(' ')
             .map(|(_, rest)| rest.to_string())
             .unwrap_or_else(|| self.label.clone());
-        let operation = match self.kind {
-            TaskKind::Compress => tr("压缩文件", "Compressing"),
-            TaskKind::Extract => tr("解压文件", "Extracting"),
-            TaskKind::Test => tr("测试压缩文件", "Testing archive"),
-            TaskKind::Repair => tr("修复压缩文件", "Repairing archive"),
-            TaskKind::Disguise => tr("伪装文件", "Disguising"),
-            TaskKind::Restore => tr("还原伪装文件", "Restoring disguise"),
-            TaskKind::Export => tr("导出游戏资产", "Exporting game assets"),
-            _ => tr("后台任务", "Background task"),
-        };
+        let operation = progress_kind(self.kind).operation_label();
         let elapsed = if paused || cancelling {
             progress.elapsed_seconds
         } else {
@@ -92,7 +76,6 @@ impl Render for ProgressWindowView {
             format!("{operation} · {:.1}% - Lumark", ratio * 100.0)
         };
         let final_state = terminal.then_some(self.state);
-        let bar_width = 520.0;
         v_flex()
             .size_full()
             .bg(cx.theme().background)
@@ -176,7 +159,7 @@ impl Render for ProgressWindowView {
                             }),
                     ),
             )
-            .child(dialog_banner(cx, 54.))
+            .child(dialog_banner(cx, 54., dialog_tagline()))
             .child(
                 v_flex()
                     .flex_1()
@@ -185,257 +168,14 @@ impl Render for ProgressWindowView {
                     .py_4()
                     .gap_3()
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_color(cx.theme().accent_foreground)
-                                    .child(
-                                        if self.kind == TaskKind::Compress {
-                                            AppIcon::Compression
-                                        } else {
-                                            AppIcon::Zip
-                                        }
-                                        .element(18.),
-                                    ),
-                            )
-                            .child(
-                                v_flex()
-                                    .min_w_0()
-                                    .gap(px(0.))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(format!("{operation}:")),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .overflow_hidden()
-                                            .whitespace_normal()
-                                            .child(target),
-                                    ),
-                            ),
-                    )
-                    .when(
-                        self.kind.prevents_sleep()
-                            && matches!(
-                                self.state,
-                                TaskState::Running | TaskState::Paused | TaskState::Cancelling
-                            ),
-                        |this| {
-                            this.child(
-                                Tag::secondary()
-                                    .xsmall()
-                                    .child(tr(
-                                        "任务运行期间阻止系统休眠",
-                                        "System sleep is blocked while the task runs",
-                                    )),
-                            )
-                        },
-                    )
-                    .when_some(self.message.clone(), |this, message| {
-                        let color = match self.state {
-                            TaskState::Failed => StatusTone::Danger.text_color(cx),
-                            TaskState::Completed => StatusTone::Success.text_color(cx),
-                            _ => cx.theme().muted_foreground,
-                        };
-                        this.child(
-                            div()
-                                .w_full()
-                                .rounded(px(6.))
-                                .bg(cx.theme().muted)
-                                .px_3()
-                                .py_2()
-                                .text_sm()
-                                .text_color(color)
-                                .child(message),
-                        )
-                    })
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .justify_between()
-                                    .gap_2()
-                                    .text_xs()
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .overflow_hidden()
-                                            .whitespace_nowrap()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(if progress.current.is_empty() {
-                                                tr("正在准备文件…", "Preparing files...").to_string()
-                                            } else {
-                                                format!("{}{}", tr("正在处理：", "Processing: "), progress.current)
-                                            }),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_shrink_0()
-                                            .whitespace_nowrap()
-                                            .font_semibold()
-                                            .child(format!("{} {:.1}%", tr("总进度", "Overall progress"), ratio * 100.0)),
-                                    ),
-                            )
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .justify_between()
-                                    .gap_2()
-                                    .text_xs()
-                                    .child(div().text_color(cx.theme().muted_foreground).child(
-                                        if self.kind == TaskKind::Compress {
-                                            tr("当前文件", "Current file")
-                                        } else {
-                                            tr("当前进度", "Current progress")
-                                        },
-                                    ))
-                                    .child(
-                                        div()
-                                            .flex_shrink_0()
-                                            .whitespace_nowrap()
-                                            .font_semibold()
-                                            .child(format!("{:.1}%", file_ratio * 100.0)),
-                                    ),
-                            )
-                            .child(progress_bar("file-progress", bar_width, file_ratio))
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .justify_between()
-                                    .gap_2()
-                                    .text_xs()
-                                    .child(
-                                        div()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(tr("总进度", "Overall progress")),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_shrink_0()
-                                            .whitespace_nowrap()
-                                            .font_semibold()
-                                            .child(format!("{:.1}%", ratio * 100.0)),
-                                    ),
-                            )
-                            .child(progress_bar("task-progress", bar_width, ratio)),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap_6()
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .gap_2()
-                                    .child(metric_row(cx, tr("已用时间", "Elapsed"), &format_duration(elapsed)))
-                                    .child(metric_row(
-                                        cx,
-                                        tr("总大小", "Total size"),
-                                        &format_size(progress.bytes_total),
-                                    ))
-                                    .when(self.kind == TaskKind::Compress, |this| {
-                                        this.child(metric_row(
-                                            cx,
-                                            tr("已压缩", "Compressed"),
-                                            &format_size(progress.bytes_done),
-                                        ))
-                                        .child(
-                                            metric_row(
-                                                cx,
-                                                tr("文件个数", "Files"),
-                                                &format!(
-                                                    "{} / {}",
-                                                    progress.entries_done, progress.entries_total
-                                                ),
-                                            ),
-                                        )
-                                    })
-                                    .when(self.kind != TaskKind::Compress, |this| {
-                                        this.child(metric_row(
-                                            cx,
-                                            tr("已处理", "Processed"),
-                                            &format_size(progress.bytes_done),
-                                        ))
-                                    }),
-                            )
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .gap_2()
-                                    .child(metric_row(
-                                        cx,
-                                        tr("剩余时间", "Remaining"),
-                                        &if terminal {
-                                            "—".to_string()
-                                        } else {
-                                            progress
-                                                .eta_seconds()
-                                                .map(format_duration)
-                                                .unwrap_or_else(|| tr("计算中", "Calculating").to_string())
-                                        },
-                                    ))
-                                    .when(self.kind == TaskKind::Compress, |this| {
-                                        this.child(metric_row(
-                                            cx,
-                                            tr("压缩后", "Output size"),
-                                            &if progress.output_bytes > 0 {
-                                                format_size(progress.output_bytes)
-                                            } else {
-                                                "—".to_string()
-                                            },
-                                        ))
-                                        .child(
-                                            metric_row(
-                                                cx,
-                                                tr("压缩率", "Ratio"),
-                                                &compression_ratio
-                                                    .map(|value| format!("{:.1}%", value * 100.0))
-                                                    .unwrap_or_else(|| "—".to_string()),
-                                            ),
-                                        )
-                                    })
-                                    .when(self.kind != TaskKind::Compress, |this| {
-                                        this.child(metric_row(
-                                            cx,
-                                            tr("文件个数", "Files"),
-                                            &format!(
-                                                "{} / {}",
-                                                progress.entries_done, progress.entries_total
-                                            ),
-                                        ))
-                                    })
-                                    .child(metric_row(
-                                        cx,
-                                        tr("处理速度", "Speed"),
-                                        &format!(
-                                            "{}/秒",
-                                            format_size(progress.speed_bps.max(0.0) as u64)
-                                        ),
-                                    )),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(if terminal {
-                                tr("任务已结束，可以关闭此窗口。", "The task has finished; you can close this window.")
-                            } else {
-                                tr("任务在后台继续运行；关闭此窗口不会中断任务。", "The task continues in the background; closing this window does not stop it.")
-                            }),
-                    )
+                ProgressPanel::new(progress_kind(self.kind))
+                    .target(target)
+                    .progress(snapshot_from_task(progress))
+                    .state(progress_state(self.state))
+                    .message(self.message.clone())
+                    .elapsed_seconds(elapsed)
+                    .sleep_blocked(self.kind.prevents_sleep()),
+            )
                     .when(self.confirm_cancel, |this| {
                         this.child(
                             h_flex()
@@ -719,26 +459,49 @@ impl LumarkApp {
     }
 }
 
-/// 渲染官方进度条，按固定宽度和 0–1 比例显示。
-fn progress_bar(id: &'static str, width: f32, ratio: f32) -> Progress {
-    Progress::new(id)
-        .value(ratio.clamp(0.0, 1.0) * 100.0)
-        .w(px(width))
-        .accessibility_label(tr("任务进度", "Task progress"))
+/// 把主程序任务类型映射为共享进度面板的任务类型。
+fn progress_kind(kind: TaskKind) -> ProgressKind {
+    match kind {
+        TaskKind::Compress => ProgressKind::Compress,
+        TaskKind::Extract => ProgressKind::Extract,
+        TaskKind::Test => ProgressKind::Test,
+        TaskKind::Repair => ProgressKind::Repair,
+        TaskKind::Disguise => ProgressKind::Disguise,
+        TaskKind::Restore => ProgressKind::Restore,
+        TaskKind::Export => ProgressKind::Export,
+        _ => ProgressKind::Other,
+    }
 }
 
-/// 渲染进度窗口中的一行指标。
-fn metric_row(cx: &gpui_kit::App, label: &str, value: &str) -> gpui_kit::Div {
-    h_flex()
-        .w_full()
-        .justify_between()
-        .text_xs()
-        .child(
-            div()
-                .text_color(cx.theme().muted_foreground)
-                .child(label.to_string()),
-        )
-        .child(div().font_semibold().child(value.to_string()))
+/// 把主程序任务状态映射为共享进度面板的状态。
+fn progress_state(state: TaskState) -> ProgressState {
+    match state {
+        TaskState::Queued => ProgressState::Queued,
+        TaskState::Running => ProgressState::Running,
+        TaskState::Paused => ProgressState::Paused,
+        TaskState::Cancelling => ProgressState::Cancelling,
+        TaskState::Completed => ProgressState::Completed,
+        TaskState::Failed => ProgressState::Failed,
+        TaskState::Cancelled => ProgressState::Cancelled,
+    }
+}
+
+/// 把任务进度快照转换为共享进度面板需要的展示快照。
+fn snapshot_from_task(progress: &TaskProgress) -> ProgressSnapshot {
+    ProgressSnapshot {
+        current: progress.current.clone(),
+        bytes_done: progress.bytes_done,
+        bytes_total: progress.bytes_total,
+        current_file_done: progress.current_file_done,
+        current_file_total: progress.current_file_total,
+        display_bytes: progress.display_bytes,
+        output_bytes: progress.output_bytes,
+        entries_done: progress.entries_done,
+        entries_total: progress.entries_total,
+        speed_bps: progress.speed_bps,
+        elapsed_seconds: progress.elapsed_seconds,
+        chunk_bytes: progress.chunk_bytes,
+    }
 }
 
 #[cfg(test)]

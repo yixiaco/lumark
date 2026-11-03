@@ -111,16 +111,17 @@ jobs:
           LUMARK_SIGN_PFX_PASSWORD: ${{ secrets.LUMARK_SIGN_PFX_PASSWORD }}
           LUMARK_SIGN_NO_TIMESTAMP: ${{ vars.LUMARK_SIGN_NO_TIMESTAMP }}
         run: |
-          $buildArguments = @('-Version', '${{ steps.version.outputs.version }}')
+          $buildArguments = @{ Version = '${{ steps.version.outputs.version }}' }
           if ($env:LUMARK_SIGN_PFX_BASE64) {
               if (-not $env:LUMARK_SIGN_PFX_PASSWORD) {
                   throw '已配置 LUMARK_SIGN_PFX_BASE64，但缺少 LUMARK_SIGN_PFX_PASSWORD'
               }
               $pfx = Join-Path $env:RUNNER_TEMP 'lumark-sign.pfx'
               [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:LUMARK_SIGN_PFX_BASE64))
-              $buildArguments += @('-SignPfxPath', $pfx, '-SignPfxPassword', $env:LUMARK_SIGN_PFX_PASSWORD)
+              $buildArguments.SignPfxPath = $pfx
+              $buildArguments.SignPfxPassword = $env:LUMARK_SIGN_PFX_PASSWORD
               if ($env:LUMARK_SIGN_NO_TIMESTAMP -eq 'true') {
-                  $buildArguments += '-NoTimestamp'
+                  $buildArguments.NoTimestamp = $true
               }
           } else {
               Write-Host '::warning::未配置代码签名证书，产物未签名'

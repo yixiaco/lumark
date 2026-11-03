@@ -19,6 +19,7 @@ lumark-browser = { path = "../lumark-browser" }
  lumark-platform-windows = { path = "../lumark-platform-windows" }
 lumark-settings = { path = "../lumark-settings" }
 lumark-tasks = { path = "../lumark-tasks" }
+lumark-ui-shared = { path = "../lumark-ui-shared" }
 lumark-render = { path = "../lumark-render" }
 lumark-scene = { path = "../lumark-scene" }
 lumark-export = { path = "../lumark-export" }
