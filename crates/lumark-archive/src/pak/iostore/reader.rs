@@ -151,6 +151,14 @@ impl IoStoreContainer {
             .unwrap_or_default())
     }
 
+    /// 按目录索引路径返回所属包 ID。
+    pub fn package_id_for_path(&self, path: &str) -> Option<u64> {
+        self.toc
+            .file_indices
+            .get(path)
+            .and_then(|index| self.package_id(*index))
+    }
+
     /// 按包 ID 读取包的 ExportBundleData（uasset）字节。
     pub fn read_package_by_id(&self, package_id: u64) -> Result<Vec<u8>, ArchiveError> {
         self.read_package_chunk(package_id, 1, "ExportBundleData")

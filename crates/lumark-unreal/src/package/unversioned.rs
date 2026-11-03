@@ -1,4 +1,4 @@
-﻿//! 无版本属性（unversioned properties）读取。
+//! 无版本属性（unversioned properties）读取。
 //!
 //! UE5 cooked 包（包括 BNB 的 Zen 包）通常不写属性名标签，而是用
 //! `FUnversionedHeader` 的位图表示哪些 schema 槽位有值，再按 `.usmap`
@@ -528,6 +528,12 @@ impl<'a> PropertyReader<'a> {
                 ]))
             }
             "Vector3f" => Ok(PropValue::Struct(vec![
+                ("X".to_string(), PropValue::Float(self.f32()? as f64)),
+                ("Y".to_string(), PropValue::Float(self.f32()? as f64)),
+                ("Z".to_string(), PropValue::Float(self.f32()? as f64)),
+            ])),
+            // UE FRotator：Pitch/Yaw/Roll，均为 32 位浮点（即使 LWC 世界）。
+            "Rotator" => Ok(PropValue::Struct(vec![
                 ("X".to_string(), PropValue::Float(self.f32()? as f64)),
                 ("Y".to_string(), PropValue::Float(self.f32()? as f64)),
                 ("Z".to_string(), PropValue::Float(self.f32()? as f64)),

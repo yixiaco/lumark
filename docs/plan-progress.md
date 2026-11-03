@@ -10,7 +10,7 @@
 | P（CI 与基础设施） | 4/5 | P-5 推送/CI 验证待用户确认 |
 | O（Oodle FModel 式） | 7/7 | 全部完成 |
 | S（资产底座） | 9/9 | 全部完成 |
-| V（查看器） | 20/21 | V-14 已打通包 ID/容器头/按包 ID 读包，继续对象解析 |
+| V（查看器） | 21/21 | 全部完成（V-14 世界 Provider 已落地） |
 | E（导出） | 18/18 | 全部完成 |
 | M（媒体播放器） | 8/8 | 全部完成 |
 | I（图片查看器） | 5/5 | 全部完成 |
@@ -70,7 +70,7 @@
 | V-11 UE 材质到 Scene | ✅ | 总贴图缓存 `TextureCache` + `MaterialResolveOptions.texture_cache`、材质/贴图缺失 warning；HDR 贴图经 `decode_mip_rgba` tone map 进入材质预览；BNB 样本缺材质时输出可读 warning |
 | V-12 骨骼网格/动画 Provider | ✅ | 第 24 轮：`SceneLoadOptions.animation/animation_time`、`SceneLoadStage::Animation`、`AnimationInfo`（名称/时长/帧数/轨道/采样时间）、`LoadedScene.skeleton`；BNB `SK_Chicken + ANIM_Chicken_Idle2` t=0.5s Provider 实机加载（42 骨骼/42 轨道/141 帧/4.667s）；时间轴 UI 待 V-19 |
 | V-13 独立场景 | ✅ | 查看器可开 Mesh/Skeleton/SkeletalMesh/Material；动画时间轴 Slider、播放/逐帧、键盘快捷键与异步重绘已接入 |
-| V-14 世界场景 Provider | 🟡 | 第 72 轮：CityHash/`package_id`、IoStore ContainerHeader（v5，67406 包）、按包 ID 读包；Zen ImportMap（855 项）/ImportedPublicExportHashes（503）/public export hash 解析。BNB 实测：`StaticMeshActor` → `StaticMeshComponent`（export 805）→ `StaticMesh=Object(-757)` → ImportMap 包导入 → 目标包 `0xADF719E28B82DF48` → `SM_SkySphere`（StaticMesh）解析成功；组件 `RelativeScale3D=400`。剩余：全部 Actor Transform、批量网格加载、Scene 组装与 UI 入口 |
+| V-14 世界场景 Provider | ✅ | 第 72/73 轮：CityHash/`package_id`、IoStore ContainerHeader、按包 ID 读包、Zen ImportMap/公共哈希解析；新增 `world_scene` Provider（Actor→StaticMeshComponent→跨包 StaticMesh→Scene），Rotator/TRS 解码。BNB `GinkgoTree.umap` 实机：45 Actors → **11 个网格 / 105,348 三角形**，耗时约 2.25s；示例 `world_scene` |
 | V-15 UI 模块拆分 | ✅ | 第 26 轮：`asset_viewer_window/` 拆为 `mod/animation/app/body/render/status/toolbar/tests` 8 个文件，最大源码模块 242 行（toolbar）、测试 434 行，均 <600；行为不变，13 个查看器测试与 162 个 UI 总测试全过 |
 | V-16 渲染桥接/帧泵 | ✅ | 第 25/29/59 轮：`image_path` 临时 PNG 改为 `Arc<RenderImage>`；网格/骨骼网格预览走 `render_service`（GPU 优先）；拖拽/滚轮异步离屏渲染，代号丢弃过期帧，状态栏“渲染中…”，骨骼/材质轻量光栅保留同步；详情面板 RenderImage 已直连 |
 | V-17 UI 外壳/工具栏 | ✅ | 第 29 轮：预览接入 `lumark_render` + `render_service`；着色循环（光照/无光/法线）、地面网格、骨骼线开关、检查器开关、缩放 `−/+`；网格/骨骼网格行为与 V-6 RenderSettings 打通 |

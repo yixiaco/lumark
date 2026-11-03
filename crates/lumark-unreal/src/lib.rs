@@ -14,6 +14,7 @@ pub mod raster;
 pub mod scene;
 pub mod skinning;
 pub mod source;
+pub mod world_scene;
 
 pub use asset_export::{
     AssetExportConfig, AssetExportProgress, AssetExportReport, export_asset, write_report,
@@ -70,3 +71,4 @@ pub use source::{
     AssetContainerKind, AssetInputs, AssetPackageRead, AssetSourceError, GameAssetEntry,
     GameAssetOptions, GameAssetSource, read_asset_package,
 };
+pub use world_scene::{WorldSceneLoad, WorldSceneOptions, WorldSceneReport, load_world_scene};

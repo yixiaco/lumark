@@ -249,6 +249,44 @@ impl GameAssetSource {
         self.scripts.as_ref()
     }
 
+    /// 返回目录索引路径对应的 IoStore 包 ID。
+    pub fn package_id_for_path(&self, path: &str) -> Option<u64> {
+        match &self.container {
+            Container::IoStore(container) => container.package_id_for_path(path),
+            Container::Pak(_) => None,
+        }
+    }
+
+    /// 返回 IoStore 包的直接导入包 ID（来自 ContainerHeader store entry）。
+    pub fn imported_packages(&self, package_id: u64) -> Result<Vec<u64>, ArchiveError> {
+        match &self.container {
+            Container::IoStore(container) => container.imported_packages(package_id),
+            Container::Pak(_) => Ok(Vec::new()),
+        }
+    }
+
+    /// 按包 ID 读取 IoStore 包的 uasset 与可选 ubulk。
+    pub fn read_package_by_id(
+        &self,
+        package_id: u64,
+    ) -> Result<(Vec<u8>, Option<Vec<u8>>), ArchiveError> {
+        match &self.container {
+            Container::IoStore(container) => {
+                let uasset = container.read_package_by_id(package_id)?;
+                let bulk = container.find_package_chunks(package_id, 2);
+                let ubulk = if bulk.is_empty() {
+                    None
+                } else {
+                    Some(container.read_bulk_by_id(package_id)?)
+                };
+                Ok((uasset, ubulk))
+            }
+            Container::Pak(_) => Err(ArchiveError::Corrupt(
+                "PAK 容器不支持按包 ID 读取".to_string(),
+            )),
+        }
+    }
+
     /// 取出全局脚本对象表，供一次性读取调用转移所有权。
     pub fn take_scripts(&mut self) -> Option<ZenScriptObjects> {
         self.scripts.take()
