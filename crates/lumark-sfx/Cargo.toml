@@ -16,8 +16,6 @@ path = "src/main.rs"
 embed-resource = "3.0.12"
 
 [target.'cfg(windows)'.dependencies]
-gpui-kit.workspace = true
-lumark-ui-shared = { path = "../lumark-ui-shared" }
 windows-sys = { workspace = true }
 
 [dependencies]
@@ -27,6 +25,3 @@ zip = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-
-[target.'cfg(windows)'.dev-dependencies]
-gpui-kit = { workspace = true, features = ["test-support"] }

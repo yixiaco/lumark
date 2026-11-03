@@ -4,8 +4,8 @@
     构建 Lumark Windows 发布产物，并修复 MOTW / Low 完整性标签。
 
 .DESCRIPTION
-    统一发布入口：用 release profile 编译 lumark-app，用体积优化的 sfx
-    profile 编译 lumark-sfx，检查并修复 release 产物的
+    统一发布入口：用 release profile 编译 lumark-app 和原生 Win32
+    lumark-sfx（不使用 GPUI，避免 360 QVM 误报），检查并修复 release 产物的
     Mark-of-the-Web 和 Low Mandatory Level，按需做 Authenticode 签名，
     调用 installer/pack-installer.ps1 生成安装器，最后生成便携包和
     dist\SHA256SUMS.txt。
@@ -338,17 +338,11 @@ Remove-Item Env:CC, Env:CXX -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build（主程序）失败，退出码 $LASTEXITCODE"
 }
-Write-Host "编译自解压运行时（体积优化 profile）..."
-& cargo build --manifest-path $manifest --profile sfx --locked -p lumark-sfx
+Write-Host "编译自解压运行时（原生 Win32 UI）..."
+& cargo build --manifest-path $manifest --release --locked -p lumark-sfx
 if ($LASTEXITCODE -ne 0) {
     throw "cargo build（自解压运行时）失败，退出码 $LASTEXITCODE"
 }
-$sfxProfile = Join-Path $repo "target\sfx\lumark-sfx.exe"
-if (-not (Test-Path -LiteralPath $sfxProfile)) {
-    throw "缺少自解压运行时产物：$sfxProfile"
-}
-# 安装器、签名和校验脚本统一读取 target\release，体积优化产物复制到该位置。
-Copy-Item -LiteralPath $sfxProfile -Destination $sfx -Force
 foreach ($file in @($app, $sfx)) {
     if (-not (Test-Path -LiteralPath $file)) {
         throw "缺少 release 产物：$file"

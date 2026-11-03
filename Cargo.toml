@@ -132,6 +132,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
+    "Win32_UI_Controls",
     "Win32_UI_WindowsAndMessaging",
 ] }
 winreg = "0.56"
@@ -144,15 +145,3 @@ zstd = "0.14"
 libazo = { path = "vendor/libazo" }
 xz2 = { path = "vendor/xz2" }
 zpaq_rs = { path = "vendor/zpaq_rs" }
-
-# 自解压运行时专用发布配置：stub 会嵌入每个生成的 EXE，优先压缩体积。
-# 该 profile 只由 tools/build_release.ps1 和体积测量使用，不影响主程序构建。
-[profile.sfx]
-inherits = "release"
-opt-level = "s"
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = "symbols"
-debug = false
-incremental = false

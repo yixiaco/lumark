@@ -55,7 +55,7 @@ $app = Join-Path $InputDir "lumark-app.exe"
 $sfx = Join-Path $InputDir "lumark-sfx.exe"
 foreach ($file in @($app, $sfx)) {
     if (-not (Test-Path -LiteralPath $file)) {
-        throw "缺少 release 产物：$file。请先运行 cargo build --release --locked -p lumark-app，再运行 cargo build --profile sfx --locked -p lumark-sfx 并把 target\sfx\lumark-sfx.exe 复制到 target\release\。"
+        throw "缺少 release 产物：$file。请先分别运行 cargo build --release --locked -p lumark-app 和 cargo build --release --locked -p lumark-sfx。"
     }
 }
 

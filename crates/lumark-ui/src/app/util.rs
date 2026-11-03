@@ -302,7 +302,7 @@ pub(crate) fn next_writable_format(format: ArchiveFormat) -> ArchiveFormat {
 /// 主名不会被误伤。
 fn strip_output_extension(name: &str) -> &str {
     /// 路径剥壳时需要识别的归档、面具和自解压后缀。
-    const SUFFIXES: [&str; 50] = [
+    const SUFFIXES: [&str; 51] = [
         ".tar.lzma",
         ".tar.lz4",
         ".tar.zst",
@@ -318,6 +318,7 @@ fn strip_output_extension(name: &str) -> &str {
         ".txz",
         ".tzst",
         ".zip",
+        ".zipx",
         ".7z",
         ".zpaq",
         ".zpq",
@@ -405,6 +406,20 @@ pub(crate) fn replace_disguise_extension(path: &Path, extension: &str) -> PathBu
         return path.to_path_buf();
     }
     path.with_file_name(format!("{stripped}.{extension}"))
+}
+
+/// 把自解压输出名归一化为单层 `.exe` 后缀。
+///
+/// 用户从文件夹名或历史输出中带出 `.zipx`、`.zip` 等归档后缀时，
+/// `解码软件.zipx.exe` 这类双扩展名会被安全软件重点启发式扫描；这里先
+/// 用 [`strip_output_extension`] 剥掉全部已知后缀，再补一个 `.exe`。
+pub(crate) fn normalize_sfx_output(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("archive");
+    let stripped = strip_output_extension(name);
+    path.with_file_name(format!("{stripped}.exe"))
 }
 
 /// 替换面具扩展名，优先剥离调用方已知的上一次面具后缀。
@@ -946,6 +961,31 @@ mod tests {
         assert_eq!(
             replace_mask_extension(Path::new(r"C:\data\photos.jpg"), Some("jpg"), "mp4"),
             PathBuf::from(r"C:\data\photos.mp4")
+        );
+    }
+
+    /// 自解压输出不能保留 `.zipx.exe` 这类会被安全软件重点扫描的双扩展名。
+    #[test]
+    fn sfx_output_normalizes_double_extensions() {
+        assert_eq!(
+            normalize_sfx_output(Path::new(r"C:\Games\解码软件.zipx.exe")),
+            PathBuf::from(r"C:\Games\解码软件.exe")
+        );
+        assert_eq!(
+            normalize_sfx_output(Path::new(r"C:\Games\解码软件.zip.exe")),
+            PathBuf::from(r"C:\Games\解码软件.exe")
+        );
+        assert_eq!(
+            normalize_sfx_output(Path::new(r"C:\Games\解码软件.zipx")),
+            PathBuf::from(r"C:\Games\解码软件.exe")
+        );
+        assert_eq!(
+            normalize_sfx_output(Path::new(r"C:\Games\解码软件.exe")),
+            PathBuf::from(r"C:\Games\解码软件.exe")
+        );
+        assert_eq!(
+            normalize_sfx_output(Path::new(r"C:\Games\my.tool.exe")),
+            PathBuf::from(r"C:\Games\my.tool.exe")
         );
     }
 }

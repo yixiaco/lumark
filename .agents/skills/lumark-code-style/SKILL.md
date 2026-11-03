@@ -18,7 +18,7 @@ description: 维护 Lumark 项目的注释、模块边界、界面资源和工�
 - `crates/lumark-ui/src/app.rs` 只保留应用状态、启动参数、构造与窗口生命周期，以及子模块入口。
 - 文件、归档、密码、设置和后台任务动作放在 `app/actions/`；任务事件桥、Shell 压缩批次和后台宿主托盘归入 `app/actions/tasks.rs`。
 - 主框架、文件表、页面、弹窗和通用组件放在 `app/view/`。
-- 主题模式、强调色派生和全局主题 token 放在 `app/theme.rs`，由 `app.rs` 统一再导出；页面不要硬编码颜色。
+- 主题模式、强调色派生和全局主题 token 放在 `crates/lumark-ui-shared/src/theme.rs`，由 `app.rs` 统一再导出；页面不要硬编码颜色。
 - 通用路径、大小、日期和格式化辅助函数放在 `app/util.rs`。
 - 启动参数和真实窗口 UI 测试放在 `app/tests.rs`，`app.rs` 只保留 `#[cfg(test)] mod tests;` 入口。
 - 页面文件按页面和组件拆分：`app/view/pages.rs` 只保留 `mod` 声明，密码库、设置、任务中心分别放在 `app/view/pages/` 下，跨页面复用的统计卡片等放入 `pages/shared.rs`。
@@ -29,7 +29,10 @@ description: 维护 Lumark 项目的注释、模块边界、界面资源和工�
 ## 界面资源
 
 - UI 固定使用 `gpui-kit 0.8.1`，压缩核心固定使用 `zip 9.0.5` 和 `sevenz-rust2 0.24.1`。
-- 图标使用 IconPark 官方 SVG，存放在 `crates/lumark-ui/assets/icons/iconpark/`，运行时不访问网络。
+- 图标使用 IconPark 官方 SVG，存放在 `crates/lumark-ui-shared/assets/icons/iconpark/`，运行时不访问网络。
+- 主程序共用的主题、i18n、IconPark/品牌资源、通用控件、格式化函数和进度面板放在 `crates/lumark-ui-shared/`。
+- 自解压运行时使用**原生 Win32 界面**（`main.rs` + `setup.rs` + `progress.rs` + `win.rs`），参考 360 压缩设置/进度窗口的布局；2026-11-03 实机确认 GPUI/DirectX stub 会被 360 QVM 判为木马，原生 stub 不触发。不要重新引入 GPUI，也不要让 `lumark-sfx` 依赖 `lumark-ui` 或 `lumark-ui-shared`。
+- 自解压设置窗口按客户区高度布局，底部按钮锚定客户区底部；Windows 默认 DPI 缩放坐标和字体，禁止再把窗口外框高度当作控件坐标。进度窗口必须在后台线程解压，通过定时器刷新，取消标记在读写块之间检查。
 - SVG 使用 `currentColor` 跟随主题；新增图标时保留上游许可和来源说明。
 - 界面必须同时检查宽窗口单行命令栏和窄窗口双行命令栏，避免路径、搜索和主操作被裁切。
 
@@ -68,6 +71,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --release -p lumark-app
+cargo build --release -p lumark-sfx
 ```
 
 DPAPI 测试需要在可访问当前 Windows 用户密钥存储的普通用户会话中运行。

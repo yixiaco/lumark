@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$assetRoot = Join-Path $PSScriptRoot "..\crates\lumark-ui\assets\icons\iconpark"
+$assetRoot = Join-Path $PSScriptRoot "..\crates\lumark-ui-shared\assets\icons\iconpark"
 New-Item -ItemType Directory -Force -Path $assetRoot | Out-Null
 
 $icons = @(
@@ -22,6 +22,7 @@ $icons = @(
     "folder",
     "folder-open",
     "folder-plus",
+    "game",
     "grid-four",
     "home",
     "key",
@@ -42,7 +43,9 @@ $icons = @(
     "unlock",
     "video",
     "picture",
-    "zip"
+    "zip",
+    "zoom-in",
+    "zoom-out"
 )
 
 $base = "https://cdn.jsdelivr.net/npm/@icon-park/svg@1.4.2/lib/icons"

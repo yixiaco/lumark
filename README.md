@@ -42,7 +42,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 后台任务：固定工作线程池按提交顺序排队执行归档加载、压缩、解压、测试、编辑和记录密码验证，排队中的任务可直接取消；支持进度、暂停/继续、取消、状态栏和独立进度窗口，任务中心同时显示运行中/排队中/已完成数量和跨任务合并进度。
 - 压缩后可测试归档并在成功时删除源文件。
 - 压缩完成邮件通知：设置窗口“通知”页配置 SMTP 主机、端口、1–300 秒超时、账号、DPAPI 加密密码/XOAUTH2 访问令牌/客户端密钥/刷新令牌、发件人和收件人，支持隐式 TLS/STARTTLS/无 TLS 及测试发送；瞬时网络/4xx 错误最多退避重试 3 次，保留最近 8 条发送结果，并把失败通知持久化到待重试队列；配置刷新令牌后通过 `reqwest` 从令牌端点自动获取访问令牌。
-- 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z，可带密码，不支持分卷），生成的可执行文件内置 `lumark-sfx` 运行时；双击后打开与主程序同主题的 GPUI 窗口，用官方 `Input`/`Button`/`AlertDialog` 完成目录选择、密码输入、覆盖确认、解压进度和取消，密码错误可重试；也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数，静默模式不初始化界面且失败返回非零退出码；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。运行时使用专用 `sfx` 发布 profile（`opt-level="s"`、fat LTO、strip、panic=abort）压缩 stub 体积。
+- 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z，可带密码，不支持分卷），生成的可执行文件内置 `lumark-sfx` 运行时；双击后打开参考 360 压缩布局的原生 Win32 设置窗口（左侧品牌栏、说明文字、目标目录/浏览、密码、解压/取消），解压时显示原生进度窗口（已用/剩余时间、总长度、速率、已处理、文件数、当前文件、进度条、后台/取消），取消会停止后台解压；也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数，静默模式不初始化界面且失败返回非零退出码；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。运行时刻意使用原生 Win32 控件而非 GPUI/DirectX：新 GPUI stub 会被 360 的 QVM 启发式误报，原生 stub 已由用户实测不触发。
 - 伪装压缩（全格式）：压缩窗口可勾选“伪装为媒体文件”，把 ZIP、7Z、LZH、ZPAQ、TAR 系列、GZ/BZ2/XZ/ZST/Brotli/LZ4 的输出包装成可正常播放/查看的 MP4/JPG 外观；ZIP、7Z、LZH、TAR 系列和单文件流边生成边写入伪装容器，不再额外保留完整内层文件；内层归档格式保持不变，载荷按 128 KiB 分块用 BLAKE3 密钥流混淆，尾部 512 字节记录载荷偏移/长度、原文件名、混淆盐和载荷类型。内置视频/图片面具，也可选择自定义媒体文件；伪装不提供加密。
 - 一键打开与一键还原：Lumark 文件表双击伪装归档、或资源管理器“用 Lumark 打开”，直接浏览/选择性解压/测试内层归档；ZIP/7Z/TAR 系列/单文件流/LZH 使用读取视图不复制载荷，ZPAQ/RAR/ALZ/传统只读格式物化到临时目录并做进程内缓存。右键“还原伪装文件”或资源管理器“Lumark 一键还原”把真身写回伪装文件旁，同名文件自动追加序号；伪装 ZIP/7Z 还支持原地重命名、删除和添加，自动复用原面具重新包装。
 - 任意文件伪装：文件或归档右键“伪装为媒体文件…”打开独立伪装窗口，资源管理器右键菜单也提供“伪装为媒体文件…”入口；可选择输出目录、面具和“伪装后删除源文件”；已有 ZIP/7Z 等归档伪装后仍可直接浏览，普通文件伪装只能还原。
@@ -72,19 +72,14 @@ cargo run -p lumark-app
 
 要求 Rust stable（当前环境为 1.99，工作区 MSRV 为 1.96），Windows x64，MSVC 工具链。首次构建会下载 GPUI Kit 及其依赖。
 
-生成安装包或自解压功能需要同时构建运行时模块。自解压运行时使用体积优化的
-`sfx` profile，产物位于 `target\sfx\lumark-sfx.exe`；发布脚本会把它复制到
-`target\release` 方便安装器打包：
+生成安装包或自解压功能需要同时构建运行时模块。自解压运行时使用原生 Win32 UI 的常规 release 构建，产物位于 `target\release\lumark-sfx.exe`：
 
 ```powershell
 cargo build --release --locked -p lumark-app
-cargo build --profile sfx --locked -p lumark-sfx
-Copy-Item target\sfx\lumark-sfx.exe target\release\lumark-sfx.exe -Force
+cargo build --release --locked -p lumark-sfx
 ```
 
-`sfx` profile 继承 release，并启用 `opt-level="s"`、fat LTO、`codegen-units=1`、
-`panic="abort"` 和 strip，优先压缩会嵌入每个自解压 EXE 的 stub 体积；主程序
-仍使用常规 release profile。
+`lumark-sfx` 不再依赖 GPUI/DirectX，避免 360 QVM 把带图形运行时的自解压 stub 判为木马；设置/进度窗口由原生 Win32 控件和 GDI 绘制，stub 约 1.6 MiB。主程序仍使用 gpui-kit，只有自解压运行时保持原生。
 
 Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 `lib.exe`/`link.exe` 在系统临时目录创建 `lnk*.tmp` 时被安全软件拦截的 `LNK1104`。
 
@@ -101,7 +96,7 @@ Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 
 
 首次使用开发证书先运行 `./installer/self-sign.ps1`（当前用户级，不需要管理员）。脚本会：
 
-- 编译 `lumark-app`（release）和 `lumark-sfx`（`sfx` 体积优化 profile）；
+- 编译 `lumark-app`（release）和原生 Win32 `lumark-sfx`（release，不链接 GPUI/DirectX）；
 - 清除 MOTW；检测并恢复工作区根目录、`target`/`target\release`/`target\debug`/`dist` 的 Low 完整性（见“打开文件 - 安全警告”章节）；
 - 按需用 `-UseDevCert`、`-SignThumbprint` 或 `-SignPfxPath` 签名；
 - 调用 `installer/pack-installer.ps1` 生成 `dist\Lumark-Setup-<版本>.exe` 和 `.sha256`；
@@ -270,7 +265,8 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 | `lumark-browser` | 文件系统与归档浏览、多选、搜索 |
 | `lumark-settings` | 非敏感设置持久化 |
 | `lumark-ui` | 基于 GPUI Kit 的桌面界面 |
-| `lumark-sfx` | 自解压运行时模块：解析页脚、按需解压并拒绝不安全路径 |
+| `lumark-ui-shared` | 主程序共用的主题、i18n、IconPark/品牌资源、通用控件和进度面板 |
+| `lumark-sfx` | 自解压运行时模块：解析页脚、按需解压并拒绝不安全路径；设置/进度窗口为原生 Win32 控件 |
 | `lumark-app` | 应用入口 |
 | `lumark-platform-windows` | 回收站、经典 Shell 菜单、单实例和 Windows 平台适配 |
 
@@ -285,7 +281,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 - ZOO/HA/HYP/SQ/SQZ/UC2/ICE/PACKICE/TAR.Z 通过现有 `unarc-rs` 统一读取接口接入；这些格式按整条目缓冲读取，因此没有条目内逐块进度和中途取消，预算以“读取前声明大小 + 读取后实际长度”双重检查为准，不把它们描述为对大归档零风险。
 - ZIP 旧方法（Deflate64/Shrink/Reduce/Implode）只读：启用 `zip` 的 `deflate64` 与 `legacy-zip` 特性，不提供这些方法的写入入口。
 - ZPAQ 使用本地 fork 的 `zpaq_rs` 内嵌 libzpaq/JIDAC 参考实现：普通压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；新增的 `ArchiveWriter` 可把无密码或 AES-CTR 加密归档逐条目写入任意流，伪装创建因此不再落完整内层文件。解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此普通压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），暂不支持。
-- 自解压包使用自有运行时模块，支持 ZIP/7Z 和密码、不支持分卷；解压路径的包含性、符号链接和覆盖行为复用归档层的安全校验，不自研第二套路径检查。自定义图标通过 Win32 资源 API 在追加载荷前替换，避免重写已拼接的数据段。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规。
+- 自解压包使用自有运行时模块，支持 ZIP/7Z 和密码、不支持分卷；解压路径的包含性、符号链接和覆盖行为复用归档层的安全校验，不自研第二套路径检查。自定义图标通过 Win32 资源 API 在追加载荷前替换，避免重写已拼接的数据段。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规。交互式自解压窗口曾尝试 GPUI 官方组件，但 360 QVM 会把带 GPUI/DirectX 的 stub 判为木马；当前改为原生 Win32 设置/进度窗口，左侧品牌栏用 GDI 绘制，不把 `lumark-ui`、归档、任务和渲染依赖带入 stub。进度窗口用独立后台线程和 80ms 定时器刷新，取消标记在读写块之间检查。
 - XZ 编解码统一使用纯 Rust `lzma-rust2`（RPM/XAR 解码、TAR/单文件流创建），不再直接依赖 `xz2`；本地 `vendor/xz2` 适配层把本地 `lumark-legacy` 的 XZ/LZMA 调用转到 `lzma-rust2`，SquashFS 的 XZ 后端起用 `liblzma`。`lumark-legacy` 从 GeeZipX 0.7.4 裁剪，只保留实际使用的传统格式读取器，外部 `geezipx-core` 及其重复 ZIP 2/7z 0.21 依赖已移除；WIM 和 AES 容器使用自有标准后端。
 - 伪装容器使用自有格式，不与 Apate 做二进制互通：Apate 为 GPL-3.0，读取或生成其格式需要研究并受其许可约束；Lumark 只借鉴“伪装/一键还原”的功能形态，容器、实现和内置面具均为独立实现。容器固定为“面具 + 混淆载荷 + 512 字节尾部”，尾部保存载荷边界、原文件名、混淆盐和载荷类型，因此还原不依赖面具内容。
 - ZIP/7Z/LZH/TAR 系列/单文件流以及 ZPAQ（含密码）边生成边写入伪装容器；ZPAQ 密码流由写入器生成盐并用 AES-CTR 加密，不再落完整内层归档。
@@ -317,7 +313,8 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 也可以分步执行；`pack-installer.ps1` 只负责暂存、编译和签名，不清理 `target\release` 的 MOTW/Low 完整性标签：
 
 ```powershell
-cargo build --release --locked -p lumark-app -p lumark-sfx
+cargo build --release --locked -p lumark-app
+cargo build --release --locked -p lumark-sfx
 ./installer/pack-installer.ps1 -Version 0.1.0
 ```
 
@@ -376,6 +373,18 @@ icacls "$root\target\release\lumark-app.exe" /setintegritylevel Medium
 `tools/build_release.ps1` 在构建前检测工作区根目录和 `target`/`target\release`/`target\debug`/`dist` 的 Low 标签并恢复为 Medium；目录标签权限不足时，会为当前用户补上仓库根目录的继承完全控制（只影响此工作区），再重试。随后对 release/debug exe、安装器和便携包做 MOTW/Low 检查。这样不会产出仍带 Low 标签的发布物。提升工作区标签会削弱低完整性沙箱的写隔离；如果仍要保留沙箱，请不要在工作区内构建发布产物。
 
 其它机器从网络下载安装包时，Windows 会重新写入 MOTW；接收方可执行 `Unblock-File`，或直接使用安装器（安装后的文件不再带 MOTW）。Tauri 的 NSIS 安装器同样受 MOTW 影响；MSIX 由包部署栈安装，不走 loose exe 的 MOTW 路径。
+
+### 安全软件误报（自解压 EXE）
+
+2026-11-03 的实机对照确认：旧的原生 Win32 自解压 stub 不报毒，而引入 GPUI/DirectX 的新 stub 被 360 以 `HEUR/QVM202...Malware.Gen` 拦截。360 的 QVM 是厂商云端/静态启发式判定，无法通过改代码保证消除；因此自解压运行时已回退为**原生 Win32 界面**（设置窗口参考 360 压缩布局，解压用独立原生进度窗口并支持取消），主程序 `lumark-app` 继续使用 GPUI。当前 stub 不链接 GPUI/DirectX，体积约 1.6 MiB。
+
+如果生成的自解压 EXE 仍被拦截，按以下顺序处理：
+
+1. **确认使用原生运行时**：重新构建或安装 Lumark，确认主程序旁的 `lumark-sfx.exe` 约 1.6 MiB，窗口是原生 Win32 控件；如果仍是 11 MB 左右的 GPUI 版本，说明使用了旧构建产物。
+2. **保持单层 `.exe` 扩展名**：`解码软件.zipx.exe` 这类双扩展名是安全软件的重点启发式特征；应用会把输出名归一化为 `解码软件.exe`。
+3. **加入信任或提交误报**：在安全软件中把生成的 EXE 加入信任/白名单，并通过其“误报反馈”入口提交样本。这是安全厂商的云端判定，代码无法强制解除。
+4. **对外分发时签名最终 EXE**：使用受信任 CA 的代码签名证书签名拼接完成的文件。注意不能只签名 `lumark-sfx.exe` 再追加载荷——实测追加后 Authenticode 状态会变为 `NotSigned`，必须把载荷和页脚写完后对最终文件签名。
+5. **区分载荷自身的检测**：自解压包内的第三方工具可能被单独检出，这类告警与 Lumark stub 无关，需要单独确认来源或加入信任。
 
 ### GitHub Actions 自动构建
 

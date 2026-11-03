@@ -48,7 +48,7 @@ impl LumarkApp {
         self.compress_sfx &= matches!(format, ArchiveFormat::Zip | ArchiveFormat::SevenZip);
         let mut output = output_dir.join(format!("{default_name}.{}", format.extension()));
         if self.compress_sfx {
-            output.set_extension("exe");
+            output = normalize_sfx_output(&output);
         } else if self.compress_disguise {
             let extension = disguise_extension(
                 self.compress_disguise_mask,

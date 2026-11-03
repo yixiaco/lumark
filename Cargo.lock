@@ -5432,8 +5432,6 @@ name = "lumark-sfx"
 version = "0.1.0"
 dependencies = [
  "embed-resource",
- "gpui-kit",
- "lumark-ui-shared",
  "sevenz-rust2 0.24.1",
  "tempfile",
  "windows-sys 0.59.0",

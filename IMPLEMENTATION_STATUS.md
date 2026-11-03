@@ -230,6 +230,7 @@
 - [x] 自解压运行时中英文界面：优先读取 `LUMARK_LANG`，否则按 Windows 用户界面语言选择；目录、密码、覆盖确认、成功/错误提示和按钮提供英文文本。支持 `/LANG=`/`--lang=` 覆盖；主界面完整本地化仍未完成。
 - [x] 自解压图标真实模块测试：以当前测试 EXE 作为运行时模块，替换图标后读取页脚并解压载荷，覆盖 PE 资源改写和偏移重算。
 - [x] 自解压自定义图标：压缩窗口可选择 `.ico`，生成时在追加载荷前用 Win32 资源 API 替换运行时模块的 RT_ICON/RT_GROUP_ICON，页脚偏移按替换后的实际大小计算。
+- [x] 自解压原生交互界面（360 QVM 回退）：用户实机对照确认原生 Win32 stub 不报毒、GPUI/DirectX stub 被 360 判为 `HEUR/QVM...Malware.Gen`，因此 `lumark-sfx` 已移除 GPUI 依赖并回退为原生 Win32 UI；设置窗口按 360 压缩布局（左侧品牌栏、说明、目标目录/浏览、密码、解压/取消），解压窗口显示已用/剩余时间、总长度、速率、已处理、文件数、当前文件和进度条，支持后台/取消；窗口按客户区高度和系统 DPI 布局，修复了旧版底部按钮被标题栏裁掉的问题；`/S` 静默模式不初始化界面，失败返回非零退出码。`lumark-ui-shared` 保留给主程序复用主题/资源/进度面板，不再链接进自解压 stub。
 - [x] CHM 只读格式：使用 `libchm` 解析 ITSF/ITSP、PMGL 目录和 LZX 数据，支持普通命名空间文件/目录列表、选择性解压、预算/取消和完整性测试；已加入 `.chm` Shell 关联。
 - [x] Windows 正式安装器：按 GPUI Kit 官方打包文档新增 `installer/lumark.iss` 和 `installer/pack-installer.ps1`，暂存 app/SFX/许可文本，生成 Inno Setup 安装器和 SHA-256；`PrivilegesRequired=admin`，默认安装到 `C:\Program Files\Lumark`，安装器以启动安装器的原始用户身份注册当前用户经典右键菜单，并支持先签名暂存二进制和最终安装器。已用 Inno Setup 6.7.3 实际编译出 `dist/Lumark-Setup-0.1.0.exe` 并生成校验文件；未签名安装器的静默安装会被 SmartScreen 拦截，正式发布前需签名。
 - [x] Authenticode 代码签名脚本：`installer/sign.ps1` 支持证书存储指纹或 PFX、SHA-256 时间戳、签名后自动 `signtool verify /pa`，以及 `-VerifyOnly` 校验；`pack-installer.ps1` 可先签名暂存二进制和最终安装器，没有证书时明确失败。

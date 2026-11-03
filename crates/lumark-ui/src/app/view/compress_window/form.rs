@@ -94,7 +94,7 @@ impl CompressWindowView {
         let current = PathBuf::from(input_value(&self.output, cx));
         if !current.as_os_str().is_empty() {
             let replacement = if enabled {
-                current.with_extension("exe")
+                normalize_sfx_output(&current)
             } else if self.disguise {
                 replace_disguise_extension(&current, &self.disguise_output_extension())
             } else {
@@ -273,7 +273,8 @@ impl CompressWindowView {
                 .unwrap_or_else(|_| self.format.extension().to_string());
             output = replace_disguise_extension(&output, &extension);
         } else if sfx {
-            output.set_extension("exe");
+            output = normalize_sfx_output(&output);
+            set_input(&self.output, output.to_string_lossy().as_ref(), window, cx);
         }
         let sfx_icon = if sfx {
             if let Some(icon) = &self.sfx_icon
