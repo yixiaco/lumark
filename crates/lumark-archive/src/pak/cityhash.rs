@@ -195,11 +195,7 @@ fn fetch32(data: &[u8], offset: usize) -> u32 {
 }
 
 fn rotate(value: u64, shift: u32) -> u64 {
-    if shift == 0 {
-        value
-    } else {
-        (value >> shift) | (value << (64 - shift))
-    }
+    value.rotate_right(shift)
 }
 
 fn shift_mix(value: u64) -> u64 {
