@@ -114,6 +114,334 @@ pub enum NormalMapConvention {
     Fmodel,
 }
 
+/// Snooper 默认环境（SunActor + EnvironmentActor）。
+///
+/// 原始强度/颜色保留 Snooper 数值；`resolve` 按 `SceneLighting.cs` 的
+/// 1.25 亮度预算折算成着色器使用的太阳强度和天空上下半球色。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SnooperEnvironmentSettings {
+    /// 原始太阳强度（Snooper SunActor 默认 10）。
+    pub sun_intensity: f32,
+    /// 太阳颜色。
+    pub sun_color: [f32; 3],
+    /// 太阳角直径（度）。
+    pub sun_angle_degrees: f32,
+    /// 天空光上半球颜色（未乘强度）。
+    pub sky_upper_color: [f32; 3],
+    /// 天空光下半球颜色（未乘强度）。
+    pub sky_lower_color: [f32; 3],
+    /// 天空光强度（Snooper 默认 1.5）。
+    pub sky_intensity: f32,
+    /// 白天比例；1=白天，0=夜间。
+    pub daylight: f32,
+    /// 太阳/天空共享曝光预算。
+    pub budget: f32,
+}
+
+impl Default for SnooperEnvironmentSettings {
+    fn default() -> Self {
+        Self {
+            sun_intensity: 10.0,
+            sun_color: [1.0, 0.96, 0.90],
+            sun_angle_degrees: 0.5357,
+            sky_upper_color: [0.6, 0.7, 0.8],
+            sky_lower_color: [0.4, 0.35, 0.3],
+            sky_intensity: 1.5,
+            daylight: 1.0,
+            budget: 1.25,
+        }
+    }
+}
+
+/// 解析后的 Snooper 环境。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedSnooperEnvironment {
+    /// 着色器太阳强度。
+    pub sun_intensity: f32,
+    /// 天空上半球环境色。
+    pub sky_upper_color: [f32; 3],
+    /// 天空下半球环境色。
+    pub sky_lower_color: [f32; 3],
+}
+
+impl SnooperEnvironmentSettings {
+    /// 按 Snooper `SceneLighting.cs` 计算阳光/天空共享预算。
+    pub fn resolve(&self) -> ResolvedSnooperEnvironment {
+        const PI: f32 = std::f32::consts::PI;
+        let luminance = |color: [f32; 3]| color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+        let upper = [
+            self.sky_upper_color[0] * self.sky_intensity,
+            self.sky_upper_color[1] * self.sky_intensity,
+            self.sky_upper_color[2] * self.sky_intensity,
+        ];
+        let lower = [
+            self.sky_lower_color[0] * self.sky_intensity,
+            self.sky_lower_color[1] * self.sky_intensity,
+            self.sky_lower_color[2] * self.sky_intensity,
+        ];
+        let daylight = self.daylight.clamp(0.0, 1.0);
+        let from_sky = PI * luminance(upper);
+        let from_sun = if daylight > 0.0 {
+            self.sun_intensity / daylight * luminance(self.sun_color)
+        } else {
+            0.0
+        };
+        let sun_share = if from_sun + from_sky > 0.0 {
+            from_sun / (from_sun + from_sky)
+        } else {
+            1.0
+        };
+        let sun_brightest = self.sun_color[0]
+            .max(self.sun_color[1])
+            .max(self.sun_color[2]);
+        let sun_intensity = if sun_brightest > 0.0 {
+            PI * self.budget * sun_share * daylight / sun_brightest
+        } else {
+            0.0
+        };
+        let sky_brightest = upper[0].max(upper[1]).max(upper[2]);
+        let sky_scale = if sky_brightest > 0.0 {
+            self.budget * (1.0 - sun_share) / sky_brightest
+        } else {
+            0.0
+        };
+        let night_upper = [0.080, 0.100, 0.145];
+        let night_lower = [0.026, 0.030, 0.038];
+        let mix = |night: [f32; 3], day: [f32; 3]| {
+            [
+                night[0] + (day[0] - night[0]) * daylight,
+                night[1] + (day[1] - night[1]) * daylight,
+                night[2] + (day[2] - night[2]) * daylight,
+            ]
+        };
+        ResolvedSnooperEnvironment {
+            sun_intensity,
+            sky_upper_color: mix(
+                night_upper,
+                [
+                    upper[0] * sky_scale,
+                    upper[1] * sky_scale,
+                    upper[2] * sky_scale,
+                ],
+            ),
+            sky_lower_color: mix(
+                night_lower,
+                [
+                    lower[0] * sky_scale,
+                    lower[1] * sky_scale,
+                    lower[2] * sky_scale,
+                ],
+            ),
+        }
+    }
+}
+
+/// 实时阴影设置（Snooper 默认 4 级联 / 2048²）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShadowSettings {
+    pub enabled: bool,
+    pub cascade_count: u32,
+    pub resolution: u32,
+    pub max_distance: f32,
+    pub caster_distance: f32,
+    pub lambda: f32,
+    pub softness: f32,
+    pub normal_offset: f32,
+    pub blend: f32,
+    pub slope_bias: f32,
+    pub constant_bias: f32,
+}
+
+impl Default for ShadowSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            cascade_count: 4,
+            resolution: 2048,
+            max_distance: 150.0,
+            caster_distance: 100.0,
+            lambda: 0.85,
+            softness: 1.0,
+            normal_offset: 1.0,
+            blend: 0.1,
+            slope_bias: 2.0,
+            constant_bias: 1.0,
+        }
+    }
+}
+
+/// SSAO 设置（Snooper 默认半径 1 / 强度 1 / 最大距离 80 / 模糊 2）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SsaoSettings {
+    pub enabled: bool,
+    pub radius: f32,
+    pub intensity: f32,
+    pub max_distance: f32,
+    pub blur_radius: u32,
+    pub downscale: u32,
+}
+
+impl Default for SsaoSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            radius: 1.0,
+            intensity: 1.0,
+            max_distance: 80.0,
+            blur_radius: 2,
+            downscale: 2,
+        }
+    }
+}
+
+/// 程序化天空/大气参数（Snooper 默认地球）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkySettings {
+    pub enabled: bool,
+    pub lut_width: u32,
+    pub lut_height: u32,
+    pub planet_radius: f32,
+    pub atmosphere_height: f32,
+    pub rayleigh_scattering: [f32; 3],
+    pub rayleigh_scale_height: f32,
+    pub mie_scattering: f32,
+    pub mie_absorption: f32,
+    pub mie_scale_height: f32,
+    pub mie_anisotropy: f32,
+    pub ozone_absorption: [f32; 3],
+    pub luminance_factor: [f32; 3],
+}
+
+impl Default for SkySettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            lut_width: 256,
+            lut_height: 128,
+            planet_radius: 6_360_000.0,
+            atmosphere_height: 60_000.0,
+            rayleigh_scattering: [5.802e-6, 13.558e-6, 33.1e-6],
+            rayleigh_scale_height: 8_000.0,
+            mie_scattering: 3.996e-6,
+            mie_absorption: 0.444e-6,
+            mie_scale_height: 1_200.0,
+            mie_anisotropy: 0.9,
+            ozone_absorption: [0.650e-6, 1.881e-6, 0.085e-6],
+            luminance_factor: [1.0, 1.0, 1.0],
+        }
+    }
+}
+
+/// 指数高度雾（Snooper EnvironmentActor 默认）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct FogSettings {
+    pub enabled: bool,
+    pub color: [f32; 3],
+    pub density: f32,
+    pub height_falloff: f32,
+    pub max_opacity: f32,
+    pub start_distance: f32,
+    pub directional_color: [f32; 3],
+    pub directional_exponent: f32,
+    pub directional_start_distance: f32,
+}
+
+impl Default for FogSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            color: [0.447, 0.638, 1.0],
+            density: 0.002,
+            height_falloff: 0.02,
+            max_opacity: 1.0,
+            start_distance: 0.0,
+            directional_color: [0.0; 3],
+            directional_exponent: 4.0,
+            directional_start_distance: 0.0,
+        }
+    }
+}
+
+/// 无限地面/网格外观。
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroundSettings {
+    pub enabled: bool,
+    pub height: f32,
+    pub cell_size: f32,
+    pub lod_step: f32,
+    pub minor_color: [f32; 3],
+    pub major_color: [f32; 3],
+    pub axis_x_color: [f32; 3],
+    pub axis_z_color: [f32; 3],
+    pub checker_a: [f32; 3],
+    pub checker_b: [f32; 3],
+    pub minor_opacity: f32,
+    pub major_opacity: f32,
+    pub fade_start: f32,
+    pub fade_end: f32,
+}
+
+impl Default for GroundSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            height: 0.0,
+            cell_size: 1.0,
+            lod_step: 10.0,
+            minor_color: [0.35, 0.38, 0.42],
+            major_color: [0.55, 0.58, 0.62],
+            axis_x_color: [0.65, 0.32, 0.30],
+            axis_z_color: [0.30, 0.45, 0.65],
+            checker_a: [0.035, 0.04, 0.045],
+            checker_b: [0.055, 0.06, 0.065],
+            minor_opacity: 0.35,
+            major_opacity: 0.55,
+            fade_start: 0.05,
+            fade_end: 0.75,
+        }
+    }
+}
+
+/// Snooper 后处理效果集合；默认关闭，查看器 preset 开启。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SnooperEffects {
+    pub shadows: ShadowSettings,
+    pub ssao: SsaoSettings,
+    pub sky: SkySettings,
+    pub fog: FogSettings,
+    pub ground: GroundSettings,
+    pub fxaa: bool,
+}
+
+impl SnooperEffects {
+    /// 查看器/详情缩略图默认开启全套 Snooper 效果。
+    pub fn enabled() -> Self {
+        Self {
+            shadows: ShadowSettings {
+                enabled: true,
+                ..ShadowSettings::default()
+            },
+            ssao: SsaoSettings {
+                enabled: true,
+                ..SsaoSettings::default()
+            },
+            sky: SkySettings {
+                enabled: true,
+                ..SkySettings::default()
+            },
+            fog: FogSettings {
+                enabled: true,
+                ..FogSettings::default()
+            },
+            ground: GroundSettings {
+                enabled: true,
+                ..GroundSettings::default()
+            },
+            fxaa: true,
+        }
+    }
+}
+
 /// 渲染设置。
 #[derive(Debug, Clone)]
 pub struct RenderSettings {
@@ -153,6 +481,10 @@ pub struct RenderSettings {
     pub sky_upper_color: [f32; 3],
     /// Snooper 天空下半球环境色（线性 RGB，仅 `Snooper` 模式使用）。
     pub sky_lower_color: [f32; 3],
+    /// Snooper 原始环境参数；`snooper_viewer` 会解析成 key/sky 值。
+    pub environment: SnooperEnvironmentSettings,
+    /// Snooper 后处理效果集合（阴影/SSAO/天空/雾/地面/FXAA）。
+    pub snooper: SnooperEffects,
     /// 超采样倍数（1–4）；提高画质并降低锯齿。
     pub supersample: u32,
     /// MSAA 采样数（1 或 4）；仅 GPU 后端使用。
@@ -201,6 +533,8 @@ impl Default for RenderSettings {
             ambient_strength: 0.22,
             sky_upper_color: [0.0; 3],
             sky_lower_color: [0.0; 3],
+            environment: SnooperEnvironmentSettings::default(),
+            snooper: SnooperEffects::default(),
             supersample: 2,
             msaa_samples: 1,
             srgb_textures: true,
@@ -218,22 +552,28 @@ impl Default for RenderSettings {
 }
 
 impl RenderSettings {
-    /// 查看器/详情预览统一的 Snooper 场景光照预设。
+    /// 查看器/详情预览统一的 Snooper 场景预设。
     ///
-    /// 太阳与天空参数参考 Snooper `SunActor`/`EnvironmentActor`；查看器没有
-    /// 阴影/SSAO/天空盒，因此使用较低的曝光，材质 AO 近似 SSAO。
+    /// 环境来自 Snooper `SunActor`/`EnvironmentActor`，太阳/天空强度按
+    /// `SceneLighting.cs` 的共享曝光预算解析；全效果默认开启。
     pub fn snooper_viewer(width: u32, height: u32) -> Self {
+        let environment = SnooperEnvironmentSettings::default();
+        let resolved = environment.resolve();
         Self {
             width,
             height,
             background: [0.12, 0.24, 0.42],
             yaw_degrees: 35.0,
             pitch_degrees: 25.0,
-            key_direction: [0.35, 0.30, 0.887],
-            key_color: [1.0, 0.82, 0.64],
-            key_intensity: 0.9,
-            sky_upper_color: [0.16, 0.18, 0.22],
-            sky_lower_color: [0.08, 0.06, 0.05],
+            // Snooper 默认 SunActor 方向（UE Z-up，指向太阳）。
+            key_direction: [0.766_044_4, 0.642_787_6, 0.0],
+            key_color: environment.sun_color,
+            key_intensity: resolved.sun_intensity,
+            sky_upper_color: resolved.sky_upper_color,
+            sky_lower_color: resolved.sky_lower_color,
+            environment,
+            snooper: SnooperEffects::enabled(),
+            logical_height: 600,
             supersample: 1,
             msaa_samples: 1,
             srgb_textures: true,
@@ -525,6 +865,18 @@ mod tests {
         assert_eq!(target.pixel(1, 0), None);
     }
 
+    /// Snooper 默认环境按共享预算解析出约 2.94 太阳强度与天空上下色。
+    #[test]
+    fn snooper_default_environment_matches_snooper_budget() {
+        let resolved = SnooperEnvironmentSettings::default().resolve();
+        assert!((resolved.sun_intensity - 2.941).abs() < 0.05);
+        assert!((resolved.sky_upper_color[0] - 0.235).abs() < 0.01);
+        assert!((resolved.sky_upper_color[1] - 0.275).abs() < 0.01);
+        assert!((resolved.sky_upper_color[2] - 0.314).abs() < 0.01);
+        assert!((resolved.sky_lower_color[0] - 0.157).abs() < 0.01);
+        assert!((resolved.sky_lower_color[1] - 0.137).abs() < 0.01);
+        assert!((resolved.sky_lower_color[2] - 0.118).abs() < 0.01);
+    }
     /// 查看器与详情缩略图共享 Snooper 光照/背景预设。
     #[test]
     fn snooper_viewer_preset_is_shared_by_viewer_and_details() {
@@ -534,9 +886,11 @@ mod tests {
         assert_eq!(settings.lighting_mode, LightingMode::Snooper);
         assert_eq!(settings.normal_map_convention, NormalMapConvention::Fmodel);
         assert_eq!(settings.background, [0.12, 0.24, 0.42]);
-        assert_eq!(settings.sky_upper_color, [0.16, 0.18, 0.22]);
-        assert_eq!(settings.sky_lower_color, [0.08, 0.06, 0.05]);
-        assert_eq!(settings.key_intensity, 0.9);
+        let resolved = settings.environment.resolve();
+        assert_eq!(settings.key_intensity, resolved.sun_intensity);
+        assert_eq!(settings.sky_upper_color, resolved.sky_upper_color);
+        assert_eq!(settings.sky_lower_color, resolved.sky_lower_color);
+        assert_eq!(settings.snooper, SnooperEffects::enabled());
         assert!(settings.show_grid);
     }
 }

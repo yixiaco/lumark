@@ -43,3 +43,17 @@
 - `cargo test -p lumark-legacy --lib -j 2 -- --test-threads=2`：51 passed。
 - `cargo test -p lumark-archive --test zpaq --no-run -j 2`：编译通过（删除大文件用例后；按用户要求未跑完整 archive 套件）。
 - 完整 workspace 套件按用户要求暂停，不再重跑；release 构建同样未在低资源窗口执行。
+## 2026-11-04 Snooper 全效果（P0/S-1）
+
+- [x] P0-1 质量切换不跳：`fit_bounds` 固定为全部 LOD 并集；`logical_height=600` 让 pan 不随内部渲染分辨率变化；低/高分辨率相机矩阵一致性测试通过。
+- [x] P0-2 空白模型：默认隐藏规则会隐藏全部 section 时自动全显并提示；无材质 StaticMesh 测试通过。
+- [x] P0-3 预览一致：预览缓存 key 加入 `SNOOPER_PRESET_VERSION`；查看器/缩略图共享 `snooper_viewer`。
+- [x] S-1 环境/API：新增 `SnooperEnvironmentSettings`/`SnooperEffects`/`ShadowSettings`/`SsaoSettings`/`SkySettings`/`FogSettings`/`GroundSettings`；`snooper_viewer` 按 Snooper 共享预算解析太阳/天空色，全效果默认开启（渲染器暂未消费）。
+- [ ] S-2…S-9：见 `docs/snooper-renderer.md`；下一步实现 GPU G-buffer/阴影/SSAO/天空/雾/地面。
+
+### 本轮验收
+
+- `cargo test -p lumark-render --lib -j 2 -- --test-threads=2`：51 passed。
+- `cargo test -p lumark-ui --lib app::view::asset_viewer_window::tests:: -j 2 -- --test-threads=2`：26 passed。
+- `cargo fmt --all -- --check`、受影响包 clippy：通过。
+- BNB 实机用例通过；效果尚未接入渲染器，截图仍为近似 Snooper 光照。
