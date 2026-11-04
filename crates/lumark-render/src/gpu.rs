@@ -1908,6 +1908,33 @@ mod tests {
         assert_eq!(output[3], 255);
         assert_ne!(output, rgba, "边缘应被混合");
     }
+    /// snooper_extra 节点必须跳过模型的 section/material 隐藏过滤。
+    #[test]
+    fn snooper_extra_nodes_bypass_hidden_filters() {
+        let mut scene = Scene::new("ground");
+        let mesh = scene.add_mesh(lumark_scene::MeshData::new(
+            "ground",
+            vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+            vec![0, 1, 2],
+        ));
+        let material = scene.add_material(MaterialData::default());
+        let mut settings = RenderSettings::snooper_viewer(64, 64);
+        settings.hidden_sections = vec![0];
+        settings.hidden_material_slots = vec![0];
+        scene.add_node(lumark_scene::SceneNode {
+            name: "ground".to_string(),
+            parent: None,
+            transform: lumark_scene::Transform::default(),
+            mesh: Some(mesh),
+            materials: vec![Some(material)],
+            visible: true,
+            kind: lumark_scene::NodeKind::StaticMesh,
+            metadata: vec![("snooper_extra".to_string(), "true".to_string())],
+        });
+        assert_eq!(build_batches(&scene, &settings).len(), 1);
+        scene.nodes[0].metadata.clear();
+        assert!(build_batches(&scene, &settings).is_empty());
+    }
     /// 相机 uniform 必须携带雾颜色/密度，且长度与 shader 结构一致。
     #[test]
     fn camera_uniform_includes_fog_settings() {
