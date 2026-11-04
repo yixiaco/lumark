@@ -209,6 +209,35 @@ impl Default for RenderSettings {
     }
 }
 
+impl RenderSettings {
+    /// 查看器/详情预览统一的 Snooper 场景光照预设。
+    ///
+    /// 太阳与天空参数参考 Snooper `SunActor`/`EnvironmentActor`；查看器没有
+    /// 阴影/SSAO/天空盒，因此使用较低的曝光，材质 AO 近似 SSAO。
+    pub fn snooper_viewer(width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            background: [0.12, 0.24, 0.42],
+            yaw_degrees: 35.0,
+            pitch_degrees: 25.0,
+            key_direction: [0.35, 0.30, 0.887],
+            key_color: [1.0, 0.82, 0.64],
+            key_intensity: 0.9,
+            sky_upper_color: [0.16, 0.18, 0.22],
+            sky_lower_color: [0.08, 0.06, 0.05],
+            supersample: 1,
+            msaa_samples: 1,
+            srgb_textures: true,
+            vertex_colors: false,
+            lighting_mode: LightingMode::Snooper,
+            normal_map_convention: NormalMapConvention::Fmodel,
+            show_grid: true,
+            ..Self::default()
+        }
+    }
+}
+
 /// 渲染错误。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderError {
@@ -486,5 +515,20 @@ mod tests {
         assert_eq!(target.to_bgra(), vec![30, 20, 10, 40]);
         assert_eq!(target.pixel(0, 0), Some([10, 20, 30, 40]));
         assert_eq!(target.pixel(1, 0), None);
+    }
+
+    /// 查看器与详情缩略图共享 Snooper 光照/背景预设。
+    #[test]
+    fn snooper_viewer_preset_is_shared_by_viewer_and_details() {
+        let settings = RenderSettings::snooper_viewer(480, 360);
+        assert_eq!(settings.width, 480);
+        assert_eq!(settings.height, 360);
+        assert_eq!(settings.lighting_mode, LightingMode::Snooper);
+        assert_eq!(settings.normal_map_convention, NormalMapConvention::Fmodel);
+        assert_eq!(settings.background, [0.12, 0.24, 0.42]);
+        assert_eq!(settings.sky_upper_color, [0.16, 0.18, 0.22]);
+        assert_eq!(settings.sky_lower_color, [0.08, 0.06, 0.05]);
+        assert_eq!(settings.key_intensity, 0.9);
+        assert!(settings.show_grid);
     }
 }

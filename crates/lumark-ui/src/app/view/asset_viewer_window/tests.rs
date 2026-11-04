@@ -787,6 +787,34 @@ fn viewer_shading_grid_and_sections_render() {
     assert_ne!(hidden, unlit, "隐藏 section 应改变图像");
 }
 
+/// 拖拽帧使用 0.75 分辨率，静止帧恢复 900×600。
+#[test]
+fn dragging_snapshot_uses_reduced_resolution() {
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let view = AssetViewerWindowView::new(
+        "SM_Drag".to_string(),
+        ViewerScene::Mesh {
+            materials: no_materials(),
+            lods: vec![mesh],
+        },
+    );
+    let dragging = view.snapshot(super::render::RenderQuality::Dragging);
+    assert_eq!((dragging.width, dragging.height), (675, 450));
+    let settled = view.snapshot(super::render::RenderQuality::Settled);
+    assert_eq!(
+        (settled.width, settled.height),
+        (super::render::VIEWER_WIDTH, super::render::VIEWER_HEIGHT)
+    );
+}
 /// 轨道拖拽方向与 FModel 一致：向右拖拽减小 yaw，向下拖拽抬高相机。
 #[test]
 fn orbit_drag_matches_fmodel_direction() {
@@ -1045,6 +1073,14 @@ fn renders_real_nana_f6_2_viewer_frame_when_available() {
         "N_Eye 基础色应为 eyeBro：{:?}",
         eye_appearance.textures
     );
+    assert!(
+        eye_appearance.sclera.as_ref().is_some_and(|texture| {
+            texture.name.eq_ignore_ascii_case("EyeW")
+                || texture.name.to_ascii_lowercase().contains("sclera")
+        }),
+        "N_Eye 应选中巩膜贴图：{:?}",
+        eye_appearance.sclera
+    );
     let skin_appearance = materials_for_assert[skin]
         .appearance
         .as_ref()
@@ -1088,6 +1124,18 @@ fn renders_real_nana_f6_2_viewer_frame_when_available() {
                 image::ColorType::Rgba8,
             )
             .expect("写出眼睛基础色贴图");
+        }
+        if let Some(viewer) = materials_for_assert[eye].viewer.as_ref()
+            && let Some(texture) = viewer.sclera.as_ref()
+        {
+            image::save_buffer(
+                directory.join("viewer-nana-sclera.png"),
+                &texture.rgba,
+                texture.width,
+                texture.height,
+                image::ColorType::Rgba8,
+            )
+            .expect("写出巩膜贴图");
         }
         if let Some(viewer) = materials_for_assert[skin].viewer.as_ref()
             && let Some(texture) = viewer.base_color.as_ref()

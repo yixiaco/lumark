@@ -22,8 +22,8 @@ use crate::material_params::{
     AO_BOOST_TRIGGERS, AO_TRIGGERS, DIFFUSE_COLOR_TRIGGERS, DIFFUSE_TRIGGERS,
     EMISSIVE_COLOR_TRIGGERS, EMISSIVE_MULT_COLOR_TRIGGERS, EMISSIVE_MULT_TRIGGERS,
     EMISSIVE_TRIGGERS, NORMAL_TRIGGERS, ROUGHNESS_MAX_TRIGGERS, ROUGHNESS_MIN_TRIGGERS,
-    ROUGHNESS_TRIGGERS, SPECULAR_SCALAR_TRIGGERS, SPECULAR_TRIGGERS, matches_diffuse,
-    matches_emissive, matches_normals, matches_specular_masks,
+    ROUGHNESS_TRIGGERS, SCLERA_TRIGGERS, SPECULAR_SCALAR_TRIGGERS, SPECULAR_TRIGGERS,
+    matches_diffuse, matches_emissive, matches_normals, matches_specular_masks,
 };
 use crate::package::{
     Mappings, MaterialAppearance, MaterialTextureKind, MaterialTextureRef, MaterialViewerImage,
@@ -348,6 +348,11 @@ fn apply_chain_selection(appearance: &mut MaterialAppearance, chain: &ChainParam
         appearance.ao_boost_color = [boost[0], boost[1], boost[2]];
         appearance.ao_boost_exponent = boost[3];
         appearance.has_ao_boost = true;
+    }
+    if appearance.sclera.is_none()
+        && let Some(texture) = select_texture(chain, SCLERA_TRIGGERS, matches_none, false)
+    {
+        appearance.sclera = Some(texture_ref(texture, MaterialTextureKind::BaseColor));
     }
     appearance.textures = textures;
 }

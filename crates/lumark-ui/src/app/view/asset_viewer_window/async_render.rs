@@ -17,7 +17,7 @@ impl AssetViewerWindowView {
         let should_start = self.frame_pump.request();
         self.sync_rendering();
         if should_start {
-            self.start_render(cx, RenderQuality::Interactive);
+            self.start_render(cx, RenderQuality::Dragging);
         }
     }
 
@@ -65,7 +65,7 @@ impl AssetViewerWindowView {
             Err(error) => self.error = Some(error),
         }
         if has_pending {
-            self.start_render(cx, RenderQuality::Interactive);
+            self.start_render(cx, RenderQuality::Dragging);
         } else if self.frame_pump.wants_settled() {
             self.schedule_settled(cx);
         }

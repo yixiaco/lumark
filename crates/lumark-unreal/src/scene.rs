@@ -353,6 +353,10 @@ pub fn scene_material(
             .base_color
             .as_ref()
             .map(|image| texture_data(name, "BaseColor", image));
+        textures.sclera = viewer
+            .sclera
+            .as_ref()
+            .map(|image| texture_data(name, "Sclera", image));
         textures.normal = viewer
             .normal
             .as_ref()

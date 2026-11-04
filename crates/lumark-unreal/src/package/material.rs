@@ -70,6 +70,8 @@ pub struct MaterialAppearance {
     pub blend_mode: String,
     /// 引用的贴图。
     pub textures: Vec<MaterialTextureRef>,
+    /// 眼睛材质的巩膜贴图（`ScleraColor`/`EyeW`），仅 `N_Eye` 等折射眼睛使用。
+    pub sclera: Option<MaterialTextureRef>,
     /// 是否双面（UE `TwoSided`）；材质实例继承父材质设置。
     pub two_sided: bool,
     /// 是否使用 alpha 裁剪（`BlendMode` 为 Masked）。
@@ -97,6 +99,7 @@ impl Default for MaterialAppearance {
             shading_model: String::new(),
             blend_mode: String::new(),
             textures: Vec::new(),
+            sclera: None,
             two_sided: false,
             masked: false,
             translucent: false,
@@ -166,6 +169,9 @@ impl MaterialAppearance {
             {
                 self.textures.push(texture.clone());
             }
+        }
+        if self.sclera.is_none() {
+            self.sclera = parent.sclera.clone();
         }
     }
 }
@@ -856,6 +862,8 @@ pub struct MaterialViewerData {
     pub metallic_roughness: Option<MaterialViewerImage>,
     /// 环境光遮蔽贴图。
     pub occlusion: Option<MaterialViewerImage>,
+    /// 眼睛巩膜贴图。
+    pub sclera: Option<MaterialViewerImage>,
     /// 自发光贴图。
     pub emissive: Option<MaterialViewerImage>,
     /// 贴图名称与解码尺寸，供查看器面板展示。

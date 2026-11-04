@@ -598,11 +598,17 @@ impl GpuRenderer {
             .occlusion
             .as_ref()
             .and_then(|texture| self.upload_texture(texture, false));
+        let sclera_upload = material
+            .textures
+            .sclera
+            .as_ref()
+            .and_then(|texture| self.upload_texture(texture, settings.srgb_textures));
         let base_view = base_upload.as_ref().unwrap_or(&self.white_view);
         let normal_view = normal_upload.as_ref().unwrap_or(&self.flat_normal_view);
         let orm_view = orm_upload.as_ref().unwrap_or(&self.white_view);
         let emissive_view = emissive_upload.as_ref().unwrap_or(&self.white_view);
         let ao_view = ao_upload.as_ref().unwrap_or(&self.white_view);
+        let sclera_view = sclera_upload.as_ref().unwrap_or(&self.white_view);
         let skin_data = skin_bytes(&batch.skin_matrices);
         let skin_buffer = self.create_buffer(
             "lumark-skin",
@@ -645,6 +651,10 @@ impl GpuRenderer {
                 wgpu::BindGroupEntry {
                     binding: 7,
                     resource: wgpu::BindingResource::TextureView(ao_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(sclera_view),
                 },
             ],
         });
@@ -866,6 +876,16 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 7,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 8,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -1641,8 +1661,17 @@ fn material_uniform(material: &MaterialData) -> Vec<u8> {
         material.ao_boost_color[2],
         material.ao_boost_exponent.max(0.0),
     ]);
-    // Snooper 高光强度标量。
-    values.extend_from_slice(&[material.specular.clamp(0.0, 1.0), 0.0, 0.0, 0.0]);
+    // Snooper 高光强度标量；y = 是否有巩膜贴图。
+    values.extend_from_slice(&[
+        material.specular.clamp(0.0, 1.0),
+        if material.textures.sclera.is_some() {
+            1.0
+        } else {
+            0.0
+        },
+        0.0,
+        0.0,
+    ]);
     f32_bytes(&values)
 }
 

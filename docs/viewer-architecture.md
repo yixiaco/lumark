@@ -189,9 +189,14 @@ World Actor → StaticMeshComponent → 跨包 StaticMesh；新增 `package_path
 - 右键拖拽屏幕平移：`pan_pixels` 累加，`Camera::fit` 按 `2*distance*tan(fov/2)/height` 换算世界偏移，
   场景跟手移动；`F`/“重置视角”同时清零平移；
 - 轨道相机 `distance_scale = 1.05 / zoom`，取景包围盒用 `render_bounds`；
+- 拖动帧使用 `RenderQuality::Dragging`：太阳/天空/材质与静止帧一致，离屏尺寸降到
+  0.75×（900×600 → 675×450）；静止后补 SS=2 + 4×MSAA 的 900×600 帧，兼顾跟手与质量；
+- 详情面板缩略图与查看器共用 `RenderSettings::snooper_viewer` 光照/背景/太阳/天空常量，
+  避免“预览暗、查看器亮”的不一致；缩略图仅隐藏地面网格；
 - 右侧检查器可拖拽调宽（默认 320px，范围 260–640px），标签为“概要 / 材质 / 骨骼”；
 - “材质”页列出 section（含显隐、默认隐藏标记）与选中材质详情：blend/shading、双面、基础色 tint、
-  金属度、粗糙度区间、自发光倍率、AO 增强、贴图名称/用途/尺寸、已加载资源与 warnings；
+  高光强度、金属度、粗糙度区间、自发光倍率、AO 增强、贴图名称/用途/尺寸、已加载资源与 warnings；
+- 折射眼睛材质额外加载 `ScleraColor`（EyeW），在虹膜半径内混合 `eyeBro`，半径外用巩膜；
 - 默认可见性对齐 FModel `Section.SetupMaterial`：材质缺失/无贴图或半透明 section 默认隐藏，
   顶部提供“全部显示 / FModel 默认”；
 - “属性 JSON”由预览链路生成（导出表 + 属性树，4 MB/64 导出上限），打开独立只读窗口，
@@ -216,7 +221,7 @@ World Actor → StaticMeshComponent → 跨包 StaticMesh；新增 `package_path
 
 ## 测试与基线
 
-- `lumark-render` 单元测试：**47 个**（CPU：相机裁剪/像素平移/z-buffer/PBR/ORM 两种布局/FModel spec+AO/自发光/alpha/半透明混合/双面/
+- `lumark-render` 单元测试：**48 个**（CPU：相机裁剪/像素平移/z-buffer/PBR/ORM 两种布局/FModel spec+AO/自发光/alpha/半透明混合/双面/
   蒙皮/着色模式/网格与隐藏槽/场景统计/线框/头灯背面可见/两种法线约定/全顶点包围盒/默认 Studio 不回归；
   GPU：三角形/贴图/ORM/自发光/双面/蒙皮/着色模式/网格/两节点实例化/4×MSAA/sRGB/背景渐变/线框/
   头灯背面/ORM 布局/AO/半透明混合，无 GPU 自动跳过）。

@@ -19,13 +19,18 @@
 - [x] 查看器默认切到 `Snooper + Fmodel`：太阳/天空常量按 Snooper `SunActor`/`EnvironmentActor` 参考并针对无阴影/无天空盒的查看器调整曝光；背景改为天空蓝。
 - [x] 测试：`snooper_lighting_uses_sky_ambient_and_sun`、`snooper_specular_scalar_changes_highlight`、`snooper_frame_uses_gamma_only_encoding`、`wgsl_shader_parses_and_validates`；BNB `NanaF6_2` 实机出新图 `artifacts/viewer-nana-f6-2-fmodel.png`，另导出皮肤基础色 `artifacts/viewer-nana-skin-base.png`。
 
+- [x] 预览一致性：详情缩略图改用 `RenderSettings::snooper_viewer`，与查看器共享太阳/天空/背景；
+  仅隐藏地面网格。查看器拖拽帧使用 0.75× 分辨率，静止后恢复 900×600 + SS2/MSAA4。
+- [x] 眼睛：加载 `ScleraColor`/`EyeW` 并新增 `MaterialTextures.sclera`；视口/着色器在虹膜半径内混合
+  `eyeBro`，半径外使用巩膜；`N_Eye` 断言已选中巩膜。
+
 ### Snooper 验收
 
 - `cargo fmt --all -- --check`：通过。
 - `cargo clippy -p lumark-render -p lumark-unreal -p lumark-ui -j 2 --all-targets -- -D warnings`：通过。
-- `cargo test -p lumark-render --lib -j 2 -- --test-threads=2`：47 passed（含 `wgsl_shader_parses_and_validates`）。
+- `cargo test -p lumark-render --lib -j 2 -- --test-threads=2`：48 passed（含 `wgsl_shader_parses_and_validates`）。
 - `cargo test -p lumark-unreal --lib -j 2 -- --test-threads=2`：88 passed。
-- `cargo test -p lumark-ui --lib app::view::asset_viewer_window::tests:: -j 2 -- --test-threads=2`：24 passed；BNB 实机用例定向通过。
+- `cargo test -p lumark-ui --lib app::view::asset_viewer_window::tests:: -j 2 -- --test-threads=2`：25 passed；BNB 实机用例定向通过。
 - 按用户资源限制，完整 workspace/UI 套件未重跑，只跑受影响包与查看器定向用例。
 
 ## 验收（按用户资源限制：最多 2 线程、只跑受影响包）

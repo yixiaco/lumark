@@ -177,16 +177,10 @@ fn save_scene_thumbnail(
     scene: &lumark_scene::Scene,
     output: &std::path::Path,
 ) -> Result<String, String> {
-    let settings = lumark_render::RenderSettings {
-        width: 480,
-        height: 360,
-        supersample: 2,
-        yaw_degrees: 35.0,
-        pitch_degrees: 25.0,
-        lighting_mode: lumark_render::LightingMode::Headlight,
-        normal_map_convention: lumark_render::NormalMapConvention::Fmodel,
-        ..Default::default()
-    };
+    let mut settings = lumark_render::RenderSettings::snooper_viewer(480, 360);
+    settings.supersample = 2;
+    // 详情缩略图保持干净，不画地面网格；光照/背景与查看器一致。
+    settings.show_grid = false;
     let service = crate::render_service::render_service();
     let target = service.render_target(scene, &settings)?;
     let image = image::RgbaImage::from_raw(target.width, target.height, target.rgba)

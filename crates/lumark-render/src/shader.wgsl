@@ -47,6 +47,7 @@ struct Material {
 @group(1) @binding(5) var emissive_texture: texture_2d<f32>;
 @group(1) @binding(6) var<storage, read> joint_matrices: array<mat4x4<f32>>;
 @group(1) @binding(7) var ao_texture: texture_2d<f32>;
+@group(1) @binding(8) var sclera_texture: texture_2d<f32>;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -324,8 +325,17 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     var base = material.base_color.rgb;
     var alpha = material.base_color.a * tint.a;
     if (material.params.z > 0.5) {
-        let sampled = textureSample(base_texture, tex_sampler, in.uv);
-        base = base * sampled.rgb;
+        var sampled = textureSample(base_texture, tex_sampler, in.uv);
+        var sampled_rgb = sampled.rgb;
+        if (material.extra3.y > 0.5) {
+            // 折射眼睛：eyeBro 是虹膜，黑色底不是巩膜；在虹膜半径内混合，
+            // 半径外使用 ScleraColor(EyeW) 的白色巩膜。
+            let sclera = textureSample(sclera_texture, tex_sampler, in.uv).rgb;
+            let distance_to_center = distance(in.uv, vec2<f32>(0.5, 0.5));
+            let iris_mask = 1.0 - smoothstep(0.28, 0.34, distance_to_center);
+            sampled_rgb = mix(sclera, sampled_rgb, iris_mask);
+        }
+        base = base * sampled_rgb;
         alpha = alpha * sampled.a;
     }
     base = base * tint.rgb;

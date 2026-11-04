@@ -27,9 +27,12 @@ const MATERIAL_BALL_SIZE: u32 = 600;
 
 /// 渲染画质档位：交互时便宜，静止后补一帧精细画面。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Interactive 仅测试路径使用
 pub(super) enum RenderQuality {
-    /// 交互帧：SS=1、无 MSAA，保证拖拽跟手。
+    /// 交互帧：SS=1、无 MSAA。
     Interactive,
+    /// 拖拽帧：在 Interactive 基础上再降到 0.75 分辨率；静止后补全分辨率。
+    Dragging,
     /// 静止帧：SS=2 + 4×MSAA。
     Settled,
 }
@@ -38,7 +41,7 @@ impl RenderQuality {
     /// 该档位的超采样倍数。
     fn supersample(self) -> u32 {
         match self {
-            Self::Interactive => 1,
+            Self::Interactive | Self::Dragging => 1,
             Self::Settled => 2,
         }
     }
@@ -46,7 +49,7 @@ impl RenderQuality {
     /// 该档位的 MSAA 采样数。
     fn msaa_samples(self) -> u32 {
         match self {
-            Self::Interactive => 1,
+            Self::Interactive | Self::Dragging => 1,
             Self::Settled => 4,
         }
     }
@@ -90,6 +93,9 @@ pub(super) struct RenderSnapshot {
     pub(super) hidden_sections: Vec<bool>,
     /// 画质档位。
     pub(super) quality: RenderQuality,
+    /// 实际离屏渲染宽高。
+    pub(super) width: u32,
+    pub(super) height: u32,
 }
 
 /// 一帧渲染结果。
@@ -105,6 +111,13 @@ pub(super) struct ViewerFrame {
 impl AssetViewerWindowView {
     /// 收集当前视角的只读快照（UI 线程开销只有 Arc/小数组复制）。
     pub(super) fn snapshot(&self, quality: RenderQuality) -> RenderSnapshot {
+        let scale = if quality == RenderQuality::Dragging {
+            0.75
+        } else {
+            1.0
+        };
+        let width = ((VIEWER_WIDTH as f32 * scale).round() as u32).max(16);
+        let height = ((VIEWER_HEIGHT as f32 * scale).round() as u32).max(16);
         RenderSnapshot {
             scene: self.scene.clone(),
             name: self.name.clone(),
@@ -124,6 +137,8 @@ impl AssetViewerWindowView {
             vertex_colors: self.vertex_colors,
             hidden_sections: self.hidden_sections.clone(),
             quality,
+            width,
+            height,
         }
     }
 
@@ -157,13 +172,13 @@ pub(super) fn render_snapshot(snapshot: &RenderSnapshot) -> Result<ViewerFrame, 
         ViewerScene::Skeleton(skeleton) => {
             let rgba = lumark_unreal::render_skeleton_orbit(
                 skeleton,
-                VIEWER_WIDTH,
-                VIEWER_HEIGHT,
+                snapshot.width,
+                snapshot.height,
                 snapshot.yaw,
                 snapshot.pitch,
                 snapshot.zoom,
             );
-            frame_from_rgba(rgba)
+            frame_from_rgba(rgba, snapshot.width, snapshot.height)
         }
         ViewerScene::Material { viewer } => {
             let orm_layout = viewer
@@ -217,10 +232,10 @@ pub(super) fn render_snapshot(snapshot: &RenderSnapshot) -> Result<ViewerFrame, 
             let rgba = compose_square_canvas(
                 &ball,
                 MATERIAL_BALL_SIZE,
-                VIEWER_WIDTH as usize,
-                VIEWER_HEIGHT as usize,
+                snapshot.width as usize,
+                snapshot.height as usize,
             );
-            frame_from_rgba(rgba)
+            frame_from_rgba(rgba, snapshot.width, snapshot.height)
         }
         _ => {
             let scene = build_scene(snapshot)
@@ -356,49 +371,34 @@ fn skeletal_scene(
     scene
 }
 
-/// 由快照生成渲染设置：查看器使用 Headlight + FModel 约定，交互/静止两档画质。
+/// 由快照生成渲染设置：查看器与详情预览共用 Snooper 光照预设。
 fn viewer_settings(snapshot: &RenderSnapshot) -> RenderSettings {
-    RenderSettings {
-        width: VIEWER_WIDTH,
-        height: VIEWER_HEIGHT,
-        supersample: snapshot.quality.supersample(),
-        msaa_samples: snapshot.quality.msaa_samples(),
-        srgb_textures: snapshot.srgb_textures,
-        wireframe: snapshot.wireframe,
-        background: [0.12, 0.24, 0.42],
-        yaw_degrees: snapshot.yaw,
-        pitch_degrees: snapshot.pitch,
-        pan_pixels: snapshot.pan,
-        distance_scale: (1.05 / snapshot.zoom).clamp(0.12, 12.0),
-        shading: snapshot.shading,
-        // Snooper 默认场景：SunActor(10, (1.0,0.96,0.90), yaw140/pitch37) +
-        // EnvironmentActor SkyLight((0.6,0.7,0.8)*1.5, lower (0.4,0.35,0.3)*1.5)。
-        // 查看器没有阴影/SSAO/天空盒，按当前取景把太阳与天空压到可读的曝光；
-        // 材质 AO 用于近似 SSAO。
-        lighting_mode: LightingMode::Snooper,
-        normal_map_convention: NormalMapConvention::Fmodel,
-        key_direction: [0.35, 0.30, 0.887],
-        key_color: [1.0, 0.96, 0.90],
-        key_intensity: 1.0,
-        sky_upper_color: [0.16, 0.19, 0.24],
-        sky_lower_color: [0.07, 0.06, 0.05],
-        // FModel 默认不把顶点色乘到基础色；查看器可在工具栏打开。
-        vertex_colors: snapshot.vertex_colors,
-        show_grid: snapshot.show_grid,
-        show_bones: snapshot.show_bones,
-        hidden_sections: snapshot
-            .hidden_sections
-            .iter()
-            .enumerate()
-            .filter_map(|(index, hidden)| hidden.then_some(index))
-            .collect(),
-        ..RenderSettings::default()
-    }
+    let mut settings = RenderSettings::snooper_viewer(snapshot.width, snapshot.height);
+    settings.supersample = snapshot.quality.supersample();
+    settings.msaa_samples = snapshot.quality.msaa_samples();
+    settings.srgb_textures = snapshot.srgb_textures;
+    settings.wireframe = snapshot.wireframe;
+    settings.yaw_degrees = snapshot.yaw;
+    settings.pitch_degrees = snapshot.pitch;
+    settings.pan_pixels = snapshot.pan;
+    settings.distance_scale = (1.05 / snapshot.zoom).clamp(0.12, 12.0);
+    settings.shading = snapshot.shading;
+    // FModel 默认不把顶点色乘到基础色；查看器可在工具栏打开。
+    settings.vertex_colors = snapshot.vertex_colors;
+    settings.show_grid = snapshot.show_grid;
+    settings.show_bones = snapshot.show_bones;
+    settings.hidden_sections = snapshot
+        .hidden_sections
+        .iter()
+        .enumerate()
+        .filter_map(|(index, hidden)| hidden.then_some(index))
+        .collect();
+    settings
 }
 
 /// RGBA 画布 → 可显示的帧。
-fn frame_from_rgba(rgba: Vec<u8>) -> Result<ViewerFrame, String> {
-    let target = lumark_render::RenderTarget::new(VIEWER_WIDTH, VIEWER_HEIGHT, rgba)
+fn frame_from_rgba(rgba: Vec<u8>, width: u32, height: u32) -> Result<ViewerFrame, String> {
+    let target = lumark_render::RenderTarget::new(width, height, rgba)
         .ok_or_else(|| tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string())?;
     let image = render_target_to_image(&target)
         .ok_or_else(|| tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string())?;

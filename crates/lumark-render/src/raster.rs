@@ -679,10 +679,23 @@ fn shade(
     ];
     if let Some(texture) = material.textures.base_color.as_ref() {
         let sampled = sample_texture(texture, surface.uv);
+        let mut iris = [sampled[0], sampled[1], sampled[2]];
+        if let Some(sclera) = material.textures.sclera.as_ref() {
+            // 折射眼睛：eyeBro 是虹膜，黑色底不是巩膜；只在虹膜半径内使用
+            // 虹膜贴图，半径外使用 ScleraColor 的白色巩膜。
+            let sclera = sample_texture(sclera, surface.uv);
+            let dx = surface.uv[0] - 0.5;
+            let dy = surface.uv[1] - 0.5;
+            let distance = (dx * dx + dy * dy).sqrt();
+            let mask = 1.0 - smoothstep(0.28, 0.34, distance);
+            for channel in 0..3 {
+                iris[channel] = sclera[channel] + (iris[channel] - sclera[channel]) * mask;
+            }
+        }
         base = [
-            base[0] * srgb_to_linear(sampled[0]),
-            base[1] * srgb_to_linear(sampled[1]),
-            base[2] * srgb_to_linear(sampled[2]),
+            base[0] * srgb_to_linear(iris[0]),
+            base[1] * srgb_to_linear(iris[1]),
+            base[2] * srgb_to_linear(iris[2]),
         ];
         alpha *= sampled[3];
     }
@@ -1064,6 +1077,11 @@ fn srgb_to_linear(value: f32) -> f32 {
     }
 }
 
+/// 标量 smoothstep。
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
 /// 纹理采样（repeat 环绕 + 双线性过滤）。
 pub(crate) fn sample_texture(texture: &TextureData, uv: [f32; 2]) -> [f32; 4] {
     if !texture.is_valid() {

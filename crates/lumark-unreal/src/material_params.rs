@@ -392,6 +392,8 @@ pub(crate) const ROUGHNESS_TRIGGERS: &[&str] = &[
     "Roughness_Mult",
 ];
 
+/// 眼睛巩膜贴图参数名（`M_EyeRefractive` 的 `ScleraColor`）。
+pub(crate) const SCLERA_TRIGGERS: &[&str] = &["ScleraColor", "Sclera", "EyeWhite", "EyeW"];
 /// 高光强度标量参数名（Snooper `Specular`）。
 pub(crate) const SPECULAR_SCALAR_TRIGGERS: &[&str] = &["Specular", "Spec", "Base Specular"];
 

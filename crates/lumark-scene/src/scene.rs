@@ -123,6 +123,8 @@ impl TextureData {
 pub struct MaterialTextures {
     /// 基础色。
     pub base_color: Option<TextureData>,
+    /// 眼睛巩膜（仅折射眼睛材质）。
+    pub sclera: Option<TextureData>,
     /// 法线。
     pub normal: Option<TextureData>,
     /// 金属/粗糙度（ORM）。

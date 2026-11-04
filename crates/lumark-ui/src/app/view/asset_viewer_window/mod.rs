@@ -11,7 +11,7 @@ use gpui_kit::RenderImage;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use lumark_render::{LightingMode, NormalMapConvention, ShadingMode};
+use lumark_render::ShadingMode;
 use lumark_unreal::{MeshLod, Skeleton};
 
 mod animation;

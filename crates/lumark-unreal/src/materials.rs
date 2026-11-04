@@ -412,6 +412,14 @@ fn fill_viewer_from_appearance(
             packages,
             &mut resolved.loaded_assets,
         );
+        let sclera = appearance.sclera.as_ref().and_then(|reference| {
+            let package_id = reference.package_id?;
+            let image = load_texture_image_by_id(source, package_id, mappings, options)?;
+            resolved
+                .loaded_assets
+                .push(format!("package:0x{package_id:016X}"));
+            Some(image)
+        });
         let mut texture_infos = Vec::new();
         for reference in &appearance.textures {
             if texture_infos.iter().any(|info: &MaterialTextureInfo| {
@@ -441,6 +449,7 @@ fn fill_viewer_from_appearance(
             normal,
             metallic_roughness: orm,
             occlusion,
+            sclera,
             emissive,
             texture_infos,
         });
