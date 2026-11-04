@@ -399,7 +399,7 @@ impl GpuRenderer {
                 }),
                 ..Default::default()
             });
-            let background_data = background_uniform(settings.background);
+            let background_data = background_uniform(settings, &camera);
             let background_buffer = self.create_buffer(
                 "lumark-background",
                 (background_data.len() * 4) as u64,
@@ -1694,18 +1694,102 @@ fn clear_color(background: [f32; 3], gamma_only: bool) -> wgpu::Color {
     }
 }
 
-/// 背景渐变 uniform：底部/顶部线性色（CPU 端为 0.75×/1.25× 背景色）。
-fn background_uniform(background: [f32; 3]) -> [f32; 8] {
-    [
-        background[0] * 0.75,
-        background[1] * 0.75,
-        background[2] * 0.75,
-        1.0,
-        background[0] * 1.25,
-        background[1] * 1.25,
-        background[2] * 1.25,
-        1.0,
-    ]
+/// 背景/天空 uniform：旧渐变 + Snooper 天空球/太阳。
+fn background_uniform(settings: &RenderSettings, camera: &Camera) -> [f32; 44] {
+    let background = settings.background;
+    let sun = normalize(settings.key_direction);
+    let mut values = [0.0f32; 44];
+    let mut index = 0;
+    let push4 = |value: [f32; 4], values: &mut [f32; 44], index: &mut usize| {
+        values[*index..*index + 4].copy_from_slice(&value);
+        *index += 4;
+    };
+    push4(
+        [
+            background[0] * 0.75,
+            background[1] * 0.75,
+            background[2] * 0.75,
+            1.0,
+        ],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [
+            background[0] * 1.25,
+            background[1] * 1.25,
+            background[2] * 1.25,
+            1.0,
+        ],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [camera.eye[0], camera.eye[1], camera.eye[2], 0.0],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [camera.forward[0], camera.forward[1], camera.forward[2], 0.0],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [camera.right[0], camera.right[1], camera.right[2], 0.0],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [camera.up[0], camera.up[1], camera.up[2], 0.0],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [
+            camera.tan_half_fov,
+            camera.aspect,
+            if settings.lighting_mode == LightingMode::Snooper {
+                1.0
+            } else {
+                0.0
+            },
+            0.0,
+        ],
+        &mut values,
+        &mut index,
+    );
+    push4([sun[0], sun[1], sun[2], 0.0], &mut values, &mut index);
+    push4(
+        [
+            settings.key_color[0],
+            settings.key_color[1],
+            settings.key_color[2],
+            0.0,
+        ],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [
+            settings.sky_upper_color[0],
+            settings.sky_upper_color[1],
+            settings.sky_upper_color[2],
+            0.0,
+        ],
+        &mut values,
+        &mut index,
+    );
+    push4(
+        [
+            settings.sky_lower_color[0],
+            settings.sky_lower_color[1],
+            settings.sky_lower_color[2],
+            0.0,
+        ],
+        &mut values,
+        &mut index,
+    );
+    values
 }
 
 /// f32 序列转 little-endian 字节。
@@ -1741,6 +1825,17 @@ mod tests {
     use super::*;
     use lumark_scene::{MeshData, MeshSection, NodeKind, SceneNode, Transform};
 
+    /// 背景/天空 WGSL 也需要通过解析与语义校验。
+    #[test]
+    fn background_wgsl_shader_parses_and_validates() {
+        let module =
+            wgpu::naga::front::wgsl::parse_str(BACKGROUND_SHADER).expect("解析 background.wgsl");
+        let mut validator = wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::all(),
+        );
+        validator.validate(&module).expect("校验 background.wgsl");
+    }
     /// WGSL 语法/语义校验；不需要 GPU 适配器，防止着色器改动只在运行时暴露。
     #[test]
     fn wgsl_shader_parses_and_validates() {
