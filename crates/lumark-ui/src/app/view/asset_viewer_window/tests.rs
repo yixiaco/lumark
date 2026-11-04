@@ -787,6 +787,33 @@ fn viewer_shading_grid_and_sections_render() {
     assert_ne!(hidden, unlit, "隐藏 section 应改变图像");
 }
 
+/// 默认隐藏规则若会隐藏全部 section，查看器自动回退显示全部，避免空白。
+#[test]
+fn all_sections_hidden_falls_back_to_visible() {
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let mut view = AssetViewerWindowView::new(
+        "SM_NoMaterial".to_string(),
+        ViewerScene::Mesh {
+            materials: no_materials(),
+            lods: vec![mesh],
+        },
+    );
+    view.reset_section_visibility();
+    assert!(view.visibility_fallback, "无材质模型应触发全显兜底");
+    assert!(
+        view.hidden_sections.iter().all(|hidden| !hidden),
+        "不能默认隐藏整个模型"
+    );
+}
 /// 拖拽帧使用 0.75 分辨率，静止帧恢复 900×600。
 #[test]
 fn dragging_snapshot_uses_reduced_resolution() {

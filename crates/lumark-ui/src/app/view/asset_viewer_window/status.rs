@@ -67,6 +67,12 @@ impl AssetViewerWindowView {
                     )
                 }
             })
+            .children(self.visibility_fallback.then(|| {
+                div().text_color(cx.theme().warning).child(tr(
+                    "默认规则会隐藏全部 section，已自动显示全部",
+                    "Default rule hid every section; showing all",
+                ))
+            }))
             .child(
                 tr(
                     "左键旋转 · 右键平移 · 滚轮缩放",

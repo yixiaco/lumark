@@ -22,6 +22,11 @@ impl Camera {
     /// 向右拖拽时观察目标左移（场景跟手右移），向下拖拽时目标上移
     /// （场景跟手下移）。偏移在 `target_offset` 之后叠加。
     pub fn fit(bounds: &Bounds, settings: &RenderSettings) -> Self {
+        let bounds = settings
+            .fit_bounds
+            .as_ref()
+            .filter(|bounds| !bounds.is_empty())
+            .unwrap_or(bounds);
         let base_center = if bounds.is_empty() {
             settings.target_offset
         } else {
@@ -50,7 +55,12 @@ impl Camera {
         let forward = [-direction[0], -direction[1], -direction[2]];
         let right = normalize(cross(forward, [0.0, 0.0, 1.0]));
         let up = normalize(cross(right, forward));
-        let world_per_pixel = 2.0 * distance * (fov_y * 0.5).tan() / settings.height.max(1) as f32;
+        let logical_height = if settings.logical_height == 0 {
+            settings.height.max(1)
+        } else {
+            settings.logical_height.max(1)
+        };
+        let world_per_pixel = 2.0 * distance * (fov_y * 0.5).tan() / logical_height as f32;
         let center = [
             base_center[0] - right[0] * settings.pan_pixels[0] * world_per_pixel
                 + up[0] * settings.pan_pixels[1] * world_per_pixel,
@@ -227,5 +237,49 @@ mod tests {
             (ndc_y + 2.0 * 16.0 / 240.0).abs() < 1e-3,
             "向下拖拽后场景应下移：ndc_y={ndc_y}"
         );
+    }
+
+    /// 内部渲染分辨率变化时，同一 pan_pixels 产生同一相机，避免静止后跳变。
+    #[test]
+    fn camera_pan_is_independent_of_internal_render_size() {
+        let bounds = Bounds::new([-50.0, -50.0, 0.0], [50.0, 50.0, 100.0]);
+        let base = RenderSettings {
+            width: 900,
+            height: 600,
+            logical_height: 600,
+            pan_pixels: [48.0, -24.0],
+            ..RenderSettings::default()
+        };
+        let low = RenderSettings {
+            width: 675,
+            height: 450,
+            ..base.clone()
+        };
+        let high_camera = Camera::fit(&bounds, &base);
+        let low_camera = Camera::fit(&bounds, &low);
+        for axis in 0..3 {
+            assert!(
+                (high_camera.eye[axis] - low_camera.eye[axis]).abs() < 1e-4,
+                "质量切换后相机位置应一致：axis={axis} high={:?} low={:?}",
+                high_camera.eye,
+                low_camera.eye
+            );
+        }
+    }
+
+    /// fit_bounds 覆盖当前 LOD 包围盒，LOD 切换不改变相机取景。
+    #[test]
+    fn fit_bounds_override_is_stable_across_lods() {
+        let reference = Bounds::new([-10.0, -10.0, 0.0], [10.0, 10.0, 20.0]);
+        let other_lod = Bounds::new([-2.0, -2.0, 0.0], [2.0, 2.0, 2.0]);
+        let settings = RenderSettings {
+            fit_bounds: Some(reference),
+            ..RenderSettings::default()
+        };
+        let camera = Camera::fit(&other_lod, &settings);
+        let clip = camera.clip_position(reference.center());
+        assert!(clip[3] > 0.0);
+        assert!((clip[0] / clip[3]).abs() < 1e-4);
+        assert!((clip[1] / clip[3]).abs() < 1e-4);
     }
 }

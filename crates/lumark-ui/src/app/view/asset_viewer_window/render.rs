@@ -96,6 +96,8 @@ pub(super) struct RenderSnapshot {
     /// 实际离屏渲染宽高。
     pub(super) width: u32,
     pub(super) height: u32,
+    /// 固定取景包围盒（全部 LOD 并集）。
+    pub(super) fit_bounds: Option<lumark_scene::Bounds>,
 }
 
 /// 一帧渲染结果。
@@ -139,6 +141,7 @@ impl AssetViewerWindowView {
             quality,
             width,
             height,
+            fit_bounds: self.fit_bounds,
         }
     }
 
@@ -382,6 +385,8 @@ fn viewer_settings(snapshot: &RenderSnapshot) -> RenderSettings {
     settings.pitch_degrees = snapshot.pitch;
     settings.pan_pixels = snapshot.pan;
     settings.distance_scale = (1.05 / snapshot.zoom).clamp(0.12, 12.0);
+    settings.fit_bounds = snapshot.fit_bounds;
+    settings.logical_height = VIEWER_HEIGHT;
     settings.shading = snapshot.shading;
     // FModel 默认不把顶点色乘到基础色；查看器可在工具栏打开。
     settings.vertex_colors = snapshot.vertex_colors;

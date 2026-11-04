@@ -26,6 +26,8 @@ pub fn render_bounds(scene: &Scene) -> Bounds {
     skin::render_bounds(scene)
 }
 
+/// Snooper 预览/查看器共享预设版本；修改环境/效果后递增，使详情缩略图缓存失效。
+pub const SNOOPER_PRESET_VERSION: u32 = 2;
 /// 场景渲染统计（V-20 状态/性能展示）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SceneStats {
@@ -129,6 +131,10 @@ pub struct RenderSettings {
     pub pitch_degrees: f32,
     /// 相机距离系数（相对自动拟合距离）。
     pub distance_scale: f32,
+    /// 固定的取景包围盒；设置后相机不再随当前 LOD 变化。
+    pub fit_bounds: Option<Bounds>,
+    /// 屏幕平移使用的逻辑画布高度；0 表示使用当前渲染高度。
+    pub logical_height: u32,
     /// 观察目标偏移。
     pub target_offset: [f32; 3],
     /// 屏幕空间平移像素：+x 向右、+y 向下；场景跟随鼠标方向移动。
@@ -184,6 +190,8 @@ impl Default for RenderSettings {
             yaw_degrees: 35.0,
             pitch_degrees: 20.0,
             distance_scale: 1.05,
+            fit_bounds: None,
+            logical_height: 0,
             target_offset: [0.0; 3],
             pan_pixels: [0.0; 2],
             key_direction: [0.4, -0.55, 0.75],

@@ -12,6 +12,7 @@ use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use lumark_render::ShadingMode;
+use lumark_scene::Bounds;
 use lumark_unreal::{MeshLod, Skeleton};
 
 mod animation;
@@ -117,6 +118,20 @@ fn compute_lod_bounds(scene: &ViewerScene) -> Vec<Option<([f32; 3], [f32; 3])>> 
 }
 
 /// 模型查看器窗口
+/// 所有 LOD 的并集包围盒；质量档/LOD 切换时相机取景保持稳定。
+fn fit_bounds_for_lods(lod_bounds: &[Option<([f32; 3], [f32; 3])>]) -> Option<Bounds> {
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for (lod_min, lod_max) in lod_bounds.iter().flatten() {
+        for axis in 0..3 {
+            min[axis] = min[axis].min(lod_min[axis]);
+            max[axis] = max[axis].max(lod_max[axis]);
+        }
+    }
+    min[0].is_finite().then_some(Bounds { min, max })
+}
+
+/// 模型查看器窗口
 pub(crate) struct AssetViewerWindowView {
     name: String,
     scene: Arc<ViewerScene>,
@@ -131,6 +146,8 @@ pub(crate) struct AssetViewerWindowView {
     drag: Option<DragState>,
     /// 被隐藏的 section（材质槽），用于材质切换预览
     hidden_sections: Vec<bool>,
+    /// 默认规则会隐藏全部 section 时，是否已自动回退为全部显示。
+    visibility_fallback: bool,
     /// 是否显示蒙皮演示姿态
     skin_pose: bool,
     /// 当前 StaticMesh LOD
@@ -151,6 +168,8 @@ pub(crate) struct AssetViewerWindowView {
     inspector_state: Option<gpui_kit::Entity<gpui_kit::base::ResizableState>>,
     /// 各 LOD 的局部空间包围盒（创建时一次性计算）。
     lod_bounds: Vec<Option<([f32; 3], [f32; 3])>>,
+    /// 固定取景包围盒（全部 LOD 并集），避免质量/LOD 切换时相机跳动。
+    fit_bounds: Option<Bounds>,
     /// 着色模式
     shading: ShadingMode,
     /// 是否显示地面网格
@@ -234,6 +253,7 @@ impl AssetViewerWindowView {
     fn create(name: String, scene: ViewerScene, focus: Option<gpui_kit::FocusHandle>) -> Self {
         let inspector_tab = initial_inspector_tab(&scene);
         let lod_bounds = compute_lod_bounds(&scene);
+        let fit_bounds = fit_bounds_for_lods(&lod_bounds);
         let mut view = Self {
             name,
             scene: Arc::new(scene),
@@ -245,6 +265,7 @@ impl AssetViewerWindowView {
             error: None,
             drag: None,
             hidden_sections: Vec::new(),
+            visibility_fallback: false,
             skin_pose: false,
             lod_index: 0,
             animation_playing: false,
@@ -255,6 +276,7 @@ impl AssetViewerWindowView {
             properties_json: None,
             inspector_state: None,
             lod_bounds,
+            fit_bounds,
             shading: ShadingMode::Lit,
             // 3D 查看器默认显示地面网格（与 FModel 查看器一致）。
             show_grid: true,
@@ -317,7 +339,14 @@ impl AssetViewerWindowView {
 
     /// 重置 section 可见性到 FModel 默认规则；切换 LOD 时调用。
     pub(super) fn reset_section_visibility(&mut self) {
-        self.hidden_sections = self.default_hidden_sections();
+        let mut hidden = self.default_hidden_sections();
+        // FModel 默认会隐藏无贴图/半透明 section；如果这会隐藏整个模型，
+        // 查看器不能只剩背景，回退为全部显示并提示。
+        self.visibility_fallback = !hidden.is_empty() && hidden.iter().all(|hidden| *hidden);
+        if self.visibility_fallback {
+            hidden.fill(false);
+        }
+        self.hidden_sections = hidden;
     }
 
     /// 当前 section 对应的材质。

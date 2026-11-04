@@ -584,11 +584,12 @@ impl LumarkApp {
         mappings: Option<&std::path::Path>,
     ) -> String {
         format!(
-            "ue:{}:{}:{}:{:?}",
+            "ue:{}:{}:{}:{:?}:preset{}",
             archive.display(),
             entry.path.display(),
             entry.size,
-            mappings
+            mappings,
+            lumark_render::SNOOPER_PRESET_VERSION
         )
     }
 
