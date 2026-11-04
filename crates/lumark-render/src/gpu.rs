@@ -518,11 +518,14 @@ impl GpuRenderer {
         }
         drop(data);
         targets.readback.unmap();
-        let rgba = if supersample > 1 {
+        let mut rgba = if supersample > 1 {
             crate::downsample(&rgba, width, height, settings.width, settings.height)
         } else {
             rgba
         };
+        if settings.lighting_mode == LightingMode::Snooper && settings.snooper.fxaa {
+            rgba = fxaa(&rgba, settings.width, settings.height);
+        }
         Ok(RenderTarget {
             width: settings.width,
             height: settings.height,
@@ -1710,6 +1713,48 @@ fn clear_color(background: [f32; 3], gamma_only: bool) -> wgpu::Color {
     }
 }
 
+/// Snooper 模式 FXAA-lite：沿高对比边方向做一次受限邻域混合。
+fn fxaa(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+    if width < 3 || height < 3 || rgba.len() < (width * height * 4) as usize {
+        return rgba.to_vec();
+    }
+    let mut output = rgba.to_vec();
+    let pixel = |x: u32, y: u32| {
+        let offset = ((y * width + x) * 4) as usize;
+        let luma = 0.2126 * rgba[offset] as f32
+            + 0.7152 * rgba[offset + 1] as f32
+            + 0.0722 * rgba[offset + 2] as f32;
+        (luma, offset)
+    };
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            let (center, offset) = pixel(x, y);
+            let north = pixel(x, y - 1).0;
+            let south = pixel(x, y + 1).0;
+            let west = pixel(x - 1, y).0;
+            let east = pixel(x + 1, y).0;
+            let horizontal = (west - east).abs();
+            let vertical = (north - south).abs();
+            let contrast =
+                north.max(south).max(west).max(east) - north.min(south).min(west).min(east);
+            if contrast < 12.0 {
+                continue;
+            }
+            let (a, b) = if horizontal >= vertical {
+                (pixel(x - 1, y).1, pixel(x + 1, y).1)
+            } else {
+                (pixel(x, y - 1).1, pixel(x, y + 1).1)
+            };
+            for channel in 0..3 {
+                let neighbor = 0.5 * (rgba[a + channel] as f32 + rgba[b + channel] as f32);
+                let mixed = center * 0.25 + neighbor * 0.75;
+                output[offset + channel] = mixed.clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    output
+}
+
 /// 背景/天空 uniform：旧渐变 + Snooper 天空球/太阳。
 fn background_uniform(settings: &RenderSettings, camera: &Camera) -> [f32; 44] {
     let background = settings.background;
@@ -1841,6 +1886,23 @@ mod tests {
     use super::*;
     use lumark_scene::{MeshData, MeshSection, NodeKind, SceneNode, Transform};
 
+    /// FXAA 保持尺寸/alpha，并会改变高对比边缘像素。
+    #[test]
+    fn fxaa_softens_high_contrast_edge() {
+        let width = 8;
+        let height = 4;
+        let mut rgba = Vec::new();
+        for _y in 0..height {
+            for x in 0..width {
+                let value = if x < width / 2 { 0 } else { 255 };
+                rgba.extend_from_slice(&[value, value, value, 255]);
+            }
+        }
+        let output = fxaa(&rgba, width, height);
+        assert_eq!(output.len(), rgba.len());
+        assert_eq!(output[3], 255);
+        assert_ne!(output, rgba, "边缘应被混合");
+    }
     /// 相机 uniform 必须携带雾颜色/密度，且长度与 shader 结构一致。
     #[test]
     fn camera_uniform_includes_fog_settings() {
