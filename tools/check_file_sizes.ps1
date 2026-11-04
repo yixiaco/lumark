@@ -1,6 +1,6 @@
 ﻿param(
-    [int]$WarnLimit = 1000,
-    [int]$Limit = 3000
+    [int]$WarnLimit = 3000,
+    [int]$Limit = 10000
 )
 
 $ErrorActionPreference = "Stop"

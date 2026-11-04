@@ -555,6 +555,7 @@ fn material_viewer_opens_dedicated_window(cx: &mut gpui_kit::TestAppContext) {
         normal: None,
         metallic_roughness: None,
         occlusion: None,
+        ..Default::default()
     };
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {

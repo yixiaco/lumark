@@ -1,5 +1,20 @@
 use super::*;
 
+impl AssetViewerWindowView {
+    /// 打开当前资产的只读 JSON 属性窗口。
+    pub(super) fn open_properties_viewer(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(json) = self.properties_json_text() else {
+            return;
+        };
+        let _ = crate::app::view::properties_viewer_window::open_properties_window(
+            self.name.clone(),
+            json,
+            window,
+            cx,
+        );
+    }
+}
+
 impl LumarkApp {
     /// 根据详情面板缓存选择查看器场景
     pub(crate) fn details_viewer_scene(&self) -> Option<ViewerScene> {
@@ -52,6 +67,7 @@ impl LumarkApp {
             ViewerScene::Material { .. } => "材质",
         };
         let material_names = self.details_material_names.clone();
+        let properties_json = self.details_properties_json.clone();
         let window_size = gpui_kit::size(px(960.), px(720.));
         let parent_bounds = parent.inner_window_bounds().get_bounds();
         let origin = gpui_kit::point(
@@ -92,6 +108,7 @@ impl LumarkApp {
                     window,
                     _cx,
                 )
+                .with_properties_json(properties_json.clone())
                 .with_material_names(material_names.clone())
             });
             window.focus(&focus, cx);

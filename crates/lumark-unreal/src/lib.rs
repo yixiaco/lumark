@@ -9,8 +9,10 @@ pub mod game;
 mod imports;
 pub mod keys;
 mod material_graph;
+mod material_params;
 pub mod materials;
 pub mod package;
+pub mod properties_json;
 pub mod provider;
 pub mod raster;
 pub mod scene;
@@ -42,17 +44,18 @@ pub use package::legacy::{
 pub use package::{
     AnimSequenceData, AssetKind, AssetMetadata, Bone, BulkDataEntry, DecodedTexture,
     LegacySkeletalMeshGeometry, LegacySkeletalMeshSummary, Mappings, MaterialAppearance,
-    MaterialSlot, MaterialTextureKind, MaterialTextureRef, MaterialViewerData, MaterialViewerImage,
-    MeshLod, MeshSection, MeshVertexAttributes, PackageError, PackageExport, PackageInfo,
-    PropSchema, PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights,
-    StaticMesh, StructSchema, Texture2D, TextureMip, TexturePixels, TrackPose, UnrealPackage,
-    UnversionedProperties, WorldActor, WorldSummary, ZenScriptObjects, is_material_class,
-    material_parent_package, mip_level_for_limit, parse_package, read_anim_sequence,
-    read_asset_metadata, read_legacy_anim_sequence, read_legacy_material_appearance,
-    read_legacy_skeletal_mesh_geometry, read_legacy_skeletal_mesh_skeleton,
-    read_legacy_skeletal_mesh_summary, read_legacy_skeleton, read_static_mesh, read_world_summary,
-    read_zen_material_appearance, texture_references,
+    MaterialSlot, MaterialTextureInfo, MaterialTextureKind, MaterialTextureRef, MaterialViewerData,
+    MaterialViewerImage, MeshLod, MeshSection, MeshVertexAttributes, PackageError, PackageExport,
+    PackageInfo, PropSchema, PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats,
+    SkinWeights, StaticMesh, StructSchema, Texture2D, TextureMip, TexturePixels, TrackPose,
+    UnrealPackage, UnversionedProperties, WorldActor, WorldSummary, ZenScriptObjects,
+    is_material_class, material_parent_package, mip_level_for_limit, parse_package,
+    read_anim_sequence, read_asset_metadata, read_legacy_anim_sequence,
+    read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
+    read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
+    read_static_mesh, read_world_summary, read_zen_material_appearance, texture_references,
 };
+pub use properties_json::{legacy_properties_json, properties_to_json, zen_properties_json};
 pub use provider::{
     AnimationInfo, LoadedScene, LodPolicy, SceneLoadOptions, SceneLoadReport, SceneLoadStage,
     SceneRequest, load_scene, lod_index,

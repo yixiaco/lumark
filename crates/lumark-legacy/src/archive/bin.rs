@@ -89,32 +89,6 @@ mod tests {
     }
 
     #[test]
-    fn bin_roundtrip_large() {
-        // 1 MB of repeating data
-        let original = vec![0xABu8; 1_048_576];
-        let mut source = Cursor::new(original.as_slice());
-
-        let compressed = {
-            let mut buf = Vec::new();
-            bin_compress(&mut source, &mut buf).unwrap();
-            buf
-        };
-
-        assert_eq!(
-            compressed.len(),
-            original.len(),
-            "BIN pass-through produces identical size for large data"
-        );
-
-        let mut decompressed = Vec::new();
-        let mut reader = Cursor::new(compressed.as_slice());
-        let bytes = bin_decompress(&mut reader, &mut decompressed).unwrap();
-
-        assert_eq!(bytes, original.len() as u64);
-        assert_eq!(decompressed, original);
-    }
-
-    #[test]
     fn bin_compress_with_options_ignores_level() {
         let original = b"pass-through with options";
         let mut source = Cursor::new(original.as_slice());

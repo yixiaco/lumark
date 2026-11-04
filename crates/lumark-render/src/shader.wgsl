@@ -27,8 +27,12 @@ struct Material {
     params: vec4<f32>,
     // xyz = emissive, w = has emissive texture
     emissive: vec4<f32>,
-    // x = has ORM texture, y = alpha cutoff, z = ORM 布局（0=ORM，1=高光遮罩）
+    // x = has ORM/spec texture, y = alpha cutoff, z = ORM 布局（0=ORM，1=高光遮罩），w = has AO
     flags: vec4<f32>,
+    // x = roughness_min, y = roughness_max, z = emissive_multiplier, w = has_ao_boost
+    extra: vec4<f32>,
+    // xyz = ao_boost_color, w = ao_boost_exponent
+    extra2: vec4<f32>,
 };
 
 @group(1) @binding(0) var<uniform> material: Material;
@@ -163,18 +167,19 @@ fn apply_normal_map(
     return normalize(tangent * sampled.x + bitangent * sampled.y + normal_in * sampled.z);
 }
 
-// FModel Snooper default.frag 风格头灯：漫反射下限 0.4，高光 Schlick + GGX。
-fn shade_headlight(
+// FModel default.frag 头灯高光/漫反射项：G=金属度/腔体、B=粗糙度。
+fn fmodel_headlight(
+    base: vec3<f32>,
     normal: vec3<f32>,
     view: vec3<f32>,
-    base: vec3<f32>,
     metallic: f32,
     roughness: f32,
-    occlusion: f32,
+    cavity: f32,
 ) -> vec3<f32> {
-    let n_dot_v_raw = max(dot(normal, view), 0.0);
-    let diffuse_factor = max(n_dot_v_raw, 0.4);
-    let n_dot_v = max(n_dot_v_raw, 0.0001);
+    let n_dot_v = max(dot(normal, view), 0.0);
+    if (n_dot_v <= 0.0) {
+        return vec3<f32>(0.0);
+    }
     let n_dot_l = n_dot_v;
     let f0 = mix(vec3<f32>(0.04), base, metallic);
     let alpha2 = roughness * roughness * roughness * roughness;
@@ -185,11 +190,28 @@ fn shade_headlight(
         (n_dot_l / (n_dot_l * (1.0 - k) + k)) * (n_dot_v / (n_dot_v * (1.0 - k) + k));
     let specular_denominator = 4.0 * n_dot_v * n_dot_l + 0.0001;
     // 头灯下 H 与 V 同向，H·V=1，Schlick 退化为 F0。
-    let fresnel = f0;
-    let specular = distribution * geometry * fresnel / specular_denominator;
-    let kd = (vec3<f32>(1.0) - fresnel) * (1.0 - occlusion);
+    let specular = distribution * geometry * f0 / specular_denominator;
+    let kd = (vec3<f32>(1.0) - f0) * (1.0 - cavity);
     let diffuse_brdf = kd * base / PI;
-    return base * diffuse_factor + (diffuse_brdf + specular) * n_dot_l;
+    return (diffuse_brdf + specular) * n_dot_l;
+}
+
+// FModel 头灯参数：x=cavity、y=roughness、z=metallic。
+fn resolve_fmodel_params(uv: vec2<f32>) -> vec3<f32> {
+    var spec = vec3<f32>(0.0);
+    if (material.flags.x > 0.5) {
+        spec = textureSample(orm_texture, tex_sampler, uv).rgb;
+    }
+    var metallic = spec.g;
+    var cavity = spec.g;
+    var roughness = material.extra.x;
+    if (material.flags.x > 0.5) {
+        roughness = mix(material.extra.x, material.extra.y, spec.b);
+    }
+    if (material.flags.w > 0.5) {
+        cavity = textureSample(ao_texture, tex_sampler, uv).g;
+    }
+    return vec3<f32>(clamp(cavity, 0.0, 1.0), clamp(roughness, 0.0, 1.0), clamp(metallic, 0.0, 1.0));
 }
 
 // 线性辐射度 → 基础色/自发光输出（tone mapping + gamma），同时保留 alpha
@@ -206,20 +228,20 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     if (!front_facing) {
         normal = -normal;
     }
+    // FModel 默认不乘顶点色；查看器“顶点色”开关把标志放在 camera.eye.w。
+    var tint = vec4<f32>(1.0);
+    if (camera.eye.w > 0.5) {
+        tint = in.color;
+    }
     var base = material.base_color.rgb;
-    var alpha = material.base_color.a * in.color.a;
+    var alpha = material.base_color.a * tint.a;
     if (material.params.z > 0.5) {
         let sampled = textureSample(base_texture, tex_sampler, in.uv);
         base = base * sampled.rgb;
         alpha = alpha * sampled.a;
     }
-    if (material.flags.w > 0.5) {
-        // 与 FModel 一致：AO 贴图 R 通道直接乘到基础色上。
-        let ao = textureSample(ao_texture, tex_sampler, in.uv);
-        base = base * ao.r;
-    }
-    base = base * in.color.rgb;
-    alpha = alpha * in.color.a;
+    base = base * tint.rgb;
+    alpha = alpha * tint.a;
     // Masked 材质按 material.flags.y 阈值裁剪；Opaque 材质阈值为 0，忽略贴图 alpha。
     if (material.flags.y > 0.0 && alpha < material.flags.y) {
         discard;
@@ -241,18 +263,41 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     if (material.params.w > 0.5) {
         normal = apply_normal_map(normal, in.tangent.xyz, in.tangent.w, in.uv);
     }
-    let params = resolve_pbr_params(in.uv);
-    let occlusion = params.x;
-    let roughness = params.y;
-    let metallic = params.z;
     var color: vec3<f32>;
     if (camera.ambient.z > 0.5) {
-        // Headlight：不做「法线朝向视线」翻转，背面靠 0.4 下限保持可见。
-        color = shade_headlight(normal, view, base, metallic, roughness, occlusion);
+        // Headlight：严格按 FModel default.frag；AO 只衰减基础色，
+        // 自发光在头灯前叠加，高光不乘 AO。
+        let params = resolve_fmodel_params(in.uv);
+        let diffuse_factor = max(max(dot(normal, view), 0.0), 0.4);
+        var result = base * diffuse_factor;
+        if (material.flags.w > 0.5) {
+            let ao = textureSample(ao_texture, tex_sampler, in.uv).rgb;
+            result = result * ao.r;
+            if (material.extra.w > 0.5) {
+                let boost = material.extra2.rgb * material.extra2.w;
+                result = mix(result, result * boost, ao.b);
+            }
+        }
+        if (material.emissive.w > 0.5) {
+            result = result
+                + material.emissive.rgb
+                    * textureSample(emissive_texture, tex_sampler, in.uv).rgb
+                    * material.extra.z;
+        }
+        color = result + fmodel_headlight(base, normal, view, params.z, params.y, params.x);
     } else {
+        // Studio 保持既有观感：AO 先乘到基础色，法线朝视线方向翻转后走双灯。
+        if (material.flags.w > 0.5) {
+            let ao = textureSample(ao_texture, tex_sampler, in.uv);
+            base = base * ao.r;
+        }
         if (dot(normal, view) < 0.0) {
             normal = -normal;
         }
+        let params = resolve_pbr_params(in.uv);
+        let occlusion = params.x;
+        let roughness = params.y;
+        let metallic = params.z;
         let shininess = clamp(2.0 / pow(roughness, 4.0), 4.0, 2048.0);
         let specular_strength = 0.04 + metallic * 0.5;
         let ambient = camera.ambient.x * occlusion;
@@ -277,10 +322,12 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
             shininess,
             specular_strength,
         );
+        var emissive = material.emissive.rgb;
+        if (material.emissive.w > 0.5) {
+            emissive = emissive * textureSample(emissive_texture, tex_sampler, in.uv).rgb;
+        }
+        color = color + emissive;
     }
-    var emissive = material.emissive.rgb;
-    if (material.emissive.w > 0.5) {
-        emissive = emissive * textureSample(emissive_texture, tex_sampler, in.uv).rgb;
-    }
-    return encode(color + emissive, alpha);
+    return encode(color, alpha);
+
 }

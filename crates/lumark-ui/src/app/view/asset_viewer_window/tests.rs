@@ -449,6 +449,7 @@ fn viewer_renders_material_scene_and_orbits() {
         normal: None,
         metallic_roughness: None,
         occlusion: None,
+        ..Default::default()
     };
     let mut view =
         AssetViewerWindowView::new("MAT_Teapot".to_string(), ViewerScene::Material { viewer });
@@ -488,6 +489,7 @@ fn material_viewer_toolbar_hides_mesh_controls(cx: &mut gpui_kit::TestAppContext
             normal: None,
             metallic_roughness: None,
             occlusion: None,
+            ..Default::default()
         },
     };
     let (_view, cx) =
@@ -530,9 +532,11 @@ fn inspector_panel_renders_and_toggles(cx: &mut gpui_kit::TestAppContext) {
     cx.update(|window, cx| {
         window.draw(cx).clear(cx);
         assert!(window.find("model-inspector-close").visible());
+        window.click("model-inspector-tab-overview", cx);
+        window.draw(cx).clear(cx);
         assert!(
             window.find("model-inspector-lod-1").visible(),
-            "多 LOD 时应显示 LOD 列表"
+            "多 LOD 时概要页应显示 LOD 列表"
         );
         view.update(cx, |view, cx| {
             view.inspector_open = false;
@@ -542,6 +546,51 @@ fn inspector_panel_renders_and_toggles(cx: &mut gpui_kit::TestAppContext) {
     });
 }
 
+/// 正式窗口使用可拖拽检查器分栏：检查器位于画布右侧且填满高度。
+#[gpui_kit::test]
+fn viewer_resizable_inspector_sits_right_of_canvas(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let (_view, cx) = cx.add_window_view(|window, cx| {
+        AssetViewerWindowView::new_with_focus(
+            "SM_Split".to_string(),
+            ViewerScene::Mesh {
+                materials: no_materials(),
+                lods: vec![mesh],
+            },
+            cx.focus_handle(),
+            window,
+            cx,
+        )
+    });
+    cx.simulate_resize(gpui_kit::size(px(1200.), px(800.)));
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+    });
+    let canvas = cx
+        .debug_bounds("model-viewer-canvas")
+        .expect("画布应记录布局 bounds");
+    let inspector = cx
+        .debug_bounds("model-inspector")
+        .expect("检查器应记录布局 bounds");
+    assert!(
+        inspector.origin.x >= canvas.origin.x + canvas.size.width - px(1.0),
+        "检查器应位于画布右侧：canvas={canvas:?} inspector={inspector:?}"
+    );
+    assert!(
+        inspector.size.height > px(400.),
+        "检查器应填满内容高度：{inspector:?}"
+    );
+}
 /// 异步帧泵：后台渲染完成后更新图像，旧代号结果被丢弃。
 #[gpui_kit::test]
 fn viewer_async_preview_updates_image(cx: &mut gpui_kit::TestAppContext) {
@@ -668,6 +717,82 @@ fn viewer_accepts_material_names() {
     assert_eq!(view.material_names, vec!["M_Brick"]);
 }
 
+/// FModel 默认隐藏无贴图/半透明材质；有贴图的不透明 section 保持可见。
+#[test]
+fn default_sections_hide_missing_or_translucent_materials() {
+    let mesh = MeshLod {
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![
+            MeshSection {
+                material_index: 0,
+                first_index: 0,
+                triangle_count: 1,
+            },
+            MeshSection {
+                material_index: 1,
+                first_index: 0,
+                triangle_count: 1,
+            },
+            MeshSection {
+                material_index: 2,
+                first_index: 0,
+                triangle_count: 1,
+            },
+        ],
+        attributes: Default::default(),
+    };
+    let appearance = |translucent: bool, textures: Vec<lumark_unreal::MaterialTextureRef>| {
+        lumark_unreal::MaterialAppearance {
+            translucent,
+            textures,
+            ..Default::default()
+        }
+    };
+    let texture = lumark_unreal::MaterialTextureRef {
+        name: "T_Base".to_string(),
+        package: None,
+        package_id: None,
+        kind: lumark_unreal::MaterialTextureKind::BaseColor,
+    };
+    let material = |name: &str, appearance: lumark_unreal::MaterialAppearance| {
+        lumark_unreal::ResolvedMaterial {
+            slot: lumark_unreal::MaterialSlot {
+                name: name.to_string(),
+                package: None,
+            },
+            package_path: None,
+            appearance: Some(appearance),
+            viewer: None,
+            loaded_assets: Vec::new(),
+            warnings: Vec::new(),
+        }
+    };
+    let materials = vec![
+        material("M_Visible", appearance(false, vec![texture.clone()])),
+        material("M_Textureless", appearance(false, Vec::new())),
+        material("M_Translucent", appearance(true, vec![texture])),
+    ];
+    let mut view = AssetViewerWindowView::new(
+        "SM_Hidden".to_string(),
+        ViewerScene::Mesh {
+            materials: std::sync::Arc::new(materials),
+            lods: vec![mesh],
+        },
+    );
+    view.reset_section_visibility();
+    assert_eq!(
+        view.hidden_sections,
+        vec![false, true, true],
+        "有贴图的不透明 section 可见，无贴图/半透明默认隐藏"
+    );
+    view.hidden_sections
+        .iter_mut()
+        .for_each(|hidden| *hidden = false);
+    view.render_preview();
+    assert!(view.error.is_none(), "手动显示后仍应成功渲染");
+}
+
 /// 骨骼搜索大小写不敏感，空搜索匹配全部。
 #[test]
 fn bone_search_matches_case_insensitive() {
@@ -712,9 +837,11 @@ fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
             assert!(view.bone_filter.is_some(), "正式查看器应创建骨骼搜索框");
             view.yaw = 90.0;
             view.zoom = 2.0;
+            view.pan = [40.0, -16.0];
             assert!(view.handle_shortcut("f", cx));
             assert_eq!(view.yaw, 35.0);
             assert_eq!(view.zoom, 1.0);
+            assert_eq!(view.pan, [0.0, 0.0], "F 应同时复位右键平移");
             assert!(view.show_grid, "3D 查看器默认显示地面网格");
             assert!(view.handle_shortcut("g", cx));
             assert!(!view.show_grid, "G 键应关闭网格");
@@ -800,6 +927,64 @@ fn orbit_drag_matches_fmodel_direction() {
     assert_eq!(clamped, 89.0, "pitch 应限制在 ±89 度");
 }
 
+/// 右键平移按屏幕像素累加，四个方向互不影响。
+#[test]
+fn pan_drag_accumulates_in_screen_space() {
+    let pan = super::body::apply_pan_drag([0.0, 0.0], 12.5, -3.0);
+    assert_eq!(pan, [12.5, -3.0]);
+    let pan = super::body::apply_pan_drag(pan, -20.0, 8.0);
+    assert_eq!(pan, [-7.5, 5.0]);
+    // 平移不影响轨道角度。
+    let (yaw, pitch) = super::body::apply_orbit_drag(35.0, 25.0, 0.0, 0.0);
+    assert_eq!((yaw, pitch), (35.0, 25.0));
+}
+
+/// 平移会改变渲染结果，重置视角清空平移。
+#[test]
+fn viewer_pan_changes_render_and_resets() {
+    let mesh = MeshLod {
+        positions: vec![
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 1.0],
+        ],
+        indices: vec![0, 2, 1, 0, 3, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 2,
+        }],
+        attributes: Default::default(),
+    };
+    let mut view = AssetViewerWindowView::new(
+        "SM_Pan".to_string(),
+        ViewerScene::Mesh {
+            materials: no_materials(),
+            lods: vec![mesh],
+        },
+    );
+    view.show_grid = false;
+    view.render_preview();
+    let bytes = |view: &AssetViewerWindowView| {
+        view.image
+            .as_ref()
+            .and_then(|image| image.as_bytes(0))
+            .map(<[u8]>::to_vec)
+            .expect("查看器图像")
+    };
+    let centered = bytes(&view);
+    view.pan = super::body::apply_pan_drag(view.pan, 40.0, 0.0);
+    view.render_preview();
+    assert_ne!(centered, bytes(&view), "右键平移应改变渲染结果");
+    view.yaw = 35.0;
+    view.pitch = 25.0;
+    view.zoom = 1.0;
+    view.pan = [0.0, 0.0];
+    view.render_preview();
+    assert_eq!(centered, bytes(&view), "复位后应回到原始画面");
+}
+
 /// 查看器应使用已解析材质贴图，而不是默认灰色材质。
 #[test]
 fn viewer_applies_resolved_materials() {
@@ -835,6 +1020,7 @@ fn viewer_applies_resolved_materials() {
             normal: None,
             metallic_roughness: None,
             occlusion: None,
+            ..Default::default()
         }),
         loaded_assets: Vec::new(),
         warnings: Vec::new(),
@@ -867,4 +1053,204 @@ fn viewer_applies_resolved_materials() {
         image_bytes(&plain),
         "已解析材质贴图应改变查看器渲染结果"
     );
+}
+
+/// BNB NanaF6_2 实机验收（可选环境变量）：
+/// 隐藏无贴图/半透明 section、眼睛/皮肤材质贴图与 FModel 对齐，并输出截图。
+///
+/// 需要 `LUMARK_BNB_GAME_ROOT`、`LUMARK_BNB_MAPPINGS`，可选 `LUMARK_OODLE_DLL`
+/// 与 `LUMARK_VIEWER_ARTIFACT_DIR`（输出 `viewer-nana-f6-2-fmodel.png`）。
+#[test]
+fn renders_real_nana_f6_2_viewer_frame_when_available() {
+    let (Ok(root), Ok(mappings)) = (
+        std::env::var("LUMARK_BNB_GAME_ROOT"),
+        std::env::var("LUMARK_BNB_MAPPINGS"),
+    ) else {
+        return;
+    };
+    let game = lumark_unreal::scan_game(std::path::Path::new(&root)).expect("扫描 BNB");
+    let Some(container) = game
+        .containers
+        .iter()
+        .find(|container| {
+            container
+                .path
+                .to_string_lossy()
+                .ends_with("pakchunk0-Windows.utoc")
+        })
+        .map(|container| container.path.clone())
+    else {
+        return;
+    };
+    let global = container
+        .parent()
+        .map(|parent| parent.join("global.utoc"))
+        .unwrap_or_default();
+    let key = lumark_unreal::extract_key_for_game(&game, None, |_, _, _| {}).key;
+    let oodle = std::env::var("LUMARK_OODLE_DLL")
+        .ok()
+        .map(std::path::PathBuf::from);
+    let directory = tempfile::tempdir().expect("临时目录");
+    let output = directory.path().join("thumb.png");
+    let preview = crate::app::view::browser::load_ue_asset_preview(
+        &container,
+        &global,
+        "TogetherBNB/Content/CH/Nana/N_All/NanaF6_2.uasset",
+        Some(std::path::Path::new(&mappings)),
+        oodle,
+        key.as_ref().map(|key| key.as_str()),
+        &output,
+    );
+    let properties = preview.properties_json.clone();
+    assert!(
+        properties
+            .as_deref()
+            .is_some_and(|json| json.contains("\"Exports\"")),
+        "BNB 资产应生成导出表 JSON"
+    );
+    let crate::app::view::browser::UePreviewResult::Model {
+        lods,
+        skeleton,
+        skins,
+        materials,
+        material_names,
+        ..
+    } = preview.result
+    else {
+        panic!("NanaF6_2 应解析为 SkeletalMesh 模型");
+    };
+    let skeleton = skeleton.expect("SkeletalMesh 应带参考骨骼");
+    let sections = lods.first().expect("至少一个 LOD").sections.clone();
+    let materials_for_assert = materials.clone();
+    let mut view = AssetViewerWindowView::new(
+        "NanaF6_2".to_string(),
+        ViewerScene::SkeletalMesh {
+            lods,
+            skeleton,
+            skins,
+            materials: std::sync::Arc::new(materials),
+            animation: None,
+        },
+    );
+    view.reset_section_visibility();
+    view.render_preview();
+    assert!(view.error.is_none(), "查看器渲染不应失败");
+
+    let material_index = |name: &str| material_names.iter().position(|slot| slot == name);
+    let section_hidden = |material: usize| {
+        sections.iter().enumerate().any(|(section_index, section)| {
+            section.material_index as usize == material
+                && view
+                    .hidden_sections
+                    .get(section_index)
+                    .copied()
+                    .unwrap_or(false)
+        })
+    };
+    let eye_lip = material_index("N_EyeLip").expect("N_EyeLip 槽位");
+    let eye_shadow = material_index("N_EyeShadow").expect("N_EyeShadow 槽位");
+    let eye = material_index("N_Eye").expect("N_Eye 槽位");
+    let skin = material_index("N_Skin").expect("N_Skin 槽位");
+    assert!(section_hidden(eye_lip), "N_EyeLip 无贴图应默认隐藏");
+    assert!(section_hidden(eye_shadow), "N_EyeShadow 无贴图应默认隐藏");
+    assert!(!section_hidden(eye), "N_Eye 应可见（不能被灰层遮挡）");
+    assert!(!section_hidden(skin), "N_Skin 应可见");
+
+    let eye_appearance = materials_for_assert[eye]
+        .appearance
+        .as_ref()
+        .expect("N_Eye 外观");
+    println!(
+        "N_Eye textures={:?} base_image={}",
+        eye_appearance.textures,
+        materials_for_assert[eye]
+            .viewer
+            .as_ref()
+            .is_some_and(|viewer| viewer.base_color.is_some())
+    );
+    assert!(
+        eye_appearance.textures.iter().any(|texture| {
+            texture.kind == lumark_unreal::MaterialTextureKind::BaseColor
+                && texture.name == "eyeBro"
+        }),
+        "N_Eye 基础色应为 eyeBro：{:?}",
+        eye_appearance.textures
+    );
+    let skin_appearance = materials_for_assert[skin]
+        .appearance
+        .as_ref()
+        .expect("N_Skin 外观");
+    println!(
+        "N_Skin textures={:?} base_image={} spec_image={} ao_image={}",
+        skin_appearance.textures,
+        materials_for_assert[skin]
+            .viewer
+            .as_ref()
+            .is_some_and(|viewer| viewer.base_color.is_some()),
+        materials_for_assert[skin]
+            .viewer
+            .as_ref()
+            .is_some_and(|viewer| viewer.metallic_roughness.is_some()),
+        materials_for_assert[skin]
+            .viewer
+            .as_ref()
+            .is_some_and(|viewer| viewer.occlusion.is_some())
+    );
+    assert!(
+        materials_for_assert[skin]
+            .viewer
+            .as_ref()
+            .is_some_and(|viewer| viewer.base_color.is_some()),
+        "N_Skin 基础色贴图应解码成功"
+    );
+    assert!(
+        skin_appearance.textures.iter().any(|texture| {
+            texture.kind == lumark_unreal::MaterialTextureKind::MetallicRoughness
+                && texture.name == "NewNana_AO"
+        }),
+        "N_Skin 高光遮罩应选 NewNana_AO：{:?}",
+        skin_appearance.textures
+    );
+    assert!(
+        skin_appearance.textures.iter().any(|texture| {
+            texture.kind == lumark_unreal::MaterialTextureKind::Occlusion
+                && texture.name == "NewNana_AO"
+        }),
+        "N_Skin AO 应选 NewNana_AO：{:?}",
+        skin_appearance.textures
+    );
+
+    if let Ok(directory) = std::env::var("LUMARK_VIEWER_ARTIFACT_DIR") {
+        let directory = std::path::Path::new(&directory);
+        std::fs::create_dir_all(directory).expect("创建产物目录");
+        if let Some(viewer) = materials_for_assert[eye].viewer.as_ref()
+            && let Some(texture) = viewer.base_color.as_ref()
+        {
+            image::save_buffer(
+                directory.join("viewer-nana-eye-base.png"),
+                &texture.rgba,
+                texture.width,
+                texture.height,
+                image::ColorType::Rgba8,
+            )
+            .expect("写出眼睛基础色贴图");
+        }
+        let image = view.image.as_ref().expect("查看器帧");
+        let source = image.as_bytes(0).expect("帧像素");
+        let mut rgba = Vec::with_capacity(source.len());
+        for pixel in source.as_chunks::<4>().0 {
+            // RenderImage 是 BGRA；PNG 需要 RGBA。
+            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+        }
+        let path = directory.join("viewer-nana-f6-2-fmodel.png");
+        image::save_buffer(
+            &path,
+            &rgba,
+            super::render::VIEWER_WIDTH,
+            super::render::VIEWER_HEIGHT,
+            image::ColorType::Rgba8,
+        )
+        .expect("写出查看器截图");
+        println!("viewer artifact: {}", path.display());
+    }
 }

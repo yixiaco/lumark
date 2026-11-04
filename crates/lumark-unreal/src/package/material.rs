@@ -50,6 +50,22 @@ pub struct MaterialAppearance {
     pub metallic: f32,
     /// 粗糙度。
     pub roughness: f32,
+    /// 粗糙度下限（FModel `RoughnessMin`）。
+    pub roughness_min: f32,
+    /// 粗糙度上限（FModel `RoughnessMax`）。
+    pub roughness_max: f32,
+    /// 自发光倍率（FModel `EmissiveMult`）。
+    pub emissive_multiplier: f32,
+    /// AO 颜色增强（FModel `Skin Boost Color And Exponent` 的 RGB）。
+    pub ao_boost_color: [f32; 3],
+    /// AO 颜色增强指数（同参数的 A 分量）。
+    pub ao_boost_exponent: f32,
+    /// 是否存在 AO 颜色增强。
+    pub has_ao_boost: bool,
+    /// 着色模型原始名称，例如 `MSM_Subsurface`。
+    pub shading_model: String,
+    /// 混合模式原始名称，例如 `BLEND_Masked`。
+    pub blend_mode: String,
     /// 引用的贴图。
     pub textures: Vec<MaterialTextureRef>,
     /// 是否双面（UE `TwoSided`）；材质实例继承父材质设置。
@@ -69,6 +85,14 @@ impl Default for MaterialAppearance {
             emissive: [0.0; 3],
             metallic: 0.0,
             roughness: 0.55,
+            roughness_min: 0.0,
+            roughness_max: 1.0,
+            emissive_multiplier: 1.0,
+            ao_boost_color: [0.0; 3],
+            ao_boost_exponent: 0.0,
+            has_ao_boost: false,
+            shading_model: String::new(),
+            blend_mode: String::new(),
             textures: Vec::new(),
             two_sided: false,
             masked: false,
@@ -98,6 +122,26 @@ impl MaterialAppearance {
         }
         if self.roughness == MaterialAppearance::default().roughness {
             self.roughness = parent.roughness;
+        }
+        if self.roughness_min == 0.0 {
+            self.roughness_min = parent.roughness_min;
+        }
+        if self.roughness_max == 1.0 {
+            self.roughness_max = parent.roughness_max;
+        }
+        if self.emissive_multiplier == 1.0 {
+            self.emissive_multiplier = parent.emissive_multiplier;
+        }
+        if !self.has_ao_boost {
+            self.ao_boost_color = parent.ao_boost_color;
+            self.ao_boost_exponent = parent.ao_boost_exponent;
+            self.has_ao_boost = parent.has_ao_boost;
+        }
+        if self.shading_model.is_empty() {
+            self.shading_model = parent.shading_model.clone();
+        }
+        if self.blend_mode.is_empty() {
+            self.blend_mode = parent.blend_mode.clone();
         }
         if !self.two_sided {
             self.two_sided = parent.two_sided;
@@ -173,6 +217,12 @@ pub fn read_legacy_material_appearance(
             let (masked, translucent) = blend_mode_property(&properties.properties);
             appearance.masked |= masked;
             appearance.translucent |= translucent;
+            if let Some(blend) = blend_mode_name(&properties.properties) {
+                appearance.blend_mode = blend;
+            }
+            if let Some(shading) = shading_model_name(&properties.properties) {
+                appearance.shading_model = shading;
+            }
         }
     }
     if let Some(color) = base_color {
@@ -278,6 +328,12 @@ pub fn read_zen_material_appearance(
     }
     appearance.masked |= masked.0;
     appearance.translucent |= masked.1;
+    if let Some(blend) = blend_mode_name(&properties) {
+        appearance.blend_mode = blend;
+    }
+    if let Some(shading) = shading_model_name(&properties) {
+        appearance.shading_model = shading;
+    }
     let mut base_color: Option<[f32; 3]> = None;
     let mut emissive: Option<[f32; 3]> = None;
     for entry in parameter_array(&properties, "VectorParameterValues") {
@@ -378,6 +434,12 @@ pub(crate) fn parameter_entry_name(entry: &PropValue) -> Option<String> {
 
 /// 读取参数项里的颜色值。
 pub(crate) fn parameter_entry_color(entry: &PropValue) -> Option<[f32; 3]> {
+    let color = parameter_entry_color4(entry)?;
+    Some([color[0], color[1], color[2]])
+}
+
+/// 读取参数项里的 `ParameterValue` 四分量颜色（FModel 的 A 分量用于指数）。
+pub(crate) fn parameter_entry_color4(entry: &PropValue) -> Option<[f32; 4]> {
     let PropValue::Struct(fields) = entry else {
         return None;
     };
@@ -385,7 +447,7 @@ pub(crate) fn parameter_entry_color(entry: &PropValue) -> Option<[f32; 3]> {
         .iter()
         .find(|(key, _)| key == "ParameterValue")
         .map(|(_, value)| value)?;
-    struct_color(
+    struct_color4(
         &[("DefaultValue".to_string(), value.clone())],
         "DefaultValue",
     )
@@ -464,6 +526,46 @@ pub(crate) fn blend_mode_property(properties: &[(String, PropValue)]) -> (bool, 
             || text.contains("alpha_composite"))
             && !text.contains("masked"),
     )
+}
+
+/// 读取 `BlendMode`/`BasePropertyOverrides.BlendMode` 的原始名称。
+pub(crate) fn blend_mode_name(properties: &[(String, PropValue)]) -> Option<String> {
+    name_property(properties, "BlendMode").or_else(|| {
+        properties
+            .iter()
+            .find(|(key, _)| key == "BasePropertyOverrides")
+            .and_then(|(_, value)| match value {
+                PropValue::Struct(fields) => name_property(fields, "BlendMode"),
+                _ => None,
+            })
+    })
+}
+
+/// 读取 `ShadingModel`/`BasePropertyOverrides.ShadingModel` 的原始名称。
+pub(crate) fn shading_model_name(properties: &[(String, PropValue)]) -> Option<String> {
+    name_property(properties, "ShadingModel").or_else(|| {
+        properties
+            .iter()
+            .find(|(key, _)| key == "BasePropertyOverrides")
+            .and_then(|(_, value)| match value {
+                PropValue::Struct(fields) => name_property(fields, "ShadingModel"),
+                _ => None,
+            })
+    })
+}
+
+/// 读取枚举/布尔属性的可读名称。
+fn name_property(properties: &[(String, PropValue)], name: &str) -> Option<String> {
+    properties
+        .iter()
+        .find(|(key, _)| key == name)
+        .and_then(|(_, value)| match value {
+            PropValue::Name(value) | PropValue::String(value) => Some(value.clone()),
+            PropValue::Int(value) => Some(value.to_string()),
+            PropValue::UInt(value) => Some(value.to_string()),
+            PropValue::Bool(value) => Some(value.to_string()),
+            _ => None,
+        })
 }
 
 /// 按参数名猜测贴图用途。
@@ -548,6 +650,12 @@ pub(crate) fn classify_texture_name(name: &str) -> MaterialTextureKind {
 
 /// 读取 struct 类型的颜色值（X/Y/Z 三个 float）。
 fn struct_color(properties: &[(String, PropValue)], name: &str) -> Option<[f32; 3]> {
+    let color = struct_color4(properties, name)?;
+    Some([color[0], color[1], color[2]])
+}
+
+/// 读取 struct 类型的四分量颜色（X/Y/Z/W）。
+fn struct_color4(properties: &[(String, PropValue)], name: &str) -> Option<[f32; 4]> {
     let value = properties
         .iter()
         .find(|(key, _)| key == name)
@@ -555,15 +663,23 @@ fn struct_color(properties: &[(String, PropValue)], name: &str) -> Option<[f32; 
     let PropValue::Struct(fields) = value else {
         return None;
     };
-    let mut color = [0.0f32; 3];
-    for (index, component) in ["X", "Y", "Z"].iter().enumerate() {
-        color[index] = fields
+    let mut color = [0.0f32; 4];
+    for (index, component) in ["X", "Y", "Z", "W"].iter().enumerate() {
+        let Some(value) = fields
             .iter()
             .find(|(key, _)| key == component)
             .and_then(|(_, value)| match value {
                 PropValue::Float(value) => Some(*value as f32),
                 _ => None,
-            })?;
+            })
+        else {
+            // W 分量在部分颜色结构里不存在时按 0 处理；XYZ 缺失则无法解析。
+            if *component == "W" {
+                break;
+            }
+            return None;
+        };
+        color[index] = value;
     }
     Some(color)
 }
@@ -692,8 +808,21 @@ impl MaterialViewerImage {
     }
 }
 
+/// 查看器材质贴图信息（名称与解码尺寸）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterialTextureInfo {
+    /// 用途。
+    pub kind: MaterialTextureKind,
+    /// 贴图对象名。
+    pub name: String,
+    /// 解码后的宽；0 表示未解码/加载失败。
+    pub width: u32,
+    /// 解码后的高。
+    pub height: u32,
+}
+
 /// 交互式材质查看器所需的数据：近似外观参数 + 已抽样的贴图。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MaterialViewerData {
     /// 近似 PBR 外观参数。
     pub appearance: MaterialAppearance,
@@ -701,10 +830,14 @@ pub struct MaterialViewerData {
     pub base_color: Option<MaterialViewerImage>,
     /// 法线贴图。
     pub normal: Option<MaterialViewerImage>,
-    /// 金属/粗糙度贴图。
+    /// FModel specular mask（G=金属度/腔体、B=粗糙度）。
     pub metallic_roughness: Option<MaterialViewerImage>,
     /// 环境光遮蔽贴图。
     pub occlusion: Option<MaterialViewerImage>,
+    /// 自发光贴图。
+    pub emissive: Option<MaterialViewerImage>,
+    /// 贴图名称与解码尺寸，供查看器面板展示。
+    pub texture_infos: Vec<MaterialTextureInfo>,
 }
 #[cfg(test)]
 mod tests {

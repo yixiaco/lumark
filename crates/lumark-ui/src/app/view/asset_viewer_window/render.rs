@@ -64,6 +64,8 @@ pub(super) struct RenderSnapshot {
     pub(super) pitch: f32,
     /// 缩放倍率。
     pub(super) zoom: f32,
+    /// 右键平移累计屏幕像素。
+    pub(super) pan: [f32; 2],
     /// 当前 LOD 索引。
     pub(super) lod_index: usize,
     /// 是否正在播放动画。
@@ -82,6 +84,8 @@ pub(super) struct RenderSnapshot {
     pub(super) wireframe: bool,
     /// 基础色/自发光贴图是否按 sRGB 采样。
     pub(super) srgb_textures: bool,
+    /// 是否把顶点色乘到基础色。
+    pub(super) vertex_colors: bool,
     /// 被隐藏的 section。
     pub(super) hidden_sections: Vec<bool>,
     /// 画质档位。
@@ -107,6 +111,7 @@ impl AssetViewerWindowView {
             yaw: self.yaw,
             pitch: self.pitch,
             zoom: self.zoom,
+            pan: self.pan,
             lod_index: self.lod_index,
             animation_playing: self.animation_playing,
             animation_time: self.animation_time,
@@ -116,6 +121,7 @@ impl AssetViewerWindowView {
             show_bones: self.show_bones,
             wireframe: self.wireframe,
             srgb_textures: self.srgb_textures,
+            vertex_colors: self.vertex_colors,
             hidden_sections: self.hidden_sections.clone(),
             quality,
         }
@@ -362,10 +368,13 @@ fn viewer_settings(snapshot: &RenderSnapshot) -> RenderSettings {
         background: [0.055, 0.06, 0.075],
         yaw_degrees: snapshot.yaw,
         pitch_degrees: snapshot.pitch,
+        pan_pixels: snapshot.pan,
         distance_scale: (1.05 / snapshot.zoom).clamp(0.12, 12.0),
         shading: snapshot.shading,
         lighting_mode: LightingMode::Headlight,
         normal_map_convention: NormalMapConvention::Fmodel,
+        // FModel 默认不把顶点色乘到基础色；查看器可在工具栏打开。
+        vertex_colors: snapshot.vertex_colors,
         show_grid: snapshot.show_grid,
         show_bones: snapshot.show_bones,
         hidden_sections: snapshot

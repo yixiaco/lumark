@@ -67,7 +67,13 @@ impl AssetViewerWindowView {
                     )
                 }
             })
-            .child(tr("左键拖拽旋转", "Drag to orbit").to_string())
+            .child(
+                tr(
+                    "左键旋转 · 右键平移 · 滚轮缩放",
+                    "Left-drag orbit · Right-drag pan · Wheel zoom",
+                )
+                .to_string(),
+            )
             .children(
                 self.rendering
                     .then(|| div().child(tr("渲染中…", "Rendering…"))),

@@ -129,6 +129,8 @@ pub struct RenderSettings {
     pub distance_scale: f32,
     /// 观察目标偏移。
     pub target_offset: [f32; 3],
+    /// 屏幕空间平移像素：+x 向右、+y 向下；场景跟随鼠标方向移动。
+    pub pan_pixels: [f32; 2],
     /// 主光方向（世界空间，指向光源）。
     pub key_direction: [f32; 3],
     /// 主光颜色（线性 RGB）。
@@ -145,6 +147,8 @@ pub struct RenderSettings {
     pub msaa_samples: u32,
     /// 基础色/自发光贴图是否按 sRGB 采样（关闭后按线性）。
     pub srgb_textures: bool,
+    /// 是否把顶点色乘到基础色（FModel 默认关闭，查看器默认关闭）。
+    pub vertex_colors: bool,
     /// 线框模式：只绘制三角形边。
     pub wireframe: bool,
     /// 着色模式。
@@ -175,6 +179,7 @@ impl Default for RenderSettings {
             pitch_degrees: 20.0,
             distance_scale: 1.05,
             target_offset: [0.0; 3],
+            pan_pixels: [0.0; 2],
             key_direction: [0.4, -0.55, 0.75],
             key_color: [1.0, 0.97, 0.92],
             key_intensity: 1.15,
@@ -183,6 +188,7 @@ impl Default for RenderSettings {
             supersample: 2,
             msaa_samples: 1,
             srgb_textures: true,
+            vertex_colors: true,
             wireframe: false,
             shading: ShadingMode::Lit,
             lighting_mode: LightingMode::Studio,

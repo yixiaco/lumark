@@ -157,33 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn lz_large_data() {
-        // 1 MB of repeating data
-        let original = vec![0xABu8; 1_048_576];
-        let mut source = Cursor::new(original.as_slice());
-
-        let compressed = {
-            let mut buf = Vec::new();
-            lz_compress(&mut source, &mut buf).unwrap();
-            buf
-        };
-
-        assert!(
-            compressed.len() < original.len(),
-            "compressed size ({}) should be less than original ({}) for repetitive data",
-            compressed.len(),
-            original.len()
-        );
-
-        let mut decompressed = Vec::new();
-        let mut compressed_reader = Cursor::new(compressed.as_slice());
-        let bytes = lz_decompress(&mut compressed_reader, &mut decompressed).unwrap();
-
-        assert_eq!(bytes, original.len() as u64);
-        assert_eq!(decompressed, original);
-    }
-
-    #[test]
     fn lz_with_level_9() {
         let original = b"Hello, GeeZipX! Level 9 compression test data.";
         let mut source = Cursor::new(original.as_slice());

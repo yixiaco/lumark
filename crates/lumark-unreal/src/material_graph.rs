@@ -18,11 +18,19 @@
 use std::collections::HashMap;
 
 use crate::imports::{find_export_by_public_hash, resolve_package_import};
+use crate::material_params::{
+    AO_BOOST_TRIGGERS, AO_TRIGGERS, DIFFUSE_COLOR_TRIGGERS, DIFFUSE_TRIGGERS,
+    EMISSIVE_COLOR_TRIGGERS, EMISSIVE_MULT_COLOR_TRIGGERS, EMISSIVE_MULT_TRIGGERS,
+    EMISSIVE_TRIGGERS, NORMAL_TRIGGERS, ROUGHNESS_MAX_TRIGGERS, ROUGHNESS_MIN_TRIGGERS,
+    ROUGHNESS_TRIGGERS, SPECULAR_TRIGGERS, matches_diffuse, matches_emissive, matches_normals,
+    matches_specular_masks,
+};
 use crate::package::{
     Mappings, MaterialAppearance, MaterialTextureKind, MaterialTextureRef, MaterialViewerImage,
-    PackageInfo, PropValue, Texture2D, UnrealPackage, blend_mode_property, is_base_color_name,
-    is_legacy_package, is_overlay_name, parameter_array, parameter_entry_color,
-    parameter_entry_name, parameter_entry_scalar, parse_package, two_sided_property,
+    PackageInfo, PropValue, Texture2D, UnrealPackage, blend_mode_name, blend_mode_property,
+    is_base_color_name, is_legacy_package, is_overlay_name, parameter_array,
+    parameter_entry_color4, parameter_entry_name, parameter_entry_scalar, parse_package,
+    shading_model_name, two_sided_property,
 };
 use crate::source::GameAssetSource;
 
@@ -82,210 +90,11 @@ struct ChainTexture {
 struct ChainParams {
     /// 贴图参数（父→子顺序，子材质同名参数靠后）。
     textures: Vec<ChainTexture>,
-    /// 颜色参数（父→子顺序）。
-    colors: Vec<(String, [f32; 3])>,
+    /// 颜色参数（父→子顺序，含四分量）。
+    colors: Vec<(String, [f32; 4])>,
+    /// 标量参数（父→子顺序）。
+    scalars: Vec<(String, f32)>,
 }
-
-/// FModel `CMaterialParams2.Diffuse` 常用触发名（顺序即优先级）。
-///
-/// 刻意不包含 `RGB`/`ObjectColor`/`DecalColor` 等遮罩参数名，避免把颜色
-/// 遮罩贴图当成基础色。
-const DIFFUSE_TRIGGERS: &[&str] = &[
-    "Trunk_BaseColor",
-    "ShadedDiffuse",
-    "LitDiffuse",
-    "Base Colour",
-    "CLRM",
-    "Diffuse_Map",
-    "Base Color",
-    "Base_Tex",
-    "BaseTex",
-    "ColorTexture",
-    "Background Diffuse",
-    "BG Diffuse Texture",
-    "Diffuse",
-    "Diffuse_1",
-    "DiffuseTexture",
-    "DiffuseMap",
-    "Diffuse A",
-    "Base Color Map",
-    "DesatTexture",
-    "Diffuse A Map",
-    "Diffuse Top",
-    "Diffuse Side",
-    "Base Diffuse",
-    "Diffuse Base",
-    "Diffuse Base Map",
-    "Diffuse Color Map",
-    "BaseColor_Tex",
-    "UDR",
-    "DiffuseLayer1",
-    "1 - Albedo",
-    "albedo",
-    "Albedo",
-    "ALB",
-    "TextureAlbedo",
-    "AlbedoTex",
-    "Color_Texture",
-    "color",
-    "Base_D",
-    "Tex_BaseColor",
-    "Base Texture",
-    "BaseColour",
-    "Color Map",
-    "BaseColor Map",
-    "Base Color Texture",
-    "BaseColorTexture",
-    "BaseColor_Texture",
-    "Base_Color",
-    "BaseColor",
-    "Basecolor",
-    "Tex_BC",
-    "TexA_BC",
-    "BaseDiffuse",
-    "Base Texture Color",
-    "BaseColorA",
-    "BC",
-    "BCA",
-    "BC_Map",
-    "Base Map",
-    "BCE",
-    "Color",
-    "CO",
-    "CO_1",
-    "Base_CO",
-    "Bc",
-    "Tex_Color",
-    "ColorOpacity",
-];
-
-/// FModel `CMaterialParams2.Normals` 常用触发名。
-const NORMAL_TRIGGERS: &[&str] = &[
-    "Trunk_Normal",
-    "T_Normal",
-    "normal",
-    "normalmap",
-    "Base Normal",
-    "BaseNormalMap",
-    "Normal Map",
-    "Base Normal Map",
-    "Normals",
-    "Normal",
-    "NormalA",
-    "NormalTexture",
-    "Normal Texture",
-    "Normal_Texture",
-    "NormalMap",
-    "Normal Tex",
-    "Normal A Map",
-    "Normals Top",
-    "Normals Side",
-    "Fallback Normal",
-    "Base_N",
-    "BaseNormal_Tex",
-    "BaseNormal_NonVT",
-    "Base_Normal",
-    "BaseNormal",
-    "Normal Base",
-    "NormalVT",
-    "TextureNormal",
-    "Tex_BakedNormal",
-    "TexNor",
-    "Normal VT",
-    "BakedNormalMap",
-    "Tex_NM",
-    "TexA_NM",
-    "Normal_Tex",
-    "N",
-    "NM",
-    "NM_1",
-    "Base_NM",
-    "NRM",
-    "T_NRM",
-    "Base NRM",
-    "NRM Base",
-    "Cloth_N",
-];
-
-/// FModel `CMaterialParams2.SpecularMasks` 常用触发名。
-const SPECULAR_TRIGGERS: &[&str] = &[
-    "Trunk_Specular",
-    "PackedTexture",
-    "SpecularMasks",
-    "Specular",
-    "SpecMap",
-    "T_Specular",
-    "ORM",
-    "MRAE",
-    "MRAS",
-    "MRAO",
-    "MRA",
-    "MRS",
-    "LP",
-    "Base_LP",
-    "MRO_Tex",
-    "MultiMaskMap",
-    "MRO Map",
-    "MROA Map",
-    "MRO",
-    "Base_ORM",
-    "Base_SRO",
-    "Base Texture RMAO",
-    "SRXO_Mask",
-    "SRXO",
-    "SROA",
-    "SRO Map",
-    "SRM",
-    "SC_Map",
-    "Pack",
-    "PAK",
-    "Packed Tex",
-    "Packed Texture",
-    "PhysicalMap",
-    "REM",
-    "TextureRMA",
-];
-
-/// FModel `CMaterialParams2.Emissive` 常用触发名。
-const EMISSIVE_TRIGGERS: &[&str] = &[
-    "Emissive",
-    "EmissiveTexture",
-    "EmissiveColorTexture",
-    "EmissiveColor",
-    "EmissiveMask",
-    "EmmisiveColor_A",
-    "TextureEmissive",
-    "TexEm",
-    "Main_T_Emissive",
-    "VT Emissive",
-];
-
-/// FModel `CMaterialParams2.DiffuseColors`（基础色 tint 参数名）。
-const DIFFUSE_COLOR_TRIGGERS: &[&str] = &[
-    "ColorMult",
-    "Color_mul",
-    "Base Color",
-    "BaseColor",
-    "Color",
-    "color",
-    "DiffuseColor",
-    "ColorA",
-    "ALB",
-    "AlbedoColor",
-    "Layer A Tint",
-];
-
-/// FModel `CMaterialParams2.EmissiveColors`（自发光 tint 参数名）。
-const EMISSIVE_COLOR_TRIGGERS: &[&str] = &[
-    "Emissive",
-    "Emissive Color",
-    "EmissiveColor",
-    "EMI",
-    "EmColor",
-];
-
-/// FModel `Material.Setup` 的 AO 贴图参数名（按参数精确匹配）。
-const OCCLUSION_TRIGGERS: &[&str] = &["M", "AEM", "AO"];
 
 /// 读取包内 `import_index` 指向的对象引用；非包导入返回 `None`。
 pub(crate) fn resolve_material_object(
@@ -486,6 +295,7 @@ fn load_material_recursive(
     );
     chain.textures.extend(node_chain.textures);
     chain.colors.extend(node_chain.colors);
+    chain.scalars.extend(node_chain.scalars);
     if let Some(parent) = parent_appearance {
         appearance.merge_parent(&parent);
     }
@@ -497,20 +307,50 @@ fn is_material_export(class_name: &str) -> bool {
     class_name.to_ascii_lowercase().contains("material")
 }
 
-/// 应用材质链选择：贴图用途、基础色 tint 与自发光 tint。
+/// 应用材质链选择：贴图用途、颜色 tint、粗糙度区间、发光倍率与 AO 增强。
 fn apply_chain_selection(appearance: &mut MaterialAppearance, chain: &ChainParams) {
     let textures = selected_textures(chain);
     let has_base = textures
         .iter()
         .any(|texture| texture.kind == MaterialTextureKind::BaseColor);
-    if let Some(tint) = select_color(chain, DIFFUSE_COLOR_TRIGGERS) {
-        appearance.base_color = tint;
-    } else if has_base {
-        // FModel 的默认 DiffuseColor 为白色，贴图本身提供颜色。
-        appearance.base_color = [1.0, 1.0, 1.0];
+    let has_emissive = textures
+        .iter()
+        .any(|texture| texture.kind == MaterialTextureKind::Emissive);
+    if has_base {
+        // FModel 只在存在基础色贴图时应用 DiffuseColor；默认白色由贴图提供颜色。
+        if let Some(tint) = select_color3(chain, DIFFUSE_COLOR_TRIGGERS) {
+            appearance.base_color = tint;
+        } else {
+            appearance.base_color = [1.0, 1.0, 1.0];
+        }
     }
-    if let Some(emissive) = select_color(chain, EMISSIVE_COLOR_TRIGGERS) {
+    if has_emissive && let Some(emissive) = select_color3(chain, EMISSIVE_COLOR_TRIGGERS) {
         appearance.emissive = emissive;
+    }
+    // FModel：RoughnessMin/Max 优先；否则单值 Roughness 生成 ±value/2 区间。
+    let single = select_scalar(chain, ROUGHNESS_TRIGGERS);
+    let mut min = select_scalar(chain, ROUGHNESS_MIN_TRIGGERS)
+        .or_else(|| single.map(|value| value - value / 2.0))
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let mut max = select_scalar(chain, ROUGHNESS_MAX_TRIGGERS)
+        .or_else(|| single.map(|value| value + value / 2.0))
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+    if min > max {
+        std::mem::swap(&mut min, &mut max);
+    }
+    appearance.roughness_min = min;
+    appearance.roughness_max = max;
+    if let Some(multiplier) = select_scalar(chain, EMISSIVE_MULT_TRIGGERS)
+        .or_else(|| select_color3(chain, EMISSIVE_MULT_COLOR_TRIGGERS).map(|color| color[0]))
+    {
+        appearance.emissive_multiplier = multiplier.max(0.0);
+    }
+    if let Some(boost) = select_color4(chain, AO_BOOST_TRIGGERS) {
+        appearance.ao_boost_color = [boost[0], boost[1], boost[2]];
+        appearance.ao_boost_exponent = boost[3];
+        appearance.has_ao_boost = true;
     }
     appearance.textures = textures;
 }
@@ -536,7 +376,7 @@ fn selected_textures(chain: &ChainParams) -> Vec<MaterialTextureRef> {
     if let Some(texture) = select_texture(chain, EMISSIVE_TRIGGERS, matches_emissive, false) {
         textures.push(texture_ref(texture, MaterialTextureKind::Emissive));
     }
-    if let Some(texture) = select_texture(chain, OCCLUSION_TRIGGERS, matches_none, false) {
+    if let Some(texture) = select_texture(chain, AO_TRIGGERS, matches_none, false) {
         textures.push(texture_ref(texture, MaterialTextureKind::Occlusion));
     }
     textures
@@ -588,8 +428,8 @@ fn select_texture<'a>(
     None
 }
 
-/// 选择颜色参数（触发名优先，子材质覆盖父材质）。
-fn select_color(chain: &ChainParams, triggers: &[&str]) -> Option<[f32; 3]> {
+/// 选择颜色参数（触发名优先，子材质覆盖父材质），返回四分量。
+fn select_color4(chain: &ChainParams, triggers: &[&str]) -> Option<[f32; 4]> {
     for trigger in triggers {
         if let Some((_, color)) = chain
             .colors
@@ -603,50 +443,24 @@ fn select_color(chain: &ChainParams, triggers: &[&str]) -> Option<[f32; 3]> {
     None
 }
 
-/// FModel `RegexDiffuse`：贴图名/参数名是否像基础色。
-fn matches_diffuse(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.contains("diff")
-        || lower.contains("_tex")
-        || lower.contains("albedo")
-        || lower.contains("basecolor")
-        || lower.contains("base_color")
-        || lower.ends_with("_d")
-        || lower.ends_with("_dif")
-        || lower.ends_with("_dm")
-        || lower.ends_with("_c")
-        || lower.ends_with("_cm")
-        || lower.ends_with("_ds")
-        || lower.ends_with("_da")
+/// 选择颜色参数并取 RGB。
+fn select_color3(chain: &ChainParams, triggers: &[&str]) -> Option<[f32; 3]> {
+    select_color4(chain, triggers).map(|color| [color[0], color[1], color[2]])
 }
 
-/// FModel `RegexNormals`：贴图名/参数名是否像法线。
-fn matches_normals(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.starts_with("no_")
-        || lower.contains("norm")
-        || lower.ends_with("_n")
-        || lower.ends_with("_nm")
-        || lower.ends_with("_nrm")
-}
-
-/// FModel `RegexSpecularMasks`：贴图名/参数名是否像金属/粗糙度遮罩。
-fn matches_specular_masks(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.starts_with("sp_")
-        || lower.contains("specu")
-        || lower.contains("_s_")
-        || lower.contains("mr")
-        || lower.contains("rm")
-        || lower.ends_with("_s")
-        || lower.ends_with("_lp")
-        || lower.ends_with("_pak")
-}
-
-/// FModel `RegexEmissive`：贴图名/参数名是否像自发光。
-fn matches_emissive(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.contains("emiss") || lower.ends_with("_e") || lower.ends_with("_em")
+/// 选择标量参数（触发名优先，子材质覆盖父材质）。
+fn select_scalar(chain: &ChainParams, triggers: &[&str]) -> Option<f32> {
+    for trigger in triggers {
+        if let Some((_, value)) = chain
+            .scalars
+            .iter()
+            .rev()
+            .find(|(name, _)| name.eq_ignore_ascii_case(trigger))
+        {
+            return Some(*value);
+        }
+    }
+    None
 }
 
 /// 从属性构造本节点外观与参数链。
@@ -668,6 +482,12 @@ fn appearance_from_properties(
     let (masked, translucent) = blend_mode_property(properties);
     appearance.masked |= masked;
     appearance.translucent |= translucent;
+    if let Some(blend) = blend_mode_name(properties) {
+        appearance.blend_mode = blend;
+    }
+    if let Some(shading) = shading_model_name(properties) {
+        appearance.shading_model = shading;
+    }
     let mut base_color = None;
     let mut emissive = None;
     for entry in parameter_array(properties, "VectorParameterValues") {
@@ -678,14 +498,15 @@ fn appearance_from_properties(
         if is_overlay_name(&lower) {
             continue;
         }
-        let Some(color) = parameter_entry_color(entry) else {
+        let Some(color) = parameter_entry_color4(entry) else {
             continue;
         };
         chain.colors.push((name.clone(), color));
+        let rgb = [color[0], color[1], color[2]];
         if lower.contains("emiss") || lower.contains("glow") {
-            emissive = Some(color);
+            emissive = Some(rgb);
         } else if is_base_color_name(Some(&name)) {
-            base_color = Some(color);
+            base_color = Some(rgb);
         }
     }
     let mut metallic = None;
@@ -701,9 +522,10 @@ fn appearance_from_properties(
         let Some(value) = parameter_entry_scalar(entry) else {
             continue;
         };
+        chain.scalars.push((name.clone(), value));
         if lower.contains("metallic") && !lower.contains("overwrite") {
             metallic = Some(value);
-        } else if lower.contains("roughness") && !lower.contains("min") {
+        } else if lower.contains("roughness") && !lower.contains("min") && !lower.contains("max") {
             roughness = Some(value);
         }
     }
@@ -870,7 +692,7 @@ mod tests {
                 texture("Color", "NewNana_D", 2),
                 texture("Normal", "FlatN", 3),
             ],
-            colors: Vec::new(),
+            ..Default::default()
         };
         let selected = selected_textures(&chain);
         assert_eq!(selected[0].kind, MaterialTextureKind::BaseColor);
@@ -889,7 +711,7 @@ mod tests {
                 texture("Fabric_D", "Weather01_D1", 2),
                 texture("RGB", "N_TopCloth_RGB", 3),
             ],
-            colors: Vec::new(),
+            ..Default::default()
         };
         let selected = selected_textures(&chain);
         assert_eq!(selected[0].kind, MaterialTextureKind::BaseColor);
@@ -906,7 +728,7 @@ mod tests {
                 texture("OblectColor", "B", 12),
                 texture("RGB", "NA_RGB", 13),
             ],
-            colors: Vec::new(),
+            ..Default::default()
         };
         let selected = selected_textures(&chain);
         assert_eq!(selected[0].kind, MaterialTextureKind::BaseColor);
@@ -930,7 +752,7 @@ mod tests {
                 texture("AO", "NewNana_AO", 20),
                 texture("Color", "NewNana_D", 21),
             ],
-            colors: Vec::new(),
+            ..Default::default()
         };
         let selected = selected_textures(&chain);
         assert!(
@@ -961,20 +783,101 @@ mod tests {
         let chain = ChainParams {
             textures: Vec::new(),
             colors: vec![
-                ("BaseColortint".to_string(), [0.2, 0.3, 0.4]),
-                ("Color".to_string(), [0.9, 0.8, 0.7]),
+                ("BaseColortint".to_string(), [0.2, 0.3, 0.4, 1.0]),
+                ("Color".to_string(), [0.9, 0.8, 0.7, 1.0]),
             ],
+            ..Default::default()
         };
         assert_eq!(
-            select_color(&chain, DIFFUSE_COLOR_TRIGGERS),
+            select_color3(&chain, DIFFUSE_COLOR_TRIGGERS),
             Some([0.9, 0.8, 0.7])
         );
         // 非触发名颜色不参与基础色 tint。
         let only_tint = ChainParams {
             textures: Vec::new(),
-            colors: vec![("BaseColortint".to_string(), [0.2, 0.3, 0.4])],
+            colors: vec![("BaseColortint".to_string(), [0.2, 0.3, 0.4, 1.0])],
+            ..Default::default()
         };
-        assert_eq!(select_color(&only_tint, DIFFUSE_COLOR_TRIGGERS), None);
+        assert_eq!(select_color3(&only_tint, DIFFUSE_COLOR_TRIGGERS), None);
+    }
+
+    /// BNB 的 `AO` 参数既作 AO 又作 FModel specular mask。
+    #[test]
+    fn ao_parameter_feeds_specular_mask_and_occlusion() {
+        let chain = ChainParams {
+            textures: vec![
+                texture("AO", "NewNana_AO", 7),
+                texture("Color", "NewNana_D", 8),
+                texture("Normal", "FlatN", 9),
+            ],
+            ..Default::default()
+        };
+        let selected = selected_textures(&chain);
+        assert!(selected.iter().any(|texture| {
+            texture.kind == MaterialTextureKind::MetallicRoughness && texture.name == "NewNana_AO"
+        }));
+        assert!(
+            selected
+                .iter()
+                .any(|texture| texture.kind == MaterialTextureKind::Occlusion
+                    && texture.name == "NewNana_AO")
+        );
+    }
+
+    /// 粗糙度区间、自发光倍率与 AO 增强按 FModel 触发名选择。
+    #[test]
+    fn selects_fmodel_scalar_and_boost_parameters() {
+        let chain = ChainParams {
+            textures: vec![
+                texture("Color", "NewNana_D", 1),
+                texture("AO", "NewNana_AO", 2),
+            ],
+            scalars: vec![
+                ("RoughnessMin".to_string(), 0.2),
+                ("RoughnessMax".to_string(), 0.9),
+                ("Emissive_Mult".to_string(), 1.7),
+            ],
+            colors: vec![(
+                "Skin Boost Color And Exponent".to_string(),
+                [1.2, 1.1, 1.0, 2.5],
+            )],
+        };
+        let mut appearance = MaterialAppearance::default();
+        apply_chain_selection(&mut appearance, &chain);
+        assert!((appearance.roughness_min - 0.2).abs() < 1e-6);
+        assert!((appearance.roughness_max - 0.9).abs() < 1e-6);
+        assert!((appearance.emissive_multiplier - 1.7).abs() < 1e-6);
+        assert!(appearance.has_ao_boost);
+        assert_eq!(appearance.ao_boost_color, [1.2, 1.1, 1.0]);
+        assert!((appearance.ao_boost_exponent - 2.5).abs() < 1e-6);
+    }
+
+    /// 单值 Roughness 生成 ±value/2 的区间；没有基础色贴图时不应用 tint。
+    #[test]
+    fn single_roughness_and_tint_require_base_texture() {
+        let chain = ChainParams {
+            textures: Vec::new(),
+            scalars: vec![("Roughness".to_string(), 0.4)],
+            colors: vec![("Color".to_string(), [0.9, 0.2, 0.1, 1.0])],
+        };
+        let mut appearance = MaterialAppearance::default();
+        apply_chain_selection(&mut appearance, &chain);
+        assert!((appearance.roughness_min - 0.2).abs() < 1e-6);
+        assert!((appearance.roughness_max - 0.6).abs() < 1e-6);
+        assert_eq!(
+            appearance.base_color,
+            MaterialAppearance::default().base_color,
+            "没有基础色贴图时 FModel 不应用 DiffuseColor"
+        );
+
+        let with_texture = ChainParams {
+            textures: vec![texture("Color", "NewNana_D", 1)],
+            colors: vec![("Color".to_string(), [0.9, 0.2, 0.1, 1.0])],
+            ..Default::default()
+        };
+        let mut appearance = MaterialAppearance::default();
+        apply_chain_selection(&mut appearance, &with_texture);
+        assert_eq!(appearance.base_color, [0.9, 0.2, 0.1]);
     }
 
     /// 负 FPackageIndex 才表示导入。

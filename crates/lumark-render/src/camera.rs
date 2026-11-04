@@ -17,8 +17,12 @@ pub(crate) struct Camera {
 
 impl Camera {
     /// 根据场景包围盒和轨道参数拟合相机。
+    ///
+    /// `pan_pixels` 以输出画布像素为单位、按屏幕像素 1:1 换算世界偏移：
+    /// 向右拖拽时观察目标左移（场景跟手右移），向下拖拽时目标上移
+    /// （场景跟手下移）。偏移在 `target_offset` 之后叠加。
     pub fn fit(bounds: &Bounds, settings: &RenderSettings) -> Self {
-        let center = if bounds.is_empty() {
+        let base_center = if bounds.is_empty() {
             settings.target_offset
         } else {
             let center = bounds.center();
@@ -42,15 +46,28 @@ impl Camera {
             pitch.cos() * yaw.sin(),
             pitch.sin(),
         ];
+        // 相机屏幕右/上基，与 `look_at` 的 side/up 保持一致。
+        let forward = [-direction[0], -direction[1], -direction[2]];
+        let right = normalize(cross(forward, [0.0, 0.0, 1.0]));
+        let up = normalize(cross(right, forward));
+        let world_per_pixel = 2.0 * distance * (fov_y * 0.5).tan() / settings.height.max(1) as f32;
+        let center = [
+            base_center[0] - right[0] * settings.pan_pixels[0] * world_per_pixel
+                + up[0] * settings.pan_pixels[1] * world_per_pixel,
+            base_center[1] - right[1] * settings.pan_pixels[0] * world_per_pixel
+                + up[1] * settings.pan_pixels[1] * world_per_pixel,
+            base_center[2] - right[2] * settings.pan_pixels[0] * world_per_pixel
+                + up[2] * settings.pan_pixels[1] * world_per_pixel,
+        ];
         let eye = [
             center[0] + direction[0] * distance,
             center[1] + direction[1] * distance,
             center[2] + direction[2] * distance,
         ];
-        let up = [0.0, 0.0, 1.0];
+        let up_world = [0.0, 0.0, 1.0];
         let near = (distance * 0.01).max(0.01);
         let far = (distance + radius * 8.0).max(near + 1.0);
-        let view = look_at(eye, center, up);
+        let view = look_at(eye, center, up_world);
         let aspect = settings.width.max(1) as f32 / settings.height.max(1) as f32;
         let projection = perspective(fov_y, aspect, near, far);
         Self {
@@ -185,5 +202,51 @@ mod tests {
         assert!(clip[3] > 0.0);
         assert!((clip[0] / clip[3]).abs() < 1e-4);
         assert!((clip[1] / clip[3]).abs() < 1e-4);
+    }
+
+    /// 平移像素与投影屏幕位移 1:1：向右拖拽场景右移、向下拖拽场景下移。
+    #[test]
+    fn camera_pan_moves_target_by_screen_pixels() {
+        let bounds = Bounds::new([-50.0, -50.0, 0.0], [50.0, 50.0, 100.0]);
+        let settings = RenderSettings {
+            width: 320,
+            height: 240,
+            pan_pixels: [32.0, 16.0],
+            ..RenderSettings::default()
+        };
+        let camera = Camera::fit(&bounds, &settings);
+        let clip = camera.clip_position(bounds.center());
+        assert!(clip[3] > 0.0);
+        let ndc_x = clip[0] / clip[3];
+        let ndc_y = clip[1] / clip[3];
+        assert!(
+            (ndc_x - 2.0 * 32.0 / 320.0).abs() < 1e-3,
+            "向右拖拽后场景应右移：ndc_x={ndc_x}"
+        );
+        assert!(
+            (ndc_y + 2.0 * 16.0 / 240.0).abs() < 1e-3,
+            "向下拖拽后场景应下移：ndc_y={ndc_y}"
+        );
+    }
+
+    /// 缩放后的相机使用同一像素平移量，世界偏移随距离变化但屏幕位移不变。
+    #[test]
+    fn camera_pan_is_independent_of_zoom() {
+        let bounds = Bounds::new([-50.0, -50.0, 0.0], [50.0, 50.0, 100.0]);
+        let base = RenderSettings {
+            width: 320,
+            height: 240,
+            pan_pixels: [10.0, -6.0],
+            ..RenderSettings::default()
+        };
+        let zoomed = RenderSettings {
+            distance_scale: 3.0,
+            ..base.clone()
+        };
+        let base_clip = Camera::fit(&bounds, &base).clip_position(bounds.center());
+        let zoomed_clip = Camera::fit(&bounds, &zoomed).clip_position(bounds.center());
+        let base_x = base_clip[0] / base_clip[3];
+        let zoomed_x = zoomed_clip[0] / zoomed_clip[3];
+        assert!((base_x - zoomed_x).abs() < 1e-3, "屏幕位移不应随缩放变化");
     }
 }

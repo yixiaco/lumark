@@ -50,7 +50,7 @@ Lumark is licensed under MIT OR Apache-2.0. The repository uses or references th
 - **rippod/apate** — GPL-3.0 — https://github.com/rippod/apate — 仅作为“文件伪装/一键还原”功能形态的参考，未复用其代码、二进制或容器格式。
 - **trumank/repak** — MIT OR Apache-2.0 — https://github.com/trumank/repak — Unreal PAK 版本/索引/加密/压缩行为参考，测试样本位于 `crates/lumark-archive/tests/fixtures/unreal/`（含 NOTICE），未直接链接其代码。
 - **trumank/retoc** — MIT — https://github.com/trumank/retoc — IoStore TOC/目录索引/chunk 布局与 UE5 Zen 包格式参考；Lumark 独立实现，未直接链接其代码。
-- **CUE4Parse** — Apache-2.0 — https://github.com/FabianFG/CUE4Parse — UE5 Zen/无版本属性/unversioned header/纹理平台数据行为参考；Lumark 按其公开格式独立实现，测试用 UE5.8 fixture 仅本地验证。
+- **CUE4Parse** — Apache-2.0 — https://github.com/FabianFG/CUE4Parse — UE5 Zen/无版本属性/unversioned header/纹理平台数据行为参考；`CMaterialParams2` 材质参数触发名表（首 UV 层）按 Apache-2.0 归属用于 Lumark 的材质选择；Lumark 按其公开格式独立实现，测试用 UE5.8 fixture 仅本地验证。
 - **unrealfs** — MIT — https://github.com/lmmtrr/unrealfs — `.usmap` 文件格式和属性 schema 解析参考。
 - **texture2ddecoder** — MIT OR Apache-2.0 — https://github.com/UniversalGameExtraction/texture2ddecoder — BC1/BC3/BC4/BC5/BC7 软件解码。
 - **yuhkix/aesdumpster-rs** — MIT — https://github.com/yuhkix/aesdumpster-rs — `C7` AES 密钥签名模式、误报表与熵排序参考；Lumark 独立实现并增加真实容器校验。

@@ -1,9 +1,20 @@
+//! 查看器标题栏与工具栏。
+
+use gpui_kit::component::Disableable as _;
+
 use super::animation::AnimationTimeline;
 use super::status::this_zoom_percent;
 use super::*;
 
 impl AssetViewerWindowView {
+    /// 标题栏：资产类型图标 + 名称 + 查看器类型。
     pub(super) fn render_title_bar(&self, cx: &Context<Self>) -> impl IntoElement {
+        let icon = match self.scene.as_ref() {
+            ViewerScene::SkeletalMesh { .. } => AppIcon::AssetSkeletalMesh,
+            ViewerScene::Skeleton(_) => AppIcon::AssetSkeleton,
+            ViewerScene::Mesh { .. } => AppIcon::AssetStaticMesh,
+            ViewerScene::Material { .. } => AppIcon::AssetMaterial,
+        };
         TitleBar::new()
             .h(px(38.))
             .bg(cx.theme().title_bar)
@@ -23,7 +34,7 @@ impl AssetViewerWindowView {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(AppIcon::Game.element(14.)),
+                            .child(icon.element(14.)),
                     )
                     .child(
                         div()
@@ -38,6 +49,8 @@ impl AssetViewerWindowView {
                     ),
             )
     }
+
+    /// 工具栏：视图、渲染开关、动画、检查器与属性 JSON。
     pub(super) fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .w_full()
@@ -55,10 +68,12 @@ impl AssetViewerWindowView {
                     .ghost()
                     .icon(AppIcon::Refresh.element(13.))
                     .label(tr("重置视角", "Reset view"))
+                    .tooltip(tr("重置旋转、缩放与平移", "Reset orbit, zoom and pan"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.yaw = 35.0;
                         this.pitch = 25.0;
                         this.zoom = 1.0;
+                        this.pan = [0.0, 0.0];
                         this.request_preview(cx);
                         cx.notify();
                     })),
@@ -87,188 +102,64 @@ impl AssetViewerWindowView {
                         cx.notify();
                     })),
             )
-            .child(
-                button("model-wireframe")
-                    .ghost()
-                    .label("线框")
-                    .tooltip(tr("线框模式", "Wireframe mode"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.wireframe = !this.wireframe;
-                        this.request_preview(cx);
-                        cx.notify();
-                    })),
-            )
-            .child(
-                button("model-srgb")
-                    .ghost()
-                    .label("sRGB")
-                    .tooltip(tr(
-                        "基础色/自发光贴图 sRGB 采样",
-                        "sRGB sampling for base/emissive textures",
-                    ))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.srgb_textures = !this.srgb_textures;
-                        this.request_preview(cx);
-                        cx.notify();
-                    })),
-            )
-            .children((0..self.hidden_sections.len()).map(|index| {
-                let visible = !self.hidden_sections[index];
-                let mut section_button = button(format!("model-section-{index}"))
-                    .label(format!("S{index}"))
-                    .tooltip(tr(
-                        "切换 section/材质可见性",
-                        "Toggle section/material visibility",
-                    ))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(hidden) = this.hidden_sections.get_mut(index) {
-                            *hidden = !*hidden;
-                        }
-                        this.request_preview(cx);
-                        cx.notify();
-                    }));
-                if visible {
-                    section_button = section_button.primary();
-                } else {
-                    section_button = section_button.ghost();
-                }
-                section_button
-            }))
-            .children(
-                self.static_lods()
-                    .filter(|lods| lods.len() > 1)
-                    .map(|lods| {
-                        button("model-lod")
-                            .ghost()
-                            .label(format!("LOD {}/{}", self.lod_index + 1, lods.len()))
-                            .tooltip(tr("切换 LOD", "Switch LOD"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let count = this.static_lods().map_or(0, <[MeshLod]>::len);
-                                if count > 1 {
-                                    this.lod_index = (this.lod_index + 1) % count;
-                                    this.hidden_sections =
-                                        vec![
-                                            false;
-                                            this.scene_mesh().map_or(0, |mesh| mesh.sections.len())
-                                        ];
-                                    this.request_preview(cx);
-                                    cx.notify();
-                                }
-                            }))
-                    }),
-            )
-            .children(self.has_animation().then(|| {
-                let (length, total) = self.animation_info().unwrap_or((0.0, 1));
-                let timeline = AnimationTimeline::new(length, total, self.animation_time);
-                let label = if self.animation_playing {
-                    tr("暂停动画", "Pause animation")
-                } else {
-                    tr("播放动画", "Play animation")
-                };
-                let mut play_button = button("model-animation")
-                    .ghost()
-                    .label(label)
-                    .tooltip(tr(
-                        "播放/暂停当前 AnimSequence",
-                        "Play/pause the current AnimSequence",
-                    ))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_animation(cx);
-                    }));
-                if self.animation_playing {
-                    play_button = play_button.primary();
-                }
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .child(play_button)
-                    .child(
-                        button("model-animation-start")
-                            .ghost()
-                            .xsmall()
-                            .icon(AppIcon::Refresh.element(12.))
-                            .tooltip(tr("回到开头", "Go to start"))
-                            .accessibility_label(tr("回到动画开头", "Go to animation start"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.reset_animation(cx);
-                            })),
-                    )
-                    .child(
-                        button("model-animation-prev")
-                            .ghost()
-                            .xsmall()
-                            .icon(AppIcon::ArrowLeft.element(12.))
-                            .tooltip(tr("上一帧", "Previous frame"))
-                            .accessibility_label(tr("上一帧", "Previous frame"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.step_animation(-1, cx);
-                            })),
-                    )
-                    .child(
-                        button("model-animation-next")
-                            .ghost()
-                            .xsmall()
-                            .icon(AppIcon::ArrowRight.element(12.))
-                            .tooltip(tr("下一帧", "Next frame"))
-                            .accessibility_label(tr("下一帧", "Next frame"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.step_animation(1, cx);
-                            })),
-                    )
-                    .child(
-                        div().id("model-animation-slider").w(px(140.)).children(
-                            self.timeline_slider
-                                .as_ref()
-                                .map(|slider| Slider::new(slider).horizontal().w_full()),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(timeline.label()),
-                    )
-            }))
-            .when(self.has_skin(), |this| {
-                let mut pose_button = button("model-skin-pose")
-                    .ghost()
-                    .label(tr("蒙皮演示", "Skin pose"))
-                    .tooltip(tr(
-                        "对主要蒙皮骨骼施加局部旋转，演示 LBS 蒙皮",
-                        "Rotate the dominant skinned bone to preview LBS deformation",
-                    ))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.skin_pose = !this.skin_pose;
-                        this.request_preview(cx);
-                        cx.notify();
-                    }));
-                if self.skin_pose {
-                    pose_button = pose_button.primary();
-                }
-                this.child(pose_button)
-            })
+            .child(toolbar_separator(cx))
             .when(self.scene_mesh().is_some(), |this| {
-                let shading_label = match self.shading {
-                    lumark_render::ShadingMode::Lit => tr("光照", "Lit"),
-                    lumark_render::ShadingMode::Unlit => tr("无光", "Unlit"),
-                    lumark_render::ShadingMode::Normals => tr("法线", "Normals"),
-                };
                 this.child(
+                    button("model-wireframe")
+                        .ghost()
+                        .selected(self.wireframe)
+                        .label(tr("线框", "Wireframe"))
+                        .tooltip(tr("线框模式", "Wireframe mode"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.wireframe = !this.wireframe;
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("model-srgb")
+                        .ghost()
+                        .selected(self.srgb_textures)
+                        .label("sRGB")
+                        .tooltip(tr(
+                            "基础色/自发光贴图 sRGB 采样",
+                            "sRGB sampling for base/emissive textures",
+                        ))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.srgb_textures = !this.srgb_textures;
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("model-vertex-colors")
+                        .ghost()
+                        .selected(self.vertex_colors)
+                        .label(tr("顶点色", "Vertex colors"))
+                        .tooltip(tr(
+                            "把网格顶点色乘到基础色（FModel 默认关闭）",
+                            "Multiply base color by vertex colors (off by default in FModel)",
+                        ))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.vertex_colors = !this.vertex_colors;
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
+                .child(
                     button("model-shading")
                         .ghost()
-                        .label(format!("{}: {shading_label}", tr("着色", "Shading")))
+                        .label(format!(
+                            "{}: {}",
+                            tr("着色", "Shading"),
+                            self.shading_label()
+                        ))
                         .tooltip(tr("切换着色模式", "Cycle shading mode"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.shading = match this.shading {
-                                lumark_render::ShadingMode::Lit => {
-                                    lumark_render::ShadingMode::Unlit
-                                }
-                                lumark_render::ShadingMode::Unlit => {
-                                    lumark_render::ShadingMode::Normals
-                                }
-                                lumark_render::ShadingMode::Normals => {
-                                    lumark_render::ShadingMode::Lit
-                                }
+                                ShadingMode::Lit => ShadingMode::Unlit,
+                                ShadingMode::Unlit => ShadingMode::Normals,
+                                ShadingMode::Normals => ShadingMode::Lit,
                             };
                             this.request_preview(cx);
                             cx.notify();
@@ -300,7 +191,41 @@ impl AssetViewerWindowView {
                             cx.notify();
                         })),
                 )
+                .child(
+                    button("model-skin-pose")
+                        .ghost()
+                        .selected(self.skin_pose)
+                        .label(tr("蒙皮演示", "Skin pose"))
+                        .tooltip(tr(
+                            "对主要蒙皮骨骼施加局部旋转，演示 LBS 蒙皮",
+                            "Rotate the dominant skinned bone to preview LBS deformation",
+                        ))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.skin_pose = !this.skin_pose;
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
             })
+            .children(
+                self.has_animation()
+                    .then(|| self.render_animation_controls(cx)),
+            )
+            .child(toolbar_separator(cx))
+            .child(
+                button("model-properties")
+                    .ghost()
+                    .icon(AppIcon::Doc.element(13.))
+                    .label(tr("属性 JSON", "Properties JSON"))
+                    .tooltip(tr(
+                        "查看资产导出表与属性树 JSON",
+                        "View export table and property tree JSON",
+                    ))
+                    .disabled(self.properties_json.is_none())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_properties_viewer(window, cx);
+                    })),
+            )
             .child(
                 button("model-inspector-toggle")
                     .ghost()
@@ -320,7 +245,95 @@ impl AssetViewerWindowView {
                     .ml_auto()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!("{}%", (this_zoom_percent(self.zoom)))),
+                    .child(format!("{}%", this_zoom_percent(self.zoom))),
             )
     }
+
+    /// 动画播放/步进/时间轴。
+    fn render_animation_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (length, total) = self.animation_info().unwrap_or((0.0, 1));
+        let timeline = AnimationTimeline::new(length, total, self.animation_time);
+        let label = if self.animation_playing {
+            tr("暂停动画", "Pause animation")
+        } else {
+            tr("播放动画", "Play animation")
+        };
+        h_flex()
+            .gap_1()
+            .items_center()
+            .child(
+                button("model-animation")
+                    .ghost()
+                    .selected(self.animation_playing)
+                    .label(label)
+                    .tooltip(tr(
+                        "播放/暂停当前 AnimSequence",
+                        "Play/pause the current AnimSequence",
+                    ))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_animation(cx);
+                    })),
+            )
+            // 这些是固定高度工具栏里的纯图标按钮，按项目规范允许 xsmall。
+            .child(
+                button("model-animation-start")
+                    .ghost()
+                    .xsmall()
+                    .icon(AppIcon::Refresh.element(12.))
+                    .tooltip(tr("回到开头", "Go to start"))
+                    .accessibility_label(tr("回到动画开头", "Go to animation start"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.reset_animation(cx);
+                    })),
+            )
+            .child(
+                button("model-animation-prev")
+                    .ghost()
+                    .xsmall()
+                    .icon(AppIcon::ArrowLeft.element(12.))
+                    .tooltip(tr("上一帧", "Previous frame"))
+                    .accessibility_label(tr("上一帧", "Previous frame"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.step_animation(-1, cx);
+                    })),
+            )
+            .child(
+                button("model-animation-next")
+                    .ghost()
+                    .xsmall()
+                    .icon(AppIcon::ArrowRight.element(12.))
+                    .tooltip(tr("下一帧", "Next frame"))
+                    .accessibility_label(tr("下一帧", "Next frame"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.step_animation(1, cx);
+                    })),
+            )
+            .child(
+                div().id("model-animation-slider").w(px(140.)).children(
+                    self.timeline_slider
+                        .as_ref()
+                        .map(|slider| Slider::new(slider).horizontal().w_full()),
+                ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(timeline.label()),
+            )
+    }
+
+    /// 着色模式显示名。
+    fn shading_label(&self) -> &'static str {
+        match self.shading {
+            ShadingMode::Lit => tr("光照", "Lit"),
+            ShadingMode::Unlit => tr("无光", "Unlit"),
+            ShadingMode::Normals => tr("法线", "Normals"),
+        }
+    }
+}
+
+/// 工具栏分组竖线。
+fn toolbar_separator(cx: &Context<AssetViewerWindowView>) -> impl IntoElement {
+    div().w(px(1.)).h(px(20.)).mx_1().bg(cx.theme().border)
 }

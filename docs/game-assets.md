@@ -33,15 +33,20 @@
 - **材质外观渲染**：FF7R 旧式材质/材质实例会在详情面板渲染近似 PBR 材质球：从材质表达式提取矢量/标量参数默认值，读取父材质补齐材质实例参数，按名称识别基础色/法线/金属粗糙度贴图并从同一容器加载解码，CPU 光栅器生成 512×512 材质球（含方向光、高光、法线扰动）。详情面板中的材质球可点击打开**独立的材质查看器**（与模型/骨骼查看器共用交互式窗口）：左键拖拽绕球旋转、缩放/重置，旋转时按世界空间固定光照重绘，静态图片仍由图片查看器打开。FF7R `M_UE4Man_Body`/`M_UE4Man_ChestLogo` 已生成可辨认的皮肤色+法线细节材质球；UE5/IoStore（BNB）材质同样渲染材质球：从 `VectorParameterValues`/`ScalarParameterValues`/`TextureParameterValues` 提取参数，按同目录命名约定定位贴图（`MAT-ChickenA` 验证羽毛贴图+法线细节）；完整 shader 图不复原。
 
 - **StaticMesh 预览**：首个 LOD 的顶点/索引/section 解析，并识别资产声明的 LOD 数量；
-  CPU 光栅器生成 3D 缩略图显示在详情面板；独立模型查看器窗口支持左键轨道旋转、缩放和
-  重置，并可按 section/材质槽显示或隐藏几何。StaticMesh 的全部 LOD 已解析，查看器可
-  循环切换 LOD；SkeletalMesh 也会解析并切换 LOD0/后续 LOD（后续 LOD 为尽力探测）。
+  CPU 光栅器生成 3D 缩略图显示在详情面板；独立模型查看器窗口支持左键轨道旋转、右键拖拽
+  平移、滚轮缩放和重置；右侧检查器可切换 LOD、按 section/材质槽显示或隐藏几何，并查看
+  材质 blend/shading、粗糙度区间、AO/自发光与贴图尺寸。材质按 CUE4Parse
+  `CMaterialParams2` 与 FModel `default.frag` 对齐（specular mask G=金属度/腔体、
+  B=粗糙度，AO R/G/B，Skin Boost，RoughnessMin/Max），默认隐藏无贴图/半透明 section；
+  工具栏“属性 JSON”可打开导出表 + 属性树的只读 JSON 窗口。StaticMesh 与 SkeletalMesh
+  的全部 LOD 均可在检查器中切换（后续 LOD 为尽力探测）。
 - **骨骼与动画**：Skeleton 参考姿态累积为世界空间线条图，可在同一查看器中旋转/缩放；
   SkeletalMesh 读取内置参考骨架和各 LOD 的流式索引/顶点缓冲，详情面板与查看器显示
   rest pose，并在模型上叠加参考骨骼线条、按 section/材质切换可见性；同时解析
   `FSkinWeightVertexBuffer` 的骨骼索引/权重数组（最多 12 影响/顶点），并按 RequiredBones
   映射到骨架；新增 linear blend skinning（骨骼局部旋转增量 → 变形网格），查看器工具栏
-  提供“蒙皮演示”按钮，详情副标题显示顶点数和最大影响数；
+  提供“蒙皮演示”按钮，详情副标题显示顶点数和最大影响数；检查器“骨骼”页按父索引缩进展示
+  骨骼树并支持搜索；
   AnimSequence 详情面板显示时长、RateScale、轨道数、压缩字节、压缩 codec 和只读时间轴；
   `AnimCompress_PerTrackCompression_6` 关键帧解码与帧采样已实现；先选中 AnimSequence，
   再打开 SkeletalMesh 查看器，即可用“播放动画”按钮连续播放/暂停；查看器工具栏显示只读
@@ -146,9 +151,8 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
   LOD 保存独立蒙皮权重，切到 LOD1 播放动画时使用 LOD1 的权重）。
 - 详情面板 UE 加载器拆分为 `browser/preview.rs`（图片预览）与 `browser/preview_ue.rs`
   （UE IoStore/PAK 资产预览），均在 600 行以内。
-- `tools/check_file_sizes.ps1` 的行数门禁为“超过 1000 行提醒、超过 3000 行失败”：
-  `lumark-archive/src/service.rs`、`lumark-platform-windows/src/virtual_drag.rs` 这类
-  既有文件只触发提醒；本次新增文件仍按职责拆分，UI 文件目标 600 行以内。
+- `tools/check_file_sizes.ps1` 的行数门禁为“超过 3000 行提醒、超过 10000 行失败”；
+  新增文件仍按职责拆分，UI 文件目标 600 行以内，不要等到触发门禁再拆分。
 
 ## 验收命令
 

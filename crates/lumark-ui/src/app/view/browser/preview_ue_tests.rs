@@ -43,7 +43,7 @@ fn loads_fixture_assets_when_available() {
         None,
         &output,
     );
-    match result {
+    match result.result {
         UePreviewResult::Texture {
             path,
             name,
@@ -70,7 +70,9 @@ fn loads_fixture_assets_when_available() {
         None,
         None,
         &temp.path().join("metadata.png"),
-    ) {
+    )
+    .result
+    {
         UePreviewResult::Metadata {
             class_name, rows, ..
         } => {
@@ -109,7 +111,9 @@ fn loads_fixture_assets_when_available() {
         None,
         None,
         &pak_output,
-    ) {
+    )
+    .result
+    {
         UePreviewResult::Texture { name, path, .. } => {
             assert_eq!(name, "T_BC1");
             assert!(path.is_file());
@@ -126,7 +130,7 @@ fn loads_fixture_assets_when_available() {
         None,
         &temp.path().join("model.png"),
     );
-    match model {
+    match model.result {
         UePreviewResult::Model {
             path,
             name,
@@ -152,7 +156,7 @@ fn loads_fixture_assets_when_available() {
         None,
         &temp.path().join("skeleton.png"),
     );
-    match skeleton {
+    match skeleton.result {
         UePreviewResult::Skeleton {
             path,
             subtitle,
@@ -177,7 +181,7 @@ fn loads_fixture_assets_when_available() {
         None,
         &temp.path().join("animation.png"),
     );
-    match animation {
+    match animation.result {
         UePreviewResult::Metadata {
             class_name,
             timeline_seconds,
@@ -198,7 +202,7 @@ fn loads_fixture_assets_when_available() {
         None,
         &temp.path().join("skeletal.png"),
     );
-    match skeletal {
+    match skeletal.result {
         UePreviewResult::Model {
             path,
             subtitle,
@@ -356,7 +360,7 @@ fn renders_real_material_ball_when_fixture_available() {
             key.key.as_ref().map(|key| key.as_str()),
             &output,
         );
-        match result {
+        match result.result {
             UePreviewResult::Material {
                 path, rows, viewer, ..
             } => {
@@ -453,7 +457,7 @@ fn renders_real_zen_material_ball_when_fixture_available() {
         key.key.as_ref().map(|key| key.as_str()),
         &output,
     );
-    match result {
+    match result.result {
         UePreviewResult::Material {
             path, rows, viewer, ..
         } => {

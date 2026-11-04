@@ -213,6 +213,7 @@ fn viewer_data(
         normal: image(normal),
         metallic_roughness: image(orm),
         occlusion: None,
+        ..Default::default()
     }
 }
 

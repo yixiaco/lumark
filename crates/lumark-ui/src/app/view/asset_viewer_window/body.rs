@@ -1,6 +1,43 @@
 use super::*;
 
 impl AssetViewerWindowView {
+    /// 渲染画布与检查器；正式窗口用可拖拽分栏，测试/无状态路径固定宽度。
+    pub(super) fn render_content(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        if !self.inspector_open {
+            return div()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .overflow_hidden()
+                .child(self.render_body(cx))
+                .into_any_element();
+        }
+        let body = self.render_body(cx);
+        let inspector = self.render_inspector(cx);
+        if let Some(state) = self.inspector_state.as_ref() {
+            gpui_kit::base::h_resizable("viewer-split")
+                .with_state(state)
+                .child(gpui_kit::base::resizable_panel().child(body))
+                .child(
+                    gpui_kit::base::resizable_panel()
+                        .size(px(320.))
+                        .size_range(px(260.)..px(640.))
+                        .child(inspector),
+                )
+                .into_any_element()
+        } else {
+            h_flex()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .items_stretch()
+                .overflow_hidden()
+                .child(body)
+                .child(div().w(px(320.)).h_full().flex_shrink_0().child(inspector))
+                .into_any_element()
+        }
+    }
+
     pub(super) fn render_body(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         if let Some(error) = &self.error {
             return v_flex()
@@ -34,6 +71,19 @@ impl AssetViewerWindowView {
                             .size_full()
                             .object_fit(gpui_kit::ObjectFit::Contain)
                             .into_any_element(),
+                        None if self.rendering => v_flex()
+                            .size_full()
+                            .items_center()
+                            .justify_center()
+                            .gap_2()
+                            .child(gpui_kit::component::spinner::Spinner::new())
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(tr("正在渲染…", "Rendering…")),
+                            )
+                            .into_any_element(),
                         None => div().size_full().into_any_element(),
                     }),
             )
@@ -56,23 +106,47 @@ impl AssetViewerWindowView {
                 cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, _| {
                     this.drag = Some(DragState {
                         last: (event.position.x.as_f32(), event.position.y.as_f32()),
+                        mode: DragMode::Orbit,
+                    });
+                }),
+            )
+            .on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, _| {
+                    this.drag = Some(DragState {
+                        last: (event.position.x.as_f32(), event.position.y.as_f32()),
+                        mode: DragMode::Pan,
                     });
                 }),
             )
             .on_mouse_move(
                 cx.listener(|this, event: &gpui_kit::MouseMoveEvent, _, cx| {
-                    if event.pressed_button != Some(gpui_kit::MouseButton::Left) {
+                    let Some(drag) = this.drag.as_ref() else {
+                        return;
+                    };
+                    let expected = match drag.mode {
+                        DragMode::Orbit => gpui_kit::MouseButton::Left,
+                        DragMode::Pan => gpui_kit::MouseButton::Right,
+                    };
+                    if event.pressed_button != Some(expected) {
                         this.drag = None;
                         return;
                     }
-                    let Some(drag) = this.drag.as_mut() else {
-                        return;
-                    };
                     let position = (event.position.x.as_f32(), event.position.y.as_f32());
                     let dx = position.0 - drag.last.0;
                     let dy = position.1 - drag.last.1;
-                    drag.last = position;
-                    (this.yaw, this.pitch) = apply_orbit_drag(this.yaw, this.pitch, dx, dy);
+                    let mode = drag.mode;
+                    if let Some(drag) = this.drag.as_mut() {
+                        drag.last = position;
+                    }
+                    match mode {
+                        DragMode::Orbit => {
+                            (this.yaw, this.pitch) = apply_orbit_drag(this.yaw, this.pitch, dx, dy);
+                        }
+                        DragMode::Pan => {
+                            this.pan = apply_pan_drag(this.pan, dx, dy);
+                        }
+                    }
                     this.request_preview(cx);
                     cx.notify();
                 }),
@@ -84,12 +158,24 @@ impl AssetViewerWindowView {
                     cx.notify();
                 }),
             )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Right,
+                cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| {
+                    this.drag = None;
+                    cx.notify();
+                }),
+            )
             .into_any_element()
     }
 }
 
 /// 轨道拖拽灵敏度（度/像素）。
 pub(super) const ORBIT_SENSITIVITY: f32 = 0.4;
+
+/// 右键平移累计：场景跟手移动，屏幕像素直接累加。
+pub(super) fn apply_pan_drag(pan: [f32; 2], dx: f32, dy: f32) -> [f32; 2] {
+    [pan[0] + dx, pan[1] + dy]
+}
 
 /// 按鼠标拖拽更新轨道相机角度。
 ///

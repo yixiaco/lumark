@@ -22,14 +22,20 @@ lumark-ui/render_service：RenderImage（缩略图）；asset_viewer_window 帧�
 
 ## 公共 API
 
-- `RenderSettings`：宽高、背景、相机轨道参数（yaw/pitch/distance/target）、双灯颜色与强度、环境光、超采样（1–4）；
+- `RenderSettings`：宽高、背景、相机轨道参数（yaw/pitch/distance/target/pan）、双灯颜色与强度、环境光、超采样（1–4）；
 - V-4/V-6 增补：`shading: ShadingMode { Lit, Unlit, Normals }`、`show_grid`、`show_bones`、`hidden_material_slots`；
+- P-7/P-8 增补：
+  - `pan_pixels: [f32; 2]`：右键拖拽的屏幕空间平移，相机按像素 1:1 换算世界偏移；
+  - `vertex_colors: bool`：是否把顶点色乘到基础色（查看器默认关闭，对齐 FModel）；
 - U-1 增补：
   - `lighting_mode: LightingMode { Studio(默认), Headlight }`；
   - `normal_map_convention: NormalMapConvention { Ue(默认), Fmodel }`；
   - 默认相机改为 FModel 取景：`fov_y_degrees = 45`、`distance_scale = 1.05`、yaw 35°/pitch 20°；
-- `lumark_scene::MaterialData` 新增 `orm_layout: OrmLayout { AoRoughMetal(默认), SpecularMask }`；
-  `MaterialAppearance` 新增 `two_sided`（读取 UE `TwoSided`，材质实例继承父材质）；
+- `lumark_scene::MaterialData` 新增 `orm_layout: OrmLayout { AoRoughMetal(默认), SpecularMask }`、
+  `roughness_min/max`、`emissive_multiplier`、`ao_boost_color/exponent/has_ao_boost`；
+  `MaterialAppearance` 新增 `two_sided`、`roughness_min/max`、`emissive_multiplier`、
+  `ao_boost_*`、`shading_model`、`blend_mode`（材质实例继承父材质）；
+- `MaterialViewerData` 新增 `emissive` 与 `texture_infos`（贴图名称/用途/解码尺寸），供检查器展示；
 - `render_bounds(scene)`：取景包围盒。蒙皮网格按休止姿态的蒙皮顶点统计（大网格按 ≤4096 点抽样），
   修正原 `Scene::compute_bounds` 只看节点变换导致的查看器取景偏移/裁切；
 - `RenderTarget`：RGBA8 + `to_bgra()`（GPUI `RenderImage` 用）；
@@ -53,9 +59,10 @@ lumark-ui/render_service：RenderImage（缩略图）；asset_viewer_window 帧�
 | 模式 | 说明 |
 |---|---|
 | `Studio`（默认） | 双方向光（主光 + 反方向补光）+ 环境光。保持 U-1 之前的查看器/缩略图观感，既有测试不回归 |
-| `Headlight` | 对齐 FModel Snooper `default.frag`：以视线方向为头灯，漫反射强度 `max(N·V, 0.4)`（背面不会全黑）；高光用 Schlick 菲涅尔 + GGX 分布 + Smith 几何项；不做法线朝视线的翻转 |
+| `Headlight` | 严格对齐 FModel `default.frag`：`diffuse = max(N·V, 0.4) * base`；AO.R 只衰减基础色，AO.B 驱动 Skin Boost，AO.G 作腔体；specular mask 以 G=金属度/腔体、B=粗糙度 `mix(RoughnessMin, Max, B)`；自发光只叠加贴图 × 倍率；最后加 Schlick+GGX+Smith 头灯高光并做 Reinhard + gamma。不做法线朝视线的翻转 |
 
 查看器与缩略图统一使用 `Headlight + Fmodel`；`Studio` 保留给兼容路径与旧基线。
+Headlight 刻意忽略 `orm_layout`（FModel 只支持 specular mask 语义）；`Studio`、材质球 Studio 与导出仍按 `orm_layout` 解释 ORM/高光遮罩。
 
 ## 法线约定与 ORM 布局
 
@@ -170,19 +177,29 @@ World Actor → StaticMeshComponent → 跨包 StaticMesh；新增 `package_path
 ## 查看器默认与交互
 
 - 3D 查看器默认显示地面网格；滚轮向上放大（`zoom` 增大），与 FModel 一致；
-- 工具栏按钮（线框/sRGB/S0/S1/LOD 等）统一使用标准 Medium 尺寸，空间不足时自动换行；
+- 工具栏按「视图 / 渲染 / 动画 / 检查器 / 属性 JSON」分组，移除 S0…S16 与 LOD 切换按钮（移入检查器），
+  统一使用标准 Medium 尺寸，空间不足时自动换行；
 - 画布用 `img` + `object_fit(Contain)` 显示渲染结果，外层容器负责 `h_full`/裁剪/尺寸约束，
   图像只在画布范围内绘制；布局测试断言画布不覆盖工具栏且渲染图像容器尺寸正常；
-- 轨道拖拽与 FModel `Camera.Modify` 对齐：鼠标向右拖拽时 `yaw` 减小（相机绕 `-Up` 轴旋转），
+- 左键轨道拖拽与 FModel `Camera.Modify` 对齐：鼠标向右拖拽时 `yaw` 减小（相机绕 `-Up` 轴旋转），
   向下拖拽抬高相机；`apply_orbit_drag` 为纯函数并有方向/边界单测；
+- 右键拖拽屏幕平移：`pan_pixels` 累加，`Camera::fit` 按 `2*distance*tan(fov/2)/height` 换算世界偏移，
+  场景跟手移动；`F`/“重置视角”同时清零平移；
 - 轨道相机 `distance_scale = 1.05 / zoom`，取景包围盒用 `render_bounds`；
+- 右侧检查器可拖拽调宽（默认 320px，范围 260–640px），标签为“概要 / 材质 / 骨骼”；
+- “材质”页列出 section（含显隐、默认隐藏标记）与选中材质详情：blend/shading、双面、基础色 tint、
+  金属度、粗糙度区间、自发光倍率、AO 增强、贴图名称/用途/尺寸、已加载资源与 warnings；
+- 默认可见性对齐 FModel `Section.SetupMaterial`：材质缺失/无贴图或半透明 section 默认隐藏，
+  顶部提供“全部显示 / FModel 默认”；
+- “属性 JSON”由预览链路生成（导出表 + 属性树，4 MB/64 导出上限），打开独立只读窗口，
+  支持 JSON 高亮、搜索与复制；
 - 状态栏显示批次/顶点/三角形统计与后端标签，“渲染中…”只在后台帧进行时出现。
 
 ## 快捷键
 
 | 按键 | 行为 |
 |---|---|
-| `F` | 重置相机（yaw 35°/pitch 25°/zoom 1×） |
+| `F` | 重置相机（yaw 35°/pitch 25°/zoom 1×/pan 0） |
 | `Space` | 播放/暂停动画 |
 | `←` / `→` | 动画逐帧后退/前进 |
 | `L` | 着色模式循环（光照→无光→法线） |
@@ -196,16 +213,20 @@ World Actor → StaticMeshComponent → 跨包 StaticMesh；新增 `package_path
 
 ## 测试与基线
 
-- `lumark-render` 单元测试：**49 个**（CPU：相机裁剪/z-buffer/PBR/ORM 两种布局/自发光/alpha/半透明混合/双面/
+- `lumark-render` 单元测试：**55 个**（CPU：相机裁剪/像素平移/z-buffer/PBR/ORM 两种布局/FModel spec+AO/自发光/alpha/半透明混合/双面/
   蒙皮/着色模式/网格与隐藏槽/场景统计/线框/头灯背面可见/两种法线约定/全顶点包围盒/默认 Studio 不回归；
   GPU：三角形/贴图/ORM/自发光/双面/蒙皮/着色模式/网格/两节点实例化/4×MSAA/sRGB/背景渐变/线框/
   头灯背面/ORM 布局/AO/半透明混合，无 GPU 自动跳过）。
 - `lumark-ui` 帧泵：状态机单测 4 个（输入合并、静止计时、飞行帧阻塞、新输入重排）+ 查看器端到端
-  “静止后补高质量帧”测试；`orbit_drag_matches_fmodel_direction`、`viewer_applies_resolved_materials`、
+  “静止后补高质量帧”测试；`orbit_drag_matches_fmodel_direction`、`pan_drag_accumulates_in_screen_space`、
+  `viewer_pan_changes_render_and_resets`、`viewer_resizable_inspector_sits_right_of_canvas`、
+  `default_sections_hide_missing_or_translucent_materials`、`viewer_applies_resolved_materials`、
   `viewer_paints_rendered_image_element`、`model_viewer_layout_stays_below_toolbar_when_resized`
-  （放大窗口后画布不得覆盖工具栏）、图片查看器极端窗口锚点测试。
-- `material_graph` 单测：贴图用途分类、`FPackageIndex` 导入索引提取、AO/tint 选择与缓存；`lumark-unreal` 共 **93** 个测试。
-- `lumark-ui --lib` 共 **206** 个测试通过；全工作区 74 个测试目标、801 个测试通过。
+  （放大窗口后画布不得覆盖工具栏）、图片查看器极端窗口锚点测试、JSON 查看器只读渲染测试。
+- `material_graph` 单测：贴图用途分类、`FPackageIndex` 导入索引提取、AO/tint 选择与缓存、FModel
+  spec mask/AO boost/roughness 区间；`lumark-unreal` 共 **102** 个测试，`lumark-legacy` 51 个。
+- `lumark-ui --lib` 共 **218** 个测试（完整运行 217 通过，唯一失败的可拖拽检查器用例修复后定向通过）；
+  按用户资源限制，最终验收只跑受影响包（最多 2 线程），完整 workspace 套件暂停。
 - 实机基线（NVIDIA RTX 5070 Laptop，Vulkan；BNB `NanaF6_Hold`：172 节点 / 135,072 三角形；
   17/17 材质槽通过对象引用解析，贴图按包 ID 解码；900×600，MSAA=1，含离屏渲染 + 回读）：
 
@@ -223,6 +244,16 @@ World Actor → StaticMeshComponent → 跨包 StaticMesh；新增 `package_path
   > 17 材质，含离屏渲染 + 回读），SS1 首帧 47.5 ms、后两帧 41.5/42.2 ms；SS2 首帧 64.0 ms、
   > 后两帧 52.2/54.9 ms。GPU 侧优化（目标/回读复用、材质不再克隆）主要收益在交互连续帧与
   > UI 线程解耦上；首帧包含管道/纹理上传与回读初始化。
+
+## P-7…P-10 查看器交互与属性 JSON
+
+| 项 | 结论 | 证据 |
+|---|---|---|
+| P-7 右键平移 | `pan_pixels` + 相机像素→世界换算；右键拖拽/`F`/重置；左键轨道不回归 | `camera_pan_moves_target_by_screen_pixels`、`camera_pan_is_independent_of_zoom`、`pan_drag_accumulates_in_screen_space`、`viewer_pan_changes_render_and_resets` |
+| P-8 FModel 材质/光照 | 触发名表按 CUE4Parse `CMaterialParams2`（Apache-2.0）首 UV 层；Headlight 使用 G=金属度/腔体、B=粗糙度、AO R/G/B、RoughnessMin/Max、EmissiveMult、Skin Boost；默认隐藏无贴图/半透明 section | `fmodel_params_use_spec_g_b_and_ao_g`、`fmodel_headlight_ao_r_darkens_result`、`fmodel_headlight_vertex_colors_are_opt_in`、`fmodel_headlight_emissive_requires_texture`、`default_sections_hide_missing_or_translucent_materials` |
+| P-9 检查器/UI | 可调宽检查器；概要/材质/骨骼；section 显隐与材质详情；工具栏分组并移除 S0…S16；顶点色开关 | `inspector_panel_renders_and_toggles`、`material_viewer_toolbar_hides_mesh_controls`、`viewer_keyboard_shortcuts_update_state` |
+| P-10 JSON 属性 | 导出表 + 属性树；对象引用尽量解析；4 MB/64 导出上限；独立只读窗口（JSON 高亮/复制） | `converts_nested_property_values`、`stops_at_max_depth`、`json_viewer_renders_readonly_editor`、BNB 实机 `renders_real_nana_f6_2_viewer_frame_when_available` |
+| BNB 实机 | `NanaF6_2`：`N_EyeLip`/`N_EyeShadow` 默认隐藏，`N_Eye`/`N_Skin` 可见；`N_Eye` 基础色 `eyeBro`，`N_Skin` spec/AO 均为 `NewNana_AO` | `artifacts/viewer-nana-f6-2-fmodel.png`、`artifacts/viewer-nana-eye-base.png`；环境变量 `LUMARK_BNB_GAME_ROOT`/`LUMARK_BNB_MAPPINGS` |
 
 ## D 阶段收尾结果
 

@@ -1,42 +1,26 @@
 # Lumark 计划进度
 
-> 2026-11-04 起进入「收尾」阶段（D 阶段）：目标是把此前的已知限制全部清零。
-> 本文件只保留本轮待完成/刚完成的项；历史进度已归档到
-> `docs/archive/plan-progress-2026-11-03.md`。
+> 2026-11-04 查看器 P-7…P-10 轮次：只保留本轮完成项。
+> 历史进度已归档到 `docs/archive/plan-progress-2026-11-04.md`。
 
-## D 阶段总览
-
-| 项 | 状态 | 说明 |
-|---|---|---|
-| D-1 材质图与 FModel 对齐 | ✅ | 贴图选择改为 FModel `CMaterialParams2` 规则（参数触发名 → 名称正则 → first-texture 兜底），补充 DiffuseColor tint、`M`/`AEM`/`AO` 环境光遮蔽贴图（GPU + CPU 着色），BNB `NanaF6_Hold` 17/17 槽位解析、鞋/指甲/针织布料颜色修正。证据：`artifacts/viewer-nana-ao.png`；`cargo test -p lumark-render` 46/46、`lumark-unreal` 90 通过 |
-| D-2 透明材质排序混合 | ✅ | 解析 `BlendMode` 区分 Masked/Translucent；GPU 新增 alpha 混合管线（深度写关闭、`LessEqual`、`ALPHA_BLENDING`），半透明批次按距相机由远到近排序；CPU 光栅收集半透明片元后按深度混合；着色器输出真实 alpha。测试：`translucent_material_blends_with_background`、`gpu_translucent_blend_or_skips`、`distinguishes_masked_and_translucent_blend_modes` |
-| D-3 材质球接入 Headlight/ORM/双面 | ✅ | 新增 `MaterialBallSettings`（头灯/Studio、FModel/UE 法线约定、ORM 布局、双面）；材质球复用 FModel 头灯 GGX、ORM 通道布局、AO 贴图与线性/色调映射管线，UI 材质查看器与详情预览均已接入。测试：`material_ball_headlight_matches_viewer_modes`、`material_ball_uses_orm_normals_and_occlusion` |
-| D-4 World Provider 世界场景加载 | ✅ | `load_scene` 识别 `World`/`Map` 导出后调用 `load_world_scene`；世界网格按包路径反查 + 槽名解析材质（新增 `package_path_for_id` 反查），报告 `class=World` 与顶点/三角形/材质统计。实测 BNB `Map/LOGO.umap`（90 顶点/1 材质）与 `KingS/GinkgoTree.umap`（178,600 顶点/105,348 三角形/16 材质）通过 Provider 加载 |
-| D-5 取景包围盒精确计算 | ✅ | `render_bounds` 去掉 ≤4096 点步长抽样，改为遍历全部蒙皮顶点做 LBS 统计；测试 `render_bounds_include_every_skinned_vertex`（9000 顶点、奇数下标极端点） |
-| D-6 图片查看器锚点像素级校准 | ✅ | 新增极端窗口尺寸（120×90、2400×1500）UI 测试，断言图片中心与画布中心 ≤1px、缩放 1× 时尺寸等于原图；补充极小/极大画布 `image_rect`、缩放锚点不漂移、画布度量单测（共 14 个图片查看器测试） |
-| D-7 release 稳态性能基准 | ✅ | release 900×900 Headlight+Fmodel、NanaF6_Hold（172 节点/135,072 三角形/17 材质）：SS1 首帧 47.5 ms、暖帧 avg 43.7 ms（41.5/42.2 ms）；SS2 首帧 64.0 ms、暖帧 avg 57.0 ms（52.2/54.9 ms）；全顶点 LBS 包围盒 3.15/3.21 ms。产物：`artifacts/bench-release-ss1.png`、`artifacts/bench-release-ss2.png` |
-| D-8 文档限制收口 | ✅ | `acceptance.md`/`game-assets.md`/`viewer-architecture.md`/`image-viewer.md`/`media-player.md`/`oodle-backends.md`/`export-validation.md`/`export-formats.md` 的「已知限制」改为「支持范围/验证边界/部署要求」，补充 D-3…D-7 证据与 release 基线；`viewer-architecture.md` 新增 D 阶段收尾结果表 |
-
-## 已知限制
-
-- 无：D-1…D-8 全部完成。后续新增需求会作为新一轮 D 阶段追加。
-
-## 本轮附带修复
-
-- 模型查看器画布空白回归：上一轮把画布改成自绘 `canvas`/`paint_image` 后图像不再显示，
-  本轮恢复 `img` + `object_fit(Contain)` 渲染，并补 `.h_full()`/`items_stretch()` 尺寸约束；
-  新增回归测试 `viewer_paints_rendered_image_element`（断言渲染图像容器尺寸与位置）。
-
-## 2026-11-04 文件表与 3D 查看器修复
+## 本轮总览
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| F-1 文件表只渲染可见行 | ✅ | 新增 `DisplayedOrder`/`DisplayedSummary`（`app/state.rs`）与 `app/actions/files/display.rs`；`render_browser` 每帧一次构建显示顺序与摘要，行回调按 `source_index` O(1) 取条目；拖拽多选快照按帧共享；状态栏/详情面板/选中条目相关动作不再克隆整表。测试：`large_directory_renders_only_visible_rows`（400 项，详情/平铺仅可见行、切回详情重建）通过 |
-| F-2 最大化平铺自适应 | ✅ | `browser_list_width`、命令栏/动作带断点、密码库列表高度改用 `Window::viewport_size()`；`tile_view_reflows_after_window_resize` 增补整行卡片最后一列右边缘铺满断言。测试通过 |
-| V-22 查看器正反面绕序 | ✅ | `convert_mesh` 把 UE 左手系顺时针绕序翻转为渲染器 CCW 正面（对照 FModel `UModel.cs` 的 Y/Z 手性转换）；测试 `convert_mesh_flips_ue_winding` 通过。修复叶片上方不可见、人物头部俯视镂空 |
-| S-10 静态网格材质对象引用 | ✅ | `read_asset_metadata`/`read_static_mesh` 解析 `StaticMaterials[*].MaterialInterface`；新增 `resolve_static_materials` 接入预览/Provider/世界场景/导出。测试 `extracts_static_material_names_and_imports`；实机 `SM_Tree_Tropic_03_novines` 解析出 `MI_Tree_Tropic_01_TR`/`MI_Tree_Tropic_FO` 与基础色/法线/ORM，种植白模修复 |
-| P-6 内存回收与 mip 解码 | ✅ | 查看器替换帧时 `App::drop_image` 旧 `RenderImage`；UE 预览图改稳定哈希路径并在替换时 `remove_asset`+删文件；贴图/材质球按目标尺寸选 mip 解码（4K→512 由 64 MB 临时 RGBA 降到约 1 MB）。测试：`selects_mip_level_for_texture_limit`、`decode_mip_rgba_with_size_reports_mip_size` |
-| 验收 | ✅ | `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -j 4 -- -D warnings`、`cargo test --workspace -j 4 -- --test-threads=2` 退出码 0（受限线程）；实机最大化/叶片/内存由用户复核 |
+| P-7 右键拖拽平移 | ✅ | `RenderSettings.pan_pixels`；相机按 FOV/距离把屏幕像素换算为世界偏移；查看器右键拖拽、`F`/重置复位；方向/像素 1:1/缩放无关单测通过 |
+| P-8 FModel 材质/光照对齐 | ✅ | CUE4Parse `CMaterialParams2` 触发名表（Apache-2.0）、RoughnessMin/Max、EmissiveMult、Skin Boost、blend/shading；Headlight 采用 `default.frag` 的 spec mask G/B + AO R/G/B；默认隐藏无贴图/半透明 section；CPU/GPU/材质球同步；BNB `NanaF6_2` 眼睛覆盖层消失、`N_Eye`/`N_Skin` 材质与贴图断言通过 |
+| P-9 查看器面板与 UI | ✅ | 可调宽检查器（320px，260–640）、概要/材质/骨骼标签、section 显隐与材质详情、贴图名称/尺寸、双面/warnings；工具栏分组并移除 S0…S16/LOD，新增顶点色与属性 JSON；标题栏按资产类型取图标 |
+| P-10 JSON 属性查看器 | ✅ | 导出表 + 属性树 JSON，对象引用尽量解析、4 MB/64 导出上限；预览携带 `Arc<str>`；查看器/详情入口；独立只读窗口（JSON 高亮、复制、行数/字节数） |
+| 大文件/高内存测试清理 | ✅ | 删除 33 MB `zpaq_large_file_uses_configured_worker` 与 1 MB `bin_roundtrip_large`/`img_roundtrip_large`/`lz_large_data`，只保留小文件测试 |
+| 验收 | ✅（受限） | fmt 通过；受影响包 clippy `-j 2` 通过；render 55/ unreal 102/ legacy 51/ UI 218（唯一失败用例修复后定向通过）；archive zpaq 目标仅编译；完整 workspace/release 按用户要求暂停 |
 
-后续项（本轮未做）：查看器世界坐标相对 FModel 仍左右镜像；GLB/USDA 导出绕序未同步；查看器场景贴图与预览缓存仍各持一份 RGBA，可改为 `Arc` 共享。
+## 证据
 
+- BNB 截图：`artifacts/viewer-nana-f6-2-fmodel.png`、`artifacts/viewer-nana-eye-base.png`。
+- 新增测试：`camera_pan_moves_target_by_screen_pixels`、`viewer_pan_changes_render_and_resets`、`fmodel_params_use_spec_g_b_and_ao_g`、`fmodel_headlight_ao_r_darkens_result`、`default_sections_hide_missing_or_translucent_materials`、`viewer_resizable_inspector_sits_right_of_canvas`、`converts_nested_property_values`、`json_viewer_renders_readonly_editor`、`renders_real_nana_f6_2_viewer_frame_when_available`。
+- 文档：`docs/viewer-architecture.md` 增加 P-7…P-10 表；`README.md`/`docs/game-assets.md` 更新查看器交互、材质面板与 JSON 入口；`THIRD_PARTY_NOTICES.md` 标注 CUE4Parse 触发名表归属。
+
+## 进度说明
+
+- 旧进度全部归档到 `docs/archive/`，活动台账只记录本轮。
+- 按用户要求，完整性测试仅允许最多 2 线程且只跑受影响包；完整 workspace 不再重跑。

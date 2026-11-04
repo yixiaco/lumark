@@ -13,9 +13,9 @@ use lumark_scene::OrmLayout;
 use crate::LegacyPackage;
 use crate::material_graph::{self, MaterialGraph, MaterialObjectRef, resolve_material_object};
 use crate::package::{
-    Mappings, MaterialAppearance, MaterialSlot, MaterialTextureKind, MaterialViewerData,
-    MaterialViewerImage, PackageInfo, material_parent_package, read_legacy_material_appearance,
-    read_zen_material_appearance, texture_references,
+    Mappings, MaterialAppearance, MaterialSlot, MaterialTextureInfo, MaterialTextureKind,
+    MaterialViewerData, MaterialViewerImage, PackageInfo, material_parent_package,
+    read_legacy_material_appearance, read_zen_material_appearance, texture_references,
 };
 use crate::source::GameAssetSource;
 use crate::{is_legacy_package, parse_package, read_legacy_texture};
@@ -402,6 +402,38 @@ fn fill_viewer_from_appearance(
             packages,
             &mut resolved.loaded_assets,
         );
+        let emissive = resolve_texture(
+            source,
+            material_path,
+            &appearance,
+            MaterialTextureKind::Emissive,
+            mappings,
+            options,
+            packages,
+            &mut resolved.loaded_assets,
+        );
+        let mut texture_infos = Vec::new();
+        for reference in &appearance.textures {
+            if texture_infos.iter().any(|info: &MaterialTextureInfo| {
+                info.kind == reference.kind && info.name == reference.name
+            }) {
+                continue;
+            }
+            let image = match reference.kind {
+                MaterialTextureKind::BaseColor => base.as_ref(),
+                MaterialTextureKind::Normal => normal.as_ref(),
+                MaterialTextureKind::MetallicRoughness => orm.as_ref(),
+                MaterialTextureKind::Occlusion => occlusion.as_ref(),
+                MaterialTextureKind::Emissive => emissive.as_ref(),
+                MaterialTextureKind::Mask | MaterialTextureKind::Other => None,
+            };
+            texture_infos.push(MaterialTextureInfo {
+                kind: reference.kind,
+                name: reference.name.clone(),
+                width: image.map_or(0, |image| image.width),
+                height: image.map_or(0, |image| image.height),
+            });
+        }
         // 基础色 tint 已由材质图按 FModel DiffuseColor 规则计算，无需再覆盖。
         resolved.viewer = Some(MaterialViewerData {
             appearance: appearance.clone(),
@@ -409,6 +441,8 @@ fn fill_viewer_from_appearance(
             normal,
             metallic_roughness: orm,
             occlusion,
+            emissive,
+            texture_infos,
         });
     }
     resolved.appearance = Some(appearance);

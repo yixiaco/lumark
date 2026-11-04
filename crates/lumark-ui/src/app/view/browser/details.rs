@@ -311,6 +311,8 @@ fn render_details_preview(
             let name = name.clone();
             let subtitle = subtitle.clone();
             let rows = rows.clone();
+            let json_name = name.clone();
+            let properties_json = app.details_properties_json.clone();
             v_flex()
                 .id("details-preview")
                 .w_full()
@@ -355,6 +357,26 @@ fn render_details_preview(
                     rows.into_iter()
                         .map(|(label, value)| detail_row(cx, &label, &value)),
                 )
+                .when_some(properties_json, |this, json| {
+                    this.child(
+                        button("details-properties-json")
+                            .ghost()
+                            .icon(AppIcon::Doc.element(13.))
+                            .label(tr("JSON 属性", "Properties JSON"))
+                            .tooltip(tr(
+                                "查看导出表与属性树 JSON",
+                                "View export table and property tree JSON",
+                            ))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_properties_viewer(
+                                    json_name.clone(),
+                                    json.clone(),
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
+                })
                 .into_any_element()
         }
         DetailsPreview::Metadata {
@@ -363,74 +385,94 @@ fn render_details_preview(
             rows,
             timeline_seconds,
             ..
-        } => v_flex()
-            .w_full()
-            .gap_1()
-            .rounded(cx.theme().radius)
-            .bg(cx.theme().muted)
-            .p_2()
-            .child(div().text_sm().font_semibold().child(title.clone()))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(subtitle.clone()),
-            )
-            .children(rows.iter().map(|(label, value)| {
-                h_flex()
-                    .gap_2()
-                    .text_xs()
-                    .child(
-                        div()
-                            .w(px(72.))
-                            .flex_shrink_0()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(label.clone()),
-                    )
-                    .child(div().flex_1().min_w_0().child(value.clone()))
-            }))
-            .when_some(*timeline_seconds, |this, seconds| {
-                this.child(
-                    v_flex()
-                        .gap_1()
-                        .child(
-                            div()
-                                .w_full()
-                                .h(px(6.))
-                                .rounded_full()
-                                .bg(cx.theme().border)
-                                .child(
-                                    div()
-                                        .size(px(6.))
-                                        .rounded_full()
-                                        .bg(cx.theme().button_primary),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!("0.000 s / {seconds:.3} s")),
-                        ),
+        } => {
+            let json_title = title.clone();
+            let properties_json = app.details_properties_json.clone();
+            v_flex()
+                .w_full()
+                .gap_1()
+                .rounded(cx.theme().radius)
+                .bg(cx.theme().muted)
+                .p_2()
+                .child(div().text_sm().font_semibold().child(title.clone()))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(subtitle.clone()),
                 )
-            })
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(if timeline_seconds.is_some() {
-                        tr(
-                            "动画时间轴（只读预览）",
-                            "Animation timeline (read-only preview)",
+                .children(rows.iter().map(|(label, value)| {
+                    h_flex()
+                        .gap_2()
+                        .text_xs()
+                        .child(
+                            div()
+                                .w(px(72.))
+                                .flex_shrink_0()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(label.clone()),
                         )
-                    } else {
-                        tr(
-                            "3D 模型/骨骼查看器可点击缩略图打开",
-                            "Click the thumbnail to open the 3D model/skeleton viewer",
-                        )
-                    }),
-            )
-            .into_any_element(),
+                        .child(div().flex_1().min_w_0().child(value.clone()))
+                }))
+                .when_some(*timeline_seconds, |this, seconds| {
+                    this.child(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .w_full()
+                                    .h(px(6.))
+                                    .rounded_full()
+                                    .bg(cx.theme().border)
+                                    .child(
+                                        div()
+                                            .size(px(6.))
+                                            .rounded_full()
+                                            .bg(cx.theme().button_primary),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("0.000 s / {seconds:.3} s")),
+                            ),
+                    )
+                })
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(if timeline_seconds.is_some() {
+                            tr(
+                                "动画时间轴（只读预览）",
+                                "Animation timeline (read-only preview)",
+                            )
+                        } else {
+                            tr(
+                                "3D 模型/骨骼查看器可点击缩略图打开",
+                                "Click the thumbnail to open the 3D model/skeleton viewer",
+                            )
+                        }),
+                )
+                .when_some(properties_json, |this, json| {
+                    this.child(
+                        button("details-properties-json")
+                            .ghost()
+                            .icon(AppIcon::Doc.element(13.))
+                            .label(tr("JSON 属性", "Properties JSON"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_properties_viewer(
+                                    json_title.clone(),
+                                    json.clone(),
+                                    window,
+                                    cx,
+                                );
+                            })),
+                    )
+                })
+                .into_any_element()
+        }
         DetailsPreview::Error { message, .. } => h_flex()
             .w_full()
             .gap_2()

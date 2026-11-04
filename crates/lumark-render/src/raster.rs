@@ -655,6 +655,9 @@ struct Surface {
 }
 
 /// 近似 PBR 着色，返回线性辐射度 + 透明度。
+///
+/// Headlight 严格按 FModel `default.frag`：基础色先乘 `max(N·V, 0.4)`，AO 只
+/// 衰减基础色、随后叠加自发光与头灯高光；Studio 保持既有双灯/ORM 观感。
 fn shade(
     surface: &Surface,
     material: &MaterialData,
@@ -662,7 +665,13 @@ fn shade(
     settings: &RenderSettings,
     camera: &Camera,
 ) -> [f32; 4] {
-    let mut alpha = material.base_color[3] * surface.color[3];
+    // FModel 默认不乘顶点色；查看器“顶点色”开关打开时才参与。
+    let tint = if settings.vertex_colors {
+        surface.color
+    } else {
+        [1.0, 1.0, 1.0, 1.0]
+    };
+    let mut alpha = material.base_color[3] * tint[3];
     let mut base = [
         material.base_color[0],
         material.base_color[1],
@@ -677,21 +686,10 @@ fn shade(
         ];
         alpha *= sampled[3];
     }
-    if let Some(texture) = material.textures.occlusion.as_ref() {
-        // 与 FModel 一致：AO 贴图 R 通道直接乘到基础色上。
-        let sampled = sample_texture(texture, surface.uv);
-        let ao = srgb_to_linear(sampled[0]).clamp(0.0, 1.0);
-        base = [base[0] * ao, base[1] * ao, base[2] * ao];
-    }
-    base = [
-        base[0] * surface.color[0],
-        base[1] * surface.color[1],
-        base[2] * surface.color[2],
-    ];
+    base = [base[0] * tint[0], base[1] * tint[1], base[2] * tint[2]];
     if settings.shading == ShadingMode::Unlit {
         return [base[0], base[1], base[2], alpha];
     }
-    let (occlusion, roughness, metallic) = resolve_pbr_params(material, surface.uv);
     let mut normal = normalize(surface.normal);
     if let Some(texture) = material.textures.normal.as_ref() {
         normal = apply_normal_texture(
@@ -714,15 +712,59 @@ fn shade(
             alpha,
         ];
     }
-    let mut color = match settings.lighting_mode {
+    let color = match settings.lighting_mode {
+        // FModel 头灯：AO 只乘基础色，自发光在头灯前叠加。
         LightingMode::Headlight => {
-            shade_headlight(base, normal, view, metallic, roughness, occlusion)
+            let (cavity, roughness, metallic, ao_sample) =
+                resolve_fmodel_params(material, surface.uv);
+            let diffuse_factor = dot(normal, view).max(0.0).max(0.4);
+            let mut result = [
+                base[0] * diffuse_factor,
+                base[1] * diffuse_factor,
+                base[2] * diffuse_factor,
+            ];
+            if let Some(ao) = ao_sample {
+                result = [result[0] * ao[0], result[1] * ao[0], result[2] * ao[0]];
+                if material.has_ao_boost {
+                    let boost = [
+                        material.ao_boost_color[0] * material.ao_boost_exponent,
+                        material.ao_boost_color[1] * material.ao_boost_exponent,
+                        material.ao_boost_color[2] * material.ao_boost_exponent,
+                    ];
+                    let factor = ao[2].clamp(0.0, 1.0);
+                    for channel in 0..3 {
+                        result[channel] = result[channel] * (1.0 - factor)
+                            + result[channel] * boost[channel] * factor;
+                    }
+                }
+            }
+            if let Some(texture) = material.textures.emissive.as_ref() {
+                let sampled = sample_texture(texture, surface.uv);
+                let multiplier = material.emissive_multiplier.max(0.0);
+                result = [
+                    result[0] + material.emissive[0] * srgb_to_linear(sampled[0]) * multiplier,
+                    result[1] + material.emissive[1] * srgb_to_linear(sampled[1]) * multiplier,
+                    result[2] + material.emissive[2] * srgb_to_linear(sampled[2]) * multiplier,
+                ];
+            }
+            let headlight = fmodel_headlight(base, normal, view, metallic, roughness, cavity);
+            [
+                result[0] + headlight[0],
+                result[1] + headlight[1],
+                result[2] + headlight[2],
+            ]
         }
         LightingMode::Studio => {
-            // Studio 保持既有观感：法线朝视线方向翻转后走双方向光。
+            // Studio 保持既有观感：AO 先乘到基础色，法线朝视线方向翻转后走双灯。
+            if let Some(texture) = material.textures.occlusion.as_ref() {
+                let sampled = sample_texture(texture, surface.uv);
+                let ao = srgb_to_linear(sampled[0]).clamp(0.0, 1.0);
+                base = [base[0] * ao, base[1] * ao, base[2] * ao];
+            }
             if dot(normal, view) < 0.0 {
                 normal = [-normal[0], -normal[1], -normal[2]];
             }
+            let (occlusion, roughness, metallic) = resolve_pbr_params(material, surface.uv);
             let shininess =
                 (2.0 / (roughness * roughness * roughness * roughness)).clamp(4.0, 2048.0);
             let ambient = settings.ambient_strength * occlusion;
@@ -745,24 +787,85 @@ fn shade(
                     color[channel] += light_channel * specular * specular_strength * intensity;
                 }
             }
+            if let Some(texture) = material.textures.emissive.as_ref() {
+                let sampled = sample_texture(texture, surface.uv);
+                color = [
+                    color[0] + material.emissive[0] * srgb_to_linear(sampled[0]),
+                    color[1] + material.emissive[1] * srgb_to_linear(sampled[1]),
+                    color[2] + material.emissive[2] * srgb_to_linear(sampled[2]),
+                ];
+            } else {
+                color = [
+                    color[0] + material.emissive[0],
+                    color[1] + material.emissive[1],
+                    color[2] + material.emissive[2],
+                ];
+            }
             color
         }
     };
-    if let Some(texture) = material.textures.emissive.as_ref() {
-        let sampled = sample_texture(texture, surface.uv);
-        color = [
-            color[0] + material.emissive[0] * srgb_to_linear(sampled[0]),
-            color[1] + material.emissive[1] * srgb_to_linear(sampled[1]),
-            color[2] + material.emissive[2] * srgb_to_linear(sampled[2]),
-        ];
-    } else {
-        color = [
-            color[0] + material.emissive[0],
-            color[1] + material.emissive[1],
-            color[2] + material.emissive[2],
-        ];
-    }
     [color[0], color[1], color[2], alpha]
+}
+
+/// 按 FModel `default.frag` 解析头灯参数：G=金属度/腔体、B=粗糙度，
+/// 有 AO 贴图时腔体取 AO.G。
+fn resolve_fmodel_params(
+    material: &MaterialData,
+    uv: [f32; 2],
+) -> (f32, f32, f32, Option<[f32; 3]>) {
+    let mut metallic = 0.0f32;
+    let mut roughness = material.roughness_min.clamp(0.0, 1.0);
+    let mut cavity = 0.0f32;
+    if let Some(texture) = material.textures.metallic_roughness.as_ref() {
+        let sampled = sample_texture(texture, uv);
+        metallic = sampled[1].clamp(0.0, 1.0);
+        cavity = sampled[1].clamp(0.0, 1.0);
+        roughness =
+            material.roughness_min + (material.roughness_max - material.roughness_min) * sampled[2];
+        roughness = roughness.clamp(0.0, 1.0);
+    }
+    let ao_sample = material
+        .textures
+        .occlusion
+        .as_ref()
+        .map(|texture| sample_texture(texture, uv))
+        .map(|sampled| [sampled[0], sampled[1], sampled[2]]);
+    if let Some(ao) = ao_sample {
+        cavity = ao[1].clamp(0.0, 1.0);
+    }
+    (cavity, roughness, metallic, ao_sample)
+}
+
+/// FModel 头灯高光/漫反射项（不含 `diffuseFactor * base` 与 AO/自发光）。
+fn fmodel_headlight(
+    base: [f32; 3],
+    normal: [f32; 3],
+    view: [f32; 3],
+    metallic: f32,
+    roughness: f32,
+    cavity: f32,
+) -> [f32; 3] {
+    const PI: f32 = std::f32::consts::PI;
+    let n_dot_v = dot(normal, view).max(0.0);
+    let n_dot_l = n_dot_v;
+    if n_dot_v <= 0.0 {
+        return [0.0; 3];
+    }
+    let mut color = [0.0f32; 3];
+    let alpha2 = roughness * roughness * roughness * roughness;
+    let denominator = n_dot_v * n_dot_v * (alpha2 - 1.0) + 1.0;
+    let distribution = alpha2 / (PI * denominator * denominator);
+    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    let geometry = (n_dot_l / (n_dot_l * (1.0 - k) + k)) * (n_dot_v / (n_dot_v * (1.0 - k) + k));
+    let specular_denominator = 4.0 * n_dot_v * n_dot_l + 1.0e-4;
+    for channel in 0..3 {
+        let f0 = 0.04 + (base[channel] - 0.04) * metallic;
+        let specular = distribution * geometry * f0 / specular_denominator;
+        let kd = (1.0 - f0) * (1.0 - cavity);
+        let diffuse_brdf = kd * base[channel] / PI;
+        color[channel] = (diffuse_brdf + specular) * n_dot_l;
+    }
+    color
 }
 
 /// 按 ORM 布局解析环境光遮蔽、粗糙度与金属度。
@@ -841,48 +944,6 @@ fn apply_normal_texture(
             + bitangent[2] * tangent_normal[1]
             + normal[2] * tangent_normal[2],
     ])
-}
-
-/// FModel Snooper `default.frag` 风格的头灯着色。
-///
-/// 漫反射用 `max(N·V, 0.4)` 作为头灯强度（背面因此不会全黑）；高光按
-/// Schlick 菲涅尔 + GGX 分布 + Smith 几何项，光源与视线同向。
-fn shade_headlight(
-    base: [f32; 3],
-    normal: [f32; 3],
-    view: [f32; 3],
-    metallic: f32,
-    roughness: f32,
-    occlusion: f32,
-) -> [f32; 3] {
-    const PI: f32 = std::f32::consts::PI;
-    let n_dot_v_raw = dot(normal, view).max(0.0);
-    let diffuse_factor = n_dot_v_raw.max(0.4);
-    let n_dot_v = n_dot_v_raw.max(1.0e-4);
-    let n_dot_l = n_dot_v;
-    // 头灯方向的半程向量与视线同向，因此 H·V = 1、N·H = N·V。
-    let f0 = [
-        0.04 + (base[0] - 0.04) * metallic,
-        0.04 + (base[1] - 0.04) * metallic,
-        0.04 + (base[2] - 0.04) * metallic,
-    ];
-    let alpha2 = roughness * roughness * roughness * roughness;
-    let denominator = n_dot_v * n_dot_v * (alpha2 - 1.0) + 1.0;
-    let distribution = alpha2 / (PI * denominator * denominator);
-    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-    let geometry = (n_dot_l / (n_dot_l * (1.0 - k) + k)) * (n_dot_v / (n_dot_v * (1.0 - k) + k));
-    let specular_denominator = 4.0 * n_dot_v * n_dot_l + 1.0e-4;
-    // kS = F（Schlick，H·V=1 时等于 F0），kD 按环境光遮蔽衰减。
-    let mut color = [0.0f32; 3];
-    for channel in 0..3 {
-        let fresnel = f0[channel];
-        let specular = distribution * geometry * fresnel / specular_denominator;
-        let kd = (1.0 - fresnel) * (1.0 - occlusion);
-        let diffuse_brdf = kd * base[channel] / PI;
-        let headlight = (diffuse_brdf + specular) * n_dot_l;
-        color[channel] = base[channel] * diffuse_factor + headlight;
-    }
-    color
 }
 
 /// sRGB 分量转线性。
@@ -998,12 +1059,7 @@ mod tests {
             base_color: color,
             metallic: 0.0,
             roughness: 0.5,
-            emissive: [0.0; 3],
-            textures: Default::default(),
-            two_sided: false,
-            orm_layout: lumark_scene::OrmLayout::AoRoughMetal,
-            alpha_cutoff: 0.0,
-            translucent: false,
+            ..MaterialData::default()
         });
         let mut mesh = MeshData::new(
             "Tri",
@@ -1777,5 +1833,142 @@ mod tests {
         .expect("显式 Studio 渲染")
         .rgba;
         assert_eq!(implicit, explicit, "默认设置应走 Studio 光照");
+    }
+
+    /// FModel 头灯参数：spec.G=金属度/腔体、B=粗糙度区间，AO.G 覆盖腔体。
+    #[test]
+    fn fmodel_params_use_spec_g_b_and_ao_g() {
+        let mut material = MaterialData {
+            name: "Fmodel".to_string(),
+            roughness_min: 0.2,
+            roughness_max: 0.8,
+            textures: lumark_scene::MaterialTextures {
+                metallic_roughness: Some(TextureData {
+                    name: "T_SM".to_string(),
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0, 200, 50, 255],
+                }),
+                occlusion: Some(TextureData {
+                    name: "T_AO".to_string(),
+                    width: 1,
+                    height: 1,
+                    rgba: vec![100, 220, 30, 255],
+                }),
+                ..lumark_scene::MaterialTextures::default()
+            },
+            ..MaterialData::default()
+        };
+        material.orm_layout = OrmLayout::AoRoughMetal;
+        let (cavity, roughness, metallic, ao) = resolve_fmodel_params(&material, [0.5, 0.5]);
+        assert!((metallic - 200.0 / 255.0).abs() < 1e-5, "G 通道应为金属度");
+        assert!((cavity - 220.0 / 255.0).abs() < 1e-5, "有 AO 时腔体取 AO.G");
+        let expected = 0.2 + 0.6 * (50.0 / 255.0);
+        assert!(
+            (roughness - expected).abs() < 1e-5,
+            "B 通道应映射粗糙度区间"
+        );
+        assert_eq!(ao.map(|sample| sample[0]), Some(100.0 / 255.0));
+    }
+
+    /// Headlight 下 AO.R 只衰减基础色，AO 越暗画面越暗。
+    #[test]
+    fn fmodel_headlight_ao_r_darkens_result() {
+        let render_with_ao = |ao_r: u8| {
+            let mut scene = triangle_scene([0.8, 0.8, 0.8, 1.0], 0.0);
+            scene.materials[0].textures.occlusion = Some(TextureData {
+                name: "T_AO".to_string(),
+                width: 1,
+                height: 1,
+                rgba: vec![ao_r, 255, 0, 255],
+            });
+            let settings = RenderSettings {
+                width: 96,
+                height: 96,
+                supersample: 1,
+                background: [0.0; 3],
+                lighting_mode: LightingMode::Headlight,
+                normal_map_convention: NormalMapConvention::Fmodel,
+                ..RenderSettings::default()
+            };
+            crate::render_scene(&scene, &settings)
+                .expect("头灯渲染")
+                .rgba
+        };
+        let bright = render_with_ao(255);
+        let dark = render_with_ao(32);
+        let sum = |rgba: &[u8]| rgba.iter().map(|value| u64::from(*value)).sum::<u64>();
+        assert!(sum(&dark) < sum(&bright), "AO.R 变暗后整体亮度应下降");
+    }
+
+    /// 顶点色默认不参与 Headlight；打开开关后才改变结果。
+    #[test]
+    fn fmodel_headlight_vertex_colors_are_opt_in() {
+        let render_with = |vertex_colors: bool, color: [u8; 4]| {
+            let mut scene = triangle_scene([1.0, 1.0, 1.0, 1.0], 0.0);
+            scene.meshes[0].colors = vec![[color[0], color[1], color[2], color[3]]; 3];
+            let settings = RenderSettings {
+                width: 96,
+                height: 96,
+                supersample: 1,
+                background: [0.0; 3],
+                lighting_mode: LightingMode::Headlight,
+                normal_map_convention: NormalMapConvention::Fmodel,
+                vertex_colors,
+                ..RenderSettings::default()
+            };
+            crate::render_scene(&scene, &settings)
+                .expect("头灯渲染")
+                .rgba
+        };
+        assert_eq!(
+            render_with(false, [255, 0, 0, 255]),
+            render_with(false, [255, 255, 255, 255]),
+            "默认应忽略顶点色"
+        );
+        assert_ne!(
+            render_with(true, [255, 0, 0, 255]),
+            render_with(true, [255, 255, 255, 255]),
+            "打开顶点色后应改变结果"
+        );
+    }
+
+    /// 自发光只有存在贴图时才叠加，避免裸颜色在头灯下发亮。
+    #[test]
+    fn fmodel_headlight_emissive_requires_texture() {
+        let render_with = |emissive: [f32; 3], has_texture: bool| {
+            let mut scene = triangle_scene([0.5, 0.5, 0.5, 1.0], 0.0);
+            scene.materials[0].emissive = emissive;
+            if has_texture {
+                scene.materials[0].textures.emissive = Some(TextureData {
+                    name: "T_Emissive".to_string(),
+                    width: 1,
+                    height: 1,
+                    rgba: vec![255, 0, 0, 255],
+                });
+            }
+            let settings = RenderSettings {
+                width: 96,
+                height: 96,
+                supersample: 1,
+                background: [0.0; 3],
+                lighting_mode: LightingMode::Headlight,
+                normal_map_convention: NormalMapConvention::Fmodel,
+                ..RenderSettings::default()
+            };
+            crate::render_scene(&scene, &settings)
+                .expect("头灯渲染")
+                .rgba
+        };
+        assert_eq!(
+            render_with([1.0, 0.0, 0.0], false),
+            render_with([0.0; 3], false),
+            "没有自发光贴图时不应叠加裸颜色"
+        );
+        assert_ne!(
+            render_with([1.0, 0.0, 0.0], true),
+            render_with([0.0; 3], true),
+            "有自发光贴图时应改变结果"
+        );
     }
 }

@@ -9,7 +9,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use lumark_archive::{
     ArchiveError, ArchiveFormat, ArchiveService, CompressionOptions, CompressionPreset,
     ExtractionBudget, ExtractionOptions, OverwritePolicy, PathMode, ZpaqCompression,
-    configure_zpaq_worker,
 };
 use tempfile::TempDir;
 use zeroize::Zeroizing;
@@ -503,33 +502,6 @@ fn zpaq_create_rejects_invalid_plans() {
         ),
         Err(ArchiveError::InvalidRequest(_))
     ));
-}
-
-/// 当环境变量提供支持 `--zpaq-worker` 的可执行文件时，大文件批次应走工作进程。
-///
-/// 该用例默认跳过；手动验收时用 `LUMARK_ZPAQ_WORKER=<lumark-app.exe>` 运行，
-/// 普通 CI 不会依赖应用二进制。
-#[test]
-fn zpaq_large_file_uses_configured_worker() {
-    let Ok(worker) = std::env::var("LUMARK_ZPAQ_WORKER") else {
-        return;
-    };
-    configure_zpaq_worker(PathBuf::from(worker));
-    let directory = TempDir::new().unwrap();
-    let source = directory.path().join("large.bin");
-    fs::write(&source, vec![0u8; 33 * 1024 * 1024]).unwrap();
-    let archive = directory.path().join("large.zpaq");
-    let report = ArchiveService::create(
-        &archive,
-        std::slice::from_ref(&source),
-        &create_options(ArchiveFormat::Zpaq),
-        |_| {},
-    )
-    .expect("大文件批次应通过工作进程完成");
-    assert_eq!(report.files, 1);
-    assert!(archive.is_file());
-    let info = ArchiveService::list(&archive, None).expect("工作进程创建的归档应可列表");
-    assert_eq!(info.entries.len(), 1);
 }
 
 /// Windows 只读文件在“当前时间”模式下应能复制暂存并改写时间。

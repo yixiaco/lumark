@@ -20,6 +20,7 @@ pub(crate) mod media_player_window;
 pub(crate) mod oodle_download_window;
 mod pages;
 pub(crate) mod password_windows;
+pub(crate) mod properties_viewer_window;
 mod settings_window;
 mod settings_window_notify;
 mod settings_window_pages;

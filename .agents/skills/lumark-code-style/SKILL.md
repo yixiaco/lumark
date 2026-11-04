@@ -66,6 +66,13 @@ description: 维护 Lumark 项目的注释、模块边界、界面资源和工�
 - 根目录的 Low 标签会传播到 `target` 下新生成的 exe，触发 Windows“打开文件 - 安全警告”。发现根目录是 Low 时，应恢复为 Medium（`icacls <仓库根目录> /setintegritylevel "(OI)(CI)Medium"`），并用 `icacls .\target\release\lumark-app.exe` 确认产物也是 Medium；不要用签名或 MOTW 清理掩盖。
 - 低完整性/沙箱实验只能在临时目录进行，禁止用仓库根目录测试；发布构建使用 `tools/build_release.ps1`，它会恢复根目录和 `target`/`dist` 子目录的完整性标签。
 
+## 测试代码
+
+- 一次性测试代码（临时验证脚本、调试用例、临时 `#[test]`、`print!/println!`、`dbg!` 输出、临时改写的调用点）只服务于当前这一次验证，验证完成后必须删除，不得留在工作区，也不得提交。
+- 删除后重新跑一遍 `cargo test --workspace`，确认正式用例仍然通过；不要靠“反正没人跑”把临时测试留在仓库里。
+- 需要长期保留的回归覆盖，迁入 `crates/lumark-ui/src/app/tests.rs` 或对应 crate 的正式测试位置，随 `cargo test --workspace` 一起运行；不要用 `#[ignore]` 的临时用例冒充正式测试。
+- 提交前用 `git status` 和 `git diff` 复核，确认没有残留的临时测试文件、调试输出或只为验证而改的代码。
+
 ## 提交
 
 - 提交消息保持简短，一句中文概括改动即可，不写长段落或逐项清单。

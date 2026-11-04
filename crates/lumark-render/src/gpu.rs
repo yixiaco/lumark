@@ -29,7 +29,7 @@ const VERTEX_FLOATS: usize = 24;
 /// 相机 uniform 大小（字节）。
 const CAMERA_UNIFORM_SIZE: u64 = 160;
 /// 材质 uniform 大小（字节）。
-const MATERIAL_UNIFORM_SIZE: u64 = 64;
+const MATERIAL_UNIFORM_SIZE: u64 = 96;
 
 /// GPU 渲染错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1527,7 +1527,12 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
     for column in &camera.view_projection {
         values.extend_from_slice(column);
     }
-    values.extend_from_slice(&[camera.eye[0], camera.eye[1], camera.eye[2], 1.0]);
+    values.extend_from_slice(&[
+        camera.eye[0],
+        camera.eye[1],
+        camera.eye[2],
+        if settings.vertex_colors { 1.0 } else { 0.0 },
+    ]);
     let key = normalize(settings.key_direction);
     values.extend_from_slice(&[key[0], key[1], key[2], settings.key_intensity]);
     values.extend_from_slice(&[
@@ -1557,9 +1562,9 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
     f32_bytes(&values)
 }
 
-/// 材质 uniform（48 字节）。
+/// 材质 uniform（96 字节）。
 fn material_uniform(material: &MaterialData) -> Vec<u8> {
-    let mut values = Vec::with_capacity(12);
+    let mut values = Vec::with_capacity(20);
     values.extend_from_slice(&[
         material.base_color[0],
         material.base_color[1],
@@ -1606,6 +1611,19 @@ fn material_uniform(material: &MaterialData) -> Vec<u8> {
         } else {
             0.0
         },
+    ]);
+    // FModel 头灯：粗糙度区间、自发光倍率、AO 颜色增强。
+    values.extend_from_slice(&[
+        material.roughness_min.clamp(0.0, 1.0),
+        material.roughness_max.clamp(0.0, 1.0),
+        material.emissive_multiplier.max(0.0),
+        if material.has_ao_boost { 1.0 } else { 0.0 },
+    ]);
+    values.extend_from_slice(&[
+        material.ao_boost_color[0],
+        material.ao_boost_color[1],
+        material.ao_boost_color[2],
+        material.ao_boost_exponent.max(0.0),
     ]);
     f32_bytes(&values)
 }
@@ -2286,7 +2304,8 @@ mod tests {
             height: 64,
             supersample: 1,
             background: [0.0; 3],
-            lighting_mode: crate::LightingMode::Headlight,
+            // ORM 布局只影响 Studio；Headlight 使用 FModel specular mask 语义。
+            lighting_mode: crate::LightingMode::Studio,
             ..RenderSettings::default()
         };
         let ao_rough_metal = renderer
@@ -2304,6 +2323,27 @@ mod tests {
         assert_ne!(
             ao_rough_metal.rgba, specular_mask.rgba,
             "两种 ORM 布局应解析出不同的通道语义"
+        );
+        // Headlight 严格按 FModel 的 G/B 通道，ORM 布局不应改变结果。
+        let headlight = RenderSettings {
+            lighting_mode: crate::LightingMode::Headlight,
+            ..settings
+        };
+        let first = renderer
+            .render(
+                &scene_with_layout(lumark_scene::OrmLayout::AoRoughMetal),
+                &headlight,
+            )
+            .expect("GPU 渲染");
+        let second = renderer
+            .render(
+                &scene_with_layout(lumark_scene::OrmLayout::SpecularMask),
+                &headlight,
+            )
+            .expect("GPU 渲染");
+        assert_eq!(
+            first.rgba, second.rgba,
+            "Headlight 应忽略 ORM 布局并统一使用 FModel specular mask 语义"
         );
     }
 

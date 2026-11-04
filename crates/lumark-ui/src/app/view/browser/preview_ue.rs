@@ -16,7 +16,7 @@ use lumark_unreal::{
 mod material;
 
 /// UE 资产预览结果。
-pub(super) enum UePreviewResult {
+pub(crate) enum UePreviewResult {
     /// 已解码的纹理缩略图。
     Texture {
         path: PathBuf,
@@ -78,6 +78,14 @@ pub(super) enum UePreviewResult {
     Unavailable(String),
     /// 解析失败。
     Error(String),
+}
+
+/// 预览结果 + 资产属性 JSON（与预览同一次后台解析生成）。
+pub(crate) struct UePreviewOutput {
+    /// 预览类型。
+    pub(crate) result: UePreviewResult,
+    /// 只读 JSON；无 .usmap 或解析失败时为空。
+    pub(crate) properties_json: Option<std::sync::Arc<str>>,
 }
 
 /// 把单个网格 LOD 包成最小场景，供缩略图渲染。
@@ -191,7 +199,7 @@ fn save_scene_thumbnail(
 }
 
 /// 后台加载并解码 UE 资产。
-pub(super) fn load_ue_asset_preview(
+pub(crate) fn load_ue_asset_preview(
     archive: &std::path::Path,
     global: &std::path::Path,
     relative: &str,
@@ -199,6 +207,35 @@ pub(super) fn load_ue_asset_preview(
     oodle: Option<PathBuf>,
     aes_key: Option<&str>,
     output: &std::path::Path,
+) -> UePreviewOutput {
+    let mut properties_json = None;
+    let result = load_ue_asset_preview_inner(
+        archive,
+        global,
+        relative,
+        mappings_path,
+        oodle,
+        aes_key,
+        output,
+        &mut properties_json,
+    );
+    UePreviewOutput {
+        result,
+        properties_json: properties_json.map(std::sync::Arc::from),
+    }
+}
+
+/// 预览实现；顺带填充资产属性 JSON。
+#[allow(clippy::too_many_arguments)]
+fn load_ue_asset_preview_inner(
+    archive: &std::path::Path,
+    global: &std::path::Path,
+    relative: &str,
+    mappings_path: Option<&std::path::Path>,
+    oodle: Option<PathBuf>,
+    aes_key: Option<&str>,
+    output: &std::path::Path,
+    properties_json: &mut Option<String>,
 ) -> UePreviewResult {
     if let Some(oodle) = &oodle {
         let _ = lumark_archive::configure_oodle_library(Some(oodle.clone()));
@@ -210,6 +247,7 @@ pub(super) fn load_ue_asset_preview(
         };
     // UE4 旧式纹理：先用原生平台数据启发式解码基础 mip；失败再展示包级元数据。
     if is_legacy_package(&data) {
+        fill_legacy_properties_json(&data, uexp.as_deref(), mappings_path, properties_json);
         if let Some(uexp) = &uexp
             && let Ok(texture) = read_legacy_texture(&data, uexp, ubulk.as_deref())
         {
@@ -498,6 +536,7 @@ pub(super) fn load_ue_asset_preview(
             ));
         }
     };
+    fill_zen_properties_json(&package, mappings_path, properties_json);
     // UE5 材质：尝试渲染近似 PBR 材质球；Zen 包不暴露贴图路径，按同目录
     // 命名约定定位贴图，失败时回退为信息预览。
     if let Some(export) = package
@@ -986,7 +1025,53 @@ fn read_ue_asset_inputs(
     ))
 }
 
-/// 读取旧式包属性并格式化为详情行；无映射或解析失败时返回空。
+/// 解析旧式包并生成属性 JSON；无映射或解析失败时保持为空。
+fn fill_legacy_properties_json(
+    asset: &[u8],
+    uexp: Option<&[u8]>,
+    mappings_path: Option<&std::path::Path>,
+    properties_json: &mut Option<String>,
+) {
+    if properties_json.is_some() {
+        return;
+    }
+    let (Some(uexp), Some(mappings_path)) = (uexp, mappings_path) else {
+        return;
+    };
+    let Some((package, mappings)) = parse_legacy_asset(asset, uexp, Some(mappings_path)) else {
+        return;
+    };
+    *properties_json = Some(lumark_unreal::legacy_properties_json(
+        &package, &mappings, 0,
+    ));
+}
+
+/// 为 Zen 包生成属性 JSON；无映射时保持为空。
+fn fill_zen_properties_json(
+    package: &lumark_unreal::UnrealPackage,
+    mappings_path: Option<&std::path::Path>,
+    properties_json: &mut Option<String>,
+) {
+    if properties_json.is_some() {
+        return;
+    }
+    let Some(mappings_path) = mappings_path else {
+        return;
+    };
+    let Ok(mappings) = Mappings::parse_file(mappings_path) else {
+        return;
+    };
+    let primary = package
+        .info()
+        .exports
+        .iter()
+        .position(|export| export.kind != AssetKind::Other)
+        .unwrap_or(0);
+    *properties_json = Some(lumark_unreal::zen_properties_json(
+        package, &mappings, primary,
+    ));
+}
+
 /// 读取旧式包属性并格式化为详情行；无映射或解析失败时返回空。
 fn legacy_property_rows(
     asset: &[u8],

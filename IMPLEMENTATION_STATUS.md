@@ -1,32 +1,24 @@
 # Lumark 实施状态
 
-> 2026-11-04 起为「收尾」阶段（D 阶段），只记录本轮待完成/刚完成项。
-> 历史实施记录已归档到 `docs/archive/implementation-status-2026-11-03.md`。
+> 2026-11-04 查看器 P-7…P-10 轮次：只记录本轮完成项。
+> 历史实施记录已归档到 `docs/archive/implementation-status-2026-11-04.md`。
 
-## 2026-11-04 收尾（D 阶段）
+## 2026-11-04 查看器交互、FModel 材质与 JSON 属性
 
-- [x] D-1 材质图与 FModel 对齐：按 FModel `CMaterialParams2` 选择基础色/法线/ORM/自发光贴图（参数触发名优先，`_D`/`_N`/`_SM` 等名称正则兜底，基础色回退第一张贴图），应用 DiffuseColor tint；解析 `M`/`AEM`/`AO` 环境光遮蔽贴图并接入 GPU/CPU 着色。BNB `NanaF6_Hold` 17 个槽位贴图全部正确，鞋/指甲/针织布料颜色与 FModel 观感一致。
-- [x] D-2 透明材质按 BlendMode 区分 Masked/Translucent：GPU 新增 alpha 混合管线（不写深度、`LessEqual`、`ALPHA_BLENDING`）并按距相机从远到近绘制半透明批次；CPU 光栅收集半透明片元后按深度混合；着色器输出真实 alpha。测试：`translucent_material_blends_with_background`、`gpu_translucent_blend_or_skips`、`distinguishes_masked_and_translucent_blend_modes`。
-- [x] 修复模型查看器画布空白回归：恢复 `img` + `object_fit(Contain)` 显示，补 `.h_full()`/`.items_stretch()` 尺寸约束，新增 `viewer_paints_rendered_image_element` 回归测试。
-- [x] D-3 材质球接入 Headlight/Fmodel 法线约定/ORM 布局/双面：`MaterialBallSettings` + 复用 FModel 头灯 GGX、ORM 通道、AO 贴图与线性/色调映射管线；UI 材质查看器与旧式材质预览均已接入。测试：`material_ball_headlight_matches_viewer_modes`、`material_ball_uses_orm_normals_and_occlusion`。
-- [x] D-4 World Provider 接入 `.umap` 世界场景加载：`load_scene` 识别 World/Map 导出 → `load_world_scene`，世界网格按包 ID 反查路径并解析槽位材质；实测 BNB `Map/LOGO.umap`、`KingS/GinkgoTree.umap`（178,600 顶点 / 105,348 三角形 / 16 材质）通过 Provider。
-- [x] D-5 取景包围盒改为精确计算：`render_bounds` 遍历全部蒙皮顶点，测试 `render_bounds_include_every_skinned_vertex`。
-- [x] D-6 图片查看器锚点极端窗口像素级测试：120×90 / 2400×1500 窗口下图片中心与画布中心 ≤1px，补充极端画布/缩放锚点单测。
-- [x] D-7 release 稳态性能基准：release 900×900 Headlight+Fmodel（NanaF6_Hold）：SS1 首帧 47.5 ms / 暖帧 avg 43.7 ms；SS2 首帧 64.0 ms / 暖帧 avg 57.0 ms；全顶点 LBS 包围盒 3.15/3.21 ms。产物 `artifacts/bench-release-ss1.png`、`artifacts/bench-release-ss2.png`。
-- [x] D-8 清理各处「已知限制」文档表述：活动文档改为「支持范围/验证边界/部署要求」，补充 D-3…D-7 证据；`viewer-architecture.md` 增加 D 阶段收尾结果表，`docs/archive/` 保留历史记录。
+- [x] P-7 右键拖拽平移：`RenderSettings.pan_pixels` + 相机按 `2*distance*tan(fov/2)/height` 做像素→世界换算；查看器右键拖拽更新 pan、左键仍轨道旋转、`F`/重置视角清零；状态栏提示同步。测试：`camera_pan_moves_target_by_screen_pixels`、`camera_pan_is_independent_of_zoom`、`pan_drag_accumulates_in_screen_space`、`viewer_pan_changes_render_and_resets`。
+- [x] P-8 FModel 材质/光照对齐：材质触发名表按 CUE4Parse `CMaterialParams2`（Apache-2.0）首 UV 层迁入 `material_params.rs`；新增 RoughnessMin/Max、EmissiveMult、Skin Boost、blend/shading 解析；Headlight 改为 `default.frag` 的 spec mask G=金属度/腔体、B=粗糙度、AO R/G/B 公式；CPU/GPU/材质球同步；默认隐藏无贴图/半透明 section。测试：`fmodel_params_use_spec_g_b_and_ao_g`、`fmodel_headlight_ao_r_darkens_result`、`fmodel_headlight_vertex_colors_are_opt_in`、`fmodel_headlight_emissive_requires_texture`、`default_sections_hide_missing_or_translucent_materials`、`ao_parameter_feeds_specular_mask_and_occlusion`。
+- [x] P-9 查看器 UI/检查器重构：`inspector/` 拆分为概要/材质/骨骼；检查器 `h_resizable` 默认 320px（260–640px）；材质页含 section 显隐、blend/shading、双面、tint、roughness 区间、AO/自发光、贴图名称/尺寸、warnings；骨骼树按父索引缩进；工具栏分组并移除 S0…S16/LOD 按钮，新增顶点色与“属性 JSON”；标题栏按资产类型取图标。测试：`viewer_resizable_inspector_sits_right_of_canvas`、`inspector_panel_renders_and_toggles`、`material_viewer_toolbar_hides_mesh_controls`、`viewer_keyboard_shortcuts_update_state`。
+- [x] P-10 JSON 属性查看器：新增 `properties_json`（导出表 + 属性树、对象引用尽量解析、4 MB/64 导出上限、深度限制）；预览链路 `UePreviewOutput.properties_json` → `details_properties_json`；查看器工具栏与详情面板入口；独立只读窗口（JSON 高亮、复制、行数/字节数）。测试：`converts_nested_property_values`、`stops_at_max_depth`、`json_viewer_renders_readonly_editor`、BNB 实机 `renders_real_nana_f6_2_viewer_frame_when_available`。
+- [x] BNB 实机验收：`NanaF6_2` 的 `N_EyeLip`/`N_EyeShadow` 默认隐藏，`N_Eye`/`N_Skin` 可见；`N_Eye` 基础色为 `eyeBro`，`N_Skin` spec/AO 均为 `NewNana_AO`。产物 `artifacts/viewer-nana-f6-2-fmodel.png`、`artifacts/viewer-nana-eye-base.png`。
+- [x] 大文件/高内存测试清理：按用户要求删除 33 MB 的 `zpaq_large_file_uses_configured_worker`，以及 1 MB 的 `bin_roundtrip_large`、`img_roundtrip_large`、`lz_large_data`；只保留小文件测试。
 
-## 2026-11-04 文件表与 3D 查看器修复
+## 验收（按用户资源限制：最多 2 线程、只跑受影响包）
 
-- [x] 文件表只渲染可见行：新增 `DisplayedOrder`/`DisplayedSummary`（`app/state.rs`）与 `app/actions/files/display.rs`（`displayed_iter/order/summary/entry_by_id`）；`render_browser` 每帧只构建一次显示顺序与摘要，行回调按 `source_index` O(1) 取源条目；多选拖拽快照按帧共享（`ArchiveDragItem.selected: Rc<Vec<...>>`）；状态栏/详情面板/`selected_entry`/`selected_sources`/`copy_selected_items` 不再克隆整表；虚拟列表 `ElementId` 按详情/平铺模式区分，切换时强制重建。测试：`large_directory_renders_only_visible_rows`（400 项，详情/平铺首行可见、末项不在元素树、切回详情重建）。
-- [x] 最大化平铺自适应：`browser_list_width`、命令栏/动作带断点、密码库列表高度改用 `Window::viewport_size()`；Windows 最大化时 `inner_window_bounds` 返回 `WindowBounds::Maximized` 的还原尺寸，不再影响布局。测试：`tile_view_reflows_after_window_resize` 增补「整行卡片最后一列右边缘铺满可用宽度」断言。
-- [x] 3D 查看器正反面：`convert_mesh` 把 UE 左手系顺时针绕序翻转为渲染器/glTF 的 CCW 正面，修复叶片从上方被剔除、人物头部俯视镂空；对照 FModel `Views/Snooper/Models/UModel.cs` 的 Y/Z 手性转换。测试：`convert_mesh_flips_ue_winding`。
-- [x] 静态网格材质：`read_asset_metadata`/`read_static_mesh` 解析 `StaticMaterials[*].MaterialInterface` 对象引用，新增 `resolve_static_materials` 并接入详情预览、Provider、世界场景与导出；实机 `SM_Tree_Tropic_03_novines` 两槽位解析出 `MI_Tree_Tropic_01_TR`/`MI_Tree_Tropic_FO` 及基础色/法线/ORM 贴图，不再白模。测试：`extracts_static_material_names_and_imports`。
-- [x] 内存回收：查看器替换帧时 `App::drop_image` 释放旧 `RenderImage`（GPUI 图集无 LRU，之前每次渲染常驻一张 900×900 瓦片）；UE 预览图改为按预览 key 哈希的稳定路径，替换/离开预览时 `remove_asset` 并删除旧文件；贴图按目标边长选择 mip 解码（4K→512 的临时 RGBA 从 64 MB 降到约 1 MB），材质球贴图同样走 mip。测试：`selects_mip_level_for_texture_limit`、`decode_mip_rgba_with_size_reports_mip_size`。未做查看器场景贴图与预览缓存的 `Arc` 共享，列为后续。
-- [x] 文档：`docs/plan-progress.md` 与 `docs/viewer-architecture.md` 同步绕序、静态网格材质引用、mip 解码与图像释放约定。
-- [x] 本轮验收：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -j 4 -- -D warnings`、`cargo test --workspace -j 4 -- --test-threads=2` 退出码 0（受限线程、串行执行）；最大化列数、叶片正反面与内存曲线由用户在实机按清单复核。
-
-## 验收
-
-- `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 全绿；
-- `cargo test --workspace -j 2 -- --test-threads=1`：74 个测试目标、801 个测试通过、0 失败
-  （ui 206 / unreal 93 / render 49）；release 基准见 `docs/viewer-architecture.md`。
+- `cargo fmt --all -- --check`：通过。
+- `cargo clippy -p lumark-render -p lumark-unreal -p lumark-ui -p lumark-archive -p lumark-legacy --all-targets -j 2 -- -D warnings`：通过（仅 vendor `wim` 既有 dead_code 警告）。
+- `cargo test -p lumark-render --lib -j 2 -- --test-threads=2`：55 passed。
+- `cargo test -p lumark-unreal --lib -j 2 -- --test-threads=2`：102 passed。
+- `cargo test -p lumark-ui --lib -j 2 -- --test-threads=2`：218 个用例；完整运行 217 passed、唯一失败的可拖拽检查器用例修复后 `viewer_resizable_inspector_sits_right_of_canvas` 定向通过；查看器相关 28 个用例定向通过。
+- `cargo test -p lumark-legacy --lib -j 2 -- --test-threads=2`：51 passed。
+- `cargo test -p lumark-archive --test zpaq --no-run -j 2`：编译通过（删除大文件用例后；按用户要求未跑完整 archive 套件）。
+- 完整 workspace 套件按用户要求暂停，不再重跑；release 构建同样未在低资源窗口执行。

@@ -194,33 +194,6 @@ pub fn render_material_ball_orbit(
                     base_color[2] * srgb_to_linear(sample[2]),
                 ];
             }
-            let mut occlusion = 1.0f32;
-            let mut roughness = appearance.roughness.clamp(0.04, 1.0);
-            let mut metallic = appearance.metallic.clamp(0.0, 1.0);
-            if let Some(texture) = occlusion_texture {
-                occlusion = texture.sample(u, v)[0].clamp(0.0, 1.0);
-            }
-            if let Some(texture) = metallic_roughness_texture {
-                let sample = texture.sample(u, v);
-                match settings.orm_layout {
-                    OrmLayout::AoRoughMetal => {
-                        occlusion *= sample[0].max(0.05);
-                        roughness *= sample[1].max(0.05);
-                        metallic = metallic.max(sample[2]);
-                    }
-                    OrmLayout::SpecularMask => {
-                        // G=金属度、B=粗糙度（FModel specular mask 语义）。
-                        metallic = metallic.max(sample[1]);
-                        roughness *= sample[2].max(0.05);
-                    }
-                }
-            }
-            let ambient_occlusion = occlusion.clamp(0.0, 1.0);
-            base_color = [
-                base_color[0] * ambient_occlusion,
-                base_color[1] * ambient_occlusion,
-                base_color[2] * ambient_occlusion,
-            ];
             if let Some(texture) = normal_texture {
                 let sample = texture.sample(u, v);
                 let tangent_normal = [
@@ -249,8 +222,87 @@ pub fn render_material_ball_orbit(
                 ]);
             }
             let mut color = if settings.headlight {
-                shade_headlight_ball(base_color, normal, view, metallic, roughness, occlusion)
+                // FModel default.frag：spec mask 的 G=金属度/腔体、B=粗糙度，
+                // AO 只衰减基础色；自发光在头灯前叠加。
+                let spec = metallic_roughness_texture
+                    .map(|texture| texture.sample(u, v))
+                    .unwrap_or([0.0, 0.0, 0.0]);
+                let ao = occlusion_texture.map(|texture| texture.sample(u, v));
+                let metallic = spec[1].clamp(0.0, 1.0);
+                let cavity = ao.map_or(spec[1], |value| value[1]).clamp(0.0, 1.0);
+                let roughness = if metallic_roughness_texture.is_some() {
+                    appearance.roughness_min
+                        + (appearance.roughness_max - appearance.roughness_min) * spec[2]
+                } else {
+                    appearance.roughness_min
+                }
+                .clamp(0.0, 1.0);
+                let diffuse_factor = dot3(normal, view).max(0.0).max(0.4);
+                let mut result = [
+                    base_color[0] * diffuse_factor,
+                    base_color[1] * diffuse_factor,
+                    base_color[2] * diffuse_factor,
+                ];
+                if let Some(ao) = ao {
+                    result = [result[0] * ao[0], result[1] * ao[0], result[2] * ao[0]];
+                    if appearance.has_ao_boost {
+                        let boost = [
+                            appearance.ao_boost_color[0] * appearance.ao_boost_exponent,
+                            appearance.ao_boost_color[1] * appearance.ao_boost_exponent,
+                            appearance.ao_boost_color[2] * appearance.ao_boost_exponent,
+                        ];
+                        let factor = ao[2].clamp(0.0, 1.0);
+                        for (channel, value) in result.iter_mut().enumerate() {
+                            *value = *value * (1.0 - factor) + *value * boost[channel] * factor;
+                        }
+                    }
+                }
+                for (channel, value) in result.iter_mut().enumerate() {
+                    *value += appearance.emissive[channel]
+                        * appearance.emissive_multiplier.max(0.0)
+                        * 0.8;
+                }
+                // 纯头灯对旋转不敏感；材质球额外加一点世界固定补光，
+                // 让均匀材质绕球旋转时也能看出朝向变化。
+                let fill = dot3(normal, light).max(0.0) * 0.12;
+                for (channel, value) in result.iter_mut().enumerate() {
+                    *value += base_color[channel] * fill;
+                }
+                let headlight =
+                    shade_headlight_ball(base_color, normal, view, metallic, roughness, cavity);
+                [
+                    result[0] + headlight[0],
+                    result[1] + headlight[1],
+                    result[2] + headlight[2],
+                ]
             } else {
+                let mut occlusion = 1.0f32;
+                let mut roughness = appearance.roughness.clamp(0.04, 1.0);
+                let mut metallic = appearance.metallic.clamp(0.0, 1.0);
+                if let Some(texture) = occlusion_texture {
+                    occlusion = texture.sample(u, v)[0].clamp(0.0, 1.0);
+                }
+                if let Some(texture) = metallic_roughness_texture {
+                    let sample = texture.sample(u, v);
+                    match settings.orm_layout {
+                        OrmLayout::AoRoughMetal => {
+                            occlusion *= sample[0].max(0.05);
+                            roughness *= sample[1].max(0.05);
+                            metallic = metallic.max(sample[2]);
+                        }
+                        OrmLayout::SpecularMask => {
+                            // G=金属度、B=粗糙度（FModel specular mask 语义）。
+                            metallic = metallic.max(sample[1]);
+                            roughness *= sample[2].max(0.05);
+                        }
+                    }
+                }
+                let ambient_occlusion = occlusion.clamp(0.0, 1.0);
+                let studio_base = [
+                    base_color[0] * ambient_occlusion,
+                    base_color[1] * ambient_occlusion,
+                    base_color[2] * ambient_occlusion,
+                ];
                 let ndotl = dot3(normal, light).max(0.0);
                 let ndoth = dot3(normal, half).max(0.0);
                 let ndotv = dot3(normal, view).max(0.0);
@@ -260,23 +312,27 @@ pub fn render_material_ball_orbit(
                 let specular = ndoth.powf(shininess) * (0.04 + metallic * 0.5);
                 let fresnel = 0.04 + 0.96 * (1.0 - ndotv).powi(5);
                 let specular_tint = [
-                    1.0 - metallic + base_color[0] * metallic,
-                    1.0 - metallic + base_color[1] * metallic,
-                    1.0 - metallic + base_color[2] * metallic,
+                    1.0 - metallic + studio_base[0] * metallic,
+                    1.0 - metallic + studio_base[1] * metallic,
+                    1.0 - metallic + studio_base[2] * metallic,
                 ];
                 let ambient = 0.16 * occlusion;
                 let diffuse = ambient + 0.84 * ndotl;
-                let mut color = [0.0f32; 3];
+                let mut studio = [0.0f32; 3];
                 for channel in 0..3 {
-                    let diffuse_term = base_color[channel] * diffuse * (1.0 - metallic);
+                    let diffuse_term = studio_base[channel] * diffuse * (1.0 - metallic);
                     let specular_term = specular_tint[channel] * specular * (1.0 - roughness * 0.6);
                     let rim = fresnel * 0.18 * diffuse;
-                    color[channel] = diffuse_term + specular_term + rim;
+                    studio[channel] = diffuse_term + specular_term + rim;
                 }
-                color
+                for (channel, value) in studio.iter_mut().enumerate() {
+                    *value += appearance.emissive[channel] * 0.8;
+                }
+                studio
             };
-            for (channel, color) in color.iter_mut().enumerate() {
-                *color += appearance.emissive[channel] * 0.8;
+            // 头灯分支已在内部处理自发光；Studio 分支也已在内部叠加。
+            for color in color.iter_mut() {
+                *color = color.max(0.0);
             }
             let encode = |value: f32| -> u8 {
                 let mapped = value.max(0.0) / (1.0 + value.max(0.0));
@@ -292,13 +348,15 @@ pub fn render_material_ball_orbit(
 }
 
 /// FModel Snooper `default.frag` 风格的头灯着色（材质球版本）。
+///
+/// `cavity` 对应 FModel 的腔体项（spec.G 或 AO.G），`kd` 使用 `1-cavity`。
 fn shade_headlight_ball(
     base: [f32; 3],
     normal: [f32; 3],
     view: [f32; 3],
     metallic: f32,
     roughness: f32,
-    occlusion: f32,
+    cavity: f32,
 ) -> [f32; 3] {
     const PI: f32 = std::f32::consts::PI;
     let n_dot_v_raw = dot3(normal, view).max(0.0);
@@ -320,7 +378,7 @@ fn shade_headlight_ball(
     for channel in 0..3 {
         let fresnel = f0[channel];
         let specular = distribution * geometry * fresnel / specular_denominator;
-        let kd = (1.0 - fresnel) * (1.0 - occlusion);
+        let kd = (1.0 - fresnel) * (1.0 - cavity);
         let diffuse_brdf = kd * base[channel] / PI;
         let headlight = (diffuse_brdf + specular) * n_dot_l;
         color[channel] = base[channel] * diffuse_factor + headlight;
@@ -1094,7 +1152,11 @@ mod material_tests {
             None,
             Some(packed_texture),
             None,
-            MaterialBallSettings::default(),
+            MaterialBallSettings {
+                // ORM 布局只影响 Studio；Headlight 固定 FModel G/B 语义。
+                headlight: false,
+                ..Default::default()
+            },
             96,
         );
         let specular_mask = render_material_ball(
@@ -1104,6 +1166,7 @@ mod material_tests {
             Some(packed_texture),
             None,
             MaterialBallSettings {
+                headlight: false,
                 orm_layout: OrmLayout::SpecularMask,
                 ..Default::default()
             },

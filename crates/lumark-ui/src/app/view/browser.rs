@@ -28,6 +28,8 @@ mod tiles;
 pub(crate) use drag::{ArchiveDragItem, path_bar_drop_handler};
 use marquee::*;
 pub(crate) use preview::DetailsPreview;
+#[cfg(test)]
+pub(crate) use preview_ue::{UePreviewResult, load_ue_asset_preview};
 
 /// 文件表键盘移动方向。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

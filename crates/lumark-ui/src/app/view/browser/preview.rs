@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use super::preview_ue::{UePreviewResult, load_ue_asset_preview};
+use super::preview_ue::{UePreviewOutput, UePreviewResult, load_ue_asset_preview};
 use super::*;
 use lumark_archive::{ArchiveService, ExtractionOptions};
 use uuid::Uuid;
@@ -70,6 +70,7 @@ impl LumarkApp {
         let cached_material = self.details_material.take();
         let cached_material_names = std::mem::take(&mut self.details_material_names);
         let cached_materials = self.details_materials.clone();
+        let cached_properties = self.details_properties_json.take();
         self.sync_details_preview_inner(cx);
         if self
             .details_preview
@@ -82,6 +83,7 @@ impl LumarkApp {
             self.details_material = cached_material;
             self.details_material_names = cached_material_names;
             self.details_materials = cached_materials;
+            self.details_properties_json = cached_properties;
         }
     }
 
@@ -175,6 +177,7 @@ impl LumarkApp {
             self.details_material = None;
             self.details_material_names.clear();
             self.details_materials = std::sync::Arc::new(Vec::new());
+            self.details_properties_json = None;
             return;
         };
         self.details_mesh = None;
@@ -182,6 +185,7 @@ impl LumarkApp {
         self.details_material = None;
         self.details_materials = std::sync::Arc::new(Vec::new());
         self.details_material_names.clear();
+        self.details_properties_json = None;
         if !entry.is_dir
             && self.game_session.is_some()
             && is_ue_package_name(&entry.name)
@@ -412,6 +416,11 @@ impl LumarkApp {
                 {
                     return;
                 }
+                let UePreviewOutput {
+                    result,
+                    properties_json,
+                } = result;
+                app.details_properties_json = properties_json;
                 app.details_preview = Some(match result {
                     UePreviewResult::Texture {
                         path,

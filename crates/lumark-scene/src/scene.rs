@@ -159,6 +159,18 @@ pub struct MaterialData {
     pub metallic: f32,
     /// 粗糙度。
     pub roughness: f32,
+    /// FModel 粗糙度下限。
+    pub roughness_min: f32,
+    /// FModel 粗糙度上限。
+    pub roughness_max: f32,
+    /// 自发光倍率。
+    pub emissive_multiplier: f32,
+    /// AO 颜色增强 RGB。
+    pub ao_boost_color: [f32; 3],
+    /// AO 颜色增强指数。
+    pub ao_boost_exponent: f32,
+    /// 是否存在 AO 颜色增强。
+    pub has_ao_boost: bool,
     /// 自发光（线性 RGB）。
     pub emissive: [f32; 3],
     /// 贴图。
@@ -180,6 +192,12 @@ impl Default for MaterialData {
             base_color: [0.72, 0.72, 0.72, 1.0],
             metallic: 0.0,
             roughness: 0.55,
+            roughness_min: 0.0,
+            roughness_max: 1.0,
+            emissive_multiplier: 1.0,
+            ao_boost_color: [0.0; 3],
+            ao_boost_exponent: 0.0,
+            has_ao_boost: false,
             emissive: [0.0; 3],
             textures: MaterialTextures::default(),
             two_sided: false,

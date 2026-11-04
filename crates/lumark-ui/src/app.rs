@@ -385,6 +385,8 @@ pub struct LumarkApp {
     details_skeleton: Option<lumark_unreal::Skeleton>,
     /// 材质详情预览对应的交互式查看器数据。
     details_material: Option<lumark_unreal::MaterialViewerData>,
+    /// 当前 UE 资产可展示的 JSON 属性文本（与预览 key 对齐）。
+    details_properties_json: Option<std::sync::Arc<str>>,
     /// 等详情预览完成后自动打开的资产查看器请求。
     pending_asset_viewer: Option<PendingAssetViewer>,
 }
@@ -698,6 +700,7 @@ impl LumarkApp {
             details_animation: None,
             details_skeleton: None,
             details_material: None,
+            details_properties_json: None,
             pending_asset_viewer: None,
         };
         set_input(

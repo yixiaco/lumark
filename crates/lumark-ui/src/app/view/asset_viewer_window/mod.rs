@@ -26,6 +26,10 @@ mod status;
 mod toolbar;
 
 /// 查看器展示的资产类型
+///
+/// `Material` 变体携带完整的材质查看器数据（含贴图）而明显大于其他变体；
+/// 这里按值持有，避免在 UI/预览链路中引入额外 Box 间接层。
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub(crate) enum ViewerScene {
     /// StaticMesh 几何（可能包含多个 LOD）
@@ -59,7 +63,59 @@ pub(crate) enum ViewerScene {
 /// 当前拖动状态
 struct DragState {
     last: (f32, f32),
+    /// 左键轨道旋转、右键屏幕平移。
+    mode: DragMode,
 }
+
+/// 画布拖拽模式。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DragMode {
+    /// 左键轨道旋转。
+    Orbit,
+    /// 右键上下左右平移。
+    Pan,
+}
+
+/// 右侧检查器标签页。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InspectorTab {
+    /// 场景概要与 LOD。
+    Overview,
+    /// section 列表与选中材质详情。
+    Materials,
+    /// 骨骼树。
+    Bones,
+}
+
+/// 初始检查器标签：网格优先展示材质，骨骼/材质资产展示概要。
+fn initial_inspector_tab(scene: &ViewerScene) -> InspectorTab {
+    match scene {
+        ViewerScene::Mesh { .. } | ViewerScene::SkeletalMesh { .. } => InspectorTab::Materials,
+        ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => InspectorTab::Overview,
+    }
+}
+
+/// 计算每个 LOD 的局部空间包围盒，供概要面板显示尺寸（UE 单位 cm）。
+fn compute_lod_bounds(scene: &ViewerScene) -> Vec<Option<([f32; 3], [f32; 3])>> {
+    let lods = match scene {
+        ViewerScene::Mesh { lods, .. } | ViewerScene::SkeletalMesh { lods, .. } => lods,
+        _ => return Vec::new(),
+    };
+    lods.iter()
+        .map(|lod| {
+            let mut min = [f32::INFINITY; 3];
+            let mut max = [f32::NEG_INFINITY; 3];
+            for position in &lod.positions {
+                for axis in 0..3 {
+                    min[axis] = min[axis].min(position[axis] as f32);
+                    max[axis] = max[axis].max(position[axis] as f32);
+                }
+            }
+            min[0].is_finite().then_some((min, max))
+        })
+        .collect()
+}
+
 /// 模型查看器窗口
 pub(crate) struct AssetViewerWindowView {
     name: String,
@@ -67,6 +123,8 @@ pub(crate) struct AssetViewerWindowView {
     yaw: f32,
     pitch: f32,
     zoom: f32,
+    /// 右键平移累计屏幕像素：+x 向右、+y 向下。
+    pan: [f32; 2],
     /// 渲染结果（直接交给 GPUI，不再写临时 PNG）
     image: Option<Arc<RenderImage>>,
     error: Option<String>,
@@ -83,6 +141,16 @@ pub(crate) struct AssetViewerWindowView {
     animation_time: f32,
     /// 是否显示右侧检查器
     inspector_open: bool,
+    /// 检查器当前标签页。
+    inspector_tab: InspectorTab,
+    /// 检查器材质的当前 section。
+    selected_section: usize,
+    /// FModel 属性 JSON（由预览链路生成）；无映射或解析失败时为空。
+    properties_json: Option<Arc<str>>,
+    /// 可拖拽的检查器分栏状态（正式窗口创建）。
+    inspector_state: Option<gpui_kit::Entity<gpui_kit::base::ResizableState>>,
+    /// 各 LOD 的局部空间包围盒（创建时一次性计算）。
+    lod_bounds: Vec<Option<([f32; 3], [f32; 3])>>,
     /// 着色模式
     shading: ShadingMode,
     /// 是否显示地面网格
@@ -109,6 +177,8 @@ pub(crate) struct AssetViewerWindowView {
     bone_filter: Option<gpui_kit::Entity<InputState>>,
     /// 基础色/自发光贴图按 sRGB 采样
     srgb_textures: bool,
+    /// 是否把顶点色乘到基础色（FModel 默认关闭）
+    vertex_colors: bool,
     /// 线框模式
     wireframe: bool,
     /// 材质槽名称（顺序与 section.material_index 对应）
@@ -133,6 +203,8 @@ impl AssetViewerWindowView {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut view = Self::create(name, scene, Some(focus));
+        // FModel 默认隐藏无贴图/半透明 section；正式窗口打开即按该规则初始化。
+        view.reset_section_visibility();
         let slider = cx.new(|_| SliderState::new().min(0.0).max(1.0).step(0.001));
         let subscription = cx.subscribe(&slider, |view, _slider, event: &SliderEvent, cx| {
             let SliderEvent::Change(value) = event else {
@@ -152,6 +224,7 @@ impl AssetViewerWindowView {
         view.timeline_slider = Some(slider);
         view.slider_subscription = Some(subscription);
         view.bone_filter = Some(bone_filter);
+        view.inspector_state = Some(cx.new(|_| gpui_kit::base::ResizableState::default()));
         // 首帧也在后台渲染：窗口打开不阻塞界面线程。
         view.request_preview(cx);
         view
@@ -159,12 +232,15 @@ impl AssetViewerWindowView {
 
     /// 创建查看器状态（不渲染；首帧由对话框/测试显式触发）。
     fn create(name: String, scene: ViewerScene, focus: Option<gpui_kit::FocusHandle>) -> Self {
+        let inspector_tab = initial_inspector_tab(&scene);
+        let lod_bounds = compute_lod_bounds(&scene);
         let mut view = Self {
             name,
             scene: Arc::new(scene),
             yaw: 35.0,
             pitch: 25.0,
             zoom: 1.0,
+            pan: [0.0, 0.0],
             image: None,
             error: None,
             drag: None,
@@ -174,6 +250,11 @@ impl AssetViewerWindowView {
             animation_playing: false,
             animation_time: 0.0,
             inspector_open: true,
+            inspector_tab,
+            selected_section: 0,
+            properties_json: None,
+            inspector_state: None,
+            lod_bounds,
             shading: ShadingMode::Lit,
             // 3D 查看器默认显示地面网格（与 FModel 查看器一致）。
             show_grid: true,
@@ -188,16 +269,82 @@ impl AssetViewerWindowView {
             frame_pump: frame_pump::FramePump::new(),
             bone_filter: None,
             srgb_textures: true,
+            vertex_colors: false,
             wireframe: false,
             material_names: Vec::new(),
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
         view
     }
+    /// 场景中已解析材质列表。
+    fn materials(&self) -> &[lumark_unreal::ResolvedMaterial] {
+        match self.scene.as_ref() {
+            ViewerScene::Mesh { materials, .. } | ViewerScene::SkeletalMesh { materials, .. } => {
+                materials
+            }
+            _ => &[],
+        }
+    }
+
+    /// 某个材质在 FModel 默认规则下是否隐藏 section。
+    ///
+    /// FModel `Section.SetupMaterial`：材质为空（没有任何贴图）或半透明时
+    /// 默认不显示。Lumark 仍允许在面板中手动显示。
+    fn material_auto_hidden(&self, material_index: usize) -> bool {
+        let Some(material) = self.materials().get(material_index) else {
+            return true;
+        };
+        let Some(appearance) = material.appearance.as_ref() else {
+            return true;
+        };
+        appearance.textures.is_empty() || appearance.translucent
+    }
+
+    /// 按 FModel 默认规则计算 section 可见性（true=隐藏）。
+    fn default_hidden_sections(&self) -> Vec<bool> {
+        let Some(mesh) = self.scene_mesh() else {
+            return Vec::new();
+        };
+        mesh.sections
+            .iter()
+            .map(|section| {
+                let material_index =
+                    usize::try_from(section.material_index.max(0)).unwrap_or(usize::MAX);
+                self.material_auto_hidden(material_index)
+            })
+            .collect()
+    }
+
+    /// 重置 section 可见性到 FModel 默认规则；切换 LOD 时调用。
+    pub(super) fn reset_section_visibility(&mut self) {
+        self.hidden_sections = self.default_hidden_sections();
+    }
+
+    /// 当前 section 对应的材质。
+    pub(super) fn section_material(
+        &self,
+        section_index: usize,
+    ) -> Option<&lumark_unreal::ResolvedMaterial> {
+        let mesh = self.scene_mesh()?;
+        let section = mesh.sections.get(section_index)?;
+        let material_index = usize::try_from(section.material_index.max(0)).ok()?;
+        self.materials().get(material_index)
+    }
     /// 附带材质槽名称（由详情解析结果提供）。
     pub(crate) fn with_material_names(mut self, names: Vec<String>) -> Self {
         self.material_names = names;
         self
+    }
+
+    /// 附带资产的 JSON 属性文本（由预览链路生成）。
+    pub(crate) fn with_properties_json(mut self, json: Option<Arc<str>>) -> Self {
+        self.properties_json = json;
+        self
+    }
+
+    /// 当前查看器持有的 JSON 属性文本。
+    pub(super) fn properties_json_text(&self) -> Option<Arc<str>> {
+        self.properties_json.clone()
     }
 
     fn kind_label(&self) -> &'static str {
@@ -303,16 +450,7 @@ impl Render for AssetViewerWindowView {
                     .flex_shrink_0()
                     .child(self.render_toolbar(cx)),
             )
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .items_stretch()
-                    .overflow_hidden()
-                    .child(self.render_body(cx))
-                    .children(self.inspector_open.then(|| self.render_inspector(cx))),
-            )
+            .child(self.render_content(cx))
             .child(self.render_status_bar(cx))
     }
 }

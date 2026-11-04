@@ -406,14 +406,15 @@ pub use legacy_skeleton::{
 };
 pub use mappings::{Mappings, PropSchema, PropType, StructSchema};
 pub use material::{
-    MaterialAppearance, MaterialTextureKind, MaterialTextureRef, MaterialViewerData,
-    MaterialViewerImage, material_parent_package, read_legacy_material_appearance,
-    read_zen_material_appearance, texture_references,
+    MaterialAppearance, MaterialTextureInfo, MaterialTextureKind, MaterialTextureRef,
+    MaterialViewerData, MaterialViewerImage, material_parent_package,
+    read_legacy_material_appearance, read_zen_material_appearance, texture_references,
 };
 /// 材质属性解析辅助函数：供 `material_graph` 等 crate 内模块复用。
 pub(crate) use material::{
-    blend_mode_property, is_base_color_name, is_overlay_name, parameter_array,
-    parameter_entry_color, parameter_entry_name, parameter_entry_scalar, two_sided_property,
+    blend_mode_name, blend_mode_property, is_base_color_name, is_overlay_name, parameter_array,
+    parameter_entry_color4, parameter_entry_name, parameter_entry_scalar, shading_model_name,
+    two_sided_property,
 };
 pub use mesh::{
     MaterialSlot, MeshLod, MeshSection, MeshVertexAttributes, StaticMesh, read_static_mesh,

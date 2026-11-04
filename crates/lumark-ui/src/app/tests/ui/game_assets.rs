@@ -743,6 +743,7 @@ fn cached_preview_keeps_viewer_scene_data(cx: &mut gpui_kit::TestAppContext) {
                 normal: None,
                 metallic_roughness: None,
                 occlusion: None,
+                ..Default::default()
             });
             // 模拟渲染期间的再次同步：预览 key 未变，查看器数据应保留。
             app.sync_details_preview(cx);

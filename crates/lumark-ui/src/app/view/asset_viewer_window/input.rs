@@ -10,6 +10,7 @@ impl AssetViewerWindowView {
                 self.yaw = 35.0;
                 self.pitch = 25.0;
                 self.zoom = 1.0;
+                self.pan = [0.0, 0.0];
                 self.request_preview(cx);
             }
             "space" => {
