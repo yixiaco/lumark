@@ -152,12 +152,46 @@ wim = { path = "vendor/wim" }
 # 完整调试信息，显著降低链接内存和 PDB 体积。
 [profile.dev]
 debug = 1
+# 增量缓存默认关闭：rustc 按 target/debug/incremental/<crate>-<哈希> 建目录，
+# 编译参数（feature、目标集合、工具链、profile）一变化就另建一份，旧目录不会
+# 回收，本仓库曾累积到 434 个目录、约 12 GB。膨胀主要来自测试和示例目标——
+# 每个 tests/*.rs、examples/*.rs 都是独立 crate 单元（lumark-archive 有 25 个
+# 测试、lumark-unreal 有 53 个示例）。因此 dev/test 两个 profile 都先关闭，
+# 只给下方列出的高频 crate 单独打开；需要一次性全量增量缓存时用
+# `$env:CARGO_INCREMENTAL = 1` 临时覆盖本设置。
+incremental = false
 
 [profile.dev.package."*"]
 debug = 0
 
 [profile.test]
 debug = 1
+# 测试目标数量多，是缓存目录膨胀的大头，test profile 保持整体关闭。
+incremental = false
 
 [profile.test.package."*"]
 debug = 0
+
+# 增量缓存只留给近 90 天提交里改动最频繁、单次重编最贵的 crate：
+# lumark-ui(1030)、lumark-archive(439)、lumark-unreal(224) 为改动文件数前三，
+# lumark-render(57) 是当前迭代热点。热点迁移时在这里增删条目；dev 与 test
+# 是两个独立 profile，需要按目标分别声明。
+[profile.dev.package.lumark-ui]
+incremental = true
+
+[profile.dev.package.lumark-archive]
+incremental = true
+
+[profile.dev.package.lumark-unreal]
+incremental = true
+
+[profile.dev.package.lumark-render]
+incremental = true
+
+# 测试 profile 只给集成测试目标很少、单测全在 lib 内部的两个 crate 打开，
+# 避免 archive/unreal 的测试与示例各留一份缓存。
+[profile.test.package.lumark-ui]
+incremental = true
+
+[profile.test.package.lumark-render]
+incremental = true
