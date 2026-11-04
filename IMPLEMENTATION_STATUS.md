@@ -68,3 +68,9 @@
 - [ ] SSAO
 
 验证：`lumark-render --lib` 56 passed；viewer 定向 26 passed；预览 11 passed；BNB NanaF6_2 实机用例通过。
+## 2026-11-05 Snooper 全效果验收
+
+- 两级联太阳阴影 + 3×3 PCF；SSAO 深度重建后处理；方向天空/太阳盘；cm 单位指数高度雾；5000 单位地面+网格；Snooper FXAA-lite。
+- 查看器默认 1.5×（1350×900），工具栏可切 1.0×/1.5×/2.0×；效果开关、预览缓存版本、缩略图背景一致。
+- P0 质量切换/全隐藏 section/预览缓存回归测试保留。
+- `lumark-render --lib` 59 passed；viewer 定向 26 passed；preview 11 passed；BNB NanaF6_2 实机通过。
