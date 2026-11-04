@@ -53,7 +53,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             + background.up.xyz * ndc.y * background.params.x
     );
     let elevation = clamp(direction.z * 0.5 + 0.5, 0.0, 1.0);
-    let sky = mix(background.sky_lower.rgb, background.sky_upper.rgb, pow(elevation, 0.65));
+    // 天空观感色（Snooper 大气 LUT 的近似；光照仍使用 background.sky_*）。
+    let horizon = vec3<f32>(0.55, 0.72, 0.92);
+    let zenith = vec3<f32>(0.10, 0.28, 0.65);
+    let sky = mix(horizon, zenith, pow(elevation, 0.65));
     let sun = pow(max(dot(direction, normalize(background.sun_dir.xyz)), 0.0), 256.0);
     let color = sky + background.sun_color.rgb * sun * 4.0;
     return vec4<f32>(pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), 1.0);
