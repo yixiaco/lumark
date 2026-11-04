@@ -19,6 +19,8 @@ struct Camera {
     ambient: vec4<f32>,
     sky_upper: vec4<f32>,
     sky_lower: vec4<f32>,
+    fog_color: vec4<f32>,
+    fog_params: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -368,10 +370,20 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
         if (material.flags.w > 0.5) {
             ao = textureSample(ao_texture, tex_sampler, in.uv).r;
         }
-        return encode_gamma(
-            snooper_lighting(base, normal, view, params.x, params.y, params.z, ao),
-            alpha,
-        );
+        var color = snooper_lighting(base, normal, view, params.x, params.y, params.z, ao);
+        if (camera.fog_color.w > 0.5) {
+            // UE 场景单位为厘米，Snooper 雾参数按米换算。
+            let distance = length(camera.eye.xyz - in.world) / 100.0;
+            let density = camera.fog_params.x
+                * exp(-camera.fog_params.y * max(in.world.z / 100.0, 0.0));
+            let amount = clamp(
+                1.0 - exp(-density * max(distance - camera.fog_params.w, 0.0)),
+                0.0,
+                camera.fog_params.z,
+            );
+            color = mix(color, camera.fog_color.rgb, amount);
+        }
+        return encode_gamma(color, alpha);
     }
     var color: vec3<f32>;
     if (camera.ambient.z > 0.5) {

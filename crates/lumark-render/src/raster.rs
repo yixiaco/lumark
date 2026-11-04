@@ -734,9 +734,22 @@ fn shade(
                 .occlusion
                 .as_ref()
                 .map_or(1.0, |texture| sample_texture(texture, surface.uv)[0]);
-            snooper_lighting(
+            let mut color = snooper_lighting(
                 base, normal, view, specular, metallic, roughness, ao, settings,
-            )
+            );
+            if settings.snooper.fog.enabled {
+                let distance = distance3(surface.world, camera.eye) / 100.0;
+                let density = settings.snooper.fog.density
+                    * (-settings.snooper.fog.height_falloff * (surface.world[2] / 100.0).max(0.0))
+                        .exp();
+                let amount = (1.0
+                    - (-density * (distance - settings.snooper.fog.start_distance).max(0.0)).exp())
+                .clamp(0.0, settings.snooper.fog.max_opacity);
+                for (channel, value) in color.iter_mut().enumerate() {
+                    *value = *value + (settings.snooper.fog.color[channel] - *value) * amount;
+                }
+            }
+            color
         }
         // FModel 头灯：AO 只乘基础色，自发光在头灯前叠加。
         LightingMode::Headlight => {
@@ -1077,6 +1090,11 @@ fn srgb_to_linear(value: f32) -> f32 {
     }
 }
 
+/// 两点距离。
+fn distance3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let d = sub(a, b);
+    dot(d, d).sqrt()
+}
 /// 标量 smoothstep。
 fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
     let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);

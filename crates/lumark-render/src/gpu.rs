@@ -27,7 +27,7 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4 + joints4 + weights4。
 const VERTEX_FLOATS: usize = 24;
 /// 相机 uniform 大小（字节）。
-const CAMERA_UNIFORM_SIZE: u64 = 192;
+const CAMERA_UNIFORM_SIZE: u64 = 224;
 /// 材质 uniform 大小（字节）。
 const MATERIAL_UNIFORM_SIZE: u64 = 112;
 
@@ -1544,7 +1544,7 @@ fn overlay_line_vertices(scene: &Scene, settings: &RenderSettings) -> (Vec<u8>, 
     (f32_bytes(&values), count)
 }
 
-/// 相机 uniform（192 字节）。
+/// 相机 uniform（224 字节）。
 fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
     let mut values = Vec::with_capacity(48);
     for column in &camera.view_projection {
@@ -1594,6 +1594,22 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
         settings.sky_lower_color[1],
         settings.sky_lower_color[2],
         0.0,
+    ]);
+    values.extend_from_slice(&[
+        settings.snooper.fog.color[0],
+        settings.snooper.fog.color[1],
+        settings.snooper.fog.color[2],
+        if settings.snooper.fog.enabled {
+            1.0
+        } else {
+            0.0
+        },
+    ]);
+    values.extend_from_slice(&[
+        settings.snooper.fog.density,
+        settings.snooper.fog.height_falloff,
+        settings.snooper.fog.max_opacity,
+        settings.snooper.fog.start_distance,
     ]);
     f32_bytes(&values)
 }
@@ -1825,6 +1841,25 @@ mod tests {
     use super::*;
     use lumark_scene::{MeshData, MeshSection, NodeKind, SceneNode, Transform};
 
+    /// 相机 uniform 必须携带雾颜色/密度，且长度与 shader 结构一致。
+    #[test]
+    fn camera_uniform_includes_fog_settings() {
+        let settings = RenderSettings::snooper_viewer(900, 600);
+        let bounds = lumark_scene::Bounds::new([-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]);
+        let camera = Camera::fit(&bounds, &settings);
+        let bytes = camera_uniform(&camera, &settings);
+        assert_eq!(bytes.len(), CAMERA_UNIFORM_SIZE as usize);
+        let value = |index: usize| {
+            f32::from_le_bytes([
+                bytes[index * 4],
+                bytes[index * 4 + 1],
+                bytes[index * 4 + 2],
+                bytes[index * 4 + 3],
+            ])
+        };
+        assert!((value(48) - settings.snooper.fog.color[0]).abs() < 1e-6);
+        assert!((value(52) - settings.snooper.fog.density).abs() < 1e-6);
+    }
     /// 背景/天空 WGSL 也需要通过解析与语义校验。
     #[test]
     fn background_wgsl_shader_parses_and_validates() {
