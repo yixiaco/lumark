@@ -6,7 +6,7 @@ use std::error::Error;
 
 use lumark_unreal::{
     AssetKind, GameAssetOptions, GameAssetSource, Mappings, MaterialResolveOptions, MaterialSlot,
-    extract_key_for_game, parse_package, read_static_mesh, resolve_material_slots, scan_game,
+    extract_key_for_game, parse_package, read_static_mesh, resolve_static_materials, scan_game,
 };
 
 /// 运行诊断。
@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let inputs = source.read_package(&entry)?;
     let package = parse_package(inputs.uasset, source.scripts(), None)?;
     let mut slots: Vec<MaterialSlot> = Vec::new();
+    let mut material_imports: Vec<i32> = Vec::new();
     if let Some(index) = package
         .info()
         .exports
@@ -57,6 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         let mesh = read_static_mesh(&package, index, &mappings)?;
         slots = mesh.material_slots;
+        material_imports = mesh.material_imports;
     } else if let Some(index) = package
         .info()
         .exports
@@ -73,12 +75,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 package: None,
             })
             .collect();
+        material_imports = preview.material_imports;
     }
     println!("mesh={entry} slots={}", slots.len());
-    let resolved = resolve_material_slots(
+    let resolved = resolve_static_materials(
         &mut source,
         &entry,
         &slots,
+        &material_imports,
         Some(&mappings),
         &MaterialResolveOptions::default(),
     );

@@ -116,6 +116,38 @@ lumark-ui/render_service：RenderImage（缩略图）；asset_viewer_window 帧�
 - **查看器/缩略图/示例共用**：`ResolvedMaterial`（含贴图）随 `ViewerScene` 传入查看器，
   场景由 `static_mesh_scene`/`skeletal_mesh_scene` 构建，UI 预览缩略图同样使用带贴图场景。
 
+## 三角形绕序与单面几何
+
+- UE 使用左手坐标系、正面为顺时针；`lumark-render` 与 glTF 一样按右手系 **CCW 正面 + 背面剔除**。
+  FModel 在 `Views/Snooper/Models/UModel.cs` 把顶点 `(X,Y,Z)` 换成 `(X,Z,Y)`（Y/Z 交换完成手性转换）
+  并保持索引顺序，OpenGL 默认 CCW 正面，因此显示的是几何外侧。
+- `lumark-unreal::scene::convert_mesh` 不改变坐标系，改为按三角形交换第 2/3 个索引
+  （`[a,b,c] → [a,c,b]`），等价完成同一手性转换；索引数量与 section 结构不变。
+  这样叶片从上方可见、人物头部不再透视内壁，CPU 光栅（无剔除）不受影响。
+- 已知边界：世界坐标相对 FModel 仍左右镜像；GLB/USDA 导出器的索引绕序尚未同步，
+  属于后续单独修复项。
+
+## 静态网格材质引用
+
+- UE5 `StaticMaterials` 每项包含 `MaterialSlotName` 与 `MaterialInterface`（`Object` 引用）。
+  旧实现只取槽名，Zen 静态网格的槽名常是 `05 - Default` 这类占位文本，启发式匹配失败后
+  材质回退默认灰白（白模）。
+- `read_asset_metadata`/`read_static_mesh` 现在同时输出 `material_imports`（`FPackageIndex`），
+  `resolve_static_materials` 在存在导入引用时走 `resolve_material_slots_exact`（与骨骼网格
+  `material_imports` 相同的精确解析），没有引用时保持槽名/目录启发式以兼容旧式包。
+  详情预览、Provider、世界场景与导出统一走该入口。
+
+## 贴图 mip 与内存
+
+- 贴图解码按查看器目标边长选 mip：`mip_level_for_limit` 计算最接近 `max_texture_size`
+  的 mip 级，`Texture2D::decode_mip_rgba_with_size` 解码该级并返回该级尺寸。4K 贴图
+  缩放到 512 时临时 RGBA 从约 64 MB 降到约 1 MB，同时省去大图最近邻缩放。
+- 查看器帧图：`RenderImage::new` 每帧分配新 `ImageId`，GPUI 图集只通过
+  `App::drop_image`/`remove_asset` 移除且没有 LRU；因此 `apply_frame` 返回被替换的旧帧，
+  由调用方 `drop_image` 释放，避免历史帧常驻图集。
+- 详情预览图：UE 预览输出使用按预览 key 哈希的稳定 PNG 路径，替换预览或离开 UE 资产时
+  `remove_asset` 并删除旧文件，避免按 UUID 路径累积图片缓存与临时文件。
+
 ## 材质球（D-3）
 
 材质查看器与详情预览使用 CPU 材质球（`lumark-unreal/raster.rs`），通过
@@ -130,7 +162,8 @@ lumark-ui/render_service：RenderImage（缩略图）；asset_viewer_window 帧�
 
 `lumark-unreal::provider::load_scene` 识别 `World`/`Map` 导出后转交 `load_world_scene`：
 World Actor → StaticMeshComponent → 跨包 StaticMesh；新增 `package_path_for_id` 反查网格
-所在容器路径，按槽位名解析材质并写入场景节点。加载报告 `asset_class=World`，包含顶点、
+所在容器路径，按 `StaticMaterials[*].MaterialInterface` 精确解析材质（缺引用时回退槽名），
+并写入场景节点。加载报告 `asset_class=World`，包含顶点、
 三角形、材质数量与告警。实测 BNB `Map/LOGO.umap` 与 `KingS/GinkgoTree.umap`
 （178,600 顶点 / 105,348 三角形 / 16 材质）均通过 Provider 加载。
 

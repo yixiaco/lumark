@@ -657,6 +657,13 @@ fn load_ue_asset_from_package(
         if export.class_name == "StaticMesh"
             && let Ok(mesh) = package.read_static_mesh(primary, &mappings)
         {
+            // `StaticMaterials[*].MaterialInterface` 的对象引用：Zen 静态网格的
+            // 槽名常是占位文本，只有精确引用才能解析到真实材质与贴图。
+            let imports: Vec<Option<usize>> = mesh
+                .material_imports
+                .iter()
+                .map(|index| (*index < 0).then(|| (-*index - 1) as usize))
+                .collect();
             let materials = resolve_zen_materials(
                 archive,
                 global,
@@ -665,7 +672,7 @@ fn load_ue_asset_from_package(
                 aes_key,
                 oodle.clone(),
                 &mesh.material_slots,
-                &[],
+                &imports,
             );
             // 复用引擎无关场景 + 共享渲染服务（GPU 优先，CPU 回退）。
             let scene = lumark_unreal::static_mesh_scene(&mesh.name, &mesh, &materials);

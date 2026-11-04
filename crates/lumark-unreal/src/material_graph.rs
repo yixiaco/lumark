@@ -837,13 +837,15 @@ pub(crate) fn decode_texture_by_id(
     let texture: Texture2D = package
         .read_texture2d(index, mappings, ubulk.as_deref())
         .ok()?;
-    let rgba = texture.decode_mip_rgba(0).ok()?;
-    MaterialViewerImage::new(
-        rgba,
-        texture.width as u32,
-        texture.height as u32,
-        max_size.clamp(16, 4096),
-    )
+    let limit = max_size.clamp(16, 4096);
+    let level = crate::package::mip_level_for_limit(
+        texture.width,
+        texture.height,
+        texture.mips.len(),
+        limit,
+    );
+    let (rgba, width, height) = texture.decode_mip_rgba_with_size(level).ok()?;
+    MaterialViewerImage::new(rgba, width, height, limit)
 }
 
 #[cfg(test)]

@@ -36,6 +36,8 @@ pub enum AssetMetadata {
         material_slots: usize,
         /// 材质槽名称。
         material_names: Vec<String>,
+        /// `StaticMaterials[*].MaterialInterface` 的对象索引（负数为导入）。
+        material_imports: Vec<i32>,
         /// 插槽数量。
         sockets: usize,
     },
@@ -92,6 +94,7 @@ impl AssetMetadata {
                 material_slots,
                 material_names,
                 sockets,
+                ..
             } => {
                 let mut rows = vec![
                     ("材质槽".to_string(), material_slots.to_string()),
@@ -167,13 +170,12 @@ pub fn read_asset_metadata(
         }
         "StaticMesh" => {
             let properties = package.read_export_properties(export_index, mappings)?;
+            let (material_names, material_imports) =
+                static_material_entries(&properties.properties);
             Ok(AssetMetadata::StaticMesh {
                 material_slots: array_property(&properties.properties, "StaticMaterials"),
-                material_names: array_struct_field_names(
-                    &properties.properties,
-                    "StaticMaterials",
-                    "MaterialSlotName",
-                ),
+                material_names,
+                material_imports,
                 sockets: array_property(&properties.properties, "Sockets"),
             })
         }
@@ -225,37 +227,48 @@ fn array_property(properties: &[(String, PropValue)], name: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// 从数组结构体字段中提取名称，用于显示材质槽名。
-fn array_struct_field_names(
-    properties: &[(String, PropValue)],
-    array_name: &str,
-    field: &str,
-) -> Vec<String> {
+/// 读取 `StaticMaterials` 的槽名与 `MaterialInterface` 对象索引。
+///
+/// 两个数组保持与 `StaticMaterials` 一一对应：缺少槽名时用 `Material_{索引}`
+/// 兜底，缺少对象引用时填 0，避免名称过滤导致槽位与 section 错位。
+fn static_material_entries(properties: &[(String, PropValue)]) -> (Vec<String>, Vec<i32>) {
     let Some(PropValue::Array(values)) = properties
         .iter()
-        .find(|(key, _)| key == array_name)
+        .find(|(key, _)| key == "StaticMaterials")
         .map(|(_, value)| value)
     else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
-    values
-        .iter()
-        .filter_map(|value| {
-            let PropValue::Struct(fields) = value else {
-                return None;
-            };
-            fields.iter().find_map(|(key, value)| {
-                if key != field {
-                    return None;
-                }
-                match value {
-                    PropValue::Name(name) | PropValue::String(name) => Some(name.clone()),
-                    _ => None,
-                }
+    let mut names = Vec::with_capacity(values.len());
+    let mut imports = Vec::with_capacity(values.len());
+    for (index, value) in values.iter().enumerate() {
+        let fallback = format!("Material_{index}");
+        let PropValue::Struct(fields) = value else {
+            names.push(fallback);
+            imports.push(0);
+            continue;
+        };
+        let name = fields
+            .iter()
+            .find(|(key, _)| key == "MaterialSlotName")
+            .and_then(|(_, value)| match value {
+                PropValue::Name(name) | PropValue::String(name) => Some(name.clone()),
+                _ => None,
             })
-        })
-        .filter(|name| !name.is_empty() && name != "None")
-        .collect()
+            .filter(|name| !name.is_empty() && name != "None")
+            .unwrap_or(fallback);
+        let import = fields
+            .iter()
+            .find(|(key, _)| key == "MaterialInterface")
+            .and_then(|(_, value)| match value {
+                PropValue::Object(index) => Some(*index),
+                _ => None,
+            })
+            .unwrap_or(0);
+        names.push(name);
+        imports.push(import);
+    }
+    (names, imports)
 }
 
 /// 从 AnimSequence 原生数据中扫描压缩轨道头。
@@ -334,26 +347,28 @@ fn scan_animation_codec(data: &[u8], start: usize) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// 静态网格材质槽名称会从 StaticMaterials 数组结构中提取。
+    /// 静态网格槽名与 `MaterialInterface` 引用一一对应，缺名时用占位名。
     #[test]
-    fn extracts_static_material_names() {
+    fn extracts_static_material_names_and_imports() {
         let properties = vec![(
             "StaticMaterials".to_string(),
             PropValue::Array(vec![
+                PropValue::Struct(vec![
+                    ("MaterialInterface".to_string(), PropValue::Object(-3)),
+                    (
+                        "MaterialSlotName".to_string(),
+                        PropValue::Name("MAT_A".to_string()),
+                    ),
+                ]),
                 PropValue::Struct(vec![(
-                    "MaterialSlotName".to_string(),
-                    PropValue::Name("MAT_A".to_string()),
-                )]),
-                PropValue::Struct(vec![(
-                    "MaterialSlotName".to_string(),
-                    PropValue::Name("MAT_B".to_string()),
+                    "MaterialInterface".to_string(),
+                    PropValue::Object(-5),
                 )]),
             ]),
         )];
-        assert_eq!(
-            array_struct_field_names(&properties, "StaticMaterials", "MaterialSlotName"),
-            vec!["MAT_A".to_string(), "MAT_B".to_string()]
-        );
+        let (names, imports) = static_material_entries(&properties);
+        assert_eq!(names, vec!["MAT_A".to_string(), "Material_1".to_string()]);
+        assert_eq!(imports, vec![-3, -5]);
     }
 
     /// 动画压缩头可通过结构特征定位。

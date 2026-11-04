@@ -55,12 +55,8 @@ impl LumarkApp {
             .selected_password
             .and_then(|id| entries.iter().find(|entry| entry.id == id).cloned());
         // 给列表一个明确的视口高度，滚轮才会先滚动列表而不是把整页撑高。
-        let window_height = window
-            .inner_window_bounds()
-            .get_bounds()
-            .size
-            .height
-            .as_f32();
+        // 最大化时 `inner_window_bounds` 返回还原尺寸，必须用可绘制高度。
+        let window_height = window.viewport_size().height.as_f32();
         let list_height = (window_height * 0.62).clamp(340., 680.);
 
         div()

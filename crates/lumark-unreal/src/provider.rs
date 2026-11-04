@@ -232,11 +232,17 @@ pub fn load_scene(
         }
         let mut warnings = Vec::new();
         progress(SceneLoadStage::Materials);
+        // StaticMaterials[*].MaterialInterface 的对象引用（负 FPackageIndex → 导入索引）。
+        let imports: Vec<Option<usize>> = mesh
+            .material_imports
+            .iter()
+            .map(|index| (*index < 0).then(|| (-*index - 1) as usize))
+            .collect();
         let resolved = resolve_materials(
             source,
             &request.asset_path,
             &mesh.material_slots,
-            &[],
+            &imports,
             mappings,
             &material_options,
             &mut warnings,

@@ -48,28 +48,31 @@ pub(super) fn render_parent_tile(cx: &mut Context<LumarkApp>) -> impl IntoElemen
 
 /// 渲染一行平铺项目，每项对应文件或文件夹；卡片宽度按可用宽度均分。
 pub(super) fn render_tile_row(
-    app: &mut LumarkApp,
+    app: &LumarkApp,
     cx: &mut Context<LumarkApp>,
     virtual_index: usize,
-    tile_columns: usize,
-    tile_width: f32,
-    row_height: gpui_kit::Pixels,
+    order: &DisplayedOrder,
+    layout: &ListLayout,
+    drag_selection: &Rc<Vec<(String, bool)>>,
 ) -> impl IntoElement {
-    let parent_offset = usize::from(shows_parent_row(app));
-    let row_count = app.displayed_count() + parent_offset;
-    let start = virtual_index * tile_columns;
-    let end = (start + tile_columns).min(row_count);
+    let parent_offset = usize::from(layout.parent_row);
+    let row_count = order.len() + parent_offset;
+    let start = virtual_index * layout.tile_columns;
+    let end = (start + layout.tile_columns).min(row_count);
     h_flex()
         .id(("tile-row", virtual_index))
         .w_full()
-        .h(row_height)
+        .h(layout.row_height)
         .gap_2()
         .px_3()
         .children((start..end).filter_map(|index| {
             if parent_offset == 1 && index == 0 {
                 return Some(render_parent_tile(cx).into_any_element());
             }
-            let entry = app.displayed_entry_at(index - parent_offset)?;
+            let entry = order
+                .source_index(index - parent_offset)
+                .and_then(|source_index| app.displayed_source().get(source_index))?
+                .clone();
             let id = entry.id.clone();
             let mouse_id = id.clone();
             let double_id = id.clone();
@@ -82,8 +85,9 @@ pub(super) fn render_tile_row(
             } else {
                 tile_icon_kind
             };
-            let drag_item = matches!(&app.browser.location, BrowserLocation::Archive { .. })
-                .then(|| archive_drag_item(app, &entry))
+            let drag_item = layout
+                .inside_archive
+                .then(|| archive_drag_item(app, &entry, drag_selection))
                 .flatten();
             // 图片文件优先生成真实缩略图；缩略图未就绪或失败时保留类型图标。
             let tile_icon = if let Some(thumbnail) = app.tile_thumbnail(&entry, cx) {
@@ -100,7 +104,7 @@ pub(super) fn render_tile_row(
                 v_flex()
                     .id(format!("file-tile-{id}"))
                     .test_support()
-                    .w(px(tile_width))
+                    .w(px(layout.tile_width))
                     .flex_shrink_0()
                     .h(px(120.))
                     .p_2()

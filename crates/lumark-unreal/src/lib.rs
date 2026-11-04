@@ -33,7 +33,7 @@ pub use game::{
 pub use keys::{KeyExtraction, KeyStage, extract_key, extract_key_for_game, verify_container_key};
 pub use materials::{
     MaterialResolveOptions, ResolvedMaterial, TextureCache, resolve_material_asset,
-    resolve_material_slots, resolve_material_slots_exact, texture_cache,
+    resolve_material_slots, resolve_material_slots_exact, resolve_static_materials, texture_cache,
 };
 pub use package::legacy::{
     LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader, is_legacy_package,
@@ -47,10 +47,11 @@ pub use package::{
     PropSchema, PropType, PropValue, SkeletalMeshPreview, Skeleton, SkinWeightStats, SkinWeights,
     StaticMesh, StructSchema, Texture2D, TextureMip, TexturePixels, TrackPose, UnrealPackage,
     UnversionedProperties, WorldActor, WorldSummary, ZenScriptObjects, is_material_class,
-    material_parent_package, parse_package, read_anim_sequence, read_asset_metadata,
-    read_legacy_anim_sequence, read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
-    read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
-    read_static_mesh, read_world_summary, read_zen_material_appearance, texture_references,
+    material_parent_package, mip_level_for_limit, parse_package, read_anim_sequence,
+    read_asset_metadata, read_legacy_anim_sequence, read_legacy_material_appearance,
+    read_legacy_skeletal_mesh_geometry, read_legacy_skeletal_mesh_skeleton,
+    read_legacy_skeletal_mesh_summary, read_legacy_skeleton, read_static_mesh, read_world_summary,
+    read_zen_material_appearance, texture_references,
 };
 pub use provider::{
     AnimationInfo, LoadedScene, LodPolicy, SceneLoadOptions, SceneLoadReport, SceneLoadStage,

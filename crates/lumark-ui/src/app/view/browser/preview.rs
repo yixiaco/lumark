@@ -107,8 +107,7 @@ impl LumarkApp {
         self.game_asset_class_key = Some(key);
         self.game_asset_classes.clear();
         let entries: Vec<String> = self
-            .displayed_entries()
-            .iter()
+            .displayed_iter()
             .filter(|entry| !entry.is_dir && is_ue_package_name(&entry.name))
             .map(|entry| entry.path.to_string_lossy().replace('\\', "/"))
             .take(400)
@@ -169,6 +168,7 @@ impl LumarkApp {
     fn sync_details_preview_inner(&mut self, cx: &mut Context<Self>) {
         self.clear_stale_pending_asset_viewer();
         let Some(entry) = self.selected_entry() else {
+            self.release_ue_preview_image(cx);
             self.details_preview = None;
             self.details_mesh = None;
             self.details_skeleton = None;
@@ -191,9 +191,12 @@ impl LumarkApp {
             return;
         }
         if entry.is_dir || !is_image_name(&entry.name) {
+            self.release_ue_preview_image(cx);
             self.details_preview = None;
             return;
         }
+        // 离开 UE 资产预览：旧缩略图缓存不再需要。
+        self.release_ue_preview_image(cx);
         match self.browser.location.clone() {
             BrowserLocation::FileSystem(_) => {
                 let key = format!("file:{}:{}", entry.path.display(), entry.size);
@@ -363,11 +366,13 @@ impl LumarkApp {
         {
             return;
         }
+        // 新的选择开始前释放上一张预览图，避免 GPUI 图片缓存随浏览累积。
+        self.release_ue_preview_image(cx);
         self.details_preview = Some(DetailsPreview::Loading { key: key.clone() });
         let output = self
             .temp_root
             .join("preview")
-            .join(format!("ue-{}.png", Uuid::new_v4()));
+            .join(Self::ue_preview_file_name(&key));
         let relative = entry.path.to_string_lossy().replace('\\', "/");
         cx.spawn(async move |this, cx| {
             // 键盘连续选择时只有停稳的那一项才开始解析容器，避免为每一行
@@ -506,6 +511,10 @@ impl LumarkApp {
                     }
                     UePreviewResult::Error(message) => DetailsPreview::Error { key, message },
                 });
+                // 记录预览图路径；下一次预览开始或清除时释放其图片缓存与文件。
+                if let Some(DetailsPreview::Ready { path, .. }) = app.details_preview.as_ref() {
+                    app.ue_preview_image = Some(path.clone());
+                }
                 cx.notify();
             });
         })
@@ -534,6 +543,29 @@ impl LumarkApp {
         if Self::ue_preview_key(&archive, &entry, mappings.as_deref()) != pending.key {
             self.pending_asset_viewer = None;
         }
+    }
+
+    /// 由预览 key 生成稳定的图片文件名。
+    ///
+    /// 同一资产重复选中时复用同一个临时文件与 GPUI 图片缓存项，避免每次
+    /// 选择都留下新的 UUID 文件与解码位图。
+    fn ue_preview_file_name(key: &str) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        format!("ue-{:016x}.png", hasher.finish())
+    }
+
+    /// 释放上一次 UE 预览图片的 GPUI 缓存与临时文件。
+    ///
+    /// GPUI 按图片路径缓存解码位图；浏览大量资产时不释放会让内存随选择
+    /// 次数持续上涨，临时 PNG 也会只增不减。
+    fn release_ue_preview_image(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.ue_preview_image.take() else {
+            return;
+        };
+        gpui_kit::ImageSource::from(path.as_path()).remove_asset(cx);
+        let _ = std::fs::remove_file(&path);
     }
 
     /// 计算 UE 资产详情预览的缓存 key；双击排队和后台解析必须使用同一口径。

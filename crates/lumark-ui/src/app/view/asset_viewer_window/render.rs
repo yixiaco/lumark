@@ -121,12 +121,16 @@ impl AssetViewerWindowView {
         }
     }
 
-    /// 应用一帧渲染结果。
-    pub(super) fn apply_frame(&mut self, frame: ViewerFrame) {
-        self.image = Some(frame.image);
+    /// 应用一帧渲染结果，返回被替换的旧图像。
+    ///
+    /// GPUI 的纹理图集按 `ImageId` 缓存，`RenderImage::new` 每帧都会分配新
+    /// 编号；旧图像必须交给调用方用 `App::drop_image` 释放，否则连续渲染的
+    /// 查看器会把每个历史帧都留在图集里（表现为内存持续上涨）。
+    pub(super) fn apply_frame(&mut self, frame: ViewerFrame) -> Option<Arc<RenderImage>> {
         self.last_backend = frame.backend;
         self.last_stats = frame.stats;
         self.error = None;
+        self.image.replace(frame.image)
     }
 
     /// 同步渲染一帧（仅测试/无事件循环场景使用；正式窗口走后台帧泵）。
@@ -134,7 +138,8 @@ impl AssetViewerWindowView {
     pub(super) fn render_preview(&mut self) {
         let snapshot = self.snapshot(RenderQuality::Interactive);
         match render_snapshot(&snapshot) {
-            Ok(frame) => self.apply_frame(frame),
+            // 测试路径没有图集，替换后直接释放旧帧即可。
+            Ok(frame) => drop(self.apply_frame(frame)),
             Err(error) => self.error = Some(error),
         }
     }
@@ -277,6 +282,8 @@ fn static_scene(
             .iter()
             .map(|material| material.slot.clone())
             .collect(),
+        // 材质已在打开查看器前解析完成，这里不再重复走对象引用解析。
+        material_imports: Vec::new(),
     };
     lumark_unreal::static_mesh_scene(name, &static_mesh, materials)
 }

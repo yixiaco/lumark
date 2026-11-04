@@ -16,12 +16,8 @@ impl LumarkApp {
         if self.screen != Screen::Browser {
             return self.render_page_band(cx).into_any_element();
         }
-        let logical_width = window
-            .inner_window_bounds()
-            .get_bounds()
-            .size
-            .width
-            .as_f32();
+        // 用可绘制宽度做断点：最大化时 `inner_window_bounds` 返回还原尺寸。
+        let logical_width = window.viewport_size().width.as_f32();
         let wide = logical_width >= 1100.;
         Toolbar::new("action-band")
             .h(px(if wide { 72. } else { 68. }))

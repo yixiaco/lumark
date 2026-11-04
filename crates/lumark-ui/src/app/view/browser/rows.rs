@@ -42,19 +42,17 @@ pub(super) fn empty_state(_cx: &Context<LumarkApp>, search_active: bool) -> impl
 /// 该行只是导航入口，不进入选择集，也不参与拖出、复制、重命名或删除，
 /// 因此不会把目录占位符当成真实条目。单击立即返回上一级；双击的第二下
 /// 会落在重新渲染后的同一行上，忽略它可以避免一次跳两级。
-#[allow(clippy::too_many_arguments)]
 pub(super) fn render_parent_row(
     cx: &mut Context<LumarkApp>,
-    row_height: gpui_kit::Pixels,
-    widths: ColumnWidths,
-    columns: ArchiveColumns,
-    inside_archive: bool,
+    layout: &ListLayout,
 ) -> impl IntoElement {
+    let widths = layout.widths;
+    let columns = layout.archive_columns;
     h_flex()
         .id("parent-entry-row")
         .test_support()
         .w_full()
-        .h(row_height)
+        .h(layout.row_height)
         .gap_2()
         .px_3()
         .border_b_1()
@@ -93,7 +91,7 @@ pub(super) fn render_parent_row(
         .when(columns.path, |this| {
             this.child(muted_cell(cx, widths.path, "—"))
         })
-        .when(!inside_archive, |this| {
+        .when(!layout.inside_archive, |this| {
             this.child(muted_cell(cx, widths.kind, tr("文件夹", "Folder")))
         })
         .on_click(
@@ -106,26 +104,33 @@ pub(super) fn render_parent_row(
 }
 
 /// 渲染详情列表中的一个紧凑虚拟行。
-#[allow(clippy::too_many_arguments)]
+///
+/// `order` 提供显示下标到源条目的映射，`drag_selection` 是一帧内共享的
+/// 多选拖拽快照；两者都由渲染入口计算一次，行回调本身是 O(1) 的。
 pub(super) fn render_file_row(
-    app: &mut LumarkApp,
+    app: &LumarkApp,
     cx: &mut Context<LumarkApp>,
     virtual_index: usize,
-    row_height: gpui_kit::Pixels,
-    widths: ColumnWidths,
-    columns: ArchiveColumns,
-    inside_archive: bool,
+    order: &DisplayedOrder,
+    layout: &ListLayout,
+    drag_selection: &Rc<Vec<(String, bool)>>,
 ) -> impl IntoElement {
-    let parent_offset = usize::from(shows_parent_row(app));
-    if parent_offset == 1 && virtual_index == 0 {
-        return render_parent_row(cx, row_height, widths, columns, inside_archive)
-            .into_any_element();
+    let parent_offset = usize::from(layout.parent_row);
+    if layout.parent_row && virtual_index == 0 {
+        return render_parent_row(cx, layout).into_any_element();
     }
-    let Some(entry) = app.displayed_entry_at(virtual_index - parent_offset) else {
+    let Some(entry) = order
+        .source_index(virtual_index - parent_offset)
+        .and_then(|source_index| app.displayed_source().get(source_index))
+        .cloned()
+    else {
         return h_flex()
             .id(("empty-file-row", virtual_index))
             .into_any_element();
     };
+    let widths = layout.widths;
+    let columns = layout.archive_columns;
+    let row_height = layout.row_height;
     let id = entry.id.clone();
     let mouse_id = id.clone();
     let double_id = id.clone();
@@ -133,8 +138,9 @@ pub(super) fn render_file_row(
     let selected = app.browser.selection.is_selected(&id);
     let row_icon_kind = entry_icon(app, &entry);
     let icon_color = entry_icon_color(cx, &entry, row_icon_kind);
-    let drag_item = inside_archive
-        .then(|| archive_drag_item(app, &entry))
+    let drag_item = layout
+        .inside_archive
+        .then(|| archive_drag_item(app, &entry, drag_selection))
         .flatten();
     let modified = entry
         .modified
@@ -271,7 +277,7 @@ pub(super) fn render_file_row(
         .when(columns.path, |this| {
             this.child(muted_cell(cx, widths.path, inner_path.clone()))
         })
-        .when(!inside_archive, |this| {
+        .when(!layout.inside_archive, |this| {
             this.child(
                 div()
                     .w(px(widths.kind))

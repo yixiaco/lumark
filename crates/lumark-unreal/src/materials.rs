@@ -112,6 +112,31 @@ pub fn resolve_material_slots_exact(
     resolve_material_slots_impl(source, mesh_path, slots, imports, mappings, options)
 }
 
+/// 解析静态网格的材质槽。
+///
+/// `material_imports` 来自 `StaticMesh.material_imports`（`StaticMaterials[*]
+/// .MaterialInterface` 的 FPackageIndex）：存在导入引用时按对象引用精确解析
+/// 材质资产（`Zen` 静态网格的槽名常是 `05 - Default` 这类占位文本，无法靠
+/// 命名启发式命中）；没有引用时保持槽名/目录启发式，兼容旧式包。
+pub fn resolve_static_materials(
+    source: &mut GameAssetSource,
+    mesh_path: &str,
+    slots: &[MaterialSlot],
+    material_imports: &[i32],
+    mappings: Option<&Mappings>,
+    options: &MaterialResolveOptions,
+) -> Vec<ResolvedMaterial> {
+    let imports: Vec<Option<usize>> = material_imports
+        .iter()
+        .map(|index| (*index < 0).then(|| (-*index - 1) as usize))
+        .collect();
+    if imports.iter().any(Option::is_some) {
+        resolve_material_slots_exact(source, mesh_path, slots, &imports, mappings, options)
+    } else {
+        resolve_material_slots(source, mesh_path, slots, mappings, options)
+    }
+}
+
 /// 网格包的 ImportMap 上下文，用于解析材质槽对象引用。
 struct MeshImportContext {
     info: Option<PackageInfo>,
@@ -503,6 +528,7 @@ fn decode_texture_image(
     max_size: u32,
 ) -> Option<MaterialViewerImage> {
     let inputs = source.read_package(path).ok()?;
+    let limit = size_limit(max_size);
     if is_legacy_package(&inputs.uasset) {
         let texture = read_legacy_texture(
             &inputs.uasset,
@@ -510,13 +536,14 @@ fn decode_texture_image(
             inputs.ubulk.as_deref(),
         )
         .ok()?;
-        let rgba = texture.decode_mip_rgba(0).ok()?;
-        return MaterialViewerImage::new(
-            rgba,
-            texture.width as u32,
-            texture.height as u32,
-            size_limit(max_size),
+        let level = crate::package::mip_level_for_limit(
+            texture.width,
+            texture.height,
+            texture.mips.len(),
+            limit,
         );
+        let (rgba, width, height) = texture.decode_mip_rgba_with_size(level).ok()?;
+        return MaterialViewerImage::new(rgba, width, height, limit);
     }
     let package = parse_package(inputs.uasset, source.scripts(), None).ok()?;
     let index = package
@@ -527,13 +554,14 @@ fn decode_texture_image(
     let texture = package
         .read_texture2d(index, mappings?, inputs.ubulk.as_deref())
         .ok()?;
-    let rgba = texture.decode_mip_rgba(0).ok()?;
-    MaterialViewerImage::new(
-        rgba,
-        texture.width as u32,
-        texture.height as u32,
-        size_limit(max_size),
-    )
+    let level = crate::package::mip_level_for_limit(
+        texture.width,
+        texture.height,
+        texture.mips.len(),
+        limit,
+    );
+    let (rgba, width, height) = texture.decode_mip_rgba_with_size(level).ok()?;
+    MaterialViewerImage::new(rgba, width, height, limit)
 }
 
 /// 按包 ID 加载一张贴图为查看器图像（带可选缓存）。

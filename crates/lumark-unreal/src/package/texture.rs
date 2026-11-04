@@ -35,10 +35,45 @@ pub struct Texture2D {
     pub mips: Vec<TextureMip>,
 }
 
+/// 返回不超过 `max_size` 的最深 mip 级。
+///
+/// 只有 1 级 mip、`max_size == 0`（不限制）或顶层尺寸已小于目标时使用 mip0；
+/// 否则按每级减半估算，让解码边长接近目标值，避免先解码 4K 再缩放。
+pub fn mip_level_for_limit(width: i32, height: i32, mip_count: usize, max_size: u32) -> usize {
+    if max_size == 0 || mip_count <= 1 {
+        return 0;
+    }
+    let mut dimension = i64::from(width.max(height).max(1));
+    let target = i64::from(max_size.max(16));
+    let mut level = 0usize;
+    while dimension > target && level + 1 < mip_count {
+        dimension = (dimension / 2).max(1);
+        level += 1;
+    }
+    level
+}
+
 impl Texture2D {
     /// 解码指定 mip 为 RGBA8 像素；HDR 纹理会做简单色调映射。
     pub fn decode_mip_rgba(&self, index: usize) -> Result<Vec<u8>, PackageError> {
         Ok(self.decode_mip(index)?.into_rgba8())
+    }
+
+    /// 解码指定 mip，同时返回该 mip 的像素尺寸。
+    ///
+    /// 查看器按目标边长选择 mip 时使用：顶层 `width/height` 是 mip0 尺寸，
+    /// 解码更小的 mip 后必须用该 mip 自己的尺寸构造查看器图像。
+    pub fn decode_mip_rgba_with_size(
+        &self,
+        index: usize,
+    ) -> Result<(Vec<u8>, u32, u32), PackageError> {
+        let mip = self
+            .mips
+            .get(index)
+            .ok_or_else(|| invalid("纹理 mip 索引越界"))?;
+        let width = u32::try_from(mip.width.max(1)).unwrap_or(1);
+        let height = u32::try_from(mip.height.max(1)).unwrap_or(1);
+        Ok((self.decode_mip_rgba(index)?, width, height))
     }
 
     /// 解码指定 mip；浮点/HDR 格式返回线性 f32 RGBA 数据。
@@ -672,6 +707,49 @@ impl<'a> DataReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 按目标边长选择最接近的 mip，避免全尺寸解码。
+    #[test]
+    fn selects_mip_level_for_texture_limit() {
+        assert_eq!(mip_level_for_limit(4096, 4096, 13, 512), 3);
+        assert_eq!(mip_level_for_limit(2048, 2048, 12, 512), 2);
+        assert_eq!(mip_level_for_limit(1024, 512, 11, 512), 1);
+        assert_eq!(mip_level_for_limit(512, 512, 10, 512), 0);
+        assert_eq!(mip_level_for_limit(4096, 2048, 13, 1024), 2);
+        // 单 mip / 不限制 / mip 数不足时回退 mip0。
+        assert_eq!(mip_level_for_limit(4096, 4096, 1, 512), 0);
+        assert_eq!(mip_level_for_limit(4096, 4096, 13, 0), 0);
+        assert_eq!(mip_level_for_limit(4096, 4096, 2, 512), 1);
+    }
+
+    /// 解码指定 mip 时返回该 mip 自身的尺寸。
+    #[test]
+    fn decode_mip_rgba_with_size_reports_mip_size() {
+        let texture = Texture2D {
+            name: "T_Test".to_string(),
+            width: 4,
+            height: 4,
+            pixel_format: "PF_B8G8R8A8".to_string(),
+            mips: vec![
+                TextureMip {
+                    width: 4,
+                    height: 4,
+                    depth: 1,
+                    data: vec![255; 4 * 4 * 4],
+                },
+                TextureMip {
+                    width: 2,
+                    height: 2,
+                    depth: 1,
+                    data: vec![128; 2 * 2 * 4],
+                },
+            ],
+        };
+        let (rgba, width, height) = texture.decode_mip_rgba_with_size(1).unwrap();
+        assert_eq!((width, height), (2, 2));
+        assert_eq!(rgba.len(), 2 * 2 * 4);
+        assert_eq!(rgba[0], 128);
+    }
 
     /// 解码一个由纯色块构成的 BC1 mip。
     #[test]

@@ -117,12 +117,8 @@ impl LumarkApp {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let logical_width = window
-            .inner_window_bounds()
-            .get_bounds()
-            .size
-            .width
-            .as_f32();
+        // 用可绘制宽度做断点：最大化时 `inner_window_bounds` 返回还原尺寸。
+        let logical_width = window.viewport_size().width.as_f32();
         let narrow = logical_width < 1100.;
         let search_active = self.search_results.is_some();
         let mode_label = match self.search_mode {

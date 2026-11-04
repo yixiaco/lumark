@@ -415,6 +415,20 @@ pub fn scene_material(
     }
 }
 
+/// 把 UE 索引缓冲转换为场景索引：按三角形交换第 2/3 个顶点。
+///
+/// UE 使用左手坐标系、正面为顺时针；渲染器与 glTF 一样按右手系逆时针
+/// 正面剔除。FModel 通过 Y/Z 交换完成手性转换，这里用等价的绕序翻转，
+/// 保持渲染器的 CCW 约定不变；索引数量与 section 结构都不变，尾部不足
+/// 一个三角形的索引原样保留。
+fn flip_ue_winding(indices: &[u32]) -> Vec<u32> {
+    let mut flipped = indices.to_vec();
+    for triangle in flipped.as_chunks_mut::<3>().0 {
+        triangle.swap(1, 2);
+    }
+    flipped
+}
+
 /// 把 `MeshLod` 转换为场景网格。
 pub fn convert_mesh(lod: &MeshLod, name: &str) -> MeshData {
     let positions: Vec<[f32; 3]> = lod
@@ -422,7 +436,7 @@ pub fn convert_mesh(lod: &MeshLod, name: &str) -> MeshData {
         .iter()
         .map(|position| [position[0] as f32, position[1] as f32, position[2] as f32])
         .collect();
-    let mut mesh = MeshData::new(name, positions, lod.indices.clone());
+    let mut mesh = MeshData::new(name, positions, flip_ue_winding(&lod.indices));
     mesh.normals = lod.attributes.normals.clone();
     mesh.tangents = lod.attributes.tangents.clone();
     mesh.uvs = lod.attributes.uvs.clone();
@@ -542,6 +556,24 @@ mod tests {
         }
     }
 
+    /// UE 顺时针正面转换为渲染器的逆时针正面；索引数量与 section 不变。
+    #[test]
+    fn convert_mesh_flips_ue_winding() {
+        let mesh = convert_mesh(&test_lod(), "Tri");
+        assert_eq!(mesh.indices, vec![0, 2, 1]);
+        assert_eq!(mesh.sections[0].first_index, 0);
+        assert_eq!(mesh.sections[0].index_count, 3);
+
+        let mut lod = test_lod();
+        lod.indices = vec![0, 1, 2, 3, 4, 5, 6];
+        let mesh = convert_mesh(&lod, "Tri");
+        assert_eq!(
+            mesh.indices,
+            vec![0, 2, 1, 3, 5, 4, 6],
+            "每个完整三角形翻转绕序，尾部不完整索引保持原样"
+        );
+    }
+
     /// 静态网格转换保留几何、材质和 LOD 元数据。
     #[test]
     fn converts_static_mesh_scene() {
@@ -554,6 +586,7 @@ mod tests {
                 name: "M_Test".to_string(),
                 package: None,
             }],
+            material_imports: Vec::new(),
         };
         let scene = static_mesh_scene("Test", &mesh, &[test_material()]);
         assert_eq!(scene.stats().nodes, 1);

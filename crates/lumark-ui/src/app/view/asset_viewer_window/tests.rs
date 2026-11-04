@@ -741,7 +741,8 @@ fn viewer_shading_grid_and_sections_render() {
             [1.0, 1.0, 0.0],
             [0.0, 1.0, 1.0],
         ],
-        indices: vec![0, 1, 2, 0, 2, 3],
+        // UE 索引是左手系顺时针正面；`convert_mesh` 会翻转为渲染器 CCW。
+        indices: vec![0, 2, 1, 0, 3, 2],
         sections: vec![MeshSection {
             material_index: 0,
             first_index: 0,
@@ -804,7 +805,8 @@ fn orbit_drag_matches_fmodel_direction() {
 fn viewer_applies_resolved_materials() {
     let mesh = MeshLod {
         positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
-        indices: vec![0, 1, 2],
+        // UE 索引是左手系顺时针正面；`convert_mesh` 会翻转为渲染器 CCW。
+        indices: vec![0, 2, 1],
         sections: vec![MeshSection {
             material_index: 0,
             first_index: 0,

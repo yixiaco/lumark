@@ -2,7 +2,7 @@
 
 use crate::{
     AssetKind, GameAssetSource, Mappings, MaterialResolveOptions, MaterialSlot, ResolvedMaterial,
-    SkeletalMeshPreview, parse_package, resolve_material_slots,
+    SkeletalMeshPreview, parse_package, resolve_material_slots, resolve_static_materials,
 };
 use lumark_export::{
     ExportBone, ExportMaterial, ExportMesh, ExportTexture, MeshSection, MeshVertex,
@@ -54,10 +54,11 @@ pub fn build_mesh_export(
         );
         mesh.object_path = entry.to_string();
         let materials = if include_materials {
-            let resolved = resolve_material_slots(
+            let resolved = resolve_static_materials(
                 source,
                 entry,
                 &static_mesh.material_slots,
+                &static_mesh.material_imports,
                 Some(mappings),
                 &material_options,
             );

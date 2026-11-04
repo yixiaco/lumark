@@ -3,6 +3,7 @@
 use super::super::*;
 use gpui_kit::component::button::ButtonVariant;
 
+mod display;
 mod fs_edit;
 mod navigation;
 use crate::i18n::tr;
@@ -31,65 +32,6 @@ fn open_path_external(path: &Path) {
 }
 
 impl LumarkApp {
-    /// 判断游戏容器内的伴随文件是否应隐藏。
-    ///
-    /// 游戏资产以包为单位浏览；`.uexp/.ubulk/.uptnl` 只是包的伴随数据，
-    /// 在普通压缩包浏览中仍然保留，避免影响现有归档操作。浏览器模型在
-    /// 游戏容器里也会按同一扩展名隐藏并汇总目录大小。
-    fn hide_game_sidecar(&self, entry: &BrowserEntry) -> bool {
-        self.game_session.is_some()
-            && matches!(&self.browser.location, BrowserLocation::Archive { .. })
-            && lumark_browser::is_ue_sidecar(&entry.name)
-    }
-
-    /// 返回当前显示条目；游戏容器内隐藏包的伴随文件。
-    pub(crate) fn displayed_entries(&self) -> Vec<BrowserEntry> {
-        self.search_results
-            .clone()
-            .unwrap_or_else(|| self.browser.entries.clone())
-            .into_iter()
-            .filter(|entry| !self.hide_game_sidecar(entry))
-            .collect()
-    }
-
-    /// 返回虚拟列表当前可见的行数。
-    pub(crate) fn displayed_count(&self) -> usize {
-        self.search_results
-            .as_ref()
-            .unwrap_or(&self.browser.entries)
-            .iter()
-            .filter(|entry| !self.hide_game_sidecar(entry))
-            .count()
-    }
-
-    /// 为稳定的虚拟行索引返回克隆后的显示条目。
-    pub(crate) fn displayed_entry_at(&self, index: usize) -> Option<BrowserEntry> {
-        self.search_results
-            .as_ref()
-            .unwrap_or(&self.browser.entries)
-            .iter()
-            .filter(|entry| !self.hide_game_sidecar(entry))
-            .nth(index)
-            .cloned()
-    }
-
-    /// 按显示顺序返回用于范围选择的稳定 ID。
-    pub(crate) fn displayed_ids(&self) -> Vec<String> {
-        self.search_results
-            .as_ref()
-            .unwrap_or(&self.browser.entries)
-            .iter()
-            .filter(|entry| !self.hide_game_sidecar(entry))
-            .map(|entry| entry.id.clone())
-            .collect()
-    }
-
-    /// 选择当前过滤视图中的全部项目。
-    pub(crate) fn select_all_displayed(&mut self) {
-        let ids = self.displayed_ids();
-        self.browser.selection.select_all(&ids);
-    }
-
     pub(crate) fn tree_rows(&self) -> Vec<TreeRow> {
         let mut roots = Vec::new();
         for letter in b'A'..=b'Z' {
@@ -424,10 +366,8 @@ impl LumarkApp {
 
     /// 返回当前选择对应的去重路径集合。
     pub(crate) fn selected_paths(&self) -> Vec<PathBuf> {
-        let ids = self.browser.selection.selected_ids();
-        self.displayed_entries()
+        self.selected_entries()
             .into_iter()
-            .filter(|entry| ids.contains(&entry.id))
             .map(|entry| entry.path)
             .collect()
     }
@@ -527,14 +467,7 @@ impl LumarkApp {
     /// 归档条目没有真实路径，因此先解压到当前窗口的临时目录，再把临时文件
     /// 写入 `CF_HDROP`；临时目录随窗口关闭一起删除，多个归档窗口互不影响。
     pub(crate) fn copy_selected_items(&mut self, cx: &mut Context<Self>) {
-        let entries = self.displayed_entries();
-        let selected = self
-            .browser
-            .selection
-            .selected_ids()
-            .into_iter()
-            .filter_map(|id| entries.iter().find(|entry| entry.id == id).cloned())
-            .collect::<Vec<_>>();
+        let selected = self.selected_entries();
         if selected.is_empty() {
             self.status = tr("请选择要复制的项目", "Select items to copy").to_string();
             return;
@@ -956,10 +889,7 @@ impl LumarkApp {
     /// 仅选中一个项目时返回聚焦的浏览器条目。
     pub(crate) fn selected_entry(&self) -> Option<BrowserEntry> {
         let id = self.browser.selection.focus()?;
-        self.displayed_entries()
-            .iter()
-            .find(|entry| entry.id == id)
-            .cloned()
+        self.displayed_entry_by_id(id).cloned()
     }
 
     /// 返回用户选择的归档路径（如果有）。
@@ -994,11 +924,10 @@ impl LumarkApp {
     /// 当前文件表选择优先于拖放/命令行预留的源列表，避免上一次拖放留下的
     /// 单文件源覆盖用户新选中的多个项目。
     pub(crate) fn selected_sources(&self) -> Vec<PathBuf> {
-        let ids = self.browser.selection.selected_ids();
+        let selection = &self.browser.selection;
         let mut paths: Vec<PathBuf> = self
-            .displayed_entries()
-            .iter()
-            .filter(|entry| ids.contains(&entry.id))
+            .displayed_iter()
+            .filter(|entry| selection.is_selected(&entry.id))
             .map(|entry| entry.path.clone())
             .collect();
         if !paths.is_empty() {

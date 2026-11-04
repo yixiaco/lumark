@@ -24,11 +24,6 @@ impl LumarkApp {
                 )
             })
             .unwrap_or_else(|| self.status.clone());
-        let total_size = self
-            .displayed_entries()
-            .iter()
-            .map(|entry| entry.size)
-            .sum::<u64>();
         let mut bar = StatusBar::new()
             .h(px(28.))
             .flex_shrink_0()
@@ -124,12 +119,14 @@ impl LumarkApp {
             );
         }
         if self.screen == Screen::Browser {
+            // 仅统计当前显示条目；摘要一趟遍历，避免每帧克隆整表。
+            let summary = self.displayed_summary();
             bar = bar.right(div().whitespace_nowrap().child(format!(
                 "{}{} {} · {}",
                 tr("总计 ", "Total "),
-                self.displayed_count(),
+                summary.count,
                 tr(" 个项目", " items"),
-                format_size(total_size)
+                format_size(summary.total_size)
             )));
         }
         bar.right(

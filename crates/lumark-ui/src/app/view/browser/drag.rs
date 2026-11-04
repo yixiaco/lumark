@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use lumark_archive::OverwritePolicy as ArchiveOverwritePolicy;
@@ -18,8 +19,8 @@ pub(crate) struct ArchiveDragItem {
     pub(crate) archive: PathBuf,
     /// 归档密码。
     pub(crate) password: Option<zeroize::Zeroizing<String>>,
-    /// 选中的归档内路径。
-    pub(crate) selected: Vec<(String, bool)>,
+    /// 选中的归档内路径；一帧内所有可见行共享同一份选择快照。
+    pub(crate) selected: Rc<Vec<(String, bool)>>,
     /// 临时解压输出目录。
     #[allow(dead_code)]
     pub(super) output: PathBuf,
@@ -34,7 +35,7 @@ impl ArchiveDragItem {
         extract_archive_members(
             &self.archive,
             self.password.as_ref().map(|value| value.as_str()),
-            &self.selected,
+            self.selected.as_slice(),
             &self.output,
         )
         .ok()
@@ -326,28 +327,51 @@ pub(super) fn system_icon_for(
     image
 }
 
+/// 计算一帧内共享的拖拽选择快照（顶层路径 + 是否目录）。
+///
+/// 由渲染入口每帧调用一次，行回调只克隆 `Rc`；这样既保持多选拖拽的语义，
+/// 又不会在每一个可见行里复制整张文件表。
+pub(super) fn archive_drag_selection(app: &LumarkApp) -> Rc<Vec<(String, bool)>> {
+    if !matches!(&app.browser.location, BrowserLocation::Archive { .. })
+        || app.browser.selection.count() == 0
+    {
+        return Rc::new(Vec::new());
+    }
+    let selection = &app.browser.selection;
+    let selected = app
+        .displayed_iter()
+        .filter(|entry| selection.is_selected(&entry.id))
+        .map(|entry| {
+            (
+                entry.path.to_string_lossy().replace('\\', "/"),
+                entry.is_dir,
+            )
+        })
+        .collect::<Vec<_>>();
+    Rc::new(top_level_archive_paths(&selected))
+}
+
 /// 为当前拖拽条目构建归档选择快照；未选中时只拖当前条目。
-pub(super) fn archive_drag_item(app: &LumarkApp, entry: &BrowserEntry) -> Option<ArchiveDragItem> {
+///
+/// `selection` 是 [`archive_drag_selection`] 计算出的共享多选快照；当前行
+/// 在选区内时直接复用，否则只携带该条目本身。多选快照只在拖出窗口时按
+/// 当前选择重建（见 `refresh_drag_item`）。
+pub(super) fn archive_drag_item(
+    app: &LumarkApp,
+    entry: &BrowserEntry,
+    selection: &Rc<Vec<(String, bool)>>,
+) -> Option<ArchiveDragItem> {
     let BrowserLocation::Archive { archive, .. } = &app.browser.location else {
         return None;
     };
-    let entries = app.displayed_entries();
-    let selected = if app.browser.selection.is_selected(&entry.id) {
-        app.browser
-            .selection
-            .selected_ids()
-            .into_iter()
-            .filter_map(|id| entries.iter().find(|candidate| candidate.id == id).cloned())
-            .collect::<Vec<_>>()
+    let selected = if app.browser.selection.is_selected(&entry.id) && !selection.is_empty() {
+        Rc::clone(selection)
     } else {
-        vec![entry.clone()]
+        Rc::new(top_level_archive_paths(&[(
+            entry.path.to_string_lossy().replace('\\', "/"),
+            entry.is_dir,
+        )]))
     };
-    let selected = top_level_archive_paths(
-        &selected
-            .iter()
-            .map(|item| (item.path.to_string_lossy().replace('\\', "/"), item.is_dir))
-            .collect::<Vec<_>>(),
-    );
     if selected.is_empty() {
         return None;
     }
@@ -387,7 +411,7 @@ impl LumarkApp {
         self.start_temp_extract(
             item.archive,
             password,
-            item.selected,
+            (*item.selected).clone(),
             item.output,
             TempExtractMode::Drag {
                 hwnd: raw.hwnd.get(),
@@ -402,13 +426,10 @@ impl LumarkApp {
     /// 该负载可能还是上一帧的单选。离开窗口时重新读取选择可以保证多选和
     /// 文件名与当前界面一致。
     fn refresh_drag_item(&self, fallback: &ArchiveDragItem) -> ArchiveDragItem {
-        let entries = self.displayed_entries();
+        let selection = &self.browser.selection;
         let selected = self
-            .browser
-            .selection
-            .selected_ids()
-            .into_iter()
-            .filter_map(|id| entries.iter().find(|entry| entry.id == id).cloned())
+            .displayed_iter()
+            .filter(|entry| selection.is_selected(&entry.id))
             .map(|entry| {
                 (
                     entry.path.to_string_lossy().replace('\\', "/"),
@@ -418,9 +439,9 @@ impl LumarkApp {
             .collect::<Vec<_>>();
         let selected = top_level_archive_paths(&selected);
         let selected = if selected.is_empty() {
-            fallback.selected.clone()
+            Rc::clone(&fallback.selected)
         } else {
-            selected
+            Rc::new(selected)
         };
         let label = if selected.len() == 1 {
             fallback.label.clone()

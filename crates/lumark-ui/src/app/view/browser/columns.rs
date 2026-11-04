@@ -2,7 +2,7 @@
 
 /// 归档视图在名称、大小、修改时间之外追加的列。
 #[derive(Clone, Copy, Default)]
-pub(super) struct ArchiveColumns {
+pub(crate) struct ArchiveColumns {
     /// 是否显示压缩后大小列。
     pub(super) compressed: bool,
     /// 是否显示压缩算法列。

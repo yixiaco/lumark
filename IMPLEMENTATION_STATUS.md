@@ -15,6 +15,16 @@
 - [x] D-7 release 稳态性能基准：release 900×900 Headlight+Fmodel（NanaF6_Hold）：SS1 首帧 47.5 ms / 暖帧 avg 43.7 ms；SS2 首帧 64.0 ms / 暖帧 avg 57.0 ms；全顶点 LBS 包围盒 3.15/3.21 ms。产物 `artifacts/bench-release-ss1.png`、`artifacts/bench-release-ss2.png`。
 - [x] D-8 清理各处「已知限制」文档表述：活动文档改为「支持范围/验证边界/部署要求」，补充 D-3…D-7 证据；`viewer-architecture.md` 增加 D 阶段收尾结果表，`docs/archive/` 保留历史记录。
 
+## 2026-11-04 文件表与 3D 查看器修复
+
+- [x] 文件表只渲染可见行：新增 `DisplayedOrder`/`DisplayedSummary`（`app/state.rs`）与 `app/actions/files/display.rs`（`displayed_iter/order/summary/entry_by_id`）；`render_browser` 每帧只构建一次显示顺序与摘要，行回调按 `source_index` O(1) 取源条目；多选拖拽快照按帧共享（`ArchiveDragItem.selected: Rc<Vec<...>>`）；状态栏/详情面板/`selected_entry`/`selected_sources`/`copy_selected_items` 不再克隆整表；虚拟列表 `ElementId` 按详情/平铺模式区分，切换时强制重建。测试：`large_directory_renders_only_visible_rows`（400 项，详情/平铺首行可见、末项不在元素树、切回详情重建）。
+- [x] 最大化平铺自适应：`browser_list_width`、命令栏/动作带断点、密码库列表高度改用 `Window::viewport_size()`；Windows 最大化时 `inner_window_bounds` 返回 `WindowBounds::Maximized` 的还原尺寸，不再影响布局。测试：`tile_view_reflows_after_window_resize` 增补「整行卡片最后一列右边缘铺满可用宽度」断言。
+- [x] 3D 查看器正反面：`convert_mesh` 把 UE 左手系顺时针绕序翻转为渲染器/glTF 的 CCW 正面，修复叶片从上方被剔除、人物头部俯视镂空；对照 FModel `Views/Snooper/Models/UModel.cs` 的 Y/Z 手性转换。测试：`convert_mesh_flips_ue_winding`。
+- [x] 静态网格材质：`read_asset_metadata`/`read_static_mesh` 解析 `StaticMaterials[*].MaterialInterface` 对象引用，新增 `resolve_static_materials` 并接入详情预览、Provider、世界场景与导出；实机 `SM_Tree_Tropic_03_novines` 两槽位解析出 `MI_Tree_Tropic_01_TR`/`MI_Tree_Tropic_FO` 及基础色/法线/ORM 贴图，不再白模。测试：`extracts_static_material_names_and_imports`。
+- [x] 内存回收：查看器替换帧时 `App::drop_image` 释放旧 `RenderImage`（GPUI 图集无 LRU，之前每次渲染常驻一张 900×900 瓦片）；UE 预览图改为按预览 key 哈希的稳定路径，替换/离开预览时 `remove_asset` 并删除旧文件；贴图按目标边长选择 mip 解码（4K→512 的临时 RGBA 从 64 MB 降到约 1 MB），材质球贴图同样走 mip。测试：`selects_mip_level_for_texture_limit`、`decode_mip_rgba_with_size_reports_mip_size`。未做查看器场景贴图与预览缓存的 `Arc` 共享，列为后续。
+- [x] 文档：`docs/plan-progress.md` 与 `docs/viewer-architecture.md` 同步绕序、静态网格材质引用、mip 解码与图像释放约定。
+- [x] 本轮验收：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -j 4 -- -D warnings`、`cargo test --workspace -j 4 -- --test-threads=2` 退出码 0（受限线程、串行执行）；最大化列数、叶片正反面与内存曲线由用户在实机按清单复核。
+
 ## 验收
 
 - `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 全绿；

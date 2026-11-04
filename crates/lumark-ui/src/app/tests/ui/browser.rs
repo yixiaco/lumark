@@ -215,6 +215,95 @@ fn tile_view_reflows_after_window_resize(cx: &mut gpui_kit::TestAppContext) {
             eighth, first_tile,
             "加宽窗口后第 8 个项目应回到第一行，列数需随窗口变化"
         );
+        // 卡片宽度需按可用宽度均分，避免右侧留空。第一行含较窄的“..”
+        // 卡片，宽度天然差一个差值；改用第二行整行卡片验证：第
+        // `2*columns-2` 个文件位于第二行最后一列。
+        let list_width = app.read(cx).browser_list_width(window);
+        let columns = app.read(cx).tile_columns_at(list_width);
+        assert!(columns > 2, "宽窗口应排成多列");
+        let parent_left = window.find("parent-entry-tile").bounds().origin.x.as_f32();
+        let list_left = parent_left - 12.0;
+        let last_file_index = columns * 2 - 2;
+        let last = window.find(tile_id(last_file_index)).bounds();
+        let expected_right = list_left + list_width - 12.0;
+        assert!(
+            (last.right().as_f32() - expected_right).abs() <= 2.0,
+            "整行卡片的最后一列应铺满可用宽度（right={:?}, expected={expected_right:.1}）",
+            last.right()
+        );
+    });
+    let _ = app;
+}
+
+/// 大目录只渲染可见行；详情/平铺切换后按新模式重建列表。
+#[gpui_kit::test]
+fn large_directory_renders_only_visible_rows(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    for index in 0..400 {
+        std::fs::write(
+            directory.path().join(format!("file-{index:03}.txt")),
+            b"lumark",
+        )
+        .unwrap();
+    }
+    let vault_path = directory.path().join("vault.dat");
+    let (vault, _) =
+        VaultCrypto::new_master(Vec::new(), VaultSettings::default(), "master-pass").unwrap();
+    VaultCrypto::write_file(&vault_path, &vault).unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            vault_path,
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    let row_id = |index: usize| {
+        format!(
+            "file-row-{}",
+            directory
+                .path()
+                .join(format!("file-{index:03}.txt"))
+                .display()
+        )
+    };
+    let tile_id = |index: usize| {
+        format!(
+            "file-tile-name-{}",
+            directory
+                .path()
+                .join(format!("file-{index:03}.txt"))
+                .display()
+        )
+    };
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        assert!(window.find(row_id(0)).visible(), "首行应正常渲染");
+        assert!(
+            window.try_find(row_id(399)).is_none(),
+            "400 项目录中最后一行不应被渲染（虚拟列表只画可见行）"
+        );
+
+        window.click("view-toggle", cx);
+        window.draw(cx).clear(cx);
+        assert!(window.find(tile_id(0)).visible(), "平铺首项应正常渲染");
+        assert!(
+            window.try_find(tile_id(399)).is_none(),
+            "平铺视图同样只应渲染可见卡片"
+        );
+
+        window.click("view-toggle", cx);
+        window.draw(cx).clear(cx);
+        assert!(
+            window.find(row_id(0)).visible(),
+            "切回详情列表后应重新渲染文件行"
+        );
+        assert!(
+            window.try_find(row_id(399)).is_none(),
+            "切回详情后仍只渲染可见行"
+        );
     });
     let _ = app;
 }

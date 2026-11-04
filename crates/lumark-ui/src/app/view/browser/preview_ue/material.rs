@@ -348,6 +348,25 @@ fn load_parent_appearance(
     Some(read_legacy_material_appearance(&package, &mappings))
 }
 
+/// 材质球贴图目标边长：4K 贴图只解码对应 mip，避免全尺寸临时 RGBA。
+const PREVIEW_TEXTURE_LIMIT: u32 = 512;
+
+/// 按材质球尺寸选择 mip 并解码一张贴图。
+fn decode_preview_texture(texture: &lumark_unreal::Texture2D) -> Option<PreviewTexture> {
+    let level = lumark_unreal::mip_level_for_limit(
+        texture.width,
+        texture.height,
+        texture.mips.len(),
+        PREVIEW_TEXTURE_LIMIT,
+    );
+    let (rgba, width, height) = texture.decode_mip_rgba_with_size(level).ok()?;
+    Some(PreviewTexture {
+        rgba,
+        width,
+        height,
+    })
+}
+
 /// 读取材质引用的贴图并解码基础 mip。
 fn load_texture(
     archive: &Path,
@@ -364,12 +383,7 @@ fn load_texture(
     if is_legacy_package(&data) {
         let uexp = uexp?;
         let texture = read_legacy_texture(&data, &uexp, ubulk.as_deref()).ok()?;
-        let rgba = texture.decode_mip_rgba(0).ok()?;
-        return Some(PreviewTexture {
-            rgba,
-            width: texture.width as u32,
-            height: texture.height as u32,
-        });
+        return decode_preview_texture(&texture);
     }
     let mappings = Mappings::parse_file(mappings_path?).ok()?;
     let package = parse_package(data.clone(), None, None).ok()?;
@@ -381,12 +395,7 @@ fn load_texture(
     let texture = package
         .read_texture2d(index, &mappings, ubulk.as_deref())
         .ok()?;
-    let rgba = texture.decode_mip_rgba(0).ok()?;
-    Some(PreviewTexture {
-        rgba,
-        width: texture.width as u32,
-        height: texture.height as u32,
-    })
+    decode_preview_texture(&texture)
 }
 
 /// 读取 Zen（UE5 IoStore）材质并渲染近似材质球。
@@ -537,20 +546,16 @@ fn load_guessed_texture(
         let Some(mappings) = mappings else {
             continue;
         };
-        let Ok(texture) = package.read_texture2d(index, mappings, ubulk.as_deref()) else {
+        let Some(texture) = package
+            .read_texture2d(index, mappings, ubulk.as_deref())
+            .ok()
+        else {
             continue;
         };
-        let Ok(rgba) = texture.decode_mip_rgba(0) else {
+        let Some(texture) = decode_preview_texture(&texture) else {
             continue;
         };
-        return Some(GuessedTexture {
-            name,
-            texture: PreviewTexture {
-                rgba,
-                width: texture.width as u32,
-                height: texture.height as u32,
-            },
-        });
+        return Some(GuessedTexture { name, texture });
     }
     None
 }

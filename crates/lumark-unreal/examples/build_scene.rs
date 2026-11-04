@@ -7,8 +7,8 @@ use std::error::Error;
 use lumark_scene::scene_inspector;
 use lumark_unreal::{
     AssetKind, GameAssetOptions, GameAssetSource, Mappings, MaterialResolveOptions, MaterialSlot,
-    extract_key_for_game, parse_package, resolve_material_slots, scan_game, skeletal_mesh_scene,
-    static_mesh_scene,
+    extract_key_for_game, parse_package, resolve_material_slots, resolve_static_materials,
+    scan_game, skeletal_mesh_scene, static_mesh_scene,
 };
 
 /// 运行诊断。
@@ -57,11 +57,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .position(|export| export.kind == AssetKind::StaticMesh)
     {
         let mesh = package.read_static_mesh(index, &mappings)?;
-        let slots = mesh.material_slots.clone();
-        let resolved = resolve_material_slots(
+        let resolved = resolve_static_materials(
             &mut source,
             &entry,
-            &slots,
+            &mesh.material_slots,
+            &mesh.material_imports,
             Some(&mappings),
             &MaterialResolveOptions::default(),
         );

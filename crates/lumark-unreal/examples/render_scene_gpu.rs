@@ -17,7 +17,7 @@ use lumark_render::{GpuRenderer, LightingMode, NormalMapConvention, RenderSettin
 use lumark_unreal::{
     AssetKind, GameAssetOptions, GameAssetSource, Mappings, MaterialResolveOptions, MaterialSlot,
     apply_animation, extract_key_for_game, parse_package, read_anim_sequence,
-    resolve_material_asset, resolve_material_slots, resolve_material_slots_exact, scan_game,
+    resolve_material_asset, resolve_material_slots_exact, resolve_static_materials, scan_game,
     scene_material, skeletal_mesh_scene, static_mesh_scene,
 };
 
@@ -219,11 +219,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .position(|export| export.kind == AssetKind::StaticMesh)
     {
         let mesh = package.read_static_mesh(index, &mappings)?;
-        let slots = mesh.material_slots.clone();
-        let resolved = resolve_material_slots(
+        let resolved = resolve_static_materials(
             &mut source,
             &cli.entry,
-            &slots,
+            &mesh.material_slots,
+            &mesh.material_imports,
             Some(&mappings),
             &MaterialResolveOptions::default(),
         );

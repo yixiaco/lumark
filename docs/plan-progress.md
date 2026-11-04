@@ -27,3 +27,16 @@
   本轮恢复 `img` + `object_fit(Contain)` 渲染，并补 `.h_full()`/`items_stretch()` 尺寸约束；
   新增回归测试 `viewer_paints_rendered_image_element`（断言渲染图像容器尺寸与位置）。
 
+## 2026-11-04 文件表与 3D 查看器修复
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| F-1 文件表只渲染可见行 | ✅ | 新增 `DisplayedOrder`/`DisplayedSummary`（`app/state.rs`）与 `app/actions/files/display.rs`；`render_browser` 每帧一次构建显示顺序与摘要，行回调按 `source_index` O(1) 取条目；拖拽多选快照按帧共享；状态栏/详情面板/选中条目相关动作不再克隆整表。测试：`large_directory_renders_only_visible_rows`（400 项，详情/平铺仅可见行、切回详情重建）通过 |
+| F-2 最大化平铺自适应 | ✅ | `browser_list_width`、命令栏/动作带断点、密码库列表高度改用 `Window::viewport_size()`；`tile_view_reflows_after_window_resize` 增补整行卡片最后一列右边缘铺满断言。测试通过 |
+| V-22 查看器正反面绕序 | ✅ | `convert_mesh` 把 UE 左手系顺时针绕序翻转为渲染器 CCW 正面（对照 FModel `UModel.cs` 的 Y/Z 手性转换）；测试 `convert_mesh_flips_ue_winding` 通过。修复叶片上方不可见、人物头部俯视镂空 |
+| S-10 静态网格材质对象引用 | ✅ | `read_asset_metadata`/`read_static_mesh` 解析 `StaticMaterials[*].MaterialInterface`；新增 `resolve_static_materials` 接入预览/Provider/世界场景/导出。测试 `extracts_static_material_names_and_imports`；实机 `SM_Tree_Tropic_03_novines` 解析出 `MI_Tree_Tropic_01_TR`/`MI_Tree_Tropic_FO` 与基础色/法线/ORM，种植白模修复 |
+| P-6 内存回收与 mip 解码 | ✅ | 查看器替换帧时 `App::drop_image` 旧 `RenderImage`；UE 预览图改稳定哈希路径并在替换时 `remove_asset`+删文件；贴图/材质球按目标尺寸选 mip 解码（4K→512 由 64 MB 临时 RGBA 降到约 1 MB）。测试：`selects_mip_level_for_texture_limit`、`decode_mip_rgba_with_size_reports_mip_size` |
+| 验收 | ✅ | `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -j 4 -- -D warnings`、`cargo test --workspace -j 4 -- --test-threads=2` 退出码 0（受限线程）；实机最大化/叶片/内存由用户复核 |
+
+后续项（本轮未做）：查看器世界坐标相对 FModel 仍左右镜像；GLB/USDA 导出绕序未同步；查看器场景贴图与预览缓存仍各持一份 RGBA，可改为 `Arc` 共享。
+

@@ -20,18 +20,9 @@ impl LumarkApp {
             .and_then(|value| value.to_str())
             .map(ToString::to_string)
             .unwrap_or_else(|| display.clone());
-        let entry_count = self.displayed_count();
-        let displayed = self.displayed_entries();
-        let total_size = displayed.iter().map(|entry| entry.size).sum::<u64>();
-        // 归档位置额外汇总压缩后大小，便于和容器文件的磁盘大小对照。
-        let compressed_total = matches!(&self.browser.location, BrowserLocation::Archive { .. })
-            .then(|| {
-                displayed
-                    .iter()
-                    .filter_map(|entry| entry.archive_entry.as_ref()?.compressed_size)
-                    .reduce(|left, right| left.saturating_add(right))
-            })
-            .flatten();
+        // 只有未选中时才需要目录摘要；一趟遍历得到数量/总计/压缩后总计，
+        // 不再为详情面板克隆整张文件表。
+        let summary = (!has_selection).then(|| self.displayed_summary());
         v_flex()
             .id("details-panel")
             .w_full()
@@ -197,6 +188,7 @@ impl LumarkApp {
                         )
                     })
                     .when(!has_selection, |this| {
+                        let summary = summary.unwrap_or_default();
                         this.child(
                             h_flex()
                                 .w_full()
@@ -222,14 +214,14 @@ impl LumarkApp {
                         .child(detail_row(
                             cx,
                             "项目",
-                            &format!("{entry_count} {}", tr("项", "items")),
+                            &format!("{} {}", summary.count, tr("项", "items")),
                         ))
                         .child(detail_row(
                             cx,
                             tr("总计", "Total"),
-                            &format_size(total_size),
+                            &format_size(summary.total_size),
                         ))
-                        .when_some(compressed_total, |this, compressed| {
+                        .when_some(summary.compressed_size, |this, compressed| {
                             this.child(detail_row(
                                 cx,
                                 tr("压缩后总计", "Compressed total"),

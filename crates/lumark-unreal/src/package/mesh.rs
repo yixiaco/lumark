@@ -72,6 +72,9 @@ pub struct StaticMesh {
     pub lods: Vec<MeshLod>,
     /// 材质槽（来自 `StaticMaterials` 属性，顺序与 section.material_index 对应）。
     pub material_slots: Vec<MaterialSlot>,
+    /// 材质槽的 `MaterialInterface` 对象索引（负数为导入，顺序与
+    /// `material_slots` 一致）；用于精确解析材质资产。
+    pub material_imports: Vec<i32>,
 }
 
 /// 从包中读取指定导出的 StaticMesh（仅首个 LOD）。
@@ -126,16 +129,24 @@ pub fn read_static_mesh(
     reader.skip(socket_count * 4)?;
 
     // 尝试 1：有 KeepMobileMinLODSettingOnDesktop 的 int；尝试 2：直接 LOD 数组。
-    let material_slots = match read_asset_metadata(package, export_index, mappings) {
-        Ok(AssetMetadata::StaticMesh { material_names, .. }) => material_names
-            .into_iter()
-            .map(|name| MaterialSlot {
-                name,
-                package: None,
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
+    let (material_slots, material_imports) =
+        match read_asset_metadata(package, export_index, mappings) {
+            Ok(AssetMetadata::StaticMesh {
+                material_names,
+                material_imports,
+                ..
+            }) => (
+                material_names
+                    .into_iter()
+                    .map(|name| MaterialSlot {
+                        name,
+                        package: None,
+                    })
+                    .collect::<Vec<_>>(),
+                material_imports,
+            ),
+            _ => (Vec::new(), Vec::new()),
+        };
     let base = reader.position;
     let mut last_error = None;
     for skip_min_mobile in [true, false] {
@@ -155,6 +166,7 @@ pub fn read_static_mesh(
                     lod_count,
                     lods,
                     material_slots,
+                    material_imports,
                 });
             }
             Err(error) => last_error = Some(error),

@@ -83,3 +83,104 @@ pub(crate) struct PendingAssetViewer {
     /// 和 `DetailsPreview` 对齐的缓存 key。
     pub(crate) key: String,
 }
+
+/// 文件表显示顺序到源条目下标的映射。
+///
+/// 游戏容器会隐藏 `.uexp/.ubulk/.uptnl` 伴随文件；没有过滤时 `Direct`
+/// 直接按源下标访问，不复制索引表。渲染层每帧只构建一次，行回调按
+/// `source_index` O(1) 取源条目，避免每个可见行都重新扫描整张表。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DisplayedOrder {
+    /// 未过滤：显示下标即源下标。
+    Direct(usize),
+    /// 已过滤：`Vec` 保存每个显示下标对应的源下标。
+    Filtered(Vec<usize>),
+}
+
+impl DisplayedOrder {
+    /// 按源条目数量与保留谓词构造映射；全部保留时返回 `Direct`。
+    pub(crate) fn from_source(len: usize, keep: impl Fn(usize) -> bool) -> Self {
+        let indices: Vec<usize> = (0..len).filter(|index| keep(*index)).collect();
+        if indices.len() == len {
+            Self::Direct(len)
+        } else {
+            Self::Filtered(indices)
+        }
+    }
+
+    /// 显示条目数量。
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::Direct(len) => *len,
+            Self::Filtered(indices) => indices.len(),
+        }
+    }
+
+    /// 显示下标 → 源下标；越界返回 `None`。
+    pub(crate) fn source_index(&self, display_index: usize) -> Option<usize> {
+        match self {
+            Self::Direct(len) => (display_index < *len).then_some(display_index),
+            Self::Filtered(indices) => indices.get(display_index).copied(),
+        }
+    }
+}
+
+/// 当前目录摘要：条目数、总大小与归档压缩后总大小。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DisplayedSummary {
+    /// 显示条目数量。
+    pub(crate) count: usize,
+    /// 全部显示条目的总大小。
+    pub(crate) total_size: u64,
+    /// 归档条目的压缩后总大小；没有任何压缩信息时为 `None`。
+    pub(crate) compressed_size: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 全部保留时使用零分配的显示顺序。
+    #[test]
+    fn displayed_order_keeps_direct_when_nothing_filtered() {
+        let order = DisplayedOrder::from_source(3, |_| true);
+        assert_eq!(order, DisplayedOrder::Direct(3));
+        assert_eq!(order.len(), 3);
+        assert_eq!(order.source_index(0), Some(0));
+        assert_eq!(order.source_index(2), Some(2));
+        assert_eq!(order.source_index(3), None);
+    }
+
+    /// 过滤后显示下标映射回原表下标，越界返回 None。
+    #[test]
+    fn displayed_order_maps_filtered_indices() {
+        let order = DisplayedOrder::from_source(6, |index| index % 2 == 0);
+        assert_eq!(order, DisplayedOrder::Filtered(vec![0, 2, 4]));
+        assert_eq!(order.len(), 3);
+        assert_eq!(order.source_index(1), Some(2));
+        assert_eq!(order.source_index(2), Some(4));
+        assert_eq!(order.source_index(3), None);
+    }
+
+    /// 空表不分配索引。
+    #[test]
+    fn displayed_order_handles_empty_source() {
+        assert_eq!(
+            DisplayedOrder::from_source(0, |_| true),
+            DisplayedOrder::Direct(0)
+        );
+        assert_eq!(
+            DisplayedOrder::from_source(0, |_| false),
+            DisplayedOrder::Direct(0)
+        );
+    }
+
+    /// 摘要默认值表示空目录。
+    #[test]
+    fn displayed_summary_defaults_to_empty() {
+        let summary = DisplayedSummary::default();
+        assert_eq!(summary.count, 0);
+        assert_eq!(summary.total_size, 0);
+        assert_eq!(summary.compressed_size, None);
+    }
+}

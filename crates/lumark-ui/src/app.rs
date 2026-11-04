@@ -367,6 +367,8 @@ pub struct LumarkApp {
     /// 主窗口记录的游戏编辑窗口句柄，用于在窗口关闭后刷新游戏库列表。
     game_editor_window: Option<gpui_kit::AnyWindowHandle>,
     details_preview: Option<view::DetailsPreview>,
+    /// 当前 UE 资产预览图片的稳定路径；替换预览时释放旧图片缓存与临时文件。
+    ue_preview_image: Option<PathBuf>,
     /// 当前游戏目录按类名解析出的资产类型；键为容器内相对路径。
     game_asset_classes: HashMap<String, lumark_unreal::AssetKind>,
     /// 资产类型扫描代号；目录切换后丢弃过期结果。
@@ -684,6 +686,7 @@ impl LumarkApp {
             game_editor_only: false,
             game_editor_window: None,
             details_preview: None,
+            ue_preview_image: None,
             game_asset_classes: HashMap::new(),
             game_asset_class_scan: 0,
             game_asset_class_key: None,

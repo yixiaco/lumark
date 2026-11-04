@@ -56,7 +56,12 @@ impl AssetViewerWindowView {
         let has_pending = self.frame_pump.finish(Instant::now());
         self.sync_rendering();
         match result {
-            Ok(frame) => self.apply_frame(frame),
+            Ok(frame) => {
+                // 旧帧的图集瓦片由 GPUI 按 ImageId 缓存，必须显式释放。
+                if let Some(previous) = self.apply_frame(frame) {
+                    cx.drop_image(previous, None);
+                }
+            }
             Err(error) => self.error = Some(error),
         }
         if has_pending {

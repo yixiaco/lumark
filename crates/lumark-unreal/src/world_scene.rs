@@ -13,7 +13,7 @@ use crate::scene::{UE_UNIT_SCALE, add_material, convert_mesh};
 use crate::source::GameAssetSource;
 use crate::{
     Mappings, MaterialSlot, PackageError, PackageExport, PackageInfo, PropValue, UnrealPackage,
-    parse_package, resolve_material_slots,
+    parse_package, resolve_static_materials,
 };
 
 /// 世界场景加载选项。
@@ -115,10 +115,11 @@ pub fn load_world_scene(
                 let mut material_handles = Vec::new();
                 if let Some(material_options) = &options.material_options {
                     let resolved = match &instance.mesh_path {
-                        Some(mesh_path) => resolve_material_slots(
+                        Some(mesh_path) => resolve_static_materials(
                             source,
                             mesh_path,
                             &instance.material_slots,
+                            &instance.material_imports,
                             Some(mappings),
                             material_options,
                         ),
@@ -186,6 +187,8 @@ struct WorldMeshInstance {
     mesh: crate::MeshLod,
     /// 材质槽（顺序与 section 对应）。
     material_slots: Vec<MaterialSlot>,
+    /// 材质槽的 `MaterialInterface` 对象索引。
+    material_imports: Vec<i32>,
     /// 网格所在的容器内路径（用于定位材质包）。
     mesh_path: Option<String>,
     /// 世界变换。
@@ -246,6 +249,7 @@ fn actor_instance(
         name: static_mesh.name,
         mesh: static_mesh.lod,
         material_slots: static_mesh.material_slots,
+        material_imports: static_mesh.material_imports,
         mesh_path: source.package_path_for_id(target_package),
         transform,
     }))

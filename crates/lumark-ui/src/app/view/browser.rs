@@ -50,6 +50,28 @@ pub(crate) enum SelectionMove {
     PageDown,
 }
 
+/// 一帧内所有可见行共享的列表布局快照。
+///
+/// 平铺列数、卡片宽度、行高和详情列宽都只在 `render_browser` 里计算一次，
+/// 行回调只读取快照；切换视图或窗口尺寸变化时由下一次渲染重建。
+#[derive(Clone, Copy)]
+pub(super) struct ListLayout {
+    /// 是否包含最上方的“..”行。
+    pub(super) parent_row: bool,
+    /// 行高。
+    pub(super) row_height: gpui_kit::Pixels,
+    /// 平铺列数。
+    pub(super) tile_columns: usize,
+    /// 平铺卡片宽度。
+    pub(super) tile_width: f32,
+    /// 详情列表列宽。
+    pub(super) widths: ColumnWidths,
+    /// 归档附加列开关。
+    pub(super) archive_columns: ArchiveColumns,
+    /// 是否位于归档内部。
+    pub(super) inside_archive: bool,
+}
+
 impl LumarkApp {
     /// 渲染主文件表，并在搜索结果激活时显示一条结果摘要。
     ///
@@ -61,7 +83,9 @@ impl LumarkApp {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let entry_count = self.displayed_count();
+        // 显示顺序每帧只构建一次；行回调按 source_index O(1) 取源条目。
+        let order = self.displayed_order();
+        let entry_count = order.len();
         let search_active = self.search_results.is_some();
         let show_parent = shows_parent_row(self);
         let row_count = entry_count + usize::from(show_parent);
@@ -87,11 +111,19 @@ impl LumarkApp {
             gpui_kit::size(px(main_width), row_height);
             virtual_rows
         ]);
-        let total_size = self
-            .displayed_entries()
-            .iter()
-            .map(|entry| entry.size)
-            .sum::<u64>();
+        // 搜索条显示时才统计总大小；其余情况不遍历整表。
+        let search_total = search_active.then(|| self.displayed_summary().total_size);
+        // 多选拖拽快照每帧只构建一次，行回调共享同一个 Rc。
+        let drag_selection = archive_drag_selection(self);
+        let layout = ListLayout {
+            parent_row: show_parent,
+            row_height,
+            tile_columns,
+            tile_width: tile.tile_width,
+            widths,
+            archive_columns,
+            inside_archive,
+        };
         let marquee_rect = self.marquee.as_ref().and_then(|state| {
             self.current_marquee_layout(window).and_then(|layout| {
                 layout.overlay_rect(
@@ -164,15 +196,22 @@ impl LumarkApp {
             )
             .on_mouse_move(
                 cx.listener(|this, event: &gpui_kit::MouseMoveEvent, window, cx| {
+                    // 只有列宽拖动或框选确实变化时才重绘，避免鼠标移动让
+                    // 整个文件表每帧重建。
+                    let resizing = this.column_resize.is_some();
                     this.update_column_resize(event);
-                    if this.marquee.is_some() {
+                    let marquee_changed = if this.marquee.is_some() {
                         if event.pressed_button == Some(gpui_kit::MouseButton::Left) {
-                            this.update_marquee(event.position, window);
+                            this.update_marquee(event.position, window)
                         } else {
-                            this.finish_marquee();
+                            this.finish_marquee()
                         }
+                    } else {
+                        false
+                    };
+                    if resizing || marquee_changed {
+                        cx.notify();
                     }
-                    cx.notify();
                 }),
             )
             .on_mouse_up(
@@ -202,7 +241,7 @@ impl LumarkApp {
                         .child(AppIcon::Search.element(13.))
                         .child(format!(
                             "搜索结果 · {entry_count} 项 · {}",
-                            format_size(total_size)
+                            format_size(search_total.unwrap_or_default())
                         ))
                         .child(
                             button("search-result-clear")
@@ -307,8 +346,7 @@ impl LumarkApp {
                             .child(render_parent_tile(cx))
                             .into_any_element()
                     } else {
-                        render_parent_row(cx, row_height, widths, archive_columns, inside_archive)
-                            .into_any_element()
+                        render_parent_row(cx, &layout).into_any_element()
                     };
                     this.child(parent)
                 })
@@ -326,7 +364,9 @@ impl LumarkApp {
                         .child(
                             gpui_kit::base::v_virtual_list(
                                 cx.entity(),
-                                "file-list",
+                                // 两种视图的行模型与行高不同，按模式区分 ElementId，
+                                // 切换时强制重建可见范围与尺寸缓存。
+                                ("file-list", usize::from(tile_view)),
                                 item_sizes,
                                 move |app, range, _window, cx| {
                                     range
@@ -336,9 +376,9 @@ impl LumarkApp {
                                                     app,
                                                     cx,
                                                     virtual_index,
-                                                    tile_columns,
-                                                    tile.tile_width,
-                                                    row_height,
+                                                    &order,
+                                                    &layout,
+                                                    &drag_selection,
                                                 )
                                                 .into_any_element()
                                             } else {
@@ -346,10 +386,9 @@ impl LumarkApp {
                                                     app,
                                                     cx,
                                                     virtual_index,
-                                                    row_height,
-                                                    widths,
-                                                    archive_columns,
-                                                    inside_archive,
+                                                    &order,
+                                                    &layout,
+                                                    &drag_selection,
                                                 )
                                                 .into_any_element()
                                             }
@@ -447,17 +486,14 @@ impl LumarkApp {
         TileMetrics::for_width(width, self.tile_view).columns
     }
 
-    /// 文件表视口宽度：由当前窗口宽度与侧栏宽度计算。
+    /// 文件表视口宽度：由当前窗口可绘制宽度与侧栏宽度计算。
     ///
-    /// 使用窗口尺寸而不是上一帧的列表 bounds，避免窗口缩放后的第一帧
-    /// 仍按旧宽度计算平铺列数（列表和框选都会短暂错位）。
+    /// 必须使用 `Window::viewport_size()`：Windows 最大化时
+    /// `Window::inner_window_bounds()` 返回 `WindowBounds::Maximized` 携带的
+    /// **还原尺寸**，会让平铺列数停在最大化之前的宽度；`viewport_size` 在
+    /// WM_SIZE 时由 `bounds_changed` 同步，与布局树使用的根尺寸一致。
     pub(crate) fn browser_list_width(&self, window: &Window) -> f32 {
-        let window_width = window
-            .inner_window_bounds()
-            .get_bounds()
-            .size
-            .width
-            .as_f32();
+        let window_width = window.viewport_size().width.as_f32();
         let sidebar_width = if self.sidebar_visible {
             self.sidebar_width
         } else {
@@ -545,13 +581,16 @@ impl LumarkApp {
             self.scroll_marquee(direction, layout.row_height);
         }
         let layout = self.current_marquee_layout(window).unwrap_or(layout);
-        let entries = self.displayed_entries();
+        let order = self.displayed_order();
+        let source = self.displayed_source();
         let mut ids = base_ids;
         ids.extend(
             layout
                 .selected_entries(start, (position.x.as_f32(), position.y.as_f32()))
                 .into_iter()
-                .filter_map(|index| entries.get(index).map(|entry| entry.id.clone())),
+                .filter_map(|display_index| order.source_index(display_index))
+                .filter_map(|source_index| source.get(source_index))
+                .map(|entry| entry.id.clone()),
         );
         ids.sort();
         ids.dedup();
@@ -830,7 +869,7 @@ mod tests {
         let item = ArchiveDragItem {
             archive,
             password: None,
-            selected: vec![("docs".to_string(), true)],
+            selected: std::rc::Rc::new(vec![("docs".to_string(), true)]),
             output: directory.path().join("drag"),
             label: "docs".to_string(),
         };
