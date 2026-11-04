@@ -29,7 +29,7 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4 + joints4 + weights4。
 const VERTEX_FLOATS: usize = 24;
 /// 相机 uniform 大小（字节）。
-const CAMERA_UNIFORM_SIZE: u64 = 304;
+const CAMERA_UNIFORM_SIZE: u64 = 384;
 /// 材质 uniform 大小（字节）。
 const MATERIAL_UNIFORM_SIZE: u64 = 112;
 
@@ -174,8 +174,10 @@ struct RenderTargets {
     ssao_view: wgpu::TextureView,
     /// 太阳阴影贴图。
     _shadow_texture: wgpu::Texture,
-    /// 太阳阴影视图。
+    /// 太阳阴影视图（2 级联数组）。
     shadow_view: wgpu::TextureView,
+    /// 每个级联的渲染视图。
+    shadow_layer_views: [wgpu::TextureView; 2],
     /// 回读缓冲；行字节数补齐到 256 的倍数。
     readback: wgpu::Buffer,
     /// 回读缓冲的补齐行宽（字节）。
@@ -245,7 +247,7 @@ impl RenderTargets {
             size: wgpu::Extent3d {
                 width: 2048,
                 height: 2048,
-                depth_or_array_layers: 1,
+                depth_or_array_layers: 2,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -254,7 +256,21 @@ impl RenderTargets {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let shadow_view = shadow.create_view(&wgpu::TextureViewDescriptor::default());
+        let shadow_view = shadow.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("lumark-shadow-view"),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let shadow_layer_view = |layer| {
+            shadow.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("lumark-shadow-layer"),
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: layer,
+                array_layer_count: Some(1),
+                ..Default::default()
+            })
+        };
+        let shadow_layer_views = [shadow_layer_view(0), shadow_layer_view(1)];
         // 回读：copy_texture_to_buffer 的每行字节数必须是 256 的倍数。
         let padded_row = width.div_ceil(64) * 256;
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -274,6 +290,7 @@ impl RenderTargets {
             ssao_view,
             _shadow_texture: shadow,
             shadow_view,
+            shadow_layer_views,
             readback,
             padded_row,
         }
@@ -438,52 +455,55 @@ impl GpuRenderer {
                 label: Some("lumark-render"),
             });
         if settings.lighting_mode == LightingMode::Snooper && settings.snooper.shadows.enabled {
-            let mut shadow_camera = Vec::with_capacity(16);
-            for column in &camera.shadow_view_projection {
-                shadow_camera.extend_from_slice(column);
-            }
-            let shadow_camera_buffer = self.create_buffer(
-                "lumark-shadow-camera",
-                64,
-                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            );
-            self.queue
-                .write_buffer(&shadow_camera_buffer, 0, &f32_bytes(&shadow_camera));
-            let shadow_camera_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("lumark-shadow-camera"),
-                layout: &self.shadow_camera_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: shadow_camera_buffer.as_entire_binding(),
-                }],
-            });
-            let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("lumark-shadow-pass"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &targets.shadow_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..Default::default()
-            });
-            shadow_pass.set_bind_group(0, &shadow_camera_group, &[]);
             let fallback_material = MaterialData::default();
-            for batch in &batches {
-                let material = batch.material(scene, &fallback_material);
-                if material.translucent {
-                    continue;
+            for (layer, projection) in camera.shadow_view_projections.iter().enumerate() {
+                let mut shadow_camera = Vec::with_capacity(16);
+                for column in projection {
+                    shadow_camera.extend_from_slice(column);
                 }
-                self.draw_batch(
-                    &mut shadow_pass,
-                    settings,
-                    batch,
-                    material,
-                    &self.shadow_pipeline,
+                let shadow_camera_buffer = self.create_buffer(
+                    "lumark-shadow-camera",
+                    64,
+                    wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 );
+                self.queue
+                    .write_buffer(&shadow_camera_buffer, 0, &f32_bytes(&shadow_camera));
+                let shadow_camera_group =
+                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("lumark-shadow-camera"),
+                        layout: &self.shadow_camera_layout,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: shadow_camera_buffer.as_entire_binding(),
+                        }],
+                    });
+                let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("lumark-shadow-pass"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &targets.shadow_layer_views[layer],
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    ..Default::default()
+                });
+                shadow_pass.set_bind_group(0, &shadow_camera_group, &[]);
+                for batch in &batches {
+                    let material = batch.material(scene, &fallback_material);
+                    if material.translucent {
+                        continue;
+                    }
+                    self.draw_batch(
+                        &mut shadow_pass,
+                        settings,
+                        batch,
+                        material,
+                        &self.shadow_pipeline,
+                    );
+                }
             }
         }
         {
@@ -997,7 +1017,7 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Depth,
-                    view_dimension: wgpu::TextureViewDimension::D2,
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
                     multisampled: false,
                 },
                 count: None,
@@ -2007,8 +2027,10 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
         settings.snooper.fog.max_opacity,
         settings.snooper.fog.start_distance,
     ]);
-    for column in &camera.shadow_view_projection {
-        values.extend_from_slice(column);
+    for projection in &camera.shadow_view_projections {
+        for column in projection {
+            values.extend_from_slice(column);
+        }
     }
     values.extend_from_slice(&[
         if settings.snooper.shadows.enabled {
@@ -2020,6 +2042,7 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
         settings.snooper.shadows.softness,
         settings.snooper.shadows.normal_offset,
     ]);
+    values.extend_from_slice(&[camera.shadow_splits[0], camera.shadow_splits[1], 0.0, 0.0]);
     f32_bytes(&values)
 }
 
@@ -2318,7 +2341,9 @@ mod tests {
             wgpu::naga::valid::ValidationFlags::all(),
             wgpu::naga::valid::Capabilities::all(),
         );
-        validator.validate(&module).expect("校验 snooper_shadow.wgsl");
+        validator
+            .validate(&module)
+            .expect("校验 snooper_shadow.wgsl");
     }
     /// SSAO shader 必须通过解析/语义校验，uniform 长度与 WGSL 一致。
     #[test]

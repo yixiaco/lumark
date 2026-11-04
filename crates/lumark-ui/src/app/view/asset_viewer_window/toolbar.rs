@@ -189,6 +189,17 @@ impl AssetViewerWindowView {
                             cx.notify();
                         })),
                 )
+                .child(
+                    button("model-resolution-toggle")
+                        .ghost()
+                        .label(self.render_resolution.label())
+                        .tooltip(tr("切换查看器渲染分辨率", "Cycle render resolution"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.render_resolution = this.render_resolution.next();
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
             })
             .when(self.has_skin(), |this| {
                 this.child(

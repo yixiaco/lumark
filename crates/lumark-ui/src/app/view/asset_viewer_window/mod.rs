@@ -176,6 +176,8 @@ pub(crate) struct AssetViewerWindowView {
     show_grid: bool,
     /// 是否启用 Snooper 环境效果（雾/天空/地面/FXAA）
     snooper_effects: bool,
+    /// 查看器输出分辨率倍率
+    render_resolution: render::ViewerResolution,
     /// 是否显示骨骼线
     show_bones: bool,
     /// 最近一次渲染使用的后端标签
@@ -283,6 +285,7 @@ impl AssetViewerWindowView {
             // 3D 查看器默认显示地面网格（与 FModel 查看器一致）。
             show_grid: true,
             snooper_effects: true,
+            render_resolution: render::ViewerResolution::X15,
             show_bones: false,
             last_backend: None,
             last_stats: None,

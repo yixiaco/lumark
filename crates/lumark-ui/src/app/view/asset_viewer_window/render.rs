@@ -25,6 +25,39 @@ pub(super) const VIEWER_HEIGHT: u32 = 600;
 /// 材质球画面边宽（居中放入画布）。
 const MATERIAL_BALL_SIZE: u32 = 600;
 
+/// 查看器输出分辨率倍率（相对 900×600 逻辑画布）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ViewerResolution {
+    X1,
+    X15,
+    X2,
+}
+
+impl ViewerResolution {
+    pub(super) fn scale(self) -> f32 {
+        match self {
+            Self::X1 => 1.0,
+            Self::X15 => 1.5,
+            Self::X2 => 2.0,
+        }
+    }
+
+    pub(super) fn next(self) -> Self {
+        match self {
+            Self::X1 => Self::X15,
+            Self::X15 => Self::X2,
+            Self::X2 => Self::X1,
+        }
+    }
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::X1 => "1.0x",
+            Self::X15 => "1.5x",
+            Self::X2 => "2.0x",
+        }
+    }
+}
 /// 渲染画质档位：交互时便宜，静止后补一帧精细画面。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // Interactive 仅测试路径使用
@@ -119,7 +152,7 @@ impl AssetViewerWindowView {
             0.75
         } else {
             1.0
-        };
+        } * self.render_resolution.scale();
         let width = ((VIEWER_WIDTH as f32 * scale).round() as u32).max(16);
         let height = ((VIEWER_HEIGHT as f32 * scale).round() as u32).max(16);
         RenderSnapshot {

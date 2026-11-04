@@ -21,12 +21,14 @@ struct Camera {
     sky_lower: vec4<f32>,
     fog_color: vec4<f32>,
     fog_params: vec4<f32>,
-    shadow_view_proj: mat4x4<f32>,
+    shadow_view_proj_0: mat4x4<f32>,
+    shadow_view_proj_1: mat4x4<f32>,
     shadow_params: vec4<f32>,
+    shadow_splits: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var shadow_texture: texture_depth_2d;
+@group(0) @binding(1) var shadow_texture: texture_depth_2d_array;
 @group(0) @binding(2) var shadow_sampler: sampler_comparison;
 
 struct Material {
@@ -319,13 +321,22 @@ fn encode(color: vec3<f32>, alpha: f32) -> vec4<f32> {
     return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), clamp(alpha, 0.0, 1.0));
 }
 
-// 太阳阴影：正交阴影贴图 + 3x3 PCF，未启用时返回全亮。
+// 太阳阴影：两级联正交阴影贴图 + 3x3 PCF，未启用时返回全亮。
 fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     if (camera.shadow_params.x < 0.5) {
         return 1.0;
     }
     let position = world + normal * max(camera.shadow_params.w, 0.5);
-    let clip = camera.shadow_view_proj * vec4<f32>(position, 1.0);
+    let distance = length(camera.eye.xyz - world);
+    var clip: vec4<f32>;
+    var layer: i32;
+    if (distance < camera.shadow_splits.x) {
+        clip = camera.shadow_view_proj_0 * vec4<f32>(position, 1.0);
+        layer = 0;
+    } else {
+        clip = camera.shadow_view_proj_1 * vec4<f32>(position, 1.0);
+        layer = 1;
+    }
     if (clip.w <= 0.0) {
         return 1.0;
     }
@@ -343,6 +354,7 @@ fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
                 shadow_texture,
                 shadow_sampler,
                 uv + vec2<f32>(f32(x), f32(y)) * texel,
+                layer,
                 reference,
             );
         }

@@ -21,7 +21,8 @@ pub(crate) struct Camera {
     pub aspect: f32,
     pub near: f32,
     pub far: f32,
-    pub shadow_view_projection: Mat4,
+    pub shadow_view_projections: [Mat4; 2],
+    pub shadow_splits: [f32; 2],
 }
 
 impl Camera {
@@ -99,7 +100,11 @@ impl Camera {
             aspect,
             near,
             far,
-            shadow_view_projection: shadow_view_projection(&bounds, settings.key_direction),
+            shadow_view_projections: [
+                shadow_view_projection(&bounds, settings.key_direction),
+                shadow_view_projection_scaled(&bounds, settings.key_direction, 3.0),
+            ],
+            shadow_splits: [distance * 1.5, f32::MAX],
         }
     }
 
@@ -111,6 +116,15 @@ impl Camera {
 
 /// 覆盖场景包围盒的太阳阴影视图投影（正交，深度 0..1）。
 pub(crate) fn shadow_view_projection(bounds: &Bounds, light_direction: [f32; 3]) -> Mat4 {
+    shadow_view_projection_scaled(bounds, light_direction, 1.0)
+}
+
+/// 按级联范围缩放的正交阴影视图投影。
+pub(crate) fn shadow_view_projection_scaled(
+    bounds: &Bounds,
+    light_direction: [f32; 3],
+    extent_scale: f32,
+) -> Mat4 {
     let center = if bounds.is_empty() {
         [0.0; 3]
     } else {
@@ -120,7 +134,7 @@ pub(crate) fn shadow_view_projection(bounds: &Bounds, light_direction: [f32; 3])
         100.0
     } else {
         (bounds.extent() * 0.5).max(1.0)
-    };
+    } * extent_scale.max(0.1);
     let light = normalize(light_direction);
     let up = if dot(light, [0.0, 0.0, 1.0]).abs() > 0.99 {
         [0.0, 1.0, 0.0]

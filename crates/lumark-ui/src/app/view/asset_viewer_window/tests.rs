@@ -836,11 +836,14 @@ fn dragging_snapshot_uses_reduced_resolution() {
         },
     );
     let dragging = view.snapshot(super::render::RenderQuality::Dragging);
-    assert_eq!((dragging.width, dragging.height), (675, 450));
+    assert_eq!((dragging.width, dragging.height), (1013, 675));
     let settled = view.snapshot(super::render::RenderQuality::Settled);
     assert_eq!(
         (settled.width, settled.height),
-        (super::render::VIEWER_WIDTH, super::render::VIEWER_HEIGHT)
+        (
+            super::render::VIEWER_WIDTH * 3 / 2,
+            super::render::VIEWER_HEIGHT * 3 / 2
+        )
     );
 }
 /// 轨道拖拽方向与 FModel 一致：向右拖拽减小 yaw，向下拖拽抬高相机。
@@ -1190,8 +1193,8 @@ fn renders_real_nana_f6_2_viewer_frame_when_available() {
         image::save_buffer(
             &path,
             &rgba,
-            super::render::VIEWER_WIDTH,
-            super::render::VIEWER_HEIGHT,
+            super::render::VIEWER_WIDTH * 3 / 2,
+            super::render::VIEWER_HEIGHT * 3 / 2,
             image::ColorType::Rgba8,
         )
         .expect("写出查看器截图");
