@@ -323,7 +323,7 @@ fn add_snooper_ground(scene: &mut Scene) {
     let mesh = scene.add_mesh(mesh);
     let material = scene.add_material(lumark_scene::MaterialData {
         name: "SnooperGround".to_string(),
-        base_color: [0.035, 0.04, 0.045, 1.0],
+        base_color: [0.12, 0.13, 0.15, 1.0],
         roughness: 0.9,
         two_sided: true,
         ..lumark_scene::MaterialData::default()
