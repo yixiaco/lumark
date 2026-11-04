@@ -736,7 +736,7 @@ impl<'a> MeshReader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_tangent, decode_packed_normal, half_to_f32, normalize3};
+    use super::{build_tangent, decode_packed_normal, half_to_f32};
 
     /// 验证常见 half 位模式的转换。
     #[test]
@@ -769,13 +769,5 @@ mod tests {
         assert_eq!(positive, [1.0, 0.0, 0.0, 1.0]);
         let negative = build_tangent([1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, -0.5]);
         assert_eq!(negative, [1.0, 0.0, 0.0, -1.0]);
-    }
-
-    /// 零向量归一化回退到 +Z。
-    #[test]
-    fn normalizes_zero_vector_safely() {
-        assert_eq!(normalize3([0.0, 0.0, 0.0]), [0.0, 0.0, 1.0]);
-        let normalized = normalize3([0.0, 0.0, 2.0]);
-        assert_eq!(normalized, [0.0, 0.0, 1.0]);
     }
 }

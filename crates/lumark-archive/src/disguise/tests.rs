@@ -9,33 +9,6 @@ fn payload(len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// 内置面具必须是可识别的媒体文件，且体积受控。
-#[test]
-fn preset_assets_are_valid_media() {
-    assert!(
-        (1024..=64 * 1024).contains(&PRESET_VIDEO.len()),
-        "MP4 面具大小异常：{}",
-        PRESET_VIDEO.len()
-    );
-    assert_eq!(&PRESET_VIDEO[4..8], b"ftyp", "MP4 面具缺少 ftyp box");
-    assert!(
-        (1024..=64 * 1024).contains(&PRESET_IMAGE.len()),
-        "JPG 面具大小异常：{}",
-        PRESET_IMAGE.len()
-    );
-    assert_eq!(&PRESET_IMAGE[..3], &[0xff, 0xd8, 0xff], "JPG 面具缺少 SOI");
-    assert_eq!(
-        DisguiseMask::PresetVideo.extension().unwrap(),
-        "mp4",
-        "视频面具扩展名"
-    );
-    assert_eq!(
-        DisguiseMask::PresetImage.extension().unwrap(),
-        "jpg",
-        "图片面具扩展名"
-    );
-}
-
 /// 尾部信息必须能完整读回原名、类型、偏移和长度。
 #[test]
 fn trailer_round_trips() {

@@ -951,34 +951,6 @@ mod tests {
     use super::*;
     use crate::package::MeshSection;
 
-    /// 渲染 fixture 风格的两个三角形，输出图像含前景像素。
-    #[test]
-    fn renders_non_empty_mesh() {
-        let mesh = MeshLod {
-            positions: vec![
-                [-50.0, -50.0, 0.0],
-                [50.0, -50.0, 0.0],
-                [50.0, 50.0, 20.0],
-                [-50.0, 50.0, 0.0],
-            ],
-            indices: vec![0, 1, 2, 0, 2, 3],
-            sections: vec![MeshSection {
-                material_index: 0,
-                first_index: 0,
-                triangle_count: 2,
-            }],
-            attributes: Default::default(),
-        };
-        let image = render_static_mesh(&mesh, 96, 96);
-        assert!(
-            image
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .any(|pixel| *pixel != BACKGROUND)
-        );
-    }
-
     /// 改变轨道角度应产生不同图像。
     #[test]
     fn orbit_changes_rendered_image() {

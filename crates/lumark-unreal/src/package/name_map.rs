@@ -62,8 +62,14 @@ impl NameMap {
         let mut names = Vec::with_capacity(count);
         for length in lengths {
             let name = if length < 0 {
-                let units = i16::MIN - length;
-                let bytes = read_bytes(cursor, units as usize * 2)?;
+                // UTF-16 名称的长度存成 `i16::MIN + 码元数`；减去 `i16::MIN`
+                // 得到负数形式的码元数，再取绝对值。直接在 i16 上转 usize 会
+                // 把负数变成巨大值，必须保持符号再取绝对值。
+                let units = (i16::MIN - length).unsigned_abs() as usize;
+                let byte_length = units
+                    .checked_mul(2)
+                    .ok_or_else(|| invalid("Zen UTF-16 名称长度溢出"))?;
+                let bytes = read_bytes(cursor, byte_length)?;
                 let units = bytes
                     .as_chunks::<2>()
                     .0
@@ -118,5 +124,32 @@ impl NameMap {
     /// 按索引返回名称。
     pub(crate) fn name_at(&self, index: usize) -> Option<&str> {
         self.names.get(index).map(String::as_str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::NameMap;
+
+    /// 负长度表示 UTF-16 名称，必须按绝对值读取且不能触发乘法溢出。
+    #[test]
+    fn reads_utf16_name_lengths() {
+        let name = "测试";
+        let units = name.encode_utf16().collect::<Vec<_>>();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&((units.len() * 2) as u32).to_le_bytes());
+        bytes.extend_from_slice(&0xC164_0000u64.to_le_bytes());
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        bytes.extend_from_slice(&(i16::MIN + units.len() as i16).to_be_bytes());
+        for unit in units {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+
+        let mut cursor = Cursor::new(bytes.as_slice());
+        let names = NameMap::read(&mut cursor).expect("UTF-16 名称应能读取");
+        assert_eq!(names.name_at(0), Some(name));
     }
 }

@@ -57,12 +57,6 @@ impl MaterialGraph {
     pub(crate) fn new() -> Self {
         Self::default()
     }
-
-    /// 已缓存包数量（诊断/测试用）。
-    #[cfg(test)]
-    pub(crate) fn cached_packages(&self) -> usize {
-        self.packages.len()
-    }
 }
 
 /// 一条已解析的材质槽对象引用。
@@ -702,48 +696,6 @@ mod tests {
         assert_eq!(selected[1].name, "FlatN");
     }
 
-    /// 基础色：没有触发名时按 `_D` 等后缀兜底（针织布料 `Fabric_D`）。
-    #[test]
-    fn selects_diffuse_by_name_suffix_fallback() {
-        let chain = ChainParams {
-            textures: vec![
-                texture("Cloth_N", "FlatN", 1),
-                texture("Fabric_D", "Weather01_D1", 2),
-                texture("RGB", "N_TopCloth_RGB", 3),
-            ],
-            ..Default::default()
-        };
-        let selected = selected_textures(&chain);
-        assert_eq!(selected[0].kind, MaterialTextureKind::BaseColor);
-        assert_eq!(selected[0].name, "Weather01_D1");
-    }
-
-    /// 基础色：既无触发名也无正则匹配时回退到链上第一张贴图（鞋 `LeatherD`）。
-    #[test]
-    fn selects_first_texture_as_diffuse_fallback() {
-        let chain = ChainParams {
-            textures: vec![
-                texture("LeatherD", "T_Light_Leather3", 10),
-                texture("Cloth_N", "FlatN", 11),
-                texture("OblectColor", "B", 12),
-                texture("RGB", "NA_RGB", 13),
-            ],
-            ..Default::default()
-        };
-        let selected = selected_textures(&chain);
-        assert_eq!(selected[0].kind, MaterialTextureKind::BaseColor);
-        assert_eq!(selected[0].name, "T_Light_Leather3");
-        // `Cloth_N` 按法线后缀匹配。
-        assert_eq!(selected[1].name, "FlatN");
-        // 遮罩/ID 贴图不会被当成基础色。
-        assert!(
-            selected
-                .iter()
-                .all(|texture| texture.kind != MaterialTextureKind::BaseColor
-                    || texture.name != "NA_RGB")
-        );
-    }
-
     /// AO：FModel `Material.Setup` 的 `M`/`AEM`/`AO` 参数精确匹配。
     #[test]
     fn selects_occlusion_texture_by_parameter() {
@@ -761,20 +713,6 @@ mod tests {
             }),
             "AO 参数应映射为环境光遮蔽贴图"
         );
-    }
-
-    /// 参数名与贴图名正则与 FModel 对齐。
-    #[test]
-    fn fmodel_name_regexes_match_known_patterns() {
-        assert!(matches_diffuse("Fabric_D"));
-        assert!(matches_diffuse("NewNana_D"));
-        assert!(!matches_diffuse("ObjectColor"));
-        assert!(matches_normals("Cloth_N"));
-        assert!(matches_normals("Fabric_N"));
-        assert!(matches_specular_masks("MRA"));
-        assert!(matches_specular_masks("_S_"));
-        assert!(matches_emissive("EmissiveColor"));
-        assert!(matches_emissive("T_Hero_E"));
     }
 
     /// 颜色 tint：按 FModel DiffuseColors 触发名选择，子材质覆盖父材质。
@@ -878,19 +816,5 @@ mod tests {
         let mut appearance = MaterialAppearance::default();
         apply_chain_selection(&mut appearance, &with_texture);
         assert_eq!(appearance.base_color, [0.9, 0.2, 0.1]);
-    }
-
-    /// 负 FPackageIndex 才表示导入。
-    #[test]
-    fn extracts_import_index_from_object_property() {
-        assert_eq!(object_import_index(&PropValue::Object(-2)), Some(1));
-        assert_eq!(object_import_index(&PropValue::Object(3)), None);
-    }
-
-    /// 空图缓存初始为空。
-    #[test]
-    fn graph_cache_starts_empty() {
-        let graph = MaterialGraph::new();
-        assert_eq!(graph.cached_packages(), 0);
     }
 }

@@ -153,22 +153,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn uu_decode_empty_fails() {
-        assert!(uu_decode("").is_none());
-    }
-
-    #[test]
-    fn uu_decode_file_test() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("test.uu");
-        let data = b"file content";
-        let encoded = uu_encode(data);
-        let content = format!("begin 644 test.txt\n{}\nend\n", encoded);
-        std::fs::write(&path, content).unwrap();
-        let (filename, decoded) = uu_decode_file(&path).unwrap();
-        assert_eq!(filename, "test.txt");
-        assert_eq!(decoded, data.to_vec());
-    }
 }

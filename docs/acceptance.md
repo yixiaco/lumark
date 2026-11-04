@@ -33,14 +33,15 @@ cargo build --release --locked -p lumark-app -p lumark-sfx
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo check --workspace --all-targets --locked
-cargo test --workspace --lib
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test_workspace.ps1
 ```
 
-关键测试（`cargo test --workspace -j 2 -- --test-threads=1`，2026-11-04）：
+关键测试（`powershell -NoProfile -ExecutionPolicy Bypass -File tools/test_workspace.ps1`，2026-11-04）：
 
-- **74 个测试目标、801 个测试通过、0 失败**；
-- 其中 `lumark-ui` 206、`lumark-unreal` 93、`lumark-render` 49（CPU + GPU，无 GPU 时自动跳过）、`lumark-archive` 67；
-- 另有示例诊断脚本不参与计数；构建/测试默认使用低并行度（`-j 2`、`--test-threads=1`），避免占用整机 CPU。
+- **74 个测试目标、680 个测试通过、0 失败**；
+- 其中 `lumark-ui` 187、`lumark-unreal` 93、`lumark-render` 43（CPU + GPU，无 GPU 时自动跳过）、`lumark-archive` 192（含集成测试）；
+- 另有示例诊断脚本不参与计数；默认构建并发已限制为 4，低内存验证使用 `-j 2 --test-threads=1`；开发/测试配置只保留工作区代码的行号表，第三方依赖不生成完整 debug 信息，避免 MSVC 链接阶段占用十余 GiB；
+- 构建内存实测：`link.exe` 峰值从 5.48 GiB 降到 2.18 GiB，构建总工作集从 8.32 GiB 降到 2.72 GiB；`lumark-ui` 测试 PDB 从 1.0 GiB 降到 210 MiB，分页文件不再持续增长。
 
 ### 实机样本
 

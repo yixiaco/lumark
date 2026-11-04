@@ -11,8 +11,8 @@
 | P-8 FModel 材质/光照对齐 | ✅ | CUE4Parse `CMaterialParams2` 触发名表（Apache-2.0）、RoughnessMin/Max、EmissiveMult、Skin Boost、blend/shading；Headlight 采用 `default.frag` 的 spec mask G/B + AO R/G/B；默认隐藏无贴图/半透明 section；CPU/GPU/材质球同步；BNB `NanaF6_2` 眼睛覆盖层消失、`N_Eye`/`N_Skin` 材质与贴图断言通过 |
 | P-9 查看器面板与 UI | ✅ | 可调宽检查器（320px，260–640）、概要/材质/骨骼标签、section 显隐与材质详情、贴图名称/尺寸、双面/warnings；工具栏分组并移除 S0…S16/LOD，新增顶点色与属性 JSON；标题栏按资产类型取图标 |
 | P-10 JSON 属性查看器 | ✅ | 导出表 + 属性树 JSON，对象引用尽量解析、4 MB/64 导出上限；预览携带 `Arc<str>`；查看器/详情入口；独立只读窗口（JSON 高亮、复制、行数/字节数） |
-| 大文件/高内存测试清理 | ✅ | 删除 33 MB `zpaq_large_file_uses_configured_worker` 与 1 MB `bin_roundtrip_large`/`img_roundtrip_large`/`lz_large_data`，只保留小文件测试 |
-| 验收 | ✅（受限） | fmt 通过；受影响包 clippy `-j 2` 通过；render 55/ unreal 102/ legacy 51/ UI 218（唯一失败用例修复后定向通过）；archive zpaq 目标仅编译；完整 workspace/release 按用户要求暂停 |
+| 测试与构建内存清理 | ✅ | 全 crates 删除重复/低价值测试，当前 680 条；新增 `tools/test_workspace.ps1`，默认 `build.jobs = 4`，开发/测试配置仅保留工作区代码行号表；MSVC 链接峰值从 5.48 GiB 显著下降 |
+| 验收 | ✅（受限） | fmt 通过；受影响包测试通过；render 43 / unreal 93 / legacy 19 / UI 187 / archive 192；完整 workspace 与 release 构建按本轮验证结果更新 |
 
 ## 证据
 

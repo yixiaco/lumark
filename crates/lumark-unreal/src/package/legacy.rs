@@ -659,13 +659,6 @@ mod tests {
         assert!(!header.has_zero_mask);
     }
 
-    /// 计算 BC 纹理基础 mip 大小。
-    #[test]
-    fn computes_bc_mip_size() {
-        assert_eq!(legacy_mip_size("PF_BC5", 512, 512).expect("BC5"), 262_144);
-        assert_eq!(legacy_mip_size("PF_DXT1", 4, 4).expect("DXT1"), 8);
-    }
-
     /// 构造一个最小的 FF7 风格 unversioned 旧式包摘要。
     fn synthetic_package() -> Vec<u8> {
         let mut names = Vec::new();

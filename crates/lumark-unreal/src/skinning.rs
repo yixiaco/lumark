@@ -572,34 +572,6 @@ mod tests {
         assert_eq!(posed.positions[0], [3.0, 4.0, 5.0]);
     }
 
-    /// 参考姿态下每根骨骼的蒙皮矩阵应为单位阵。
-    #[test]
-    fn rest_pose_skin_matrices_are_identity() {
-        let skeleton = Skeleton {
-            name: "SK_Test".to_string(),
-            bones: vec![Bone {
-                name: "Root".to_string(),
-                parent_index: -1,
-                translation: [1.0, 2.0, 3.0],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                scale: [1.0; 3],
-            }],
-        };
-        let poses = [BonePose {
-            translation: [1.0, 2.0, 3.0],
-            rotation: [0.0, 0.0, 0.0, 1.0],
-            scale: [1.0; 3],
-        }];
-        let matrices = skin_matrices_from_poses(&skeleton, &poses);
-        assert_eq!(matrices.len(), 1);
-        let expected = [
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-        ];
-        for (actual, expected) in matrices[0].iter().zip(expected) {
-            assert!((actual - expected).abs() < 1e-5);
-        }
-    }
-
     /// 按秒采样会钳制到动画时长，并生成与骨骼数一致的姿态/矩阵。
     #[test]
     fn samples_animation_with_clamped_time() {

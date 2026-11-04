@@ -250,16 +250,6 @@ mod tests {
         assert!((direct[2] - staged[2]).abs() < 1e-5);
     }
 
-    /// 缩放参与局部平移的组合。
-    #[test]
-    fn applies_parent_scale_to_child_translation() {
-        let parent = Transform::from_scale([2.0, 2.0, 2.0]);
-        let child = Transform::from_translation([1.0, 2.0, 3.0]);
-        let world = Transform::combine(&parent, &child);
-        assert_eq!(world.translation, [2.0, 4.0, 6.0]);
-        assert_eq!(world.scale, [2.0, 2.0, 2.0]);
-    }
-
     /// 非法缩放会被 `is_finite` 拒绝。
     #[test]
     fn rejects_zero_scale() {

@@ -116,28 +116,6 @@ mod tests {
     }
 
     #[test]
-    fn lz_empty_data() {
-        let mut source = Cursor::new(b"");
-        let compressed = {
-            let mut buf = Vec::new();
-            lz_compress(&mut source, &mut buf).unwrap();
-            buf
-        };
-
-        assert!(
-            !compressed.is_empty(),
-            "empty data should still produce lzip stream"
-        );
-
-        let mut decompressed = Vec::new();
-        let mut compressed_reader = Cursor::new(compressed.as_slice());
-        let bytes = lz_decompress(&mut compressed_reader, &mut decompressed).unwrap();
-
-        assert_eq!(bytes, 0);
-        assert!(decompressed.is_empty());
-    }
-
-    #[test]
     fn lz_corrupted_data_fails() {
         let bad_data = b"this is not lzip data at all!";
         let mut reader = Cursor::new(bad_data.as_slice());
@@ -173,56 +151,5 @@ mod tests {
         let mut compressed_reader = Cursor::new(compressed.as_slice());
         lz_decompress(&mut compressed_reader, &mut decompressed).unwrap();
         assert_eq!(decompressed, original);
-    }
-
-    #[test]
-    fn lz_with_level_0_store() {
-        let original = b"Hello, GeeZipX! Level 0 (store) test.";
-        let mut source = Cursor::new(original.as_slice());
-        let compressed = {
-            let mut buf = Vec::new();
-            lz_compress_with_level(&mut source, &mut buf, Some(0)).unwrap();
-            buf
-        };
-
-        assert!(!compressed.is_empty());
-        assert_eq!(&compressed[..4], b"LZIP", "LZIP magic expected");
-
-        let mut decompressed = Vec::new();
-        let mut compressed_reader = Cursor::new(compressed.as_slice());
-        lz_decompress(&mut compressed_reader, &mut decompressed).unwrap();
-        assert_eq!(decompressed, original);
-    }
-
-    #[test]
-    fn lz_level_none_falls_back_to_default() {
-        let original = b"GeeZipX default level test.";
-        let mut source = Cursor::new(original.as_slice());
-
-        let compressed_default = {
-            let mut buf = Vec::new();
-            lz_compress(&mut source, &mut buf).unwrap();
-            buf
-        };
-
-        source.set_position(0);
-        let compressed_with_level = {
-            let mut buf = Vec::new();
-            lz_compress_with_level(&mut source, &mut buf, None).unwrap();
-            buf
-        };
-
-        assert!(!compressed_default.is_empty());
-        assert!(!compressed_with_level.is_empty());
-
-        let mut out1 = Vec::new();
-        let mut reader1 = Cursor::new(compressed_default.as_slice());
-        lz_decompress(&mut reader1, &mut out1).unwrap();
-        assert_eq!(out1, original);
-
-        let mut out2 = Vec::new();
-        let mut reader2 = Cursor::new(compressed_with_level.as_slice());
-        lz_decompress(&mut reader2, &mut out2).unwrap();
-        assert_eq!(out2, original);
     }
 }

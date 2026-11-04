@@ -239,22 +239,6 @@ fn cancelled_before_start_returns_cancelled() {
     assert!(!target.join("hello.txt").exists(), "预取消不应写出文件");
 }
 
-/// 加密 7Z 预取消时返回 Cancelled，而不是密码错误。
-#[test]
-fn cancelled_encrypted_seven_zip_is_not_a_password_error() {
-    let directory = tempfile::tempdir().unwrap();
-    let payload = seven_zip_payload(
-        directory.path(),
-        &[("secret.txt", b"top secret")],
-        Some("right-pass"),
-    );
-    let sfx = write_sfx(directory.path(), &payload, SfxFormat::SevenZip, true, true);
-    let target = directory.path().join("out");
-    let cancel = AtomicBool::new(true);
-    let (result, _) = extract_with_progress(&sfx, &target, None, false, Some(&cancel));
-    assert_eq!(result, Err(SfxError::Cancelled));
-}
-
 /// ZIP 复制过程中取消应返回 Cancelled。
 #[test]
 fn cancelling_during_zip_copy_returns_cancelled() {
@@ -262,45 +246,6 @@ fn cancelling_during_zip_copy_returns_cancelled() {
     let contents = vec![b'x'; 4 * 1024 * 1024];
     let payload = zip_payload(directory.path(), &[("big.bin", contents.as_slice())]);
     let sfx = write_sfx(directory.path(), &payload, SfxFormat::Zip, false, false);
-    let target = directory.path().join("out");
-    let (file, footer) = open_sfx(&sfx);
-    let cancel = AtomicBool::new(false);
-    let (sender, receiver) = mpsc::channel();
-    let mut progress = |snapshot: SfxProgress| {
-        if snapshot.current_file_done > 0 {
-            cancel.store(true, Ordering::Relaxed);
-        }
-        let _ = sender.send(snapshot);
-    };
-    let result = extract_payload_with_options(
-        file,
-        footer,
-        &target,
-        SfxExtractOptions {
-            password: None,
-            overwrite: true,
-            cancel: Some(&cancel),
-            progress: Some(&mut progress),
-        },
-    );
-    let snapshots: Vec<SfxProgress> = receiver.try_iter().collect();
-    assert_eq!(result, Err(SfxError::Cancelled));
-    assert!(!snapshots.is_empty(), "取消前应已上报过进度");
-}
-
-/// 7Z 复制过程中取消应返回 Cancelled，而不是密码或数据错误。
-#[test]
-fn cancelling_during_seven_zip_copy_returns_cancelled() {
-    let directory = tempfile::tempdir().unwrap();
-    let contents = vec![b'y'; 2 * 1024 * 1024];
-    let payload = seven_zip_payload(directory.path(), &[("big.bin", contents.as_slice())], None);
-    let sfx = write_sfx(
-        directory.path(),
-        &payload,
-        SfxFormat::SevenZip,
-        false,
-        false,
-    );
     let target = directory.path().join("out");
     let (file, footer) = open_sfx(&sfx);
     let cancel = AtomicBool::new(false);

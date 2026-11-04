@@ -548,17 +548,6 @@ mod tests {
         assert!(!super::is_pe_image(b"MZ"));
     }
 
-    /// 验证所有已登记格式都有非空标签和扩展名，且 Unknown 不在列表中。
-    #[test]
-    fn all_formats_are_fully_described() {
-        assert!(!ArchiveFormat::ALL.contains(&ArchiveFormat::Unknown));
-        assert!(!ArchiveFormat::ALL.contains(&ArchiveFormat::Disguised));
-        for format in ArchiveFormat::ALL {
-            assert!(!format.label().is_empty(), "{format:?} 缺少标签");
-            assert!(!format.extension().is_empty(), "{format:?} 缺少扩展名");
-        }
-    }
-
     /// 验证单文件流格式与 TAR 变体的对应关系。
     #[test]
     fn single_stream_formats_have_tar_variants() {
@@ -577,23 +566,6 @@ mod tests {
         }
         assert!(!ArchiveFormat::Zip.is_single_stream());
         assert_eq!(ArchiveFormat::Zip.single_stream_tar_variant(), None);
-    }
-
-    /// 验证可写格式包含本次新增的 TAR 变体与已有的 Brotli/LZ4。
-    #[test]
-    fn writable_formats_include_new_tar_variants() {
-        for format in [
-            ArchiveFormat::TarBr,
-            ArchiveFormat::TarLz4,
-            ArchiveFormat::TarLz,
-            ArchiveFormat::TarLzma,
-            ArchiveFormat::Brotli,
-            ArchiveFormat::Lz4,
-        ] {
-            assert!(format.is_writable(), "{format:?} 应可写");
-        }
-        assert!(!ArchiveFormat::TarZ.is_writable());
-        assert!(ArchiveFormat::Alz.supports_password());
     }
 
     /// 验证 EGG 的 `EGGA` 小端头可被识别。

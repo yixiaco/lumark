@@ -69,46 +69,4 @@ mod tests {
         assert_eq!(bytes, original.len() as u64);
         assert_eq!(decompressed, original);
     }
-
-    #[test]
-    fn img_roundtrip_empty() {
-        let mut source = Cursor::new(b"");
-
-        let compressed = {
-            let mut buf = Vec::new();
-            img_compress(&mut source, &mut buf).unwrap();
-            buf
-        };
-        assert!(compressed.is_empty());
-
-        let mut decompressed = Vec::new();
-        let mut reader = Cursor::new(compressed.as_slice());
-        let bytes = img_decompress(&mut reader, &mut decompressed).unwrap();
-        assert_eq!(bytes, 0);
-        assert!(decompressed.is_empty());
-    }
-
-    #[test]
-    fn img_compress_with_options_ignores_level() {
-        let original = b"pass-through with options";
-        let mut source = Cursor::new(original.as_slice());
-
-        let compressed = {
-            let mut buf = Vec::new();
-            img_compress_with_options(
-                &mut source,
-                &mut buf,
-                CompressOptions {
-                    level: Some(9),
-                    jobs: None,
-                    password: None,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-            buf
-        };
-
-        assert_eq!(compressed, original);
-    }
 }

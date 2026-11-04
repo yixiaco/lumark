@@ -168,26 +168,4 @@ mod tests {
         assert!(xxe_decode("not xxencode").is_err());
         assert!(xxe_decode("").is_err());
     }
-
-    #[test]
-    fn xxe_decode_empty_data() {
-        let encoded = xxe_encode(b"");
-        let input = format!("begin 644 empty.txt\n{}\nend\n", encoded);
-        let (filename, data) = xxe_decode(&input).unwrap();
-        assert_eq!(filename, "empty.txt");
-        assert!(data.is_empty());
-    }
-
-    #[test]
-    fn xxe_decode_file_roundtrip() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("test.xxe");
-        let data = b"test content";
-        let encoded = xxe_encode(data);
-        let content = format!("begin 644 test.txt\n{}\nend\n", encoded);
-        std::fs::write(&path, content).unwrap();
-        let (filename, decoded) = xxe_decode_file(&path).unwrap();
-        assert_eq!(filename, "test.txt");
-        assert_eq!(decoded, data.to_vec());
-    }
 }

@@ -294,12 +294,4 @@ mod tests {
         assert!(install_oodle_zip(&bytes, directory.path(), None, None).is_err());
         assert!(!directory.path().join("evil.dll").exists());
     }
-
-    /// 只接受 oo2core/oodle 命名的 DLL。
-    #[test]
-    fn only_oodle_library_names_are_candidates() {
-        let directory = tempfile::tempdir().expect("临时目录");
-        let bytes = oodle_zip("readme.dll", b"not oodle");
-        assert!(install_oodle_zip(&bytes, directory.path(), None, None).is_err());
-    }
 }

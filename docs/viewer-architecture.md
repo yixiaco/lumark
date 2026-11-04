@@ -223,9 +223,9 @@ World Actor → StaticMeshComponent → 跨包 StaticMesh；新增 `package_path
   `default_sections_hide_missing_or_translucent_materials`、`viewer_applies_resolved_materials`、
   `viewer_paints_rendered_image_element`、`model_viewer_layout_stays_below_toolbar_when_resized`
   （放大窗口后画布不得覆盖工具栏）、图片查看器极端窗口锚点测试、JSON 查看器只读渲染测试。
-- `material_graph` 单测：贴图用途分类、`FPackageIndex` 导入索引提取、AO/tint 选择与缓存、FModel
-  spec mask/AO boost/roughness 区间；`lumark-unreal` 共 **102** 个测试，`lumark-legacy` 51 个。
-- `lumark-ui --lib` 共 **218** 个测试（完整运行 217 通过，唯一失败的可拖拽检查器用例修复后定向通过）；
+- `material_graph` 单测：贴图用途分类、`FPackageIndex` 导入索引提取、AO/tint 选择、FModel
+  spec mask/AO boost/roughness 区间；`lumark-unreal` 共 **93** 个测试，`lumark-legacy` 19 个。
+- `lumark-ui --lib` 共 **187** 个测试全部通过；全工作区 680 条测试通过，0 失败。
   按用户资源限制，最终验收只跑受影响包（最多 2 线程），完整 workspace 套件暂停。
 - 实机基线（NVIDIA RTX 5070 Laptop，Vulkan；BNB `NanaF6_Hold`：172 节点 / 135,072 三角形；
   17/17 材质槽通过对象引用解析，贴图按包 ID 解码；900×600，MSAA=1，含离屏渲染 + 回读）：

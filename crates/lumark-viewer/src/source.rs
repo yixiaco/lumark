@@ -137,29 +137,19 @@ pub fn classify_content(bytes: &[u8], path: &Path) -> ContentKind {
 mod tests {
     use super::*;
 
+    /// 空内容/UTF-8 为文本，NUL 为二进制，PE 魔数优先识别为 PE。
     #[test]
-    fn empty_is_text() {
+    fn classifies_content_kinds() {
         assert_eq!(classify_content(&[], Path::new("empty")), ContentKind::Text);
-    }
-
-    #[test]
-    fn nul_is_binary() {
         assert_eq!(
             classify_content(b"hello\0world", Path::new("bin")),
             ContentKind::Binary
         );
-    }
-
-    #[test]
-    fn utf8_is_text() {
         assert_eq!(
             classify_content("你好，Lumark".as_bytes(), Path::new("a.txt")),
             ContentKind::Text
         );
-    }
 
-    #[test]
-    fn pe_magic_is_pe() {
         let mut bytes = vec![0u8; 0x100];
         bytes[..2].copy_from_slice(b"MZ");
         bytes[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());

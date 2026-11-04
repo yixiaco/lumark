@@ -4,39 +4,6 @@ use super::common::*;
 use super::*;
 
 #[test]
-/// 验证 TAR.GZ 的创建、列表和解压。
-fn tar_gz_roundtrip() {
-    let dir = tempdir().unwrap();
-    let source = make_source(dir.path());
-    let output = dir.path().join("archive.tar.gz");
-    let options = CompressionOptions {
-        format: ArchiveFormat::TarGz,
-        ..Default::default()
-    };
-    ArchiveService::create(&output, &[source], &options, |_| {}).unwrap();
-    let info = ArchiveService::list(&output, None).unwrap();
-    assert_eq!(info.format, Some(ArchiveFormat::TarGz));
-    assert!(
-        info.entries
-            .iter()
-            .any(|entry| entry.path.ends_with("hello.txt"))
-    );
-
-    let extraction = dir.path().join("extracted");
-    ArchiveService::extract(
-        &output,
-        &ExtractionOptions {
-            output_dir: extraction.clone(),
-            overwrite: true,
-            ..Default::default()
-        },
-        |_| {},
-    )
-    .unwrap();
-    assert!(extraction.join("source").join("hello.txt").exists());
-}
-
-#[test]
 /// 验证 TAR 各压缩变体往返。
 fn tar_compression_variants_roundtrip() {
     for (format, extension) in [

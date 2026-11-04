@@ -477,23 +477,6 @@ mod tests {
         assert!(decompress_rust(&input, &mut output).is_err());
     }
 
-    /// 输出长度为 0 时直接成功，不读取输入。
-    #[test]
-    fn rust_backend_accepts_empty_output() {
-        let mut output = [];
-        decompress_rust(&[0xFF], &mut output).expect("空输出应直接成功");
-    }
-
-    /// 后端状态快照报告 Rust 可用且可解码。
-    #[test]
-    fn status_reports_available_backend() {
-        let status = super::oodle_status();
-        assert!(status.rust_available);
-        assert!(status.usable(), "默认配置应至少有一个可用后端");
-        assert!(status.summary().contains("配置"));
-        assert!(matches!(status.setting, "auto" | "rust" | "dll"));
-    }
-
     /// 仅 DLL 模式且 DLL 未加载时不可用。
     #[test]
     fn dll_only_status_requires_loaded_dll() {

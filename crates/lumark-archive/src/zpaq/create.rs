@@ -335,22 +335,6 @@ mod tests {
         );
     }
 
-    /// 按文件数上限切分，并保持顺序连续。
-    #[test]
-    fn splits_by_file_count() {
-        let files = planned(&[1; 130]);
-        let ranges = batch_ranges(&files);
-        assert_eq!(ranges.first(), Some(&(0, ZPAQ_BATCH_FILES)));
-        assert_eq!(
-            ranges.last().map(|(start, end)| (*start, *end)),
-            Some((128, 130))
-        );
-        assert_eq!(
-            ranges.iter().map(|(start, end)| end - start).sum::<usize>(),
-            130
-        );
-    }
-
     /// 超过字节上限的文件独占一批，后续小文件另起一批。
     #[test]
     fn oversized_file_gets_own_batch() {

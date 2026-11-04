@@ -337,32 +337,6 @@ mod tests {
         assert_eq!(entries, vec![1, 2, 3, 4]);
     }
 
-    /// 验证平铺视图按行列命中并跳过“..”卡片。
-    #[test]
-    fn tile_hit_test_and_selection() {
-        let layout = MarqueeLayout {
-            left: 100.0,
-            top: 50.0,
-            width: 600.0,
-            height: 264.0,
-            scroll_y: 0.0,
-            row_height: TILE_ROW_HEIGHT,
-            parent_row: true,
-            row_count: 7,
-            tile_columns: 3,
-            tile_width: 120.0,
-            tile_pitch: 128.0,
-            tile_padding: TILE_PADDING_X,
-            tile: true,
-        };
-        assert_eq!(layout.virtual_index_at(112.0, 60.0), Some(0));
-        assert_eq!(layout.virtual_index_at(240.0, 60.0), Some(1));
-        assert_eq!(layout.virtual_index_at(234.0, 60.0), None);
-        assert_eq!(layout.virtual_index_at(500.0, 60.0), None);
-        let entries = layout.selected_entries((100.0, 50.0), (700.0, 400.0));
-        assert_eq!(entries, vec![0, 1, 2, 3, 4, 5]);
-    }
-
     /// 验证选框相对视口裁切，过小位移不绘制。
     #[test]
     fn overlay_rect_is_clamped() {

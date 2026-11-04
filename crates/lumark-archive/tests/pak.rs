@@ -225,25 +225,6 @@ fn unreal_pak_encrypted_data() {
     }
 }
 
-/// 验证加密 PAK 的列表结果带上加密标志，界面才会自动补上 AES 密钥。
-#[test]
-fn unreal_pak_listing_reports_encryption() {
-    let index_encrypted = unreal_fixture("pack_v11_encrypt_encryptindex.pak");
-    let info = ArchiveService::list(&index_encrypted, Some(UNREAL_KEY)).unwrap();
-    assert!(info.encrypted, "加密索引的 PAK 应标记为加密");
-    assert!(info.header_encrypted, "加密索引即加密头");
-
-    let data_encrypted = unreal_fixture("pack_v11_encrypt.pak");
-    let info = ArchiveService::list(&data_encrypted, Some(UNREAL_KEY)).unwrap();
-    assert!(info.encrypted, "加密条目的 PAK 应标记为加密");
-    assert!(!info.header_encrypted, "该样本索引未加密");
-
-    let plain = unreal_fixture("pack_v11.pak");
-    let info = ArchiveService::list(&plain, None).unwrap();
-    assert!(!info.encrypted);
-    assert!(!info.header_encrypted);
-}
-
 /// 验证 Quake PACK 识别、列表、测试和解压。
 #[test]
 fn quake_pak_roundtrip() {

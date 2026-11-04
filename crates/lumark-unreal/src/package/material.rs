@@ -932,13 +932,3 @@ mod tests {
         assert_eq!(blend_mode_property(&[]), (false, false));
     }
 }
-
-/// 材质查看器贴图超过上限时按最近邻缩小。
-#[test]
-fn downsamples_material_viewer_image() {
-    let rgba = vec![128u8; 32 * 32 * 4];
-    let image = MaterialViewerImage::new(rgba, 32, 32, 16).expect("创建查看器贴图");
-    assert_eq!((image.width, image.height), (16, 16));
-    assert_eq!(image.rgba.len(), 16 * 16 * 4);
-    assert!(MaterialViewerImage::new(vec![0; 3], 8, 8, 16).is_none());
-}

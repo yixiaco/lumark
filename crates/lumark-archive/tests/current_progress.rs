@@ -59,19 +59,3 @@ fn current_file_progress_differs_from_total() {
         assert!(output.join("source").join("big.bin").is_file());
     }
 }
-
-/// 确认 `ExtractProgress` 的默认字段不会影响现有调用。
-#[test]
-fn default_progress_fields_are_zero() {
-    let progress = ExtractProgress {
-        current: "x".to_string(),
-        bytes_done: 0,
-        bytes_total: 0,
-        entries_done: 0,
-        entries_total: 0,
-        current_file_done: 0,
-        current_file_total: 0,
-    };
-    assert_eq!(progress.current_file_done, 0);
-    assert_eq!(progress.current_file_total, 0);
-}

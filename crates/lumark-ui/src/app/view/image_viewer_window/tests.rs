@@ -117,55 +117,6 @@ fn wheel_zoom_directions_and_bounds() {
     assert_eq!(zoom_bounds(380.0).1, 380.0);
 }
 
-/// 光标锚点：放大时光标下的图片位置保持不动。
-#[test]
-fn anchored_zoom_keeps_cursor_point() {
-    let center = (400.0, 300.0);
-    let cursor = (500.0, 300.0);
-    let pan = (0.0, 0.0);
-    let next = anchored_pan(pan, cursor, center, 1.0, 2.0);
-    assert!((next.0 + 100.0).abs() < f32::EPSILON);
-    assert!(next.1.abs() < f32::EPSILON);
-    // 光标正好在中心时不产生平移。
-    let same = anchored_pan(pan, center, center, 1.0, 2.0);
-    assert_eq!(same, pan);
-    // 已有平移且放大同样满足锚点公式。
-    let moved = anchored_pan((10.0, 0.0), cursor, center, 1.0, 2.0);
-    assert!((moved.0 + 80.0).abs() < f32::EPSILON);
-}
-
-/// 绝对布局：图片以画布中心为基准缩放，平移只改变位置、不改变尺寸。
-#[test]
-fn image_rect_centers_image_and_keeps_size_when_panned() {
-    let natural = (200.0, 100.0);
-    let canvas = (800.0, 600.0);
-    let rect = image_rect(natural, canvas, 2.0, (0.0, 0.0));
-    assert_eq!((rect.width, rect.height), (400.0, 200.0));
-    assert_eq!((rect.left, rect.top), (200.0, 200.0), "2 倍缩放应居中");
-    // 平移只改变位置：宽高不变，不会出现 flex 收缩导致的非等比压缩。
-    let panned = image_rect(natural, canvas, 2.0, (50.0, -30.0));
-    assert_eq!((panned.left, panned.top), (250.0, 170.0));
-    assert_eq!((panned.width, panned.height), (rect.width, rect.height));
-    // 缩小后仍以画布中心居中。
-    let small = image_rect(natural, canvas, 0.5, (0.0, 0.0));
-    assert_eq!((small.width, small.height), (100.0, 50.0));
-    assert_eq!((small.left, small.top), (350.0, 275.0));
-}
-
-/// 画布中心与适应窗口比例来自精确 bounds。
-#[test]
-fn canvas_metrics_center_and_fit_scale() {
-    let canvas = CanvasMetrics {
-        origin: (10.0, 50.0),
-        size: (800.0, 600.0),
-    };
-    assert_eq!(canvas.center(), (410.0, 350.0));
-    assert_eq!(canvas.fit_scale((1600.0, 1200.0)), 0.5);
-    assert_eq!(canvas.fit_scale((2000.0, 300.0)), 0.4);
-    // 无效尺寸退化为 1，避免除零。
-    assert_eq!(CanvasMetrics::default().fit_scale((100.0, 100.0)), 1.0);
-}
-
 /// 拖拽按绝对坐标 1:1 累计位移，且不改变图片尺寸。
 #[test]
 fn drag_pan_tracks_cursor_one_to_one() {

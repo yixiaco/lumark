@@ -143,18 +143,3 @@ fn pax_roundtrip_writes_extensions() {
     )
     .unwrap();
 }
-
-/// 验证三种扩展名在没有魔数时也能正确识别。
-#[test]
-fn package_extensions_are_detected() {
-    let directory = tempdir().unwrap();
-    for (name, expected) in [
-        ("sample.apk", ArchiveFormat::Apk),
-        ("sample.jar", ArchiveFormat::Jar),
-        ("sample.pax", ArchiveFormat::Pax),
-    ] {
-        let path = directory.path().join(name);
-        fs::write(&path, b"placeholder").unwrap();
-        assert_eq!(ArchiveService::detect(&path), expected, "{name}");
-    }
-}

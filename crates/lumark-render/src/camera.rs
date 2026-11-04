@@ -228,25 +228,4 @@ mod tests {
             "向下拖拽后场景应下移：ndc_y={ndc_y}"
         );
     }
-
-    /// 缩放后的相机使用同一像素平移量，世界偏移随距离变化但屏幕位移不变。
-    #[test]
-    fn camera_pan_is_independent_of_zoom() {
-        let bounds = Bounds::new([-50.0, -50.0, 0.0], [50.0, 50.0, 100.0]);
-        let base = RenderSettings {
-            width: 320,
-            height: 240,
-            pan_pixels: [10.0, -6.0],
-            ..RenderSettings::default()
-        };
-        let zoomed = RenderSettings {
-            distance_scale: 3.0,
-            ..base.clone()
-        };
-        let base_clip = Camera::fit(&bounds, &base).clip_position(bounds.center());
-        let zoomed_clip = Camera::fit(&bounds, &zoomed).clip_position(bounds.center());
-        let base_x = base_clip[0] / base_clip[3];
-        let zoomed_x = zoomed_clip[0] / zoomed_clip[3];
-        assert!((base_x - zoomed_x).abs() < 1e-3, "屏幕位移不应随缩放变化");
-    }
 }

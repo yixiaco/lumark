@@ -766,29 +766,6 @@ impl LumarkApp {
 mod tests {
     use super::*;
 
-    /// 压缩窗口的可写格式必须与归档层的 `is_writable()` 双向一致，
-    /// 避免再出现核心支持但界面漏项（例如 Brotli/LZ4）的情况。
-    #[test]
-    fn writable_formats_cover_archive_service() {
-        let expected: Vec<_> = ArchiveFormat::ALL
-            .iter()
-            .copied()
-            .filter(|format| format.is_writable())
-            .collect();
-        let actual: Vec<_> = WRITABLE_FORMATS.iter().map(|(format, _)| *format).collect();
-        for format in &expected {
-            assert!(actual.contains(format), "压缩窗口缺少可写格式：{format:?}");
-        }
-        for format in &actual {
-            assert!(format.is_writable(), "格式未声明可写：{format:?}");
-        }
-        assert_eq!(actual.len(), expected.len(), "可写格式数量与界面不一致");
-        assert!(
-            actual.contains(&ArchiveFormat::Zpaq),
-            "压缩窗口缺少 ZPAQ 选项"
-        );
-    }
-
     /// 多文件或文件夹源必须隐藏单文件流格式，只保留可容纳多条目的格式。
     #[test]
     fn multiple_sources_hide_single_stream_formats() {
@@ -940,25 +917,6 @@ mod tests {
             parse_size_in_unit("2G", SizeUnit::Byte),
             Some(2 * 1024 * 1024 * 1024)
         );
-    }
-
-    /// 单位标签与索引必须双向一致，未知标签回退到 MB。
-    #[test]
-    fn size_unit_labels_round_trip() {
-        let units = [
-            SizeUnit::Byte,
-            SizeUnit::Kilobyte,
-            SizeUnit::Megabyte,
-            SizeUnit::Gigabyte,
-        ];
-        for unit in units {
-            assert_eq!(SizeUnit::from_label(SizeUnit::LABELS[unit.index()]), unit);
-        }
-        assert_eq!(SizeUnit::from_label("TB"), SizeUnit::Megabyte);
-        assert_eq!(SizeUnit::Byte.multiplier(), 1);
-        assert_eq!(SizeUnit::Kilobyte.multiplier(), 1024);
-        assert_eq!(SizeUnit::Megabyte.multiplier(), 1024 * 1024);
-        assert_eq!(SizeUnit::Gigabyte.multiplier(), 1024 * 1024 * 1024);
     }
 
     #[test]

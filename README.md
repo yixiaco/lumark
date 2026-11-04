@@ -143,6 +143,16 @@ Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/
 cargo test --workspace
 ```
 
+低内存环境建议使用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test_workspace.ps1
+# 等价于 cargo test-safe：-j 2 --test-threads=1，输出流式写入 target/test-workspace.log
+```
+
+仓库默认 `build.jobs = 4`，并把开发/测试配置的第三方依赖调试信息降到 0；
+长构建不要用 `Select-Object -Last` 包裹 cargo 输出，它会缓存全部输出行。
+
 完整验收矩阵、实机证据与支持范围见 [`docs/acceptance.md`](docs/acceptance.md)。
 
 提交前额外运行：

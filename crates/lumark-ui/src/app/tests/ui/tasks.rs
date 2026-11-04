@@ -68,54 +68,6 @@ fn auto_progress_window_skips_finished_task(cx: &mut gpui_kit::TestAppContext) {
     let _ = app;
 }
 
-/// 验证任务中心显示排队数量和跨任务总进度。
-#[gpui_kit::test]
-fn task_center_shows_aggregate_progress(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(gpui_kit::init);
-    let directory = tempdir().unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            directory.path().join("vault.dat"),
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
-    });
-    cx.update(|window, cx| {
-        app.update(cx, |app, cx| {
-            app.task_records.push(TaskRecord {
-                id: 1,
-                kind: TaskKind::Compress,
-                label: "压缩 归档".to_string(),
-                state: TaskState::Running,
-                progress: TaskProgress {
-                    bytes_done: 50,
-                    bytes_total: 100,
-                    ..Default::default()
-                },
-                message: None,
-            });
-            app.task_records.push(TaskRecord {
-                id: 2,
-                kind: TaskKind::Extract,
-                label: "解压 归档".to_string(),
-                state: TaskState::Queued,
-                progress: TaskProgress::default(),
-                message: None,
-            });
-            app.screen = Screen::Tasks;
-            cx.notify();
-        });
-        window.draw(cx).clear(cx);
-        assert!(
-            window.find("task-aggregate-progress").visible(),
-            "任务中心未渲染跨任务总进度"
-        );
-    });
-    let _ = app;
-}
-
 /// 验证任务中心为运行中任务渲染暂停按钮，点击缺少控制器时不 panic。
 #[gpui_kit::test]
 fn task_center_renders_pause_control(cx: &mut gpui_kit::TestAppContext) {

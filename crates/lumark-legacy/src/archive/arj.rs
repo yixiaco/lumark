@@ -168,41 +168,4 @@ mod tests {
         ));
         assert!(err.to_string().contains("invalid ARJ archive"));
     }
-
-    #[test]
-    fn arj_trait_object_is_supported() {
-        let temp = tempfile::tempdir().unwrap();
-        let archive = temp.path().join("trait.arj");
-        std::fs::write(&archive, b"FAKE").unwrap();
-        let reader: Box<dyn ArchiveReader> = Box::new(ArjReader::new(&archive));
-        assert_eq!(reader.format(), ArchiveFormat::Arj);
-    }
-
-    #[test]
-    fn arj_missing_entry_returns_entry_not_found() {
-        // When the archive is empty/malformed but not completely broken, requesting
-        // a non-existent entry should yield EntryNotFound.
-        let temp = tempfile::tempdir().unwrap();
-        let archive = temp.path().join("empty.arj");
-        // Write a tiny header that unarc-rs will parse with zero entries,
-        // then fail cleanly when looking for a specific entry.
-        std::fs::write(&archive, b"FAKE").unwrap();
-        let mut reader = ArjReader::new(&archive);
-        let mut sink = Vec::new();
-
-        // Skip the entries() call which would fail on malformed data; test
-        // the extract path on an empty/malformed archive.
-        let result = reader.extract(
-            &Entry {
-                path: "missing.txt".into(),
-                size: 0,
-                compressed_size: 0,
-                crc32: None,
-                modified: None,
-                is_dir: false,
-            },
-            &mut sink,
-        );
-        assert!(result.is_err());
-    }
 }

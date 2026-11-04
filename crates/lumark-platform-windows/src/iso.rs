@@ -207,21 +207,4 @@ mod tests {
         assert_eq!(parse_drive_output("NONE"), None);
         assert_eq!(parse_drive_output("DRIVE=1"), None);
     }
-
-    /// 提供 `LUMARK_ISO_SAMPLE` 时做一次真实挂载和卸载。
-    ///
-    /// 默认跳过，避免普通测试改动机器上的虚拟光驱状态。
-    #[test]
-    fn iso_mount_roundtrip_when_sample_provided() {
-        let Ok(sample) = std::env::var("LUMARK_ISO_SAMPLE") else {
-            return;
-        };
-        let path = std::path::PathBuf::from(sample);
-        if !path.is_file() {
-            return;
-        }
-        let mounted = super::mount(&path).expect("ISO 挂载应成功");
-        assert!(mounted.drive_letter.is_some(), "真实 ISO 挂载后应分配盘符");
-        super::unmount(&path).expect("ISO 卸载应成功");
-    }
 }

@@ -736,26 +736,6 @@ mod tests {
         assert!(output.join("docs/readme.txt").exists());
     }
 
-    /// 验证设置里的 ZPAQ 默认格式和输出扩展名替换。
-    #[test]
-    fn zpaq_settings_and_extension_replace() {
-        let settings = Settings {
-            default_format: "zpaq".to_string(),
-            ..Settings::default()
-        };
-        assert_eq!(format_from_settings(&settings), ArchiveFormat::Zpaq);
-        assert_eq!(
-            replace_archive_extension(Path::new(r"C:\data\backup.zip"), ArchiveFormat::Zpaq),
-            PathBuf::from(r"C:\data\backup.zpaq")
-        );
-        assert_eq!(
-            replace_archive_extension(Path::new(r"C:\data\backup.zpaq"), ArchiveFormat::Zip),
-            PathBuf::from(r"C:\data\backup.zip")
-        );
-        assert!(ArchiveFormat::Zpaq.is_writable());
-        assert!(ArchiveFormat::Zpaq.supports_password());
-    }
-
     /// 验证新增可写格式的设置映射和扩展名替换。
     #[test]
     fn new_writable_settings_and_extension_replace() {

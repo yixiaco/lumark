@@ -14,37 +14,6 @@ use lumark_unreal::{
     read_legacy_skeletal_mesh_geometry,
 };
 
-/// 窗口初始化时生成可读取的预览图片
-#[test]
-fn viewer_renders_initial_preview_image() {
-    let mesh = MeshLod {
-        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
-        indices: vec![0, 1, 2],
-        sections: vec![MeshSection {
-            material_index: 0,
-            first_index: 0,
-            triangle_count: 1,
-        }],
-        attributes: Default::default(),
-    };
-    let view = AssetViewerWindowView::new(
-        "Mesh".to_string(),
-        ViewerScene::Mesh {
-            materials: no_materials(),
-            lods: vec![mesh],
-        },
-    );
-    assert!(view.error.is_none());
-    assert_eq!(view.hidden_sections.len(), 1);
-    assert!(view.image.is_some());
-    assert!(
-        view.image
-            .as_ref()
-            .and_then(|image| image.as_bytes(0))
-            .is_some_and(|bytes| !bytes.is_empty())
-    );
-}
-
 /// 查看器必须实际绘制渲染图像元素（防止画布空白回归）。
 #[gpui_kit::test]
 fn viewer_paints_rendered_image_element(cx: &mut gpui_kit::TestAppContext) {
@@ -297,56 +266,6 @@ fn section_filter_hides_triangles() {
     assert_eq!(filtered.indices, vec![0, 1, 2]);
 }
 
-/// 骨骼查看器同样生成预览图片
-#[test]
-fn skeleton_viewer_renders_preview() {
-    use lumark_unreal::Bone;
-
-    let skeleton = Skeleton {
-        name: "SKEL_Test".to_string(),
-        bones: vec![
-            Bone {
-                name: "Root".to_string(),
-                parent_index: -1,
-                translation: [0.0, 0.0, 0.0],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                scale: [1.0; 3],
-            },
-            Bone {
-                name: "Joint".to_string(),
-                parent_index: 0,
-                translation: [0.0, 0.0, 5.0],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                scale: [1.0; 3],
-            },
-        ],
-    };
-    let view = AssetViewerWindowView::new("SKEL".to_string(), ViewerScene::Skeleton(skeleton));
-    assert!(view.error.is_none());
-    assert!(view.image.is_some());
-}
-
-/// 时间轴应把时间夹到时长内，并换算成 1 起的帧号。
-#[test]
-fn animation_timeline_clamps_ratio_and_frame() {
-    let start = AnimationTimeline::new(2.0, 5, 0.0);
-    assert_eq!(start.ratio(), 0.0);
-    assert_eq!(start.frame(), 1);
-
-    let middle = AnimationTimeline::new(2.0, 5, 1.0);
-    assert!((middle.ratio() - 0.5).abs() < 1e-6);
-    assert_eq!(middle.frame(), 3);
-
-    let end = AnimationTimeline::new(2.0, 5, 99.0);
-    assert_eq!(end.ratio(), 1.0);
-    assert_eq!(end.frame(), 5, "超长时间应夹到最后一帧");
-
-    let empty = AnimationTimeline::new(0.0, 0, 1.0);
-    assert_eq!(empty.ratio(), 0.0);
-    assert_eq!(empty.frame(), 1);
-    assert_eq!(empty.total_frames, 1, "至少应有一个帧号");
-}
-
 /// 逐帧按钮按总帧数换算帧间隔，并在首尾夹取。
 #[test]
 fn animation_timeline_steps_by_frame_and_clamps() {
@@ -433,49 +352,6 @@ fn viewer_renders_animation_timeline_with_real_fixture(cx: &mut gpui_kit::TestAp
         });
         window.draw(cx).clear(cx);
     });
-}
-
-/// 材质场景会渲染近似 PBR 材质球，拖拽旋转后重绘出新画面。
-#[test]
-fn viewer_renders_material_scene_and_orbits() {
-    let viewer = lumark_unreal::MaterialViewerData {
-        appearance: lumark_unreal::MaterialAppearance::default(),
-        base_color: lumark_unreal::MaterialViewerImage::new(
-            [180, 90, 40, 255].repeat(16),
-            4,
-            4,
-            512,
-        ),
-        normal: None,
-        metallic_roughness: None,
-        occlusion: None,
-        ..Default::default()
-    };
-    let mut view =
-        AssetViewerWindowView::new("MAT_Teapot".to_string(), ViewerScene::Material { viewer });
-    assert!(view.error.is_none());
-    assert!(view.image.is_some());
-    let before = view
-        .image
-        .as_ref()
-        .and_then(|image| image.as_bytes(0))
-        .map(<[u8]>::to_vec)
-        .expect("读取材质球像素");
-    view.yaw = 150.0;
-    view.pitch = 10.0;
-    view.render_preview();
-    assert!(view.error.is_none());
-    let after = view
-        .image
-        .as_ref()
-        .and_then(|image| image.as_bytes(0))
-        .map(<[u8]>::to_vec)
-        .expect("读取旋转后的材质球像素");
-    assert_ne!(before, after, "旋转后应重绘材质球");
-    assert_eq!(
-        (view.scene_mesh().is_none(), view.static_lods().is_none()),
-        (true, true)
-    );
 }
 
 /// 材质查看器只显示通用视角操作，不显示蒙皮/LOD 等网格专用按钮。

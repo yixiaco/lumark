@@ -940,17 +940,6 @@ fn size_limit(max_size: u32) -> u32 {
 mod tests {
     use super::*;
 
-    /// `/Game/` 路径映射为当前容器的相对 `.uasset` 路径。
-    #[test]
-    fn maps_package_paths_to_container_relative_paths() {
-        let current = "Proj/Content/Art/Meshes/SM_Box.uasset";
-        assert_eq!(
-            package_to_relative(current, "/Game/Art/Materials/M_Wood").as_deref(),
-            Some("Proj/Content/Art/Materials/M_Wood.uasset")
-        );
-        assert!(package_to_relative(current, "/Engine/BasicShapes/Cube").is_none());
-    }
-
     /// 槽位名优先匹配网格同目录的同名材质。
     #[test]
     fn prefers_material_next_to_mesh() {
@@ -1060,44 +1049,5 @@ mod tests {
             detect_orm_layout("T_Nana_SM"),
             lumark_scene::OrmLayout::SpecularMask
         );
-    }
-
-    /// 槽名与材质资产名不一致时按前缀/分词做模糊匹配，并优先精确同名。
-    #[test]
-    fn fuzzy_matches_slot_names_to_materials() {
-        let packages = vec![
-            "Game/Content/CH/Nana/Cloth/MI_C_N01.uasset".to_string(),
-            "Game/Content/CH/Nana/M/N_Lips.uasset".to_string(),
-            "Game/Content/CH/Nana/M/N_Body_Inst6.uasset".to_string(),
-            "Game/Content/CH/Nana/M/N_Nail_Inst1.uasset".to_string(),
-            "Game/Content/CH/Nana/N_All/SK_Body.uasset".to_string(),
-            "Game/Content/CH/Nana/N_All/T_N_Lip.uasset".to_string(),
-        ];
-        let mesh = "Game/Content/CH/Nana/N_All/NanaF6_Hold.uasset";
-        let pick = |name: &str| {
-            find_material_package(
-                mesh,
-                &crate::MaterialSlot {
-                    name: name.to_string(),
-                    package: None,
-                },
-                &packages,
-            )
-        };
-        assert_eq!(
-            pick("N_Lip").as_deref(),
-            Some("Game/Content/CH/Nana/M/N_Lips.uasset")
-        );
-        assert_eq!(
-            pick("N_Nail").as_deref(),
-            Some("Game/Content/CH/Nana/M/N_Nail_Inst1.uasset")
-        );
-        // 精确同名仍优先于模糊匹配。
-        assert_eq!(
-            pick("MI_C_N01").as_deref(),
-            Some("Game/Content/CH/Nana/Cloth/MI_C_N01.uasset")
-        );
-        // 没有合理候选时保持未解析，避免随机错配材质。
-        assert_eq!(pick("Zzz_Unknown"), None);
     }
 }

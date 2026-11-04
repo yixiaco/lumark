@@ -114,102 +114,28 @@ impl CompressOptions {
 mod tests {
     use super::*;
 
+    /// 任务数：缺省和 0 回落到至少 1，显式值原样保留。
     #[test]
-    fn effective_jobs_default_is_one() {
-        let opts = CompressOptions {
-            level: None,
-            jobs: None,
-            password: None,
-            seven_zip: None,
-        };
-        assert_eq!(opts.effective_jobs(), 1);
+    fn effective_jobs_handles_all_inputs() {
+        for (jobs, expected) in [
+            (None, Some(1)),
+            (Some(0), None),
+            (Some(1), Some(1)),
+            (Some(4), Some(4)),
+        ] {
+            let opts = CompressOptions {
+                jobs,
+                ..Default::default()
+            };
+            if let Some(expected) = expected {
+                assert_eq!(opts.effective_jobs(), expected, "jobs={jobs:?}");
+            } else {
+                assert!(opts.effective_jobs() >= 1, "jobs=0 应回落为 >=1");
+            }
+        }
     }
 
-    #[test]
-    fn effective_jobs_explicit_one_is_one() {
-        let opts = CompressOptions {
-            level: None,
-            jobs: Some(1),
-            password: None,
-            seven_zip: None,
-        };
-        assert_eq!(opts.effective_jobs(), 1);
-    }
-
-    #[test]
-    fn effective_jobs_explicit_two() {
-        let opts = CompressOptions {
-            level: None,
-            jobs: Some(2),
-            password: None,
-            seven_zip: None,
-        };
-        assert_eq!(opts.effective_jobs(), 2);
-    }
-
-    #[test]
-    fn effective_jobs_explicit_four() {
-        let opts = CompressOptions {
-            level: None,
-            jobs: Some(4),
-            password: None,
-            seven_zip: None,
-        };
-        assert_eq!(opts.effective_jobs(), 4);
-    }
-
-    #[test]
-    fn effective_jobs_zero_auto_at_least_one() {
-        let opts = CompressOptions {
-            level: None,
-            jobs: Some(0),
-            password: None,
-            seven_zip: None,
-        };
-        assert!(opts.effective_jobs() >= 1, "jobs=0 should yield >=1");
-    }
-
-    #[test]
-    fn level_returns_option_level_field() {
-        // Should return None when no level is set
-        let opts = CompressOptions {
-            level: None,
-            jobs: None,
-            password: None,
-            seven_zip: None,
-        };
-        assert_eq!(opts.level(), None);
-
-        // Should return Some when level is set
-        let opts = CompressOptions {
-            level: Some(6),
-            jobs: None,
-            password: None,
-            seven_zip: None,
-        };
-        assert_eq!(opts.level(), Some(6));
-    }
-
-    #[test]
-    fn with_level_builder_sets_and_returns_self() {
-        let opts = CompressOptions::default()
-            .with_level(Some(9))
-            .with_jobs(Some(4));
-
-        assert_eq!(opts.level, Some(9));
-        // jobs should not be affected by with_level
-        assert_eq!(opts.jobs, Some(4));
-    }
-
-    #[test]
-    fn with_jobs_builder_sets_and_returns_self() {
-        let opts = CompressOptions::default().with_jobs(Some(4));
-
-        assert_eq!(opts.effective_jobs(), 4);
-        // level should not be affected by with_jobs
-        assert_eq!(opts.level, None);
-    }
-
+    /// 密码字段只暴露是否设置，不把明文写入 Debug。
     #[test]
     fn debug_redacts_password_value() {
         let opts = CompressOptions {

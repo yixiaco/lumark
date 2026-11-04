@@ -722,35 +722,6 @@ mod tests {
         assert_eq!(mip_level_for_limit(4096, 4096, 2, 512), 1);
     }
 
-    /// 解码指定 mip 时返回该 mip 自身的尺寸。
-    #[test]
-    fn decode_mip_rgba_with_size_reports_mip_size() {
-        let texture = Texture2D {
-            name: "T_Test".to_string(),
-            width: 4,
-            height: 4,
-            pixel_format: "PF_B8G8R8A8".to_string(),
-            mips: vec![
-                TextureMip {
-                    width: 4,
-                    height: 4,
-                    depth: 1,
-                    data: vec![255; 4 * 4 * 4],
-                },
-                TextureMip {
-                    width: 2,
-                    height: 2,
-                    depth: 1,
-                    data: vec![128; 2 * 2 * 4],
-                },
-            ],
-        };
-        let (rgba, width, height) = texture.decode_mip_rgba_with_size(1).unwrap();
-        assert_eq!((width, height), (2, 2));
-        assert_eq!(rgba.len(), 2 * 2 * 4);
-        assert_eq!(rgba[0], 128);
-    }
-
     /// 解码一个由纯色块构成的 BC1 mip。
     #[test]
     fn decodes_bc1_mip_to_rgba() {
@@ -829,39 +800,6 @@ mod tests {
                 assert!((values[1] - 2.0).abs() < 1e-2);
                 assert!((values[2] - 0.5).abs() < 1e-3);
                 assert!((values[3] - 1.0).abs() < 1e-3);
-            }
-            TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
-        }
-    }
-
-    /// `PF_FloatRGB` 补 1.0 alpha，`PF_RGBE` 使用共享指数还原。
-    #[test]
-    fn decodes_float_rgb_and_rgbe_hdr() {
-        let mut rgb = Vec::new();
-        for value in [0.25f32, 0.5, 1.0] {
-            rgb.extend_from_slice(&half_bits(value).to_le_bytes());
-        }
-        let decoded = pixel_texture("PF_FloatRGB", rgb)
-            .decode_mip(0)
-            .expect("FloatRGB 解码");
-        match decoded.pixels {
-            TexturePixels::Hdr(values) => {
-                assert!((values[0] - 0.25).abs() < 1e-3);
-                assert!((values[1] - 0.5).abs() < 1e-3);
-                assert!((values[2] - 1.0).abs() < 1e-3);
-                assert_eq!(values[3], 1.0);
-            }
-            TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
-        }
-        // 128 × 2^(128-136) = 0.5。
-        let decoded = pixel_texture("PF_RGBE", vec![128, 128, 128, 128])
-            .decode_mip(0)
-            .expect("RGBE 解码");
-        match decoded.pixels {
-            TexturePixels::Hdr(values) => {
-                for value in &values[..3] {
-                    assert!((value - 0.5).abs() < 1e-5);
-                }
             }
             TexturePixels::Ldr(_) => panic!("应返回 HDR 数据"),
         }

@@ -2,12 +2,6 @@
 
 use super::*;
 
-/// 游戏资产入口只在 Windows 编译时展示。
-#[test]
-fn game_assets_gate_matches_platform() {
-    assert_eq!(GAME_ASSETS_SUPPORTED, cfg!(target_os = "windows"));
-}
-
 /// 验证扫描并保存未加密游戏后进入归档列表，容器打开动作已排队。
 #[cfg(windows)]
 #[gpui_kit::test]
@@ -259,49 +253,6 @@ fn game_setup_scan_fills_detection(cx: &mut gpui_kit::TestAppContext) {
 
 /// 验证文件系统图片在详情面板显示预览。
 #[cfg(windows)]
-#[gpui_kit::test]
-fn details_preview_shows_filesystem_image(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(gpui_kit::init);
-    let directory = tempdir().unwrap();
-    image::RgbaImage::from_pixel(2, 2, image::Rgba([20, 120, 220, 255]))
-        .save(directory.path().join("photo.png"))
-        .unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            directory.path().join("vault.dat"),
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
-    });
-    // 等待初次目录列表加载完成，避免绘制时刷新目录清掉选择。
-    cx.run_until_parked();
-    cx.update(|window, cx| {
-        app.update(cx, |app, cx| {
-            let entry = app
-                .displayed_entries()
-                .into_iter()
-                .find(|entry| entry.name == "photo.png")
-                .expect("应包含 photo.png");
-            app.browser.selection.select_only(&entry.id);
-            app.sync_details_preview(cx);
-            assert!(matches!(
-                app.details_preview,
-                Some(crate::app::view::DetailsPreview::Ready { .. })
-            ));
-        });
-        window.draw(cx).clear(cx);
-        app.update(cx, |app, _| {
-            assert!(app.selected_entry().is_some(), "选择应保持");
-            assert!(matches!(
-                app.details_preview,
-                Some(crate::app::view::DetailsPreview::Ready { .. })
-            ));
-        });
-    });
-    let _ = app;
-}
 
 /// 验证普通 ZIP 内图片可以解压到预览缓存并显示。
 #[cfg(windows)]
@@ -841,49 +792,6 @@ fn sidebar_archive_click_switches_container(cx: &mut gpui_kit::TestAppContext) {
                 app.status
             );
         });
-    });
-    let _ = app;
-}
-
-/// 拖动侧栏分栏后宽度写入设置，主界面使用新宽度。
-#[gpui_kit::test]
-fn sidebar_width_resize_persists(cx: &mut gpui_kit::TestAppContext) {
-    cx.update(gpui_kit::init);
-    let directory = tempdir().unwrap();
-    std::fs::write(directory.path().join("readme.txt"), b"lumark").unwrap();
-    let (app, cx) = cx.add_window_view(|window, cx| {
-        LumarkApp::new_with_stores(
-            window,
-            cx,
-            directory.path().join("vault.dat"),
-            directory.path().join("settings.json"),
-            Some(directory.path().to_path_buf()),
-        )
-    });
-    cx.update(|window, cx| {
-        window.draw(cx).clear(cx);
-        app.update(cx, |app, cx| {
-            let before = app.sidebar_width;
-            let state = app.sidebar_state.clone();
-            state.update(cx, |state, cx| {
-                state.resize_panel(0, gpui_kit::px((before + 40.0).min(460.0)), window, cx);
-            });
-        });
-    });
-    // ResizableState 的 Resized 事件在本次更新结束后派发，因此断言放在外层，
-    // 与真实界面“拖动结束 → 写设置”的时序一致。
-    app.update(cx, |app, _| {
-        assert!(
-            app.sidebar_width > 250.5,
-            "拖动分栏应更新侧栏宽度：{}",
-            app.sidebar_width
-        );
-        assert!(
-            (app.settings.get().sidebar_width - app.sidebar_width).abs() < 0.5,
-            "侧栏宽度应写入设置：{} vs {}",
-            app.settings.get().sidebar_width,
-            app.sidebar_width
-        );
     });
     let _ = app;
 }

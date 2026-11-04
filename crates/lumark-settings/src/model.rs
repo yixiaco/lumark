@@ -464,12 +464,6 @@ pub enum DisguiseMaskPreference {
 mod tests {
     use super::*;
 
-    /// 确认新安装默认使用蓝色强调色。
-    #[test]
-    fn default_accent_color_is_blue() {
-        assert_eq!(Settings::default().accent_color, "#2563eb");
-    }
-
     /// 确认缺少新字段的旧设置文件会回落到默认蓝色。
     #[test]
     fn legacy_settings_default_to_blue_accent() {

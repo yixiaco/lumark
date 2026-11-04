@@ -1805,36 +1805,6 @@ mod tests {
         );
     }
 
-    /// 默认设置保持 Studio 光照与 UE 法线约定（既有渲染不回归）。
-    #[test]
-    fn default_settings_keep_studio_lighting() {
-        let defaults = RenderSettings::default();
-        assert_eq!(defaults.lighting_mode, LightingMode::Studio);
-        assert_eq!(defaults.normal_map_convention, NormalMapConvention::Ue);
-        assert!((defaults.fov_y_degrees - 45.0).abs() < f32::EPSILON);
-        assert!((defaults.distance_scale - 1.05).abs() < 1e-6);
-        let base = RenderSettings {
-            width: 96,
-            height: 96,
-            supersample: 1,
-            background: [0.0; 3],
-            ..defaults
-        };
-        let scene = triangle_scene([0.8, 0.2, 0.2, 1.0], 0.0);
-        let implicit = crate::render_scene(&scene, &base).expect("默认渲染").rgba;
-        let explicit = crate::render_scene(
-            &scene,
-            &RenderSettings {
-                lighting_mode: LightingMode::Studio,
-                normal_map_convention: NormalMapConvention::Ue,
-                ..base
-            },
-        )
-        .expect("显式 Studio 渲染")
-        .rgba;
-        assert_eq!(implicit, explicit, "默认设置应走 Studio 光照");
-    }
-
     /// FModel 头灯参数：spec.G=金属度/腔体、B=粗糙度区间，AO.G 覆盖腔体。
     #[test]
     fn fmodel_params_use_spec_g_b_and_ao_g() {

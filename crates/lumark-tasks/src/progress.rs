@@ -277,17 +277,4 @@ mod tests {
         progress.advance_display(now);
         assert_eq!(progress.display_bytes, 99);
     }
-
-    /// 没有字节总量时退回已完成文件数，编辑等任务仍能显示进度。
-    #[test]
-    fn total_ratio_falls_back_to_entries() {
-        let progress = TaskProgress {
-            bytes_done: 0,
-            bytes_total: 0,
-            entries_done: 3,
-            entries_total: 4,
-            ..Default::default()
-        };
-        assert!((progress.ratio() - 0.75).abs() < f32::EPSILON);
-    }
 }

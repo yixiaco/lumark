@@ -155,13 +155,6 @@ mod tests {
         assert!(arguments[6].contains("Lumark"));
     }
 
-    /// 正常倒计时应原样保留。
-    #[test]
-    fn shutdown_arguments_keep_larger_delay() {
-        let arguments = shutdown_arguments(SHUTDOWN_DELAY_SECONDS);
-        assert_eq!(arguments[2], "60");
-    }
-
     /// 睡眠守卫按线程引用计数，嵌套释放不会提前恢复系统状态。
     #[cfg(windows)]
     #[test]

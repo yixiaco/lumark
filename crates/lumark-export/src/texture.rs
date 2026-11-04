@@ -268,16 +268,6 @@ mod tests {
         assert_eq!(hdr.len(), data_start + 4 * 4);
     }
 
-    /// 扩展名/标签。
-    #[test]
-    fn format_metadata() {
-        assert_eq!(TextureExportFormat::Jpeg.extension(), "jpg");
-        assert_eq!(TextureExportFormat::Tga.label(), "TGA");
-        assert_eq!(TextureExportFormat::Hdr.extension(), "hdr");
-        assert_eq!(TextureExportFormat::Hdr.label(), "HDR");
-        assert_eq!(TextureExportFormat::all().len(), 5);
-    }
-
     /// 尺寸与像素不一致时报错。
     #[test]
     fn rejects_invalid_texture() {

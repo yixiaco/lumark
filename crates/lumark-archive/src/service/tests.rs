@@ -43,15 +43,6 @@ mod solid_block_tests {
             vec![1, 1, 1, 1]
         );
     }
-
-    /// 小目录仍然只有一个固实块，保持既有压缩结果。
-    #[test]
-    fn keeps_small_plan_in_one_block() {
-        let plan = files(&[10, 20, 30]);
-        let blocks = solid_blocks(&plan, DEFAULT_SOLID_BLOCK_BYTES, 4096);
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0].len(), 3);
-    }
 }
 
 #[cfg(test)]

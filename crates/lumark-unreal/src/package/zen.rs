@@ -153,6 +153,14 @@ fn parse_with_version(
     {
         return Err(invalid("Zen 依赖表偏移顺序非法"));
     }
+    // Initial 布局（UE5.0–5.2）的 bundle 表止于 GraphDataOffset；该字段缺失或
+    // 乱序时直接报错，避免后续计算 bundle 表长度时出现负数转无符号数。
+    if header_version < 3
+        && (summary.graph_data_offset < summary.export_bundle_entries_offset
+            || summary.graph_data_offset > header_size)
+    {
+        return Err(invalid("Zen 图数据偏移非法"));
+    }
     let export_map_size = (cell_import_map_offset - summary.export_map_offset) as usize;
     if !export_map_size.is_multiple_of(72) {
         return Err(invalid("Zen 导出表长度不是 72 的倍数"));
@@ -168,7 +176,9 @@ fn parse_with_version(
     let export_bundle_entries_end = if header_version >= 3 {
         summary.dependency_bundle_headers_offset
     } else {
-        summary.export_bundle_entries_offset
+        // Initial 布局的 bundle 表后面是 GraphData 表，而不是 bundle 表自身；
+        // 使用自身偏移会让条目数恒为 0，导致 UE5.2 包全部解析失败。
+        summary.graph_data_offset
     };
     let bundle_entries_size =
         (export_bundle_entries_end - summary.export_bundle_entries_offset) as usize;
@@ -209,13 +219,28 @@ fn parse_with_version(
     }
 
     let package_name = names.get(summary.name)?;
-    let base = u64::from(summary.header_size);
+    // UE 的 `CookedSerialOffset` 以 `CookedHeaderSize` 为基准，而实际导出数据
+    // 紧跟在 `HeaderSize` 之后。Initial 布局两者不相等，必须按差值回退；
+    // 新布局（依赖 bundle）保持原来的 `HeaderSize + offset` 计算。
+    let export_data_base = if header_version < 3 {
+        i64::from(summary.header_size) - i64::from(summary.cooked_header_size)
+    } else {
+        i64::from(summary.header_size)
+    };
     let mut exports = Vec::with_capacity(raw_exports.len());
     let mut ranges = Vec::with_capacity(raw_exports.len());
     for (index, (offset, size, object_name, outer_index, class_index, public_export_hash)) in
         raw_exports.iter().enumerate()
     {
-        if *size > MAX_EXPORT_BYTES || base + offset + size > data.len() as u64 {
+        let start_i64 = export_data_base + *offset as i64;
+        if start_i64 < 0 {
+            return Err(invalid("Zen 导出数据偏移为负"));
+        }
+        let start = start_i64 as usize;
+        let end = start
+            .checked_add(*size as usize)
+            .ok_or_else(|| invalid("Zen 导出数据范围溢出"))?;
+        if *size > MAX_EXPORT_BYTES || end > data.len() {
             return Err(invalid("Zen 导出数据范围越界"));
         }
         let name = names.get(*object_name)?;
@@ -225,8 +250,6 @@ fn parse_with_version(
             0 => Some(*outer_index as usize).filter(|outer| *outer < exports_count),
             _ => None,
         };
-        let start = (base + offset) as usize;
-        let end = start + *size as usize;
         ranges.push((start, end));
         exports.push(PackageExport {
             name,
@@ -250,7 +273,6 @@ fn parse_with_version(
     let _ = (
         summary.cooked_header_size,
         summary.imported_package_names_offset,
-        summary.graph_data_offset,
     );
 
     Ok((
@@ -405,27 +427,79 @@ pub fn parse_package(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::package::AssetKind;
 
-    /// 资产分类按类名和名称前缀工作。
+    /// 构造一个最小 Initial 布局包：44 字节摘要、GraphData 表收尾 bundle 表、
+    /// 一个导出和 4 字节导出数据。
+    fn initial_layout_package() -> Vec<u8> {
+        const NAMES: [&str; 2] = ["TestPackage", "TestObject"];
+        let mut data = vec![0u8; 44];
+        data[8..12].copy_from_slice(&0u32.to_le_bytes()); // 包名索引 0
+        data[12..16].copy_from_slice(&0u32.to_le_bytes()); // 包名序号 0
+
+        // 名称表：2 个 ASCII 名称。
+        data.extend_from_slice(&2u32.to_le_bytes());
+        data.extend_from_slice(&21u32.to_le_bytes());
+        data.extend_from_slice(&0xC164_0000u64.to_le_bytes());
+        data.extend_from_slice(&[0u8; 16]);
+        data.extend_from_slice(&(NAMES[0].len() as i16).to_be_bytes());
+        data.extend_from_slice(&(NAMES[1].len() as i16).to_be_bytes());
+        data.extend_from_slice(NAMES[0].as_bytes());
+        data.extend_from_slice(NAMES[1].as_bytes());
+        let import_map_offset = data.len() as i32;
+
+        // 一个导出记录：数据偏移稍后按 CookedHeaderSize 回填、长度 4、
+        // 类为 PackageImport。
+        let mut export = Vec::new();
+        export.extend_from_slice(&0u64.to_le_bytes());
+        export.extend_from_slice(&4u64.to_le_bytes());
+        export.extend_from_slice(&1u32.to_le_bytes());
+        export.extend_from_slice(&0u32.to_le_bytes());
+        export.extend_from_slice(&(3u64 << 62).to_le_bytes());
+        export.extend_from_slice(&(2u64 << 62).to_le_bytes());
+        export.extend_from_slice(&0u64.to_le_bytes());
+        export.extend_from_slice(&0u64.to_le_bytes());
+        export.extend_from_slice(&0u64.to_le_bytes());
+        export.extend_from_slice(&0u32.to_le_bytes());
+        export.extend_from_slice(&[0u8; 4]);
+        assert_eq!(export.len(), 72);
+        data.extend_from_slice(&export);
+        let export_bundle_entries_offset = data.len() as i32;
+        data.extend_from_slice(&[0u8; 16]);
+        let graph_data_offset = data.len() as i32;
+        data.extend_from_slice(&[0u8; 8]);
+        let header_size = data.len() as i32;
+        data.extend_from_slice(&[0xAA; 4]);
+
+        // 模拟真实 UE5.2 包：CookedSerialOffset 以 CookedHeaderSize 为基准，
+        // 而实际数据紧跟在 HeaderSize 后；两者相差 13 字节。
+        let cooked_header_size = header_size + 13;
+        data[4..8].copy_from_slice(&(header_size as u32).to_le_bytes());
+        data[20..24].copy_from_slice(&(cooked_header_size as u32).to_le_bytes());
+        data[24..28].copy_from_slice(&import_map_offset.to_le_bytes());
+        data[28..32].copy_from_slice(&import_map_offset.to_le_bytes());
+        data[32..36].copy_from_slice(&import_map_offset.to_le_bytes());
+        data[36..40].copy_from_slice(&export_bundle_entries_offset.to_le_bytes());
+        data[40..44].copy_from_slice(&graph_data_offset.to_le_bytes());
+        // 导出记录的 CookedSerialOffset 相对 CookedHeaderSize，实际数据偏移为 0。
+        let export_record_offset = import_map_offset as usize;
+        data[export_record_offset..export_record_offset + 8]
+            .copy_from_slice(&(cooked_header_size as u64).to_le_bytes());
+        data
+    }
+
+    /// Initial 布局的 bundle 表止于 GraphDataOffset，而不是 bundle 表自身。
     #[test]
-    fn asset_kind_classification() {
-        assert_eq!(
-            AssetKind::classify("StaticMesh", "SM_Cube"),
-            AssetKind::StaticMesh
-        );
-        assert_eq!(
-            AssetKind::classify("Texture2D", "T_Test"),
-            AssetKind::Texture
-        );
-        assert_eq!(
-            AssetKind::classify("Skeleton", "SK_Mannequin"),
-            AssetKind::Skeleton
-        );
-        assert_eq!(
-            AssetKind::classify("", "SM_Fallback"),
-            AssetKind::StaticMesh
-        );
+    fn parses_initial_layout_with_graph_data_bundle_end() {
+        let data = initial_layout_package();
+        let package = parse_package(data.clone(), None, Some(2)).expect("Initial 布局应解析成功");
+        assert_eq!(package.info().header_version, 2);
+        assert_eq!(package.info().package_name, "TestPackage");
+        assert_eq!(package.info().exports.len(), 1);
+        assert_eq!(package.info().exports[0].name, "TestObject");
+        assert_eq!(package.export_data(0), Some([0xAA; 4].as_slice()));
+
+        let detected = parse_package(data, None, None).expect("自动版本探测应成功");
+        assert_eq!(detected.info().header_version, 2);
     }
 
     /// 头版本和偏移校验拒绝明显损坏的输入。

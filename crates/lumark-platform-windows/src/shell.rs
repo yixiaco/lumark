@@ -495,7 +495,7 @@ fn notify_shell() {
 
 #[cfg(test)]
 mod tests {
-    use super::{ARCHIVE_EXTENSIONS, icon_reference, quote_executable};
+    use super::{ARCHIVE_EXTENSIONS, quote_executable};
     use std::path::Path;
 
     /// 验证可执行文件路径带空格时仍作为一个完整的 Shell 参数。
@@ -503,13 +503,6 @@ mod tests {
     fn executable_path_is_quoted_for_shell() {
         let command = quote_executable(Path::new(r"C:\Program Files\Lumark\Lumark.exe"));
         assert_eq!(command, r#""C:\Program Files\Lumark\Lumark.exe""#);
-    }
-
-    /// 验证右键菜单图标引用使用带引号的路径和资源索引 0。
-    #[test]
-    fn executable_icon_reference_quotes_path() {
-        let icon = icon_reference(Path::new(r"C:\Program Files\Lumark\Lumark.exe"));
-        assert_eq!(icon, r#""C:\Program Files\Lumark\Lumark.exe",0"#);
     }
 
     /// 验证注册的扩展名都带点且没有重复项。

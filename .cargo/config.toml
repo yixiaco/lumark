@@ -4,6 +4,15 @@ registry = "sparse+https://index.crates.io/"
 [net]
 git-fetch-with-cli = true
 
+[build]
+# 默认并发受限于内存：32 核机器上 cargo 会同时启动数十个 rustc/link，
+# 大型 UI 测试二进制的链接峰值可达数 GiB。需要更快构建时可显式 `-j 8`。
+jobs = 4
+
+[alias]
+# 低内存全量测试：限制构建并发与测试线程，避免分页文件暴涨。
+test-safe = "test --workspace -j 2 -- --test-threads=1"
+
 [env]
 # Windows 的 lib.exe/link.exe 会在系统临时目录创建 lnk*.tmp；部分安全软件会
 # 拦截该操作并报 LNK1104。把构建期临时目录固定到仓库 target 下，避免依赖

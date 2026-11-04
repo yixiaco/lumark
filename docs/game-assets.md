@@ -20,7 +20,10 @@
   用内置文本/十六进制查看器检查；查看器直接读取内存内容，不把密钥写入临时文件。
 - **UE5 Zen 包**：`lumark-unreal` 解析 Zen 摘要、名称表、导入/导出表、导出数据、全局
   ScriptObjects 脚本对象表和 UE5.4+ bulk data map；已用 BNB 真实包验证类名、导出范围和
-  bulk 条目。
+  bulk 条目。UE5.0–5.2 Initial 布局使用 `GraphDataOffset` 作为导出 bundle 表终点，
+  `CookedSerialOffset` 以 `CookedHeaderSize` 为基准回退到实际数据起点；名称表支持
+  `i16::MIN + 码元数` 形式的 UTF-16 名称。NTR_IDOL（UE5.2）的 `SM_CraneRig_Arm`、
+  `M_Fire`、`begin_actor` 和中文路径纹理 `03_H系統/1y1` 已实测解析成功。
 - **无版本属性**：新增 `.usmap` v1–v4 读取（未压缩/ZStandard/Brotli，Oodle 压缩映射返回
   可读错误）与 unversioned header/属性读取；游戏设置选择映射时会先解析并显示结构与枚举
   数量，解析失败不会保存路径。Zen 资产的详情面板会把可序列化属性追加为字段行（最多 40 项，小型

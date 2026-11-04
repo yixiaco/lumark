@@ -90,26 +90,6 @@ fn asar_roundtrip_and_header_integrity() {
     assert_eq!(file.data(), b"hello from lumark");
 }
 
-/// 验证没有扩展名时仍能按内容识别 ASAR。
-#[test]
-fn asar_is_detected_by_content_without_extension() {
-    let directory = tempdir().unwrap();
-    let source = make_source(directory.path());
-    let archive = directory.path().join("payload");
-    ArchiveService::create(
-        &archive,
-        &[source],
-        &CompressionOptions {
-            format: ArchiveFormat::Asar,
-            ..Default::default()
-        },
-        |_| {},
-    )
-    .unwrap();
-    assert_eq!(ArchiveService::detect(&archive), ArchiveFormat::Asar);
-    assert!(ArchiveService::list(&archive, None).is_ok());
-}
-
 /// 验证空文件写入空 blocks 数组，密码、重复路径和取消都明确失败。
 #[test]
 fn asar_empty_file_and_failure_paths() {

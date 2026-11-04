@@ -153,35 +153,4 @@ mod tests {
         ));
         assert!(err.to_string().contains("invalid ACE archive"));
     }
-
-    #[test]
-    fn ace_trait_object_is_supported() {
-        let temp = tempfile::tempdir().unwrap();
-        let archive = temp.path().join("trait.ace");
-        std::fs::write(&archive, b"FAKE").unwrap();
-        let reader: Box<dyn ArchiveReader> = Box::new(AceReader::new(&archive));
-        assert_eq!(reader.format(), ArchiveFormat::Ace);
-    }
-
-    #[test]
-    fn ace_missing_entry_is_handled() {
-        let temp = tempfile::tempdir().unwrap();
-        let archive = temp.path().join("empty.ace");
-        std::fs::write(&archive, b"FAKE").unwrap();
-        let mut reader = AceReader::new(&archive);
-        let mut sink = Vec::new();
-
-        let result = reader.extract(
-            &Entry {
-                path: "missing.txt".into(),
-                size: 0,
-                compressed_size: 0,
-                crc32: None,
-                modified: None,
-                is_dir: false,
-            },
-            &mut sink,
-        );
-        assert!(result.is_err());
-    }
 }

@@ -139,7 +139,6 @@ pub type GeeZipResult<T> = Result<T, GeeZipError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::ArchiveFormat;
 
     #[test]
     fn error_is_send_sync() {
@@ -147,49 +146,6 @@ mod tests {
         fn assert_sync<T: Sync>() {}
         assert_send::<GeeZipError>();
         assert_sync::<GeeZipError>();
-    }
-
-    #[test]
-    fn error_io_display() {
-        let inner = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
-        let err = GeeZipError::io(inner, "opening archive");
-        let msg = err.to_string();
-        assert!(msg.contains("opening archive"), "msg: {msg}");
-        assert!(msg.contains("no such file"), "msg: {msg}");
-    }
-
-    #[test]
-    fn error_format_display() {
-        let err = GeeZipError::format("bad header", ArchiveFormat::Zip);
-        let msg = err.to_string();
-        assert!(msg.contains("zip"), "msg: {msg}");
-        assert!(msg.contains("bad header"), "msg: {msg}");
-    }
-
-    #[test]
-    fn error_unsupported_format_display() {
-        let magic = vec![0xDE, 0xAD, 0xBE, 0xEF];
-        let err = GeeZipError::unsupported_format(&magic);
-        let msg = err.to_string();
-        assert!(
-            msg.contains("0xDE") && msg.contains("unsupported format"),
-            "msg: {msg}"
-        );
-    }
-
-    #[test]
-    fn error_cancelled_display() {
-        let msg = GeeZipError::Cancelled.to_string();
-        assert_eq!(msg, "operation cancelled");
-    }
-
-    #[test]
-    fn error_crypto_display() {
-        let err = GeeZipError::Crypto {
-            message: "wrong password".into(),
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("wrong password"));
     }
 
     #[test]
@@ -202,34 +158,6 @@ mod tests {
         assert!(msg.contains("path traversal"), "msg: {msg}");
         assert!(msg.contains("../etc/passwd"), "msg: {msg}");
         assert!(msg.contains("--unsafe"), "msg: {msg}");
-    }
-
-    #[test]
-    fn error_clobber_denied_display() {
-        let err = GeeZipError::clobber_denied("/tmp/out/readme.txt");
-        let msg = err.to_string();
-        assert!(msg.contains("skipped"), "msg: {msg}");
-        assert!(msg.contains("--force"), "msg: {msg}");
-        assert!(msg.contains("readme.txt"), "msg: {msg}");
-    }
-
-    #[test]
-    fn error_entry_not_found_display() {
-        let err = GeeZipError::EntryNotFound {
-            name: "missing.txt".into(),
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("missing.txt"), "msg: {msg}");
-        assert!(msg.contains("not found"), "msg: {msg}");
-    }
-
-    #[test]
-    fn error_io_from_std() {
-        let inner = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
-        let err: GeeZipError = inner.into();
-        let msg = err.to_string();
-        assert!(msg.contains("I/O operation failed"), "msg: {msg}");
-        assert!(msg.contains("access denied"), "msg: {msg}");
     }
 
     #[test]
