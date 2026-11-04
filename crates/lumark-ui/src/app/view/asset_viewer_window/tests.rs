@@ -828,7 +828,7 @@ fn dragging_snapshot_uses_reduced_resolution() {
         }],
         attributes: Default::default(),
     };
-    let view = AssetViewerWindowView::new(
+    let mut view = AssetViewerWindowView::new(
         "SM_Drag".to_string(),
         ViewerScene::Mesh {
             materials: no_materials(),
@@ -843,6 +843,21 @@ fn dragging_snapshot_uses_reduced_resolution() {
         (
             super::render::VIEWER_WIDTH * 3 / 2,
             super::render::VIEWER_HEIGHT * 3 / 2
+        )
+    );
+    view.render_resolution = super::render::ViewerResolution::X1;
+    let one = view.snapshot(super::render::RenderQuality::Settled);
+    assert_eq!(
+        (one.width, one.height),
+        (super::render::VIEWER_WIDTH, super::render::VIEWER_HEIGHT)
+    );
+    view.render_resolution = super::render::ViewerResolution::X2;
+    let two = view.snapshot(super::render::RenderQuality::Settled);
+    assert_eq!(
+        (two.width, two.height),
+        (
+            super::render::VIEWER_WIDTH * 2,
+            super::render::VIEWER_HEIGHT * 2
         )
     );
 }
