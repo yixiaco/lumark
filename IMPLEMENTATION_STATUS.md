@@ -57,3 +57,14 @@
 - `cargo test -p lumark-ui --lib app::view::asset_viewer_window::tests:: -j 2 -- --test-threads=2`：26 passed。
 - `cargo fmt --all -- --check`、受影响包 clippy：通过。
 - BNB 实机用例通过；效果尚未接入渲染器，截图仍为近似 Snooper 光照。
+## 2026-11-04 Snooper 全效果阶段进展
+
+- [x] 天空球蓝渐变 + 太阳盘（GPU 背景）
+- [x] 指数高度雾（GPU/CPU，按 UE 厘米单位换算，工具栏可开关）
+- [x] 无限深色地面 + 接触软阴影（`snooper_extra` 跳过模型 section/material 隐藏）
+- [x] Snooper FXAA-lite（GPU 回读后处理）
+- [x] 效果开关、预览缓存版本、详情缩略图地面/天空/雾一致
+- [ ] 实时级联阴影
+- [ ] SSAO
+
+验证：`lumark-render --lib` 56 passed；viewer 定向 26 passed；预览 11 passed；BNB NanaF6_2 实机用例通过。
