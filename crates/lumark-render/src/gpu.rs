@@ -21,6 +21,7 @@ const LINE_SHADER: &str = include_str!("line.wgsl");
 const BACKGROUND_SHADER: &str = include_str!("background.wgsl");
 const SNOOPER_SSAO_SHADER: &str = include_str!("snooper_ssao.wgsl");
 const SNOOPER_SHADOW_SHADER: &str = include_str!("snooper_shadow.wgsl");
+const SNOOPER_FXAA_SHADER: &str = include_str!("snooper_fxaa.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -87,6 +88,9 @@ pub struct GpuRenderer {
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
     shadow_sampler: wgpu::Sampler,
+    fxaa_layout: wgpu::BindGroupLayout,
+    fxaa_pipeline: wgpu::RenderPipeline,
+    fxaa_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
@@ -172,6 +176,10 @@ struct RenderTargets {
     ssao_color: wgpu::Texture,
     /// SSAO 后处理视图。
     ssao_view: wgpu::TextureView,
+    /// FXAA 输出纹理。
+    fxaa_color: wgpu::Texture,
+    /// FXAA 输出视图。
+    fxaa_view: wgpu::TextureView,
     /// 太阳阴影贴图。
     _shadow_texture: wgpu::Texture,
     /// 太阳阴影视图（2 级联数组）。
@@ -212,10 +220,23 @@ impl RenderTargets {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: COLOR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let ssao_view = ssao_color.create_view(&wgpu::TextureViewDescriptor::default());
+        let fxaa_color = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lumark-fxaa-color"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let fxaa_view = fxaa_color.create_view(&wgpu::TextureViewDescriptor::default());
         let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
         // MSAA：先渲染到多重采样纹理，再 resolve 到上面的单采样目标。
         let msaa_view = (samples > 1).then(|| {
@@ -288,6 +309,8 @@ impl RenderTargets {
             depth_view,
             ssao_color,
             ssao_view,
+            fxaa_color,
+            fxaa_view,
             _shadow_texture: shadow,
             shadow_view,
             shadow_layer_views,
@@ -365,6 +388,9 @@ impl GpuRenderer {
                 shadow_camera_layout: resources.shadow_camera_layout,
                 shadow_pipeline: resources.shadow_pipeline,
                 shadow_sampler: resources.shadow_sampler,
+                fxaa_layout: resources.fxaa_layout,
+                fxaa_pipeline: resources.fxaa_pipeline,
+                fxaa_sampler: resources.fxaa_sampler,
                 sampler: resources.sampler,
                 white_view: resources.white_view,
                 flat_normal_view: resources.flat_normal_view,
@@ -399,6 +425,7 @@ impl GpuRenderer {
         let supersample = settings.supersample.clamp(1, 4);
         let use_ssao =
             settings.lighting_mode == LightingMode::Snooper && settings.snooper.ssao.enabled;
+        let use_fxaa = settings.lighting_mode == LightingMode::Snooper && settings.snooper.fxaa;
         // SSAO 需要单采样颜色/深度纹理。
         let samples = if use_ssao {
             1
@@ -665,9 +692,61 @@ impl GpuRenderer {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
+        if use_fxaa {
+            let source_view = if use_ssao {
+                &targets.ssao_view
+            } else {
+                &targets.color_view
+            };
+            let uniform = [settings.width as f32, settings.height as f32, 0.08, 0.35];
+            let uniform_buffer = self.create_buffer(
+                "lumark-fxaa",
+                (uniform.len() * 4) as u64,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+            self.queue
+                .write_buffer(&uniform_buffer, 0, &f32_bytes(&uniform));
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lumark-fxaa"),
+                layout: &self.fxaa_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(source_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.fxaa_sampler),
+                    },
+                ],
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lumark-fxaa-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.fxaa_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.fxaa_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: if use_ssao {
+                texture: if use_fxaa {
+                    &targets.fxaa_color
+                } else if use_ssao {
                     &targets.ssao_color
                 } else {
                     &targets.color
@@ -716,14 +795,11 @@ impl GpuRenderer {
         }
         drop(data);
         targets.readback.unmap();
-        let mut rgba = if supersample > 1 {
+        let rgba = if supersample > 1 {
             crate::downsample(&rgba, width, height, settings.width, settings.height)
         } else {
             rgba
         };
-        if settings.lighting_mode == LightingMode::Snooper && settings.snooper.fxaa {
-            rgba = fxaa(&rgba, settings.width, settings.height);
-        }
         Ok(RenderTarget {
             width: settings.width,
             height: settings.height,
@@ -989,6 +1065,9 @@ struct Resources {
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
     shadow_sampler: wgpu::Sampler,
+    fxaa_layout: wgpu::BindGroupLayout,
+    fxaa_pipeline: wgpu::RenderPipeline,
+    fxaa_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
@@ -1572,6 +1651,79 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         multiview_mask: None,
         cache: None,
     });
+    let fxaa_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lumark-fxaa-layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let fxaa_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("lumark-fxaa-sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    let fxaa_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-fxaa-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SNOOPER_FXAA_SHADER)),
+    });
+    let fxaa_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lumark-fxaa-pipeline-layout"),
+        bind_group_layouts: &[Some(&fxaa_layout)],
+        immediate_size: 0,
+    });
+    let fxaa_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lumark-fxaa-pipeline"),
+        layout: Some(&fxaa_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &fxaa_shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &fxaa_shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: COLOR_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
     Ok(Resources {
         pipeline_single,
         pipeline_double,
@@ -1594,6 +1746,9 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         shadow_camera_layout,
         shadow_pipeline,
         shadow_sampler,
+        fxaa_layout,
+        fxaa_pipeline,
+        fxaa_sampler,
         sampler,
         white_view,
         flat_normal_view,
@@ -2143,6 +2298,7 @@ fn clear_color(background: [f32; 3], gamma_only: bool) -> wgpu::Color {
 }
 
 /// Snooper 模式 FXAA-lite：沿高对比边方向做一次受限邻域混合。
+#[allow(dead_code)]
 fn fxaa(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
     if width < 3 || height < 3 || rgba.len() < (width * height * 4) as usize {
         return rgba.to_vec();
@@ -2331,6 +2487,17 @@ mod tests {
         assert_eq!(output.len(), rgba.len());
         assert_eq!(output[3], 255);
         assert_ne!(output, rgba, "边缘应被混合");
+    }
+    /// FXAA shader 必须通过解析/语义校验。
+    #[test]
+    fn fxaa_shader_parses_and_validates() {
+        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_FXAA_SHADER)
+            .expect("解析 snooper_fxaa.wgsl");
+        let mut validator = wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::all(),
+        );
+        validator.validate(&module).expect("校验 snooper_fxaa.wgsl");
     }
     /// 阴影 shader 必须通过解析/语义校验。
     #[test]

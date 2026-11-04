@@ -9,7 +9,7 @@
 - [x] S-4 SSAO（深度重建屏幕空间 AO，全分辨率乘色）
 - [x] S-5 天空盒与雾（方向天空球/太阳盘 + 厘米单位指数高度雾）
 - [x] S-6 无限地面/网格（5000 单位地面 + 模型包围盒网格）
-- [x] S-7 半透明/FXAA/性能（Snooper 模式 GPU 回读后 FXAA-lite）
+- [x] S-7 半透明/FXAA/性能（GPU 最终 FXAA pass）
 - [x] S-8 预览/UI（效果/分辨率开关，缩略图共用 Snooper 预设）
 - [x] S-9 验收（59 render + 26 viewer + 11 preview 测试；BNB 实机截图）
 
