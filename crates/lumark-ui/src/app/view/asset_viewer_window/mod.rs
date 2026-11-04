@@ -174,6 +174,8 @@ pub(crate) struct AssetViewerWindowView {
     shading: ShadingMode,
     /// 是否显示地面网格
     show_grid: bool,
+    /// 是否启用 Snooper 环境效果（雾/天空/地面/FXAA）
+    snooper_effects: bool,
     /// 是否显示骨骼线
     show_bones: bool,
     /// 最近一次渲染使用的后端标签
@@ -280,6 +282,7 @@ impl AssetViewerWindowView {
             shading: ShadingMode::Lit,
             // 3D 查看器默认显示地面网格（与 FModel 查看器一致）。
             show_grid: true,
+            snooper_effects: true,
             show_bones: false,
             last_backend: None,
             last_stats: None,

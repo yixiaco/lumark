@@ -177,6 +177,18 @@ impl AssetViewerWindowView {
                             cx.notify();
                         })),
                 )
+                .child(
+                    button("model-effects-toggle")
+                        .ghost()
+                        .selected(self.snooper_effects)
+                        .label(tr("效果", "Effects"))
+                        .tooltip(tr("开关Snooper环境效果", "Toggle Snooper effects"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.snooper_effects = !this.snooper_effects;
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
             })
             .when(self.has_skin(), |this| {
                 this.child(

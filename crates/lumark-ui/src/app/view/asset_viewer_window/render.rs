@@ -81,6 +81,8 @@ pub(super) struct RenderSnapshot {
     pub(super) shading: ShadingMode,
     /// 是否显示地面网格。
     pub(super) show_grid: bool,
+    /// 是否启用 Snooper 环境效果。
+    pub(super) snooper_effects: bool,
     /// 是否显示骨骼线。
     pub(super) show_bones: bool,
     /// 线框模式。
@@ -133,6 +135,7 @@ impl AssetViewerWindowView {
             skin_pose: self.skin_pose,
             shading: self.shading,
             show_grid: self.show_grid,
+            snooper_effects: self.snooper_effects,
             show_bones: self.show_bones,
             wireframe: self.wireframe,
             srgb_textures: self.srgb_textures,
@@ -300,18 +303,10 @@ fn add_snooper_ground(scene: &mut Scene) {
         [extent, extent, height],
         [-extent, extent, height],
     ];
-    let mut mesh = lumark_scene::MeshData::new(
-        "SnooperGround",
-        positions.to_vec(),
-        vec![0, 1, 2, 0, 2, 3],
-    );
+    let mut mesh =
+        lumark_scene::MeshData::new("SnooperGround", positions.to_vec(), vec![0, 1, 2, 0, 2, 3]);
     mesh.normals = vec![[0.0, 0.0, 1.0]; 4];
-    mesh.uvs = vec![vec![
-        [0.0, 0.0],
-        [1.0, 0.0],
-        [1.0, 1.0],
-        [0.0, 1.0],
-    ]];
+    mesh.uvs = vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]];
     // 使用多个 section 避免查看器按模型 section 隐藏时把整个地面跳过。
     mesh.sections = (0..3)
         .map(|_| lumark_scene::MeshSection {
@@ -444,6 +439,9 @@ fn viewer_settings(snapshot: &RenderSnapshot) -> RenderSettings {
     // FModel 默认不把顶点色乘到基础色；查看器可在工具栏打开。
     settings.vertex_colors = snapshot.vertex_colors;
     settings.show_grid = snapshot.show_grid;
+    if !snapshot.snooper_effects {
+        settings.snooper = lumark_render::SnooperEffects::default();
+    }
     settings.show_bones = snapshot.show_bones;
     settings.hidden_sections = snapshot
         .hidden_sections
