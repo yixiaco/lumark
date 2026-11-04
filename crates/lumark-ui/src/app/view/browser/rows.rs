@@ -131,7 +131,8 @@ pub(super) fn render_file_row(
     let double_id = id.clone();
     let context_id = id.clone();
     let selected = app.browser.selection.is_selected(&id);
-    let icon_color = entry_icon_color(cx, &entry);
+    let row_icon_kind = entry_icon(app, &entry);
+    let icon_color = entry_icon_color(cx, &entry, row_icon_kind);
     let drag_item = inside_archive
         .then(|| archive_drag_item(app, &entry))
         .flatten();
@@ -169,7 +170,7 @@ pub(super) fn render_file_row(
     let row_icon = if let Some(icon) = system_icon_for(app, &entry) {
         gpui_kit::img(icon).size(px(16.)).into_any_element()
     } else {
-        entry_icon(&entry).element(15.).into_any_element()
+        row_icon_kind.element(15.).into_any_element()
     };
     h_flex()
         .id(format!("file-row-{id}"))
@@ -195,13 +196,27 @@ pub(super) fn render_file_row(
                 .child(row_icon),
         )
         .child(
-            div()
+            h_flex()
                 .flex_1()
                 .min_w_0()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_sm()
-                .child(entry.name.clone()),
+                .gap_1()
+                .items_center()
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_sm()
+                        .child(entry.name.clone()),
+                )
+                .when(entry.encrypted, |this| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_color(StatusTone::Danger.color(cx))
+                            .child(AppIcon::FileLock.element(12.)),
+                    )
+                }),
         )
         .child(
             div()

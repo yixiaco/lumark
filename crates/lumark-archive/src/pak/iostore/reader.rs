@@ -159,6 +159,15 @@ impl IoStoreContainer {
             .and_then(|index| self.package_id(*index))
     }
 
+    /// 按包 ID 反查目录索引路径（用于世界场景跨包材质定位）。
+    pub fn package_path_for_id(&self, package_id: u64) -> Option<String> {
+        self.toc
+            .file_indices
+            .iter()
+            .find(|(_, index)| self.package_id(**index) == Some(package_id))
+            .map(|(path, _)| path.clone())
+    }
+
     /// 按包 ID 读取包的 ExportBundleData（uasset）字节。
     pub fn read_package_by_id(&self, package_id: u64) -> Result<Vec<u8>, ArchiveError> {
         self.read_package_chunk(package_id, 1, "ExportBundleData")

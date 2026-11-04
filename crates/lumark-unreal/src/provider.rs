@@ -10,7 +10,7 @@ use crate::materials::{MaterialResolveOptions, TextureCache};
 use crate::scene::{skeletal_mesh_scene, static_mesh_scene};
 use crate::{
     AssetKind, GameAssetSource, Mappings, SkeletalMeshPreview, parse_package,
-    resolve_material_slots,
+    resolve_material_slots, resolve_material_slots_exact,
 };
 
 /// LOD 选择策略。
@@ -173,6 +173,52 @@ pub fn load_scene(
         ..MaterialResolveOptions::default()
     };
 
+    // 世界场景（.umap）：Actor → StaticMeshComponent → 跨包 StaticMesh。
+    if exports
+        .iter()
+        .any(|export| export.kind == AssetKind::Map || export.class_name == "World")
+    {
+        progress(SceneLoadStage::Materials);
+        let world_options = crate::WorldSceneOptions {
+            material_options: Some(material_options.clone()),
+            ..crate::WorldSceneOptions::default()
+        };
+        let loaded = crate::load_world_scene(source, &request.asset_path, mappings, &world_options)
+            .map_err(|error| format!("读取 World 场景失败：{error}"))?;
+        progress(SceneLoadStage::Building);
+        let report = build_report(
+            &request.asset_path,
+            "World",
+            1,
+            0,
+            loaded
+                .scene
+                .meshes
+                .iter()
+                .map(|mesh| mesh.positions.len())
+                .sum(),
+            loaded
+                .scene
+                .meshes
+                .iter()
+                .map(|mesh| mesh.triangle_count())
+                .sum(),
+            loaded.scene.materials.len(),
+            0,
+            None,
+            loaded.report.warnings.clone(),
+        );
+        progress(SceneLoadStage::Finished {
+            vertices: report.vertices,
+            triangles: report.triangles,
+        });
+        return Ok(LoadedScene {
+            scene: loaded.scene,
+            report,
+            skeleton: None,
+        });
+    }
+
     if let Some(index) = exports.iter().position(|export| {
         export.kind == AssetKind::StaticMesh && export.class_name == "StaticMesh"
     }) {
@@ -190,6 +236,7 @@ pub fn load_scene(
             source,
             &request.asset_path,
             &mesh.material_slots,
+            &[],
             mappings,
             &material_options,
             &mut warnings,
@@ -241,10 +288,17 @@ pub fn load_scene(
                 package: None,
             })
             .collect();
+        // SkeletalMaterials 记录里的对象引用（负 FPackageIndex → 导入索引）。
+        let imports: Vec<Option<usize>> = preview
+            .material_imports
+            .iter()
+            .map(|index| (*index < 0).then(|| (-*index - 1) as usize))
+            .collect();
         let resolved = resolve_materials(
             source,
             &request.asset_path,
             &slots,
+            &imports,
             mappings,
             &material_options,
             &mut warnings,
@@ -313,11 +367,16 @@ fn resolve_materials(
     source: &mut GameAssetSource,
     asset_path: &str,
     slots: &[crate::MaterialSlot],
+    imports: &[Option<usize>],
     mappings: &Mappings,
     options: &MaterialResolveOptions,
     warnings: &mut Vec<String>,
 ) -> Vec<crate::ResolvedMaterial> {
-    let resolved = resolve_material_slots(source, asset_path, slots, Some(mappings), options);
+    let resolved = if imports.iter().any(Option::is_some) {
+        resolve_material_slots_exact(source, asset_path, slots, imports, Some(mappings), options)
+    } else {
+        resolve_material_slots(source, asset_path, slots, Some(mappings), options)
+    };
     for (index, material) in resolved.iter().enumerate() {
         if material.appearance.is_none() {
             warnings.push(format!(

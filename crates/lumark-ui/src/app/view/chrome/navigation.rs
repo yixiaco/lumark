@@ -369,11 +369,7 @@ impl LumarkApp {
                                         &app_contains,
                                         |app, _: &gpui_kit::ClickEvent, _, cx| {
                                             app.search_mode = SearchMode::Contains;
-                                            app.status = format!(
-                                                "{}{}",
-                                                tr("搜索匹配方式：", "Search mode: "),
-                                                tr("包含", "Contains")
-                                            );
+                                            app.apply_search_mode(cx);
                                             cx.notify();
                                         },
                                     )),
@@ -385,11 +381,7 @@ impl LumarkApp {
                                         &app_wildcard,
                                         |app, _: &gpui_kit::ClickEvent, _, cx| {
                                             app.search_mode = SearchMode::Wildcard;
-                                            app.status = format!(
-                                                "{}{}",
-                                                tr("搜索匹配方式：", "Search mode: "),
-                                                tr("通配符", "Wildcard")
-                                            );
+                                            app.apply_search_mode(cx);
                                             cx.notify();
                                         },
                                     )),
@@ -401,11 +393,7 @@ impl LumarkApp {
                                         &app_regex,
                                         |app, _: &gpui_kit::ClickEvent, _, cx| {
                                             app.search_mode = SearchMode::Regex;
-                                            app.status = format!(
-                                                "{}{}",
-                                                tr("搜索匹配方式：", "Search mode: "),
-                                                tr("正则表达式", "Regex")
-                                            );
+                                            app.apply_search_mode(cx);
                                             cx.notify();
                                         },
                                     )),
@@ -447,16 +435,7 @@ impl LumarkApp {
                                                   _: &gpui_kit::ClickEvent,
                                                   _,
                                                   cx| {
-                                                app.search_category = category;
-                                                if app.search_results.is_some() {
-                                                    app.run_search(cx);
-                                                } else {
-                                                    app.status = format!(
-                                                        "{}{}",
-                                                        tr("资产类型：", "Asset type: "),
-                                                        asset_category_label(category)
-                                                    );
-                                                }
+                                                app.apply_search_category(category, cx);
                                                 cx.notify();
                                             },
                                         )),

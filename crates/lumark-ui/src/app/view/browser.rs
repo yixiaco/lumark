@@ -1,4 +1,4 @@
-﻿//! 主文件表、搜索结果条和侧栏详情检查器入口。
+//! 主文件表、搜索结果条和侧栏详情检查器入口。
 
 use super::super::actions::TempExtractMode;
 use super::super::*;
@@ -29,6 +29,27 @@ pub(crate) use drag::{ArchiveDragItem, path_bar_drop_handler};
 use marquee::*;
 pub(crate) use preview::DetailsPreview;
 
+/// 文件表键盘移动方向。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SelectionMove {
+    /// 上一行（平铺模式跨一行）。
+    Up,
+    /// 下一行（平铺模式跨一行）。
+    Down,
+    /// 上一个条目/左一列。
+    Left,
+    /// 下一个条目/右一列。
+    Right,
+    /// 首个条目。
+    Home,
+    /// 末个条目。
+    End,
+    /// 向上一页。
+    PageUp,
+    /// 向下一页。
+    PageDown,
+}
+
 impl LumarkApp {
     /// 渲染主文件表，并在搜索结果激活时显示一条结果摘要。
     ///
@@ -44,35 +65,24 @@ impl LumarkApp {
         let search_active = self.search_results.is_some();
         let show_parent = shows_parent_row(self);
         let row_count = entry_count + usize::from(show_parent);
-        let window_width = window
-            .inner_window_bounds()
-            .get_bounds()
-            .size
-            .width
-            .as_f32();
-        let sidebar_width = if self.sidebar_visible { 252. } else { 0. };
-        let main_width = (window_width - sidebar_width - 24.).max(420.);
+        let main_width = self.browser_list_width(window);
+        let table_width = self.browser_table_width(window);
         let widths = self.column_widths;
         let inside_archive = matches!(&self.browser.location, BrowserLocation::Archive { .. });
         let archive_columns = if inside_archive {
-            archive_columns(main_width)
+            archive_columns(table_width)
         } else {
             ArchiveColumns::default()
         };
         let tile_view = self.tile_view;
-        let tile_columns = if tile_view {
-            ((main_width - 24.0) / (TILE_WIDTH + TILE_GAP))
-                .floor()
-                .max(1.0) as usize
-        } else {
-            1
-        };
+        let tile = TileMetrics::for_width(main_width, tile_view);
+        let tile_columns = tile.columns;
         let virtual_rows = if tile_view {
             row_count.div_ceil(tile_columns)
         } else {
             row_count
         };
-        let row_height = if tile_view { px(132.) } else { px(31.) };
+        let row_height = px(tile.row_height);
         let item_sizes = Rc::new(vec![
             gpui_kit::size(px(main_width), row_height);
             virtual_rows
@@ -128,6 +138,11 @@ impl LumarkApp {
                     } else if keystroke.key.eq_ignore_ascii_case("f2") {
                         this.start_rename(window, cx);
                         cx.notify();
+                    } else if let Some(movement) = selection_move_for_key(&keystroke.key) {
+                        if this.browser_focus.is_focused(window) {
+                            this.move_selection(movement, keystroke.modifiers.shift, window, cx);
+                        }
+                        cx.notify();
                     }
                 }),
             )
@@ -141,6 +156,7 @@ impl LumarkApp {
             .on_mouse_down(
                 gpui_kit::MouseButton::Left,
                 cx.listener(|this, event: &gpui_kit::MouseDownEvent, window, cx| {
+                    this.browser_focus.focus(window, cx);
                     if this.start_marquee(event.position, event.modifiers, window) {
                         cx.notify();
                     }
@@ -321,6 +337,7 @@ impl LumarkApp {
                                                     cx,
                                                     virtual_index,
                                                     tile_columns,
+                                                    tile.tile_width,
                                                     row_height,
                                                 )
                                                 .into_any_element()
@@ -363,6 +380,97 @@ impl LumarkApp {
 }
 
 impl LumarkApp {
+    /// 按方向键移动文件表选择；`extend` 为 Shift 范围扩展。
+    ///
+    /// 平铺视图的上下移动跨一整行（列数），左右移动一个卡片；详情列表
+    /// 四个方向都按单项移动，保证用户不必切换视图也能用方向键遍历。
+    pub(crate) fn move_selection(
+        &mut self,
+        movement: SelectionMove,
+        extend: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let ids = self.displayed_ids();
+        if ids.is_empty() {
+            return false;
+        }
+        let count = ids.len();
+        let main_width = self.browser_list_width(window);
+        let metrics = TileMetrics::for_width(main_width, self.tile_view);
+        let columns = self.tile_columns_at(main_width).max(1);
+        let rows_per_page = {
+            let height = self.file_list_scroll.bounds().size.height.as_f32();
+            ((height / metrics.row_height.max(1.0)).floor() as usize).max(1)
+        };
+        let page = rows_per_page * if self.tile_view { columns } else { 1 };
+        let current = self
+            .browser
+            .selection
+            .focus()
+            .and_then(|focus| ids.iter().position(|id| id == focus));
+        let target = match movement {
+            SelectionMove::Up => current.map_or(count - 1, |index| index.saturating_sub(columns)),
+            SelectionMove::Down => current.map_or(0, |index| (index + columns).min(count - 1)),
+            SelectionMove::Left => current.map_or(0, |index| index.saturating_sub(1)),
+            SelectionMove::Right => current.map_or(0, |index| (index + 1).min(count - 1)),
+            SelectionMove::Home => 0,
+            SelectionMove::End => count - 1,
+            SelectionMove::PageUp => current.map_or(0, |index| index.saturating_sub(page)),
+            SelectionMove::PageDown => {
+                current.map_or(count - 1, |index| (index + page).min(count - 1))
+            }
+        };
+        if extend {
+            self.browser
+                .selection
+                .select_range(&ids, &ids[target], true);
+        } else {
+            self.browser.selection.select_only(ids[target].clone());
+        }
+        // 让目标行滚入视口；平铺视图把条目索引换算为行号。
+        let parent_offset = usize::from(shows_parent_row(self));
+        let virtual_row = target + parent_offset;
+        let scroll_row = if self.tile_view {
+            virtual_row / columns
+        } else {
+            virtual_row
+        };
+        self.file_list_scroll
+            .scroll_to_item(scroll_row, gpui_kit::ScrollStrategy::Nearest);
+        cx.notify();
+        true
+    }
+
+    /// 给定文件表宽度时的平铺列数；详情列表固定为 1。
+    pub(crate) fn tile_columns_at(&self, width: f32) -> usize {
+        TileMetrics::for_width(width, self.tile_view).columns
+    }
+
+    /// 文件表视口宽度：由当前窗口宽度与侧栏宽度计算。
+    ///
+    /// 使用窗口尺寸而不是上一帧的列表 bounds，避免窗口缩放后的第一帧
+    /// 仍按旧宽度计算平铺列数（列表和框选都会短暂错位）。
+    pub(crate) fn browser_list_width(&self, window: &Window) -> f32 {
+        let window_width = window
+            .inner_window_bounds()
+            .get_bounds()
+            .size
+            .width
+            .as_f32();
+        let sidebar_width = if self.sidebar_visible {
+            self.sidebar_width
+        } else {
+            0.0
+        };
+        (window_width - sidebar_width).max(240.0)
+    }
+
+    /// 文件表表格可用宽度（视口减去左右内边距）。
+    fn browser_table_width(&self, window: &Window) -> f32 {
+        (self.browser_list_width(window) - TILE_PADDING_X * 2.0).max(240.0)
+    }
+
     /// 按当前窗口、滚动位置和视图模式生成框选布局。
     fn current_marquee_layout(&self, window: &Window) -> Option<MarqueeLayout> {
         let bounds = self.file_list_scroll.bounds();
@@ -372,36 +480,20 @@ impl LumarkApp {
         let parent_row = shows_parent_row(self);
         let tile = self.tile_view;
         let row_count = self.displayed_count() + usize::from(parent_row);
-        let row_height = if tile {
-            TILE_ROW_HEIGHT
-        } else {
-            LIST_ROW_HEIGHT
-        };
-        let tile_columns = if tile {
-            let window_width = window
-                .inner_window_bounds()
-                .get_bounds()
-                .size
-                .width
-                .as_f32();
-            let sidebar_width = if self.sidebar_visible { 252. } else { 0. };
-            let main_width = (window_width - sidebar_width - 24.).max(420.);
-            ((main_width - 24.0) / (TILE_WIDTH + TILE_GAP))
-                .floor()
-                .max(1.0) as usize
-        } else {
-            1
-        };
+        let metrics = TileMetrics::for_width(self.browser_list_width(window), tile);
         Some(MarqueeLayout {
             left: bounds.origin.x.as_f32(),
             top: bounds.origin.y.as_f32(),
             width: bounds.size.width.as_f32(),
             height: bounds.size.height.as_f32(),
             scroll_y: self.file_list_scroll.offset().y.as_f32(),
-            row_height,
+            row_height: metrics.row_height,
             parent_row,
             row_count,
-            tile_columns,
+            tile_columns: metrics.columns,
+            tile_width: metrics.tile_width,
+            tile_pitch: metrics.pitch,
+            tile_padding: metrics.padding,
             tile,
         })
     }
@@ -507,6 +599,21 @@ impl LumarkApp {
             self.status = error.to_string();
         }
     }
+}
+
+/// 把键盘按键映射为文件表移动方向；非方向键返回 `None`。
+pub(crate) fn selection_move_for_key(key: &str) -> Option<SelectionMove> {
+    Some(match key.to_ascii_lowercase().as_str() {
+        "up" => SelectionMove::Up,
+        "down" => SelectionMove::Down,
+        "left" => SelectionMove::Left,
+        "right" => SelectionMove::Right,
+        "home" => SelectionMove::Home,
+        "end" => SelectionMove::End,
+        "pageup" => SelectionMove::PageUp,
+        "pagedown" => SelectionMove::PageDown,
+        _ => return None,
+    })
 }
 
 /// 渲染一个可拖动列宽的表头单元格。

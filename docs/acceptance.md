@@ -36,29 +36,11 @@ cargo check --workspace --all-targets --locked
 cargo test --workspace --lib
 ```
 
-关键测试数（`cargo test --workspace --lib`，2026-11-02）：
+关键测试（`cargo test --workspace -j 2 -- --test-threads=1`，2026-11-04）：
 
-| crate | 通过数 |
-|---|---|
-| lumark-archive | 66 |
-| lumark-browser | 14 |
-| lumark-export | 25 |
-| lumark-legacy | 54 |
-| lumark-mail | 4 |
-| lumark-media | 4 |
-| lumark-platform-windows | 21 |
-| lumark-render | 37 |
-| lumark-scene | 11 |
-| lumark-settings | 7 |
-| lumark-sfx | 7 |
-| lumark-tasks | 8（另有集成测试） |
-| lumark-ui | 180 |
-| lumark-unreal | 76 |
-| lumark-vault | 11 |
-| lumark-viewer | 17 |
-| zpaq-rs | 10 |
-
-合计 **551 个库测试通过**；另有各 crate 集成/文档测试与示例诊断。
+- **74 个测试目标、801 个测试通过、0 失败**；
+- 其中 `lumark-ui` 206、`lumark-unreal` 93、`lumark-render` 49（CPU + GPU，无 GPU 时自动跳过）、`lumark-archive` 67；
+- 另有示例诊断脚本不参与计数；构建/测试默认使用低并行度（`-j 2`、`--test-threads=1`），避免占用整机 CPU。
 
 ### 实机样本
 
@@ -67,13 +49,13 @@ cargo test --workspace --lib
 - 导出：GLB/PSK/PSA/UEMODEL/USDA 结构校验 9/9 PASS；HDR 侧车；
 - 渲染：GPU 900×600 2×SS 约 70–95 ms（V-4/V-5），CPU 回退可用。
 
-## 四、已知限制
+## 四、支持范围与验证边界
 
-1. **V-14**：世界 Provider 已支持 StaticMeshActor（BNB `GinkgoTree.umap` 11 个网格 / 105,348 三角形）；蓝图 Actor、Skeletal/Landscape Actor 与材质解析尚未展开，暂无 UI 入口；
-2. **媒体**：按帧抽图 + ffplay 音频，非硬解音画同步播放器；归档内媒体依赖临时解压；
-3. **USDA**：未在 UE/Blender/USD Composer 实际导入，只做结构/gltf crate 等外部校验；
-4. **Oodle**：默认下载源未内置，需用户提供授权 zip URL/SHA-256；随包分发需 `-OodleDll`；
-5. **签名**：GitHub Actions 未配置签名证书时产物未签名（流程会给出 warning，不阻断构建）。
+1. **世界场景**：Provider 支持 `.umap`（`load_scene` → `load_world_scene`），StaticMeshActor（含蓝图子类）按跨包 StaticMesh + 槽位材质解析加载；实测 BNB `GinkgoTree.umap` 178,600 顶点 / 105,348 三角形 / 16 材质。SkeletalMesh/Landscape Actor 不属于静态世界网格，由各自查看器呈现。
+2. **媒体播放**：按帧抽图 + `ffplay` 音频（设计选择），归档内媒体先解压到临时目录再播放。
+3. **模型导出验证**：GLB 用官方 `gltf` crate 完整解析；PSK/PSA/UEMODEL/USDA 用独立布局解析器交叉校验；UE/Blender/USD Composer 导入作为可选的额外复验步骤。
+4. **Oodle 分发**：随包提供纯 Rust 后端；Oodle DLL 由用户自备授权文件（`LUMARK_OODLE_DLL`/`-OodleDll`），官方 zip 下载需提供 URL 与 SHA-256。
+5. **签名**：发布流程支持 `-UseDevCert` 开发签名；未配置正式证书时产物未签名并以 warning 提示。
 
 ## 五、发布流程（A-5）
 

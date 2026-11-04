@@ -46,12 +46,13 @@ pub(super) fn render_parent_tile(cx: &mut Context<LumarkApp>) -> impl IntoElemen
         )
 }
 
-/// 渲染一行平铺项目，每项对应文件或文件夹。
+/// 渲染一行平铺项目，每项对应文件或文件夹；卡片宽度按可用宽度均分。
 pub(super) fn render_tile_row(
     app: &mut LumarkApp,
     cx: &mut Context<LumarkApp>,
     virtual_index: usize,
     tile_columns: usize,
+    tile_width: f32,
     row_height: gpui_kit::Pixels,
 ) -> impl IntoElement {
     let parent_offset = usize::from(shows_parent_row(app));
@@ -74,11 +75,12 @@ pub(super) fn render_tile_row(
             let double_id = id.clone();
             let context_id = id.clone();
             let selected = app.browser.selection.is_selected(&id);
-            let icon_color = entry_icon_color(cx, &entry);
+            let tile_icon_kind = entry_icon(app, &entry);
+            let icon_color = entry_icon_color(cx, &entry, tile_icon_kind);
             let tile_icon = if entry.is_dir {
                 AppIcon::Folder
             } else {
-                entry_icon(&entry)
+                tile_icon_kind
             };
             let drag_item = matches!(&app.browser.location, BrowserLocation::Archive { .. })
                 .then(|| archive_drag_item(app, &entry))
@@ -98,7 +100,8 @@ pub(super) fn render_tile_row(
                 v_flex()
                     .id(format!("file-tile-{id}"))
                     .test_support()
-                    .w(px(120.))
+                    .w(px(tile_width))
+                    .flex_shrink_0()
                     .h(px(120.))
                     .p_2()
                     .gap_2()
@@ -119,15 +122,30 @@ pub(super) fn render_tile_row(
                             .child(tile_icon),
                     )
                     .child(
-                        div()
-                            .id(format!("file-tile-name-{id}"))
-                            .test_support()
+                        h_flex()
                             .w_full()
-                            .text_sm()
-                            .text_center()
-                            .whitespace_normal()
-                            .line_clamp(2)
-                            .child(entry.name.clone()),
+                            .gap_1()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .id(format!("file-tile-name-{id}"))
+                                    .test_support()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .text_center()
+                                    .whitespace_normal()
+                                    .line_clamp(2)
+                                    .child(entry.name.clone()),
+                            )
+                            .when(entry.encrypted, |this| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_color(StatusTone::Danger.color(cx))
+                                        .child(AppIcon::FileLock.element(12.)),
+                                )
+                            }),
                     )
                     .on_click(
                         cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {

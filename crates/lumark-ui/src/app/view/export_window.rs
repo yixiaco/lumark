@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use gpui_kit::AnyElement;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{ActiveTheme, Sizable, TitleBar};
+use gpui_kit::component::{ActiveTheme, TitleBar};
 use gpui_kit::{Context, IntoElement, ParentElement, Render, Styled, Window, div, px};
 use lumark_export::TextureExportFormat;
 use lumark_unreal::{
@@ -141,7 +141,6 @@ impl ExportWindowView {
     fn format_button(&self, format: BatchExportFormat, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.config.formats.contains(&format);
         let mut button = Button::new(format!("export-format-{}", format.extension()))
-            .xsmall()
             .label(format.label())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.toggle_format(format);
@@ -159,7 +158,6 @@ impl ExportWindowView {
     fn texture_button(&self, format: TextureExportFormat, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.config.texture_format == format;
         let mut button = Button::new(format!("export-texture-{}", format.extension()))
-            .xsmall()
             .label(format.label())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.config.texture_format = format;
@@ -221,7 +219,6 @@ impl Render for ExportWindowView {
                             .items_center()
                             .child(
                                 Button::new("export-sidecars")
-                                    .xsmall()
                                     .label(tr("写出材质旁挂", "Write material sidecars"))
                                     .selected(self.config.write_sidecars)
                                     .ghost()
@@ -273,7 +270,6 @@ impl Render for ExportWindowView {
                     )))
                     .child(
                         Button::new("export-open-dir")
-                            .xsmall()
                             .ghost()
                             .label(tr("打开输出目录", "Open output folder"))
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -482,7 +478,8 @@ impl LumarkApp {
             window_min_size: Some(gpui_kit::size(px(560.), px(480.))),
             ..TitleBar::window_options()
         };
-        let result = gpui_kit::open_window(options, cx, move |_window, cx| {
+        let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|_| ExportWindowView::new(target.clone()))
         });
         match result {

@@ -34,7 +34,10 @@ pub use format::{
 };
 pub use pak::cityhash::{city_hash64, package_id};
 pub use pak::iostore::{IoContainerHeader, IoContainerPackage, IoStoreContainer, IoStoreFile};
-pub use pak::oodle::{OodleStatus, configure_oodle_library, oodle_backend_setting, oodle_status};
+pub use pak::oodle::{
+    OodleStatus, configure_oodle_library, oodle_backend_setting, oodle_prefers_rust, oodle_status,
+    set_oodle_prefer_rust,
+};
 pub use pak::oodle_download::{
     OodleDownloadOptions, OodleDownloadResult, download_and_cache_oodle, extract_oodle_library,
     install_oodle_zip,

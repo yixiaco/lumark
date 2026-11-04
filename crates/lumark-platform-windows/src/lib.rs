@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 pub mod clipboard;
 pub mod drag;
 pub mod external_drop;
+pub mod foreground;
 pub mod icon;
 pub mod icons;
 pub mod ipc;

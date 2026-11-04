@@ -1,5 +1,13 @@
-// Lumark GPU 着色器：与 CPU 参考渲染器一致的近似 PBR + 双灯 + 法线/ORM/自发光贴图。
+// Lumark GPU 着色器：近似 PBR（Studio 双灯）与 FModel 头灯（Headlight）两种光照。
 // 输出到 Rgba8Unorm 目标，因此这里手动做 tone mapping 与 sRGB 编码。
+//
+// 光照模式与法线约定通过 camera.ambient 的 z/w 分量传入（见 camera_uniform）：
+//   ambient.z = 0 → Studio，1 → Headlight；
+//   ambient.w = 0 → UE 切线约定，1 → FModel Snooper 约定。
+// ORM 贴图布局通过 material.flags.z 传入：0 → R=AO/G=粗糙度/B=金属度，
+// 1 → 高光遮罩（G=金属度、B=粗糙度）。
+
+const PI: f32 = 3.141592653589793;
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -19,7 +27,7 @@ struct Material {
     params: vec4<f32>,
     // xyz = emissive, w = has emissive texture
     emissive: vec4<f32>,
-    // x = has ORM texture, y = alpha cutoff, z/w 保留
+    // x = has ORM texture, y = alpha cutoff, z = ORM 布局（0=ORM，1=高光遮罩）
     flags: vec4<f32>,
 };
 
@@ -30,6 +38,7 @@ struct Material {
 @group(1) @binding(4) var orm_texture: texture_2d<f32>;
 @group(1) @binding(5) var emissive_texture: texture_2d<f32>;
 @group(1) @binding(6) var<storage, read> joint_matrices: array<mat4x4<f32>>;
+@group(1) @binding(7) var ao_texture: texture_2d<f32>;
 
 struct VertexIn {
     @location(0) position: vec3<f32>,
@@ -110,6 +119,87 @@ fn light_contribution(
         + light_color * specular * specular_strength * intensity;
 }
 
+// 解析材质 PBR 参数：x=环境光遮蔽、y=粗糙度、z=金属度。
+fn resolve_pbr_params(uv: vec2<f32>) -> vec3<f32> {
+    var occlusion = 1.0;
+    var roughness = material.params.y;
+    var metallic = material.params.x;
+    if (material.flags.x > 0.5) {
+        let packed = textureSample(orm_texture, tex_sampler, uv).rgb;
+        if (material.flags.z > 0.5) {
+            // 高光遮罩布局（FModel specular mask）：G=金属度、B=粗糙度。
+            occlusion = 1.0;
+            roughness = clamp(roughness * packed.b, 0.04, 1.0);
+            metallic = clamp(packed.g, 0.0, 1.0);
+        } else {
+            // ORM：R=遮蔽、G=粗糙度、B=金属度。
+            occlusion = packed.r;
+            roughness = clamp(roughness * packed.g, 0.04, 1.0);
+            metallic = clamp(metallic * packed.b, 0.0, 1.0);
+        }
+    }
+    return vec3<f32>(occlusion, roughness, metallic);
+}
+
+// 切线空间法线贴图 → 世界法线；按 camera.ambient.w 选择切线约定。
+fn apply_normal_map(
+    normal_in: vec3<f32>,
+    tangent_in: vec3<f32>,
+    tangent_w: f32,
+    uv: vec2<f32>,
+) -> vec3<f32> {
+    let sampled = textureSample(normal_texture, tex_sampler, uv).xyz * 2.0 - vec3<f32>(1.0);
+    var tangent = normalize(tangent_in);
+    var bitangent: vec3<f32>;
+    if (camera.ambient.w < 0.5) {
+        // UE 约定：切线正交化，副切线带 w 符号。
+        let tangent_dot = dot(normal_in, tangent);
+        tangent = normalize(tangent - normal_in * tangent_dot);
+        bitangent = cross(normal_in, tangent) * sign(tangent_w);
+    } else {
+        // FModel Snooper 约定：副切线固定取 -cross(N, T)。
+        bitangent = -normalize(cross(normal_in, tangent));
+    }
+    return normalize(tangent * sampled.x + bitangent * sampled.y + normal_in * sampled.z);
+}
+
+// FModel Snooper default.frag 风格头灯：漫反射下限 0.4，高光 Schlick + GGX。
+fn shade_headlight(
+    normal: vec3<f32>,
+    view: vec3<f32>,
+    base: vec3<f32>,
+    metallic: f32,
+    roughness: f32,
+    occlusion: f32,
+) -> vec3<f32> {
+    let n_dot_v_raw = max(dot(normal, view), 0.0);
+    let diffuse_factor = max(n_dot_v_raw, 0.4);
+    let n_dot_v = max(n_dot_v_raw, 0.0001);
+    let n_dot_l = n_dot_v;
+    let f0 = mix(vec3<f32>(0.04), base, metallic);
+    let alpha2 = roughness * roughness * roughness * roughness;
+    let denominator = n_dot_v * n_dot_v * (alpha2 - 1.0) + 1.0;
+    let distribution = alpha2 / (PI * denominator * denominator);
+    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    let geometry =
+        (n_dot_l / (n_dot_l * (1.0 - k) + k)) * (n_dot_v / (n_dot_v * (1.0 - k) + k));
+    let specular_denominator = 4.0 * n_dot_v * n_dot_l + 0.0001;
+    // 头灯下 H 与 V 同向，H·V=1，Schlick 退化为 F0。
+    let fresnel = f0;
+    let specular = distribution * geometry * fresnel / specular_denominator;
+    let kd = (vec3<f32>(1.0) - fresnel) * (1.0 - occlusion);
+    let diffuse_brdf = kd * base / PI;
+    return base * diffuse_factor + (diffuse_brdf + specular) * n_dot_l;
+}
+
+// 线性辐射度 → 基础色/自发光输出（tone mapping + gamma），同时保留 alpha
+// 供半透明混合使用。
+fn encode(color: vec3<f32>, alpha: f32) -> vec4<f32> {
+    let non_negative = max(color, vec3<f32>(0.0));
+    let mapped = non_negative / (vec3<f32>(1.0) + non_negative);
+    return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), clamp(alpha, 0.0, 1.0));
+}
+
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
     var normal = normalize(in.normal);
@@ -123,76 +213,74 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
         base = base * sampled.rgb;
         alpha = alpha * sampled.a;
     }
+    if (material.flags.w > 0.5) {
+        // 与 FModel 一致：AO 贴图 R 通道直接乘到基础色上。
+        let ao = textureSample(ao_texture, tex_sampler, in.uv);
+        base = base * ao.r;
+    }
     base = base * in.color.rgb;
-    // 首版 alpha 采用 0.5 阈值裁剪，与 CPU 后端一致。
-    if (alpha < 0.5) {
+    alpha = alpha * in.color.a;
+    // Masked 材质按 material.flags.y 阈值裁剪；Opaque 材质阈值为 0，忽略贴图 alpha。
+    if (material.flags.y > 0.0 && alpha < material.flags.y) {
         discard;
     }
-    if (material.params.w > 0.5) {
-        let tangent = normalize(in.tangent.xyz - normal * dot(normal, in.tangent.xyz));
-        let bitangent = cross(normal, tangent) * sign(in.tangent.w);
-        let tangent_normal = textureSample(normal_texture, tex_sampler, in.uv).xyz * 2.0
-            - vec3<f32>(1.0);
-        normal = normalize(
-            tangent * tangent_normal.x
-            + bitangent * tangent_normal.y
-            + normal * tangent_normal.z,
-        );
-    }
     let view = normalize(camera.eye.xyz - in.world);
-    if (dot(normal, view) < 0.0) {
-        normal = -normal;
-    }
     // 着色模式：y=0 Lit、1 Unlit、2 Normals。
     if (camera.ambient.y > 1.5) {
+        if (material.params.w > 0.5) {
+            normal = apply_normal_map(normal, in.tangent.xyz, in.tangent.w, in.uv);
+        }
+        if (dot(normal, view) < 0.0) {
+            normal = -normal;
+        }
         return vec4<f32>(normal * 0.5 + vec3<f32>(0.5), 1.0);
     }
     if (camera.ambient.y > 0.5) {
-        let non_negative = max(base, vec3<f32>(0.0));
-        let mapped = non_negative / (vec3<f32>(1.0) + non_negative);
-        return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), 1.0);
+        return encode(base, alpha);
     }
-    var metallic = material.params.x;
-    var roughness = material.params.y;
-    var occlusion = 1.0;
-    if (material.flags.x > 0.5) {
-        // ORM：R=环境光遮蔽、G=粗糙度、B=金属度（线性数据）。
-        let orm = textureSample(orm_texture, tex_sampler, in.uv).rgb;
-        occlusion = orm.r;
-        roughness = roughness * orm.g;
-        metallic = metallic * orm.b;
+    if (material.params.w > 0.5) {
+        normal = apply_normal_map(normal, in.tangent.xyz, in.tangent.w, in.uv);
     }
-    roughness = clamp(roughness, 0.04, 1.0);
-    let shininess = clamp(2.0 / pow(roughness, 4.0), 4.0, 2048.0);
-    let specular_strength = 0.04 + metallic * 0.5;
-    let ambient = camera.ambient.x * occlusion;
-    var color = base * ambient;
-    color = color + light_contribution(
-        normal,
-        view,
-        base,
-        camera.light0_dir.xyz,
-        camera.light0_color.rgb,
-        camera.light0_dir.w,
-        shininess,
-        specular_strength,
-    );
-    color = color + light_contribution(
-        normal,
-        view,
-        base,
-        camera.light1_dir.xyz,
-        camera.light1_color.rgb,
-        camera.light1_dir.w,
-        shininess,
-        specular_strength,
-    );
+    let params = resolve_pbr_params(in.uv);
+    let occlusion = params.x;
+    let roughness = params.y;
+    let metallic = params.z;
+    var color: vec3<f32>;
+    if (camera.ambient.z > 0.5) {
+        // Headlight：不做「法线朝向视线」翻转，背面靠 0.4 下限保持可见。
+        color = shade_headlight(normal, view, base, metallic, roughness, occlusion);
+    } else {
+        if (dot(normal, view) < 0.0) {
+            normal = -normal;
+        }
+        let shininess = clamp(2.0 / pow(roughness, 4.0), 4.0, 2048.0);
+        let specular_strength = 0.04 + metallic * 0.5;
+        let ambient = camera.ambient.x * occlusion;
+        color = base * ambient;
+        color = color + light_contribution(
+            normal,
+            view,
+            base,
+            camera.light0_dir.xyz,
+            camera.light0_color.rgb,
+            camera.light0_dir.w,
+            shininess,
+            specular_strength,
+        );
+        color = color + light_contribution(
+            normal,
+            view,
+            base,
+            camera.light1_dir.xyz,
+            camera.light1_color.rgb,
+            camera.light1_dir.w,
+            shininess,
+            specular_strength,
+        );
+    }
     var emissive = material.emissive.rgb;
     if (material.emissive.w > 0.5) {
         emissive = emissive * textureSample(emissive_texture, tex_sampler, in.uv).rgb;
     }
-    color = color + emissive;
-    let non_negative = max(color, vec3<f32>(0.0));
-    let mapped = non_negative / (vec3<f32>(1.0) + non_negative);
-    return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), 1.0);
+    return encode(color + emissive, alpha);
 }

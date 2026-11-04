@@ -91,6 +91,11 @@ pub struct SkeletalMeshPreview {
     pub material_slots: usize,
     /// 材质槽名称（若原生数据可读）。
     pub material_names: Vec<String>,
+    /// 材质槽对应的 MaterialInterface 原始 `FPackageIndex`（负值为包导入）。
+    ///
+    /// 与 `material_names` 等长；供材质图按 ImportMap 精确定位材质包，
+    /// 避免按槽名模糊匹配。
+    pub material_imports: Vec<i32>,
     /// LOD 数量。
     pub lod_count: usize,
     /// 首个 LOD 的 section 数量；解析失败时为 0。
@@ -151,15 +156,19 @@ pub fn read_skeletal_mesh_preview(
     let material_count = reader.count(44, 1024)?;
     let material_start = reader.position;
     let mut material_names = Vec::new();
+    // 每条 SkeletalMaterials 记录首字段是 MaterialInterface 的 FPackageIndex
+    // （负值为包导入）；保留原始值供上层按 ImportMap 精确定位材质。
+    let mut material_imports = Vec::new();
     for _ in 0..material_count {
         let start = reader.position;
-        if reader.i32().is_ok()
-            && let Ok(name) = reader.fname()
+        let material_index = reader.i32().unwrap_or(0);
+        if let Ok(name) = reader.fname()
             && !name.is_empty()
             && name != "None"
             && !name.starts_with('#')
         {
             material_names.push(name);
+            material_imports.push(material_index);
         }
         reader.position = start + 44;
     }
@@ -237,6 +246,7 @@ pub fn read_skeletal_mesh_preview(
         skeleton,
         material_slots: material_count,
         material_names,
+        material_imports,
         lod_count,
         lod_sections,
         required_bones,

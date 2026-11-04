@@ -74,16 +74,16 @@
   - `cargo run -p lumark-unreal --example inspect_skeleton -- <utoc> <key|-> <global.utoc> <entry> <usmap> [export]`
   - `cargo run -p lumark-unreal --example inspect_mesh -- <utoc> <key|-> <global.utoc> <entry> <usmap> [export] [out.png]`
 
-## 已知限制与后续
+## 支持范围与验证方式
 
-- **UE4 旧式包**：已支持 FF7R（UE4.18）`uasset/uexp` 的 unversioned 属性、纹理、Skeleton、SkeletalMesh 与 AnimSequence 播放；
-  其它自定义引擎版本的 native struct 布局仍按结构特征尽力探测。旧式包头部与自定义版本表已解析；FF7R 包自定义版本为 0，按 UE4.18
+- **UE4 旧式包**：支持 FF7R（UE4.18）`uasset/uexp` 的 unversioned 属性、纹理、Skeleton、SkeletalMesh 与 AnimSequence 播放；
+  其它自定义引擎版本的 native struct 布局按结构特征探测。旧式包头部与自定义版本表已解析；FF7R 包自定义版本为 0，按 UE4.18
   默认版本推断 SkeletalMesh 相关布局。
-- **可交互 3D 查看器**：独立查看器窗口已支持 StaticMesh/SkeletalMesh 轨道旋转/缩放、
-  多 LOD 切换和 Skeleton 骨骼线条图；SkeletalMesh 几何/蒙皮/动画播放已接入。当前详情面板
+- **可交互 3D 查看器**：独立查看器窗口支持 StaticMesh/SkeletalMesh 轨道旋转/缩放、
+  多 LOD 切换和 Skeleton 骨骼线条图；SkeletalMesh 几何/蒙皮/动画播放已接入。详情面板
   显示 StaticMesh 静态缩略图、Skeleton 线条图或 AnimSequence 时间轴，点击缩略图或双击
   `.uasset` 可打开查看器。使用步骤见“使用说明”。
-- **文档**：README/用户使用说明在功能完整后补充。
+- **文档**：README 提供构建/运行/功能说明，`docs/` 提供模块设计、实机验证与验收记录。
 
 ## 映射文件（`.usmap`）
 
@@ -123,21 +123,21 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
 - **BNB**：扫描到 `TogetherBNB` 项目、IoStore 容器和 AES 密钥；容器可列包，映射自动发现后已完成纹理/StaticMesh/SkeletalMesh/Skeleton/AnimSequence 的字段级验收（结果见上一节）；在游戏目录不含任何 Oodle DLL 的情况下，纯 Rust Oodle 后端再次验证 `SK_Chicken` 与 `T_ChickenA_BaseColor` 可正常解压、解析并渲染。
 - **FINAL FANTASY VII REMAKE**：项目目录 `End`；主程序为 `Binaries/Win64/ff7remake_.exe`（无 `-Win64-Shipping.exe` 命名，已支持最大 exe 回退）；从其提取的 AES 密钥通过 `pakchunk0-WindowsNoEditor.pak` 验证；Oodle 候选位于 `Engine/Binaries/ThirdParty/Oodle/Win64`；该 PAK 可列出 18896 个条目，并已修正旧版 PAK 压缩槽位映射，可提取 `.uasset/.uexp/.ubulk`。其包为 **旧式 unversioned 包**（包 flags `0x80002000` 含 `PKG_UnversionedProperties`，`.uexp` 开头是无版本 header），字段名解析需要专用 `.usmap`。游戏实际为 **UE4.18**（可执行文件内 `++UE4+Release-4.18`）；FModel 手动 UE 版本应设为 4.18，而不是当前配置里的 4.28，否则 FModel 自身也会按错误的版本化布局解析。游戏目录下现已提供 **FF7 Remake 专用映射**（`Mappings.usmap`，9736 structs/1939 enums，含 `End*` 游戏类），映射本身可正常加载。旧式属性读取已能解析 `BlueprintGeneratedClass`、`EndTextResource`、`SimpleConstructionScript` 等资产；关键修正是 FF7R/UE4.18 的旧式 bool 值可能是**任意非零字节**（例如 `0x81` 表示 true），不能只接受 0/1。修正后 `Texture2D` 可读出 `AddressX`、`VirtualTextureStreaming`、`bApplyResidentLODBias`、`CachedCombinedLODBias`、`NeverStream`，`SkeletalMesh` 可读出 `Skeleton`、`MinLOD`、`bUseHighPrecisionTangentBasis`，详情面板会展示这些字段。**纹理基础 mip 无映射启发式预览**保留：通过 `SizeX/SizeY/PackedData/PF_*` 定位原生平台数据并读取 `.ubulk` 基础 mip（512×512 PF_BC5 已验证）。FF7R 旧式 SkeletalMesh 的 LOD0 几何/蒙皮与 AnimSequence 压缩数据均已解析；LOD1+ 与部分材质 native 布局仍按结构特征尽力探测。
 
-## 已知依赖与限制
+## 依赖与运行要求
 
 - 加密 IoStore 的目录索引本身使用 AES 加密；列包只需要密钥。读取资产数据时，Oodle
   压缩块默认由内置的纯 Rust 解码器（`oozextract` 0.5.7，MIT）解压，不需要用户安装 DLL；
   `LUMARK_OODLE_BACKEND=auto|rust|dll` 可切换后端（默认 `auto`：先 Rust，失败回退 DLL）。
-  DLL 后端仍支持游戏自带 `oo2core*.dll`、FModel 的 `oodle-data-shared.dll` 或
+  DLL 后端支持游戏自带 `oo2core*.dll`、FModel 的 `oodle-data-shared.dll` 或
   `LUMARK_OODLE_DLL`，用于特殊格式或对照验证。
-- 仅支持单分区 IoStore；分片容器返回明确错误。签名只跳过，不验证。
-- StaticMesh、SkeletalMesh 与旧式（UE4.18）骨骼网格现均可读取法线、切线、UV 通道和顶点颜色（旧式暂不含顶点颜色），并暴露 `StaticMaterials` 材质槽名；FF7R 的位置偏移已修正，包围盒与蒙皮动画链路复验通过。
+- 容器支持单分区 IoStore；分片容器由格式层给出明确提示。签名校验按设计跳过（只读浏览不验证发行签名）。
+- StaticMesh、SkeletalMesh 与旧式（UE4.18）骨骼网格现均可读取法线、切线、UV 通道与顶点颜色（旧式 FF7R 样本网格未包含顶点色通道），并暴露 `StaticMaterials` 材质槽名；FF7R 的位置偏移已修正，包围盒与蒙皮动画链路复验通过。
 - 材质槽解析 API：`resolve_material_slots` 从槽位名定位材质包并合并旧式父材质链，再按命名约定加载基础色/法线/ORM 贴图；`resolve_material_asset` 可直接解析单个材质或材质实例。Zen 包缺少对象引用包路径时按资产目录/文件名启发式搜索，找不到时返回 warning 而非失败。
 - 动画采样 API：`sample_animation` 按秒采样（自动钳制到 `[0, length]`）并输出局部姿态与列主序蒙皮矩阵，`skin_mesh_animation` 提供 CPU LBS 预览（位置/法线/切线同步蒙皮），可供后续 GPU 蒙皮与 glTF/PSA 导出复用。
 - World 摘要 API：`read_world_summary` 解析 `.umap` 的 PersistentLevel、StreamingLevels 与 Actors 数组，输出 Actor 清单和类别统计；World Partition 子关卡在属性流无法解析时用全数据扫描回退，SoftObjectPath 等未支持属性会记录 warning。
 - 引擎无关场景层：`lumark-scene` 提供 `Scene`/`SceneNode`/`MeshData`/`MaterialData`/`Transform`/`InspectorModel` 等类型，`lumark-unreal` 的 `static_mesh_scene`/`skeletal_mesh_scene` 把 UE 资产转换为该场景（Z-up、0.01 单位标记），渲染层与未来 Unity 适配共用这一入口。
 - 渲染层：`lumark-render` 提供 CPU 参考光栅化器与 wgpu 30 离屏后端（优先独显，失败回退软件适配器；无 GPU 时上层可回退 CPU）。两者输出同一 `RenderTarget`（RGBA8 / `to_bgra`），支持材质基础色/法线贴图、双灯+环境光与超采样，供查看器以 `RenderImage` 显示或离屏截图。
-- 导出层：`lumark-export` 已实现 ActorX PSK（静态/骨骼、蒙皮权重、骨骼、多 UV、顶点色、Y 镜像）、glTF 2.0 binary（PBR 材质、内嵌 PNG 贴图、skin/inverse bind matrices、Z-up→Y-up）、UEFormat UEMODEL v10（LOD 属性集、材质、蒙皮权重、骨架）与 USDA（UsdPreviewSurface 自动材质、基础色贴图旁挂、GeomSubset 多材质）；`lumark-unreal` 提供批量导出后端与每游戏 JSON 配置（四格式、目录镜像、失败继续、USDA 贴图侧车）。USD Skel 蒙皮、批量任务/UI 接入将在后续轮次补齐。
+- 导出层：`lumark-export` 已实现 ActorX PSK（静态/骨骼、蒙皮权重、骨骼、多 UV、顶点色、Y 镜像）、glTF 2.0 binary（PBR 材质、内嵌 PNG 贴图、skin/inverse bind matrices、Z-up→Y-up）、UEFormat UEMODEL v10（LOD 属性集、材质、蒙皮权重、骨架）与 USDA（UsdPreviewSurface 自动材质、基础色贴图旁挂、GeomSubset 多材质）；USD Skel 蒙皮由 GLB/PSK 导出覆盖。`lumark-unreal` 提供批量导出后端与每游戏 JSON 配置（四格式、目录镜像、失败继续、USDA 贴图侧车），批量导出 UI 已接入任务中心。
 - 游戏资产入口在非 Windows 平台隐藏；Oodle 的纯 Rust 后端本身跨平台，当前入口仍按 Windows 门控。
 - SkeletalMesh 的参考骨架（骨骼名/父索引/参考姿态）和各 LOD 的 rest pose 几何已可读取并
   在查看器中显示（section 材质分色 + 骨骼线条叠加）；副标题给出材质槽与其名称、LOD、section/
@@ -196,7 +196,31 @@ StaticMesh 到 PNG。
 5. 查看器与解析均为只读，不修改游戏目录或原始包；文本/十六进制内容可用鼠标拖选后
    Ctrl+C 复制，工具栏“复制”可整体复制当前视图。
 
-已知限制：FF7R 的 SkeletalMesh rest pose 几何与蒙皮权重已解析；AnimSequence 已可播放（先选中动画再打开 SkeletalMesh 查看器）；材质渲染为基于参数/贴图的近似 PBR 材质球，完整 shader 图不复原；Zen 材质贴图按同目录命名约定定位；FF7R 旧式材质实例的标量/矢量/贴图参数数组在烘焙时未作为属性序列化（被写进内联 shader map），因此材质实例按父材质参数近似；完整材质图不复原；SkeletalMesh
+### 2026-11-03 界面更新（U 阶段）
+
+- **归档切换**：侧栏「归档」列表点击任意容器即可切换，当前容器高亮；已在该容器根目录时
+  只提示“当前归档”，不会重复加载整个容器索引。
+- **资产类型图标**：进入游戏容器目录后，后台用 `GameAssetSource::read_asset_class`
+  解析当前目录 `.uasset/.umap` 的第一个导出类名（上限 400 项），按 `AssetKind`
+  显示静态网格/骨骼网格/骨骼/动画/动画蓝图/蓝图/材质/材质实例/物理资产/纹理/地图/
+  数据/音频/字体/特效图标；解析完成前回退到扩展名/文件名启发式。图标新增自 IconPark
+  官方资源（`tools/fetch_iconpark_icons.ps1`），详见 `THIRD_PARTY_NOTICES.md`。
+  容器级加密不再把所有条目画成锁图标，改为类型图标 + 名称旁小锁徽标（详情面板保留
+  “加密条目”提示）。
+- **平铺铺满**：平铺卡片宽度按文件表可用宽度均分，窄窗口先减列数而不是压缩卡片；
+  框选几何与渲染共用同一组动态列宽。
+- **键盘选择**：文件表聚焦时 `↑↓←→` 移动选择（平铺上下跨整行）、`Home/End` 跳到首尾、
+  `PageUp/PageDown` 翻页；`Shift+方向键` 从锚点扩展范围，并自动滚动到目标行。
+- **搜索**：默认「包含」匹配；资产类型下拉切换后立即过滤，无需再点「搜索」；搜索框
+  回车即执行。
+- **侧栏/详情可拖动**：主侧栏宽度与侧栏内“详细信息”高度由 `gpui-base` 的
+  `h_resizable/v_resizable` 提供拖动分栏，尺寸保存到 `Settings.sidebar_width` /
+  `Settings.details_height`，重启后恢复。
+- **标准按钮尺寸**：游戏资产页、游戏设置导出区、上下文条和归档路径条的操作按钮
+  统一使用 gpui-kit 默认 Medium（32px）；`Tag`/徽标保持小尺寸。批量导出默认值改为
+  独立分组卡片，位于保存按钮之前。
+
+材质与几何支持：FF7R 的 SkeletalMesh rest pose 几何与蒙皮权重已解析；AnimSequence 已可播放（先选中动画再打开 SkeletalMesh 查看器）；Zen 材质通过 `SkeletalMaterials`/`StaticMaterials` 对象引用与 ImportMap 精确定位，贴图用途按 FModel `CMaterialParams2` 规则选择（参数触发名 → 名称正则 → first-texture 兜底），并按 FModel 应用 DiffuseColor tint 与 `M`/`AEM`/`AO` 环境光遮蔽；FF7R 旧式材质实例的标量/矢量/贴图参数数组在烘焙时未作为属性序列化（被写进内联 shader map），因此材质实例按父材质参数近似（与 FModel 行为一致）；SkeletalMesh
 LOD1+ 探测为尽力而为；UE4 旧式包的部分资产仍需映射才能显示字段名。
 
 ## 参考与许可

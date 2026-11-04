@@ -129,6 +129,23 @@ pub struct MaterialTextures {
     pub metallic_roughness: Option<TextureData>,
     /// 自发光。
     pub emissive: Option<TextureData>,
+    /// 环境光遮蔽（FModel `M`/`AEM`/`AO` 参数）。
+    pub occlusion: Option<TextureData>,
+}
+
+/// 金属/粗糙度贴图的通道布局。
+///
+/// UE 资产的打包习惯并不统一：多数 PBR 材质用 ORM（R=遮蔽、G=粗糙度、
+/// B=金属度），部分角色/武器材质则用高光遮罩（FModel 的 specular mask：
+/// G=金属度、B=粗糙度）。布局随材质数据一起传入渲染层，避免在着色器里
+/// 猜通道含义。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrmLayout {
+    /// R=环境光遮蔽、G=粗糙度、B=金属度（默认）。
+    #[default]
+    AoRoughMetal,
+    /// R=遮罩（暂未参与着色）、G=金属度、B=粗糙度。
+    SpecularMask,
 }
 
 /// 近似 PBR 材质。
@@ -148,6 +165,12 @@ pub struct MaterialData {
     pub textures: MaterialTextures,
     /// 是否双面。
     pub two_sided: bool,
+    /// 金属/粗糙度贴图的通道布局。
+    pub orm_layout: OrmLayout,
+    /// alpha 裁剪阈值；0 表示不裁剪（Opaque 材质），0.5 对应 Masked 材质。
+    pub alpha_cutoff: f32,
+    /// 是否半透明混合（Translucent/Additive 等）；此类材质按深度排序后混合。
+    pub translucent: bool,
 }
 
 impl Default for MaterialData {
@@ -160,6 +183,9 @@ impl Default for MaterialData {
             emissive: [0.0; 3],
             textures: MaterialTextures::default(),
             two_sided: false,
+            orm_layout: OrmLayout::AoRoughMetal,
+            alpha_cutoff: 0.0,
+            translucent: false,
         }
     }
 }

@@ -65,12 +65,17 @@ jobs:
         run: cargo test --workspace --locked
 
   build:
-    name: Build
+    name: Build (${{ matrix.arch }})
     runs-on: windows-latest
     timeout-minutes: 240
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      artifact: ${{ steps.version.outputs.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: x86
+            target: i686-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
 
@@ -79,11 +84,12 @@ jobs:
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy --no-self-update
           rustup default 1.99.0
+          rustup target add ${{ matrix.target }}
           rustc --version
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: windows-release
+          shared-key: windows-release-${{ matrix.arch }}
 
       - name: Resolve version
         id: version
@@ -102,7 +108,6 @@ jobs:
               }
           }
           "version=$version" >> $env:GITHUB_OUTPUT
-          "artifact=Lumark-$version-windows-x64" >> $env:GITHUB_OUTPUT
 
       - name: Package
         shell: pwsh
@@ -111,12 +116,15 @@ jobs:
           LUMARK_SIGN_PFX_PASSWORD: ${{ secrets.LUMARK_SIGN_PFX_PASSWORD }}
           LUMARK_SIGN_NO_TIMESTAMP: ${{ vars.LUMARK_SIGN_NO_TIMESTAMP }}
         run: |
-          $buildArguments = @{ Version = '${{ steps.version.outputs.version }}' }
+          $buildArguments = @{
+              Version = '${{ steps.version.outputs.version }}'
+              Arch = '${{ matrix.arch }}'
+          }
           if ($env:LUMARK_SIGN_PFX_BASE64) {
               if (-not $env:LUMARK_SIGN_PFX_PASSWORD) {
                   throw '已配置 LUMARK_SIGN_PFX_BASE64，但缺少 LUMARK_SIGN_PFX_PASSWORD'
               }
-              $pfx = Join-Path $env:RUNNER_TEMP 'lumark-sign.pfx'
+              $pfx = Join-Path $env:RUNNER_TEMP "lumark-sign-${{ matrix.arch }}.pfx"
               [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:LUMARK_SIGN_PFX_BASE64))
               $buildArguments.SignPfxPath = $pfx
               $buildArguments.SignPfxPassword = $env:LUMARK_SIGN_PFX_PASSWORD
@@ -134,17 +142,16 @@ jobs:
       - name: Remove signing certificate
         if: always()
         shell: pwsh
-        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'lumark-sign.pfx') -Force -ErrorAction SilentlyContinue
+        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "lumark-sign-${{ matrix.arch }}.pfx") -Force -ErrorAction SilentlyContinue
 
       - name: Write summary
         shell: pwsh
         run: |
-          "## Lumark ${{ steps.version.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
+          "## Lumark ${{ steps.version.outputs.version }}（${{ matrix.arch }}）" >> $env:GITHUB_STEP_SUMMARY
           "" >> $env:GITHUB_STEP_SUMMARY
           "| 文件 | SHA-256 |" >> $env:GITHUB_STEP_SUMMARY
           "|---|---|" >> $env:GITHUB_STEP_SUMMARY
-          $files = Get-ChildItem -Path dist -Recurse -File |
-              Where-Object { $_.Extension -in '.exe', '.zip' -or $_.Name -eq 'SHA256SUMS.txt' }
+          $files = Get-ChildItem -Path dist -File
           foreach ($file in $files) {
               $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
               "| $($file.Name) | $hash |" >> $env:GITHUB_STEP_SUMMARY
@@ -152,13 +159,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.version.outputs.artifact }}
+          name: Lumark-${{ steps.version.outputs.version }}-windows-${{ matrix.arch }}
           path: |
-            dist/Lumark-Setup-*.exe
-            dist/Lumark-Setup-*.exe.sha256
-            dist/Lumark-*-portable-x64.zip
-            dist/windows/**
-            dist/SHA256SUMS.txt
+            dist/Lumark-Setup-*-${{ matrix.arch }}.exe
+            dist/Lumark-*-windows-${{ matrix.arch }}-portable.zip
           if-no-files-found: error
           retention-days: 30
 
@@ -172,8 +176,36 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.build.outputs.artifact }}
+          pattern: Lumark-*-windows-*
           path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -LiteralPath dist -File | Sort-Object Name)
+          $allowed = '^(?:Lumark-Setup-.+-(?:x64|x86)\.exe|Lumark-.+-windows-(?:x64|x86)-portable\.zip)$'
+          $unexpected = @($files | Where-Object { $_.Name -notmatch $allowed })
+          if ($unexpected.Count -ne 0) {
+              throw "发现意外的发布文件：$($unexpected.Name -join ', ')"
+          }
+          foreach ($arch in @('x64', 'x86')) {
+              if (-not ($files | Where-Object { $_.Name -match "^Lumark-Setup-.+-$arch\.exe$" })) {
+                  throw "缺少 $arch 安装包"
+              }
+              if (-not ($files | Where-Object { $_.Name -match "^Lumark-.+-windows-$arch-portable\.zip$" })) {
+                  throw "缺少 $arch 便携包"
+              }
+          }
+          if ($files.Count -ne 4) {
+              throw "预期 4 个发布文件（x64/x86 安装包与便携包），实际 $($files.Count) 个"
+          }
+          $lines = $files | ForEach-Object {
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+          }
+          Set-Content -LiteralPath dist\SHA256SUMS.txt -Value ($lines -join "`n") -Encoding ASCII
+          Get-Content -LiteralPath dist\SHA256SUMS.txt
 
       - name: Publish GitHub Release
         shell: pwsh
@@ -182,15 +214,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $files = Get-ChildItem -Path dist -Recurse -File |
-              Where-Object {
-                  $_.Name -match '^Lumark-Setup-.*\.exe(\.sha256)?$' -or
-                  $_.Name -match '^Lumark-.*-portable-x64\.zip$' -or
-                  $_.Name -eq 'SHA256SUMS.txt'
-              } |
-              ForEach-Object { $_.FullName }
-          if (-not $files) {
-              throw '没有可发布的产物'
+          $files = @(Get-ChildItem -Path dist -File | ForEach-Object { $_.FullName })
+          if ($files.Count -ne 5) {
+              throw "发布文件数量异常：预期 4 个产物 + SHA256SUMS.txt，实际 $($files.Count) 个"
           }
           gh release view $tag --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
@@ -200,5 +226,5 @@ jobs:
               gh release create $tag --title "Lumark $tag" --generate-notes @files
           }
           if ($LASTEXITCODE -ne 0) {
-              throw "发布 Release 失败：$tag"
+            throw "发布 Release 失败：$tag"
           }

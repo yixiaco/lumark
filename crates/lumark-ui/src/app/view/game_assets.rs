@@ -23,6 +23,7 @@ impl LumarkApp {
         let mut games = self.settings.get().games;
         games.sort_by(|left, right| right.last_opened.cmp(&left.last_opened));
         let editing = setup.editing_id.is_some();
+        let oodle_prefer_rust = self.settings.get().oodle_prefer_rust;
         let title = if editing {
             tr("编辑游戏", "Edit game")
         } else {
@@ -84,17 +85,34 @@ impl LumarkApp {
                                     ),
                             )
                             .child(
-                                button("game-setup-close")
-                                    .ghost()
+                                h_flex()
                                     .ml_auto()
-                                    .label(if self.game_editor_only {
-                                        tr("取消", "Cancel")
-                                    } else {
-                                        tr("返回文件浏览", "Back to files")
-                                    })
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.close_game_setup(window, cx);
-                                    })),
+                                    .gap_2()
+                                    .child(
+                                        button("game-setup-close")
+                                            .ghost()
+                                            .label(if self.game_editor_only {
+                                                tr("取消", "Cancel")
+                                            } else {
+                                                tr("返回文件浏览", "Back to files")
+                                            })
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.close_game_setup(window, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        button("game-setup-save")
+                                            .primary()
+                                            .disabled(!setup.ready())
+                                            .label(if self.game_editor_only {
+                                                tr("保存", "Save")
+                                            } else {
+                                                tr("保存并打开", "Save and open")
+                                            })
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.save_game_setup(window, cx);
+                                            })),
+                                    ),
                             ),
                     )
                     .when(!self.game_editor_only, |this| {
@@ -170,35 +188,8 @@ impl LumarkApp {
                             )
                             .child(detection_summary(setup, cx))
                             .child(key_section(setup, cx))
-                            .child(oodle_section(setup, cx))
+                            .child(oodle_section(setup, oodle_prefer_rust, cx))
                             .child(mapping_section(setup, cx))
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .justify_end()
-                                    .gap_2()
-                                    .child(
-                                        button("game-setup-cancel")
-                                            .secondary()
-                                            .label(tr("取消", "Cancel"))
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.close_game_setup(window, cx);
-                                            })),
-                                    )
-                                    .child(
-                                        button("game-setup-save")
-                                            .primary()
-                                            .disabled(!setup.ready())
-                                            .label(if self.game_editor_only {
-                                                tr("保存", "Save")
-                                            } else {
-                                                tr("保存并打开", "Save and open")
-                                            })
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.save_game_setup(window, cx);
-                                            })),
-                                    ),
-                            )
                             .child(export_section(setup, cx)),
                     ),
             )
@@ -478,7 +469,6 @@ fn saved_game_row(
                 .child(
                     button(("game-open", index))
                         .ghost()
-                        .xsmall()
                         .label(tr("打开", "Open"))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.open_saved_game(&id, window, cx);
@@ -487,8 +477,7 @@ fn saved_game_row(
                 .child(
                     button(("game-edit", index))
                         .ghost()
-                        .xsmall()
-                        .icon(AppIcon::Edit.element(12.))
+                        .icon(AppIcon::Edit.element(14.))
                         .tooltip(tr("编辑", "Edit"))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             let entry = this
@@ -505,8 +494,7 @@ fn saved_game_row(
                 .child(
                     button(("game-remove", index))
                         .ghost()
-                        .xsmall()
-                        .icon(AppIcon::Delete.element(12.))
+                        .icon(AppIcon::Delete.element(14.))
                         .tooltip(tr("移除游戏", "Remove game"))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.remove_saved_game(&remove_id, window, cx);
@@ -688,8 +676,7 @@ fn key_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::AnyE
                     this.child(
                         button("game-view-key")
                             .ghost()
-                            .xsmall()
-                            .icon(AppIcon::Key.element(12.))
+                            .icon(AppIcon::Key.element(14.))
                             .label(tr("查看密钥", "View key"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.view_setup_key(window, cx);
@@ -701,8 +688,12 @@ fn key_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::AnyE
 }
 
 /// 渲染每游戏导出配置（E-2）。
+///
+/// 导出配置是保存后生效的默认值，因此放在表单内、保存按钮之前，并用
+/// 独立分组卡片保持与密钥/Oodle/映射区一致的层次；所有操作按钮使用
+/// gpui-kit 标准尺寸，不再用 xsmall 压缩。
 fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::AnyElement {
-    let mut formats = h_flex().gap_1().flex_wrap();
+    let mut formats = h_flex().gap_2().flex_wrap();
     for (id, label) in [
         ("glb", "GLB"),
         ("uemodel", "UEMODEL"),
@@ -711,7 +702,6 @@ fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::A
     ] {
         let selected = setup.export.formats.iter().any(|format| format == id);
         let mut format_button = button(format!("game-export-format-{id}"))
-            .xsmall()
             .label(label)
             .on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(setup) = this.game_setup.as_mut() {
@@ -732,7 +722,7 @@ fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::A
         };
         formats = formats.child(format_button);
     }
-    let mut limits = h_flex().gap_1().flex_wrap();
+    let mut limits = h_flex().gap_2().flex_wrap();
     for (limit, label) in [
         (None, tr("全部", "All")),
         (Some(10), "10"),
@@ -745,15 +735,15 @@ fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::A
             || "game-export-limit-all".to_string(),
             |limit| format!("game-export-limit-{limit}"),
         );
-        let mut limit_button = button(id)
-            .xsmall()
-            .label(label.to_string())
-            .on_click(cx.listener(move |this, _, _, cx| {
-                if let Some(setup) = this.game_setup.as_mut() {
-                    setup.export.limit = limit;
-                }
-                cx.notify();
-            }));
+        let mut limit_button =
+            button(id)
+                .label(label.to_string())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(setup) = this.game_setup.as_mut() {
+                        setup.export.limit = limit;
+                    }
+                    cx.notify();
+                }));
         limit_button = if selected {
             limit_button.primary()
         } else {
@@ -762,19 +752,40 @@ fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::A
         limits = limits.child(limit_button);
     }
     v_flex()
-        .gap_2()
-        .child(field_label(
-            cx,
-            tr("导出格式/数量（保存后生效）", "Export formats/limit (saved)"),
-        ))
-        .child(formats)
-        .child(limits)
+        .w_full()
+        .gap_3()
+        .rounded(cx.theme().radius_lg)
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().muted)
+        .p_4()
         .child(
+            v_flex()
+                .gap(px(1.))
+                .child(
+                    div()
+                        .text_sm()
+                        .font_semibold()
+                        .child(tr("批量导出默认值", "Batch export defaults")),
+                )
+                .child(hint_line(
+                    cx,
+                    tr(
+                        "保存后用于该游戏的批量导出；输出目录默认为游戏目录下的 LumarkExports。",
+                        "Used for this game's batch export after saving; output defaults to LumarkExports under the game folder.",
+                    ),
+                )),
+        )
+        .child(export_field(cx, tr("导出格式", "Formats"), formats))
+        .child(export_field(cx, tr("数量限制", "Limit"), limits))
+        .child(export_field(
+            cx,
+            tr("导出选项", "Options"),
             h_flex()
                 .gap_2()
+                .flex_wrap()
                 .child(
                     button("game-export-overwrite")
-                        .xsmall()
                         .ghost()
                         .selected(setup.export.overwrite)
                         .label(tr("覆盖已有文件", "Overwrite existing"))
@@ -787,7 +798,6 @@ fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::A
                 )
                 .child(
                     button("game-export-materials")
-                        .xsmall()
                         .ghost()
                         .selected(setup.export.include_materials)
                         .label(tr("解析材质", "Resolve materials"))
@@ -798,29 +808,46 @@ fn export_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::A
                             cx.notify();
                         })),
                 ),
-        )
-        .child(
-            v_flex()
-                .gap_1()
-                .child(field_label(cx, tr("资产过滤", "Asset filter")))
-                .child(
-                    Input::new(&setup.export_filter)
-                        .id("game-export-filter")
-                        .w_full(),
-                ),
-        )
-        .child(hint_line(
+        ))
+        .child(export_field(
             cx,
-            tr(
-                "批量导出时使用这些默认值；输出目录默认为游戏目录下的 LumarkExports。",
-                "Batch export uses these defaults; output defaults to LumarkExports under the game folder.",
-            ),
+            tr("资产过滤", "Asset filter"),
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(Input::new(&setup.export_filter).id("game-export-filter").w_full()),
         ))
         .into_any_element()
 }
 
+/// 渲染导出配置中的「标签 + 控件」一行。
+fn export_field(
+    cx: &gpui_kit::App,
+    label: &'static str,
+    control: impl IntoElement,
+) -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .gap_3()
+        .items_center()
+        .child(
+            div()
+                .w(px(84.))
+                .flex_shrink_0()
+                .text_xs()
+                .font_semibold()
+                .text_color(cx.theme().muted_foreground)
+                .child(label),
+        )
+        .child(div().flex_1().min_w_0().child(control))
+}
+
 /// 渲染 Oodle 库设置区。
-fn oodle_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::AnyElement {
+fn oodle_section(
+    setup: &GameSetup,
+    prefer_rust: bool,
+    cx: &mut Context<LumarkApp>,
+) -> gpui_kit::AnyElement {
     let path = setup
         .oodle
         .as_deref()
@@ -836,20 +863,22 @@ fn oodle_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::An
         .gap_2()
         .child(field_label(cx, tr("Oodle 解压库", "Oodle library")))
         .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(path),
+        )
+        .child(
             h_flex()
+                .w_full()
                 .gap_2()
+                .flex_wrap()
                 .items_center()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(path),
-                )
                 .child(
                     button("game-choose-oodle")
                         .label(tr("选择 Oodle 库…", "Choose Oodle library..."))
@@ -865,17 +894,45 @@ fn oodle_section(setup: &GameSetup, cx: &mut Context<LumarkApp>) -> gpui_kit::An
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.open_oodle_download(window, cx);
                         })),
+                )
+                .child(
+                    button("game-clear-oodle")
+                        .ghost()
+                        .label(tr("移除 DLL（内置 Rust）", "Remove DLL (built-in Rust)"))
+                        .tooltip(tr(
+                            "清除已配置的 Oodle 动态库，改用内置纯 Rust 解码器",
+                            "Clear the configured Oodle DLL and use the built-in Rust decoder",
+                        ))
+                        .disabled(setup.busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.clear_game_oodle(cx);
+                        })),
                 ),
         )
         .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(format!(
-                    "{}：{}",
-                    tr("当前后端", "Current backend"),
-                    lumark_archive::oodle_status().summary()
-                )),
+            h_flex()
+                .w_full()
+                .gap_2()
+                .items_center()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!(
+                            "{}：{}",
+                            tr("当前后端", "Current backend"),
+                            lumark_archive::oodle_status().summary()
+                        )),
+                )
+                .when(prefer_rust, |this| {
+                    this.child(
+                        Tag::secondary()
+                            .xsmall()
+                            .child(tr("已强制 Rust", "Rust forced")),
+                    )
+                }),
         )
         .into_any_element()
 }

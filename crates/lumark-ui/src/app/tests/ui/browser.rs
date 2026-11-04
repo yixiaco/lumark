@@ -345,12 +345,13 @@ fn search_type_filter_limits_results_and_clear_resets(cx: &mut gpui_kit::TestApp
     let _ = app;
 }
 
-/// 资产类型下拉菜单可以直接选中类型（菜单项按索引定位）。
+/// 资产类型下拉菜单选中后立即过滤（无需再点「搜索」）。
 #[gpui_kit::test]
-fn search_type_dropdown_selects_category(cx: &mut gpui_kit::TestAppContext) {
+fn search_type_dropdown_filters_immediately(cx: &mut gpui_kit::TestAppContext) {
     cx.update(gpui_kit::init);
     let directory = tempdir().unwrap();
     std::fs::write(directory.path().join("photo.png"), b"png").unwrap();
+    std::fs::write(directory.path().join("readme.txt"), b"text").unwrap();
     let (app, cx) = cx.add_window_view(|window, cx| {
         LumarkApp::new_with_stores(
             window,
@@ -375,29 +376,14 @@ fn search_type_dropdown_selects_category(cx: &mut gpui_kit::TestAppContext) {
             Some(lumark_browser::AssetCategory::Image),
             "点击“图片/纹理”应设置筛选类型"
         );
-        assert!(
-            app.status.contains("图片"),
-            "状态应显示类型：{}",
-            app.status
-        );
-        // 有搜索结果时切换类型应自动重新搜索。
-        app.search_results = Some(Vec::new());
-    });
-    cx.update(|window, cx| {
-        window.click("search-type", cx);
-        window.draw(cx).clear(cx);
-        window.click(1usize, cx);
-        window.draw(cx).clear(cx);
-    });
-    app.update(cx, |app, _| {
+        // 没有输入文本也没有点「搜索」；类型切换本身应产生过滤结果。
         let names: Vec<String> = app
             .displayed_entries()
             .into_iter()
             .map(|entry| entry.name)
             .collect();
-        assert_eq!(names, vec!["photo.png".to_string()], "类型筛选应只剩图片");
-        // 选回“全部”并再次搜索应清空结果（空文本 + 无类型）。
-        app.search_results = Some(Vec::new());
+        assert_eq!(names, vec!["photo.png".to_string()], "类型筛选应立即生效");
+        assert!(app.search_results.is_some(), "应立即进入搜索结果视图");
     });
     cx.update(|window, cx| {
         window.click("search-type", cx);
@@ -410,6 +396,187 @@ fn search_type_dropdown_selects_category(cx: &mut gpui_kit::TestAppContext) {
         assert!(
             app.search_results.is_none(),
             "空文本 + 无类型应清空搜索结果"
+        );
+    });
+    let _ = app;
+}
+
+/// 方向键移动文件选择：上下/左右/Home/End 与 Shift 范围扩展。
+#[gpui_kit::test]
+fn arrow_keys_move_file_selection(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt"] {
+        std::fs::write(directory.path().join(name), b"x").unwrap();
+    }
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    /// 返回当前选择焦点在显示顺序中的下标。
+    fn focus_index(state: &LumarkApp) -> Option<usize> {
+        state.browser.selection.focus().and_then(|id| {
+            state
+                .displayed_ids()
+                .iter()
+                .position(|candidate| candidate == id)
+        })
+    }
+    let ids: Vec<String> = app.update(cx, |app, _| app.displayed_ids());
+    assert_eq!(ids.len(), 6);
+    let focus = |cx: &mut gpui_kit::VisualTestContext| app.update(cx, |app, _| focus_index(app));
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        app.update(cx, |app, cx| app.browser_focus.focus(window, cx));
+        window.press("down", cx);
+        window.draw(cx).clear(cx);
+    });
+    assert_eq!(focus(cx), Some(0), "Down 应选中第一个文件");
+    cx.update(|window, cx| {
+        window.press("down", cx);
+        window.press("right", cx);
+        window.draw(cx).clear(cx);
+    });
+    assert_eq!(focus(cx), Some(2), "Down/Right 应逐个向后移动");
+    cx.update(|window, cx| {
+        window.press("up", cx);
+        window.press("left", cx);
+        window.draw(cx).clear(cx);
+    });
+    assert_eq!(focus(cx), Some(0), "Up/Left 应逐个向前移动");
+    cx.update(|window, cx| {
+        window.press("end", cx);
+        window.draw(cx).clear(cx);
+    });
+    assert_eq!(focus(cx), Some(5), "End 应选中最后一个");
+    cx.update(|window, cx| {
+        window.press("home", cx);
+        window.press("shift-down", cx);
+        window.press("shift-down", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(
+            app.browser.selection.selected_ids().len(),
+            3,
+            "Shift+Down 应从锚点扩展选择"
+        );
+        assert_eq!(app.browser.selection.focus(), Some(ids[2].as_str()));
+    });
+    // 平铺视图上下移动一整行（列数）。
+    cx.update(|window, cx| {
+        window.click("view-toggle", cx);
+        window.draw(cx).clear(cx);
+        app.update(cx, |app, cx| {
+            app.browser.selection.clear();
+            app.browser_focus.focus(window, cx);
+            cx.notify();
+        });
+        window.draw(cx).clear(cx);
+    });
+    let columns = cx.update(|window, cx| {
+        app.update(cx, |app, _| {
+            app.tile_columns_at(app.browser_list_width(window))
+        })
+    });
+    assert!(columns >= 2, "平铺视图应至少两列：{columns}");
+    cx.update(|window, cx| {
+        window.press("down", cx);
+        window.press("down", cx);
+        window.draw(cx).clear(cx);
+    });
+    assert_eq!(
+        focus(cx),
+        Some(columns.min(5)),
+        "平铺视图 Down 应跨一整行（条目不足时夹到最后一个）"
+    );
+    let _ = app;
+}
+
+/// 平铺模式卡片宽度按可用宽度均分，铺满横轴。
+#[gpui_kit::test]
+fn tile_layout_fills_rows(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    for index in 0..30 {
+        std::fs::write(directory.path().join(format!("file-{index:02}.txt")), b"x").unwrap();
+    }
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("view-toggle", cx);
+        window.draw(cx).clear(cx);
+    });
+    // 视觉尺寸在测试窗口里也要有确定结果：列数 ≥ 1，且行内卡片横向铺满。
+    let (columns, width) = cx.update(|window, cx| {
+        app.update(cx, |app, _| {
+            let width = app.browser_list_width(window);
+            (app.tile_columns_at(width), width)
+        })
+    });
+    assert!(columns >= 1);
+    assert!(width > 100.0);
+    assert!(width >= 2.0 * 12.0, "可用宽度应至少容纳左右内边距：{width}");
+    let _ = app;
+}
+
+/// 搜索默认使用「包含」匹配，并支持在搜索框回车立即执行。
+#[gpui_kit::test]
+fn search_defaults_to_contains_and_enter_runs(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("alpha.txt"), b"a").unwrap();
+    std::fs::write(directory.path().join("beta.txt"), b"b").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    app.update(cx, |app, _| {
+        assert_eq!(
+            app.search_mode,
+            lumark_browser::SearchMode::Contains,
+            "搜索默认应为包含匹配"
+        );
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        window.click("search-input", cx);
+        window.input("bet", cx);
+        window.press("enter", cx);
+        window.draw(cx).clear(cx);
+    });
+    app.update(cx, |app, _| {
+        assert!(
+            app.search_results.is_some(),
+            "回车应直接执行搜索，无需点击搜索按钮"
+        );
+        let names: Vec<String> = app
+            .displayed_entries()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["beta.txt".to_string()],
+            "包含匹配应命中 beta.txt"
         );
     });
     let _ = app;

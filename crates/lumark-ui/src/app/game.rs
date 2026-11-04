@@ -12,6 +12,8 @@ use lumark_settings::GameExportConfig;
 use lumark_unreal::{DetectedGame, UnrealEngine};
 use zeroize::Zeroizing;
 
+use super::LumarkApp;
+
 /// 当前平台是否展示游戏资产功能。
 pub(crate) const GAME_ASSETS_SUPPORTED: bool = cfg!(target_os = "windows");
 
@@ -144,6 +146,18 @@ pub(crate) struct GameSetup {
     pub(crate) message: Option<String>,
     /// 手动指定的引擎版本；`None` 表示使用扫描结果。
     pub(crate) engine_override: Option<UnrealEngine>,
+}
+
+impl LumarkApp {
+    /// 返回游戏容器条目解析出的资产类型；非游戏容器或未解析时返回 `None`。
+    pub(crate) fn game_asset_kind(
+        &self,
+        entry: &lumark_browser::BrowserEntry,
+    ) -> Option<lumark_unreal::AssetKind> {
+        self.game_session.as_ref()?;
+        let path = entry.path.to_string_lossy().replace('\\', "/");
+        self.game_asset_classes.get(&path).copied()
+    }
 }
 
 impl GameSetup {

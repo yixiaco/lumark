@@ -10,6 +10,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowTextLengthW, GetWindowTextW, SetProcessDPIAware, SetWindowTextW,
 };
 
+/// Win32 `LONG_PTR` 参数：64 位目标为 `isize`，32 位目标为 `i32`。
+#[cfg(target_pointer_width = "64")]
+pub(crate) type LongPtr = isize;
+
+/// Win32 `LONG_PTR` 参数：64 位目标为 `isize`，32 位目标为 `i32`。
+#[cfg(target_pointer_width = "32")]
+pub(crate) type LongPtr = i32;
+
 /// 让自解压界面按系统 DPI 缩放，避免高缩放下控件模糊或错位。
 pub(crate) fn enable_dpi_awareness() {
     // SAFETY: 进程启动早期调用，失败时退回 Windows 的位图缩放。

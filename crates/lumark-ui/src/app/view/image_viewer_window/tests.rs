@@ -96,14 +96,25 @@ fn viewer_display_name_prefers_asset_name() {
     assert_eq!(viewer_display_name("  ", temporary), "ue-1234.png");
 }
 
-/// 滚轮放大/缩小方向与缩放上下限。
+/// 滚轮方向（GPUI/Windows：向上 `delta.y > 0` 放大）与缩放范围。
 #[test]
 fn wheel_zoom_directions_and_bounds() {
-    assert!(wheel_zoom(1.0, -120.0) > 1.0);
-    assert!(wheel_zoom(1.0, 120.0) < 1.0);
+    assert!(wheel_zoom(1.0, 120.0) > 1.0, "滚轮向上应放大");
+    assert!(wheel_zoom(1.0, -120.0) < 1.0, "滚轮向下应缩小");
     assert_eq!(wheel_zoom(1.0, 0.0), 1.0);
-    assert!(wheel_zoom(100.0, -100_000.0) <= 16.0);
-    assert!(wheel_zoom(0.001, 100_000.0) >= 0.05);
+    let (min_zoom, max_zoom) = zoom_bounds(1.0);
+    assert_eq!((min_zoom, max_zoom), (MIN_ZOOM, MAX_ZOOM));
+    assert_eq!(
+        wheel_zoom(1.0, 100_000.0).clamp(min_zoom, max_zoom),
+        MAX_ZOOM
+    );
+    assert_eq!(
+        wheel_zoom(1.0, -100_000.0).clamp(min_zoom, max_zoom),
+        MIN_ZOOM
+    );
+    // 小图/全景图在适应窗口时超出常规范围，边界扩展到适应比例以免方向反转。
+    assert_eq!(zoom_bounds(0.02).0, 0.02);
+    assert_eq!(zoom_bounds(380.0).1, 380.0);
 }
 
 /// 光标锚点：放大时光标下的图片位置保持不动。
@@ -121,4 +132,138 @@ fn anchored_zoom_keeps_cursor_point() {
     // 已有平移且放大同样满足锚点公式。
     let moved = anchored_pan((10.0, 0.0), cursor, center, 1.0, 2.0);
     assert!((moved.0 + 80.0).abs() < f32::EPSILON);
+}
+
+/// 绝对布局：图片以画布中心为基准缩放，平移只改变位置、不改变尺寸。
+#[test]
+fn image_rect_centers_image_and_keeps_size_when_panned() {
+    let natural = (200.0, 100.0);
+    let canvas = (800.0, 600.0);
+    let rect = image_rect(natural, canvas, 2.0, (0.0, 0.0));
+    assert_eq!((rect.width, rect.height), (400.0, 200.0));
+    assert_eq!((rect.left, rect.top), (200.0, 200.0), "2 倍缩放应居中");
+    // 平移只改变位置：宽高不变，不会出现 flex 收缩导致的非等比压缩。
+    let panned = image_rect(natural, canvas, 2.0, (50.0, -30.0));
+    assert_eq!((panned.left, panned.top), (250.0, 170.0));
+    assert_eq!((panned.width, panned.height), (rect.width, rect.height));
+    // 缩小后仍以画布中心居中。
+    let small = image_rect(natural, canvas, 0.5, (0.0, 0.0));
+    assert_eq!((small.width, small.height), (100.0, 50.0));
+    assert_eq!((small.left, small.top), (350.0, 275.0));
+}
+
+/// 画布中心与适应窗口比例来自精确 bounds。
+#[test]
+fn canvas_metrics_center_and_fit_scale() {
+    let canvas = CanvasMetrics {
+        origin: (10.0, 50.0),
+        size: (800.0, 600.0),
+    };
+    assert_eq!(canvas.center(), (410.0, 350.0));
+    assert_eq!(canvas.fit_scale((1600.0, 1200.0)), 0.5);
+    assert_eq!(canvas.fit_scale((2000.0, 300.0)), 0.4);
+    // 无效尺寸退化为 1，避免除零。
+    assert_eq!(CanvasMetrics::default().fit_scale((100.0, 100.0)), 1.0);
+}
+
+/// 拖拽按绝对坐标 1:1 累计位移，且不改变图片尺寸。
+#[test]
+fn drag_pan_tracks_cursor_one_to_one() {
+    let natural = (100.0, 80.0);
+    let canvas = (600.0, 400.0);
+    let before = image_rect(natural, canvas, 1.5, (0.0, 0.0));
+    let pan = dragged_pan((120.0, 200.0), (0.0, 0.0), (170.0, 260.0));
+    assert_eq!(pan, (50.0, 60.0));
+    let after = image_rect(natural, canvas, 1.5, pan);
+    assert_eq!((after.width, after.height), (before.width, before.height));
+    assert_eq!((after.left - before.left, after.top - before.top), pan);
+    // 再次移动仍以按下点为基准，不累加布局误差。
+    assert_eq!(
+        dragged_pan((120.0, 200.0), (0.0, 0.0), (220.0, 200.0)),
+        (100.0, 0.0)
+    );
+}
+
+/// 适应窗口时滚轮从当前显示比例继续，锚点使用精确画布中心。
+#[test]
+fn fit_scale_zoom_uses_precise_canvas_center() {
+    let canvas = CanvasMetrics {
+        origin: (10.0, 50.0),
+        size: (800.0, 600.0),
+    };
+    let fit_scale = canvas.fit_scale((1600.0, 1200.0));
+    assert_eq!(fit_scale, 0.5);
+    let (min_zoom, max_zoom) = zoom_bounds(fit_scale);
+    let next_zoom = wheel_zoom(fit_scale, 120.0).clamp(min_zoom, max_zoom);
+    assert!(next_zoom > fit_scale, "适应窗口向上滚动应放大");
+    // 光标在画布中心右侧，放大后图片应向左移动以保持锚点。
+    let pan = anchored_pan(
+        (0.0, 0.0),
+        (600.0, 350.0),
+        canvas.center(),
+        fit_scale,
+        next_zoom,
+    );
+    assert!(pan.0 < 0.0);
+    assert!(pan.1.abs() < f32::EPSILON);
+}
+
+/// 极端窗口尺寸下图片中心仍与画布中心像素级对齐。
+#[gpui_kit::test]
+fn image_view_centers_at_extreme_window_sizes(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("photo.png");
+    image::RgbaImage::from_pixel(400, 300, image::Rgba([20, 120, 220, 255]))
+        .save(&path)
+        .expect("写入测试图片");
+    let (view, cx) = cx.add_window_view(|window, cx| {
+        let mut view =
+            ImageViewerWindowView::new(path.clone(), "photo.png".to_string(), 0, window, cx);
+        view.loading = false;
+        view.meta = Some(ImageMeta {
+            width: 400,
+            height: 300,
+            format: "PNG".to_string(),
+            animated: false,
+            vector: false,
+        });
+        view.fit = false;
+        view.zoom = 1.0;
+        view
+    });
+    let _ = view;
+    for (width, height) in [(120.0, 90.0), (2400.0, 1500.0)] {
+        cx.simulate_resize(gpui_kit::size(px(width), px(height)));
+        // 尺寸变化后需要补一帧：绝对布局依赖上一帧画布中心。
+        for _ in 0..2 {
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+            });
+        }
+        let canvas = cx
+            .debug_bounds("image-viewer-canvas")
+            .expect("画布应记录布局 bounds");
+        let image = cx
+            .debug_bounds("image-viewer-image")
+            .expect("非适应模式应绘制图片");
+        let canvas_center = (
+            canvas.origin.x.as_f32() + canvas.size.width.as_f32() / 2.0,
+            canvas.origin.y.as_f32() + canvas.size.height.as_f32() / 2.0,
+        );
+        let image_center = (
+            image.origin.x.as_f32() + image.size.width.as_f32() / 2.0,
+            image.origin.y.as_f32() + image.size.height.as_f32() / 2.0,
+        );
+        assert!(
+            (canvas_center.0 - image_center.0).abs() <= 1.0
+                && (canvas_center.1 - image_center.1).abs() <= 1.0,
+            "窗口 {width}x{height} 下图片中心 {image_center:?} 应与画布中心 {canvas_center:?} 对齐"
+        );
+        assert!(
+            (image.size.width.as_f32() - 400.0).abs() <= 1.0
+                && (image.size.height.as_f32() - 300.0).abs() <= 1.0,
+            "缩放 1.0 时图片尺寸应保持原图尺寸"
+        );
+    }
 }

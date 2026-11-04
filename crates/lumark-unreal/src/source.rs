@@ -8,7 +8,18 @@ use std::path::{Path, PathBuf};
 
 use lumark_archive::{ArchiveError, IoStoreContainer, PakAssetReader};
 
-use crate::package::ZenScriptObjects;
+use crate::package::{
+    AssetKind, ZenScriptObjects, is_legacy_package, parse_legacy_summary, parse_package,
+};
+
+/// 资产类型摘要：类名与推断出的资产种类。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetClassSummary {
+    /// UE 类名，例如 `SkeletalMesh`。
+    pub class_name: String,
+    /// 推断的资产种类，供文件表图标和详情展示使用。
+    pub kind: AssetKind,
+}
 
 /// 容器类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +268,14 @@ impl GameAssetSource {
         }
     }
 
+    /// 按 IoStore 包 ID 反查容器内资产路径。
+    pub fn package_path_for_id(&self, package_id: u64) -> Option<String> {
+        match &self.container {
+            Container::IoStore(container) => container.package_path_for_id(package_id),
+            Container::Pak(_) => None,
+        }
+    }
+
     /// 返回 IoStore 包的直接导入包 ID（来自 ContainerHeader store entry）。
     pub fn imported_packages(&self, package_id: u64) -> Result<Vec<u64>, ArchiveError> {
         match &self.container {
@@ -410,6 +429,33 @@ impl GameAssetSource {
             inputs.ubulk = Some(self.read_bytes(&ubulk)?);
         }
         Ok(inputs)
+    }
+
+    /// 只解析包头部，识别第一个导出对象的类名与资产种类。
+    ///
+    /// 文件表类型图标使用该接口：旧式包只需 `uasset` 头，Zen 包解析
+    /// 名称表/导出表；不读取 `.uexp` 属性，也不解码贴图或网格。
+    pub fn read_asset_class(&mut self, path: &str) -> Option<AssetClassSummary> {
+        let inputs = self.read_package(path).ok()?;
+        if is_legacy_package(&inputs.uasset) {
+            let summary = parse_legacy_summary(&inputs.uasset).ok()?;
+            let kind = AssetKind::classify(&summary.class_name, &summary.export_name);
+            return Some(AssetClassSummary {
+                class_name: summary.class_name,
+                kind,
+            });
+        }
+        let package = parse_package(inputs.uasset, self.scripts(), None).ok()?;
+        let export = package
+            .info()
+            .exports
+            .iter()
+            .find(|export| export.outer_export.is_none())?;
+        let kind = AssetKind::classify(&export.class_name, &export.name);
+        Some(AssetClassSummary {
+            class_name: export.class_name.clone(),
+            kind,
+        })
     }
 }
 

@@ -27,10 +27,7 @@ impl ImageViewerWindowView {
                     .ghost()
                     .selected(!self.fit && (self.zoom - 1.0).abs() < f32::EPSILON)
                     .label("100%")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.pan = (0.0, 0.0);
-                        this.set_zoom(1.0, cx);
-                    })),
+                    .on_click(cx.listener(|this, _, _, cx| this.actual_size(cx))),
             )
             .child(
                 button("image-zoom-out")
@@ -38,10 +35,7 @@ impl ImageViewerWindowView {
                     .icon(AppIcon::ZoomOut.element(16.))
                     .tooltip(tr("缩小", "Zoom out"))
                     .accessibility_label(tr("缩小", "Zoom out"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let next = this.zoom / 1.25;
-                        this.set_zoom(next, cx);
-                    })),
+                    .on_click(cx.listener(|this, _, _, cx| this.zoom_by_factor(1.0 / 1.25, cx))),
             )
             .child(
                 button("image-zoom-in")
@@ -49,10 +43,7 @@ impl ImageViewerWindowView {
                     .icon(AppIcon::ZoomIn.element(16.))
                     .tooltip(tr("放大", "Zoom in"))
                     .accessibility_label(tr("放大", "Zoom in"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let next = this.zoom * 1.25;
-                        this.set_zoom(next, cx);
-                    })),
+                    .on_click(cx.listener(|this, _, _, cx| this.zoom_by_factor(1.25, cx))),
             )
             .child(
                 button("image-rotate-left")

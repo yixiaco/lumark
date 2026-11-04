@@ -8,11 +8,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 
-use lumark_scene::{MaterialData, MeshData, Scene};
+use lumark_scene::{MaterialData, MeshData, OrmLayout, Scene};
 
 use crate::camera::{Camera, normalize};
 use crate::skin;
-use crate::{RenderSettings, RenderTarget};
+use crate::{LightingMode, NormalMapConvention, RenderSettings, RenderTarget};
 
 /// WGSL 着色器。
 const SHADER: &str = include_str!("shader.wgsl");
@@ -68,6 +68,10 @@ pub struct GpuRenderer {
     pipeline_double: wgpu::RenderPipeline,
     pipeline_single_4x: wgpu::RenderPipeline,
     pipeline_double_4x: wgpu::RenderPipeline,
+    pipeline_blend_single: wgpu::RenderPipeline,
+    pipeline_blend_double: wgpu::RenderPipeline,
+    pipeline_blend_single_4x: wgpu::RenderPipeline,
+    pipeline_blend_double_4x: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     line_pipeline_4x: wgpu::RenderPipeline,
     background_pipeline: wgpu::RenderPipeline,
@@ -80,6 +84,8 @@ pub struct GpuRenderer {
     flat_normal_view: wgpu::TextureView,
     /// 纹理 LRU：跨帧复用已上传的 GPU 纹理。
     texture_cache: std::sync::Mutex<TextureCache>,
+    /// 离屏渲染目标缓存：同尺寸/采样数时复用颜色、深度与回读缓冲。
+    targets: std::sync::Mutex<Option<RenderTargets>>,
 }
 
 /// 纹理缓存键：名称/尺寸/采样格式/内容指纹（材质批次每帧克隆）。
@@ -137,6 +143,92 @@ impl TextureCache {
 /// 纹理缓存容量。
 const TEXTURE_CACHE_CAPACITY: usize = 64;
 
+/// 离屏渲染目标缓存键：`(宽, 高, MSAA 采样数)`。
+type TargetKey = (u32, u32, u32);
+
+/// 一次离屏渲染需要的 GPU 目标；尺寸与采样数一致时跨帧复用。
+struct RenderTargets {
+    /// 缓存键。
+    key: TargetKey,
+    /// 单采样颜色目标（也是回读来源）。
+    color: wgpu::Texture,
+    /// 颜色目标视图。
+    color_view: wgpu::TextureView,
+    /// 多重采样颜色视图（`samples > 1` 时存在）。
+    msaa_view: Option<wgpu::TextureView>,
+    /// 深度视图。
+    depth_view: wgpu::TextureView,
+    /// 回读缓冲；行字节数补齐到 256 的倍数。
+    readback: wgpu::Buffer,
+    /// 回读缓冲的补齐行宽（字节）。
+    padded_row: u32,
+}
+
+impl RenderTargets {
+    /// 按尺寸与采样数创建颜色/深度/回读资源。
+    fn new(device: &wgpu::Device, key: TargetKey) -> Self {
+        let (width, height, samples) = key;
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let color = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lumark-color"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
+        // MSAA：先渲染到多重采样纹理，再 resolve 到上面的单采样目标。
+        let msaa_view = (samples > 1).then(|| {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("lumark-msaa-color"),
+                size,
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: COLOR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            texture.create_view(&wgpu::TextureViewDescriptor::default())
+        });
+        let depth = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lumark-depth"),
+            size,
+            mip_level_count: 1,
+            sample_count: samples,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+        // 回读：copy_texture_to_buffer 的每行字节数必须是 256 的倍数。
+        let padded_row = width.div_ceil(64) * 256;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lumark-readback"),
+            size: u64::from(padded_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        Self {
+            key,
+            color,
+            color_view,
+            msaa_view,
+            depth_view,
+            readback,
+            padded_row,
+        }
+    }
+}
+
 impl fmt::Debug for GpuRenderer {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -188,6 +280,10 @@ impl GpuRenderer {
                 pipeline_double: resources.pipeline_double,
                 pipeline_single_4x: resources.pipeline_single_4x,
                 pipeline_double_4x: resources.pipeline_double_4x,
+                pipeline_blend_single: resources.pipeline_blend_single,
+                pipeline_blend_double: resources.pipeline_blend_double,
+                pipeline_blend_single_4x: resources.pipeline_blend_single_4x,
+                pipeline_blend_double_4x: resources.pipeline_blend_double_4x,
                 line_pipeline: resources.line_pipeline,
                 line_pipeline_4x: resources.line_pipeline_4x,
                 background_pipeline: resources.background_pipeline,
@@ -199,6 +295,7 @@ impl GpuRenderer {
                 white_view: resources.white_view,
                 flat_normal_view: resources.flat_normal_view,
                 texture_cache: std::sync::Mutex::new(TextureCache::default()),
+                targets: std::sync::Mutex::new(None),
             });
         }
         Err(GpuError::new(format!(
@@ -229,60 +326,19 @@ impl GpuRenderer {
         let samples = if settings.msaa_samples >= 4 { 4 } else { 1 };
         let width = settings.width * supersample;
         let height = settings.height * supersample;
-        let bounds = scene.compute_bounds();
+        let bounds = crate::render_bounds(scene);
         let camera = Camera::fit(&bounds, settings);
         let batches = build_batches(scene, settings);
-
-        let target = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("lumark-color"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: COLOR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let color_view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        // MSAA：先渲染到多重采样纹理，再 resolve 到上面的单采样目标。
-        let msaa = if samples > 1 {
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("lumark-msaa-color"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: samples,
-                dimension: wgpu::TextureDimension::D2,
-                format: COLOR_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
-            Some(texture.create_view(&wgpu::TextureViewDescriptor::default()))
-        } else {
-            None
-        };
-        let depth = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("lumark-depth"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: samples,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+        // 渲染目标按「尺寸 + MSAA 采样数」缓存，尺寸不变时跨帧复用。
+        let key = (width, height, samples);
+        let mut target_cache = self
+            .targets
+            .lock()
+            .map_err(|_| GpuError::new("渲染目标缓存锁失败"))?;
+        if target_cache.as_ref().map(|targets| targets.key) != Some(key) {
+            *target_cache = Some(RenderTargets::new(&self.device, key));
+        }
+        let targets = target_cache.as_ref().expect("渲染目标已创建");
 
         let camera_buffer = self.create_buffer(
             "lumark-camera",
@@ -306,14 +362,9 @@ impl GpuRenderer {
                 label: Some("lumark-render"),
             });
         {
-            let (render_view, resolve_target) = match &msaa {
-                Some(view) => (view, Some(&color_view)),
-                None => (&color_view, None),
-            };
-            let (pipeline_single, pipeline_double) = if samples > 1 {
-                (&self.pipeline_single_4x, &self.pipeline_double_4x)
-            } else {
-                (&self.pipeline_single, &self.pipeline_double)
+            let (render_view, resolve_target) = match &targets.msaa_view {
+                Some(view) => (view, Some(&targets.color_view)),
+                None => (&targets.color_view, None),
             };
             let line_pipeline = if samples > 1 {
                 &self.line_pipeline_4x
@@ -336,7 +387,7 @@ impl GpuRenderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth_view,
+                    view: &targets.depth_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -368,120 +419,39 @@ impl GpuRenderer {
             });
             pass.set_bind_group(0, &background_bind_group, &[]);
             pass.draw(0..3, 0..1);
-            pass.set_pipeline(pipeline_double);
             pass.set_bind_group(0, &camera_bind_group, &[]);
+            // 批次只保存材质索引，避免每帧克隆材质与贴图数据。
+            let fallback_material = MaterialData::default();
+            // 先绘制不透明/Masked 批次；半透明批次最后按距相机由远到近混合。
+            let mut translucent: Vec<(&Batch, f32)> = Vec::new();
             for batch in &batches {
-                pass.set_pipeline(if batch.material.two_sided {
-                    pipeline_double
+                let material = batch.material(scene, &fallback_material);
+                if material.translucent {
+                    let delta = [
+                        batch.sort_center[0] - camera.eye[0],
+                        batch.sort_center[1] - camera.eye[1],
+                        batch.sort_center[2] - camera.eye[2],
+                    ];
+                    translucent.push((
+                        batch,
+                        delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2],
+                    ));
                 } else {
-                    pipeline_single
-                });
-                let vertex_bytes = f32_bytes(&batch.vertices);
-                let vertex_buffer = self.create_buffer(
-                    "lumark-vertices",
-                    vertex_bytes.len() as u64,
-                    wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                );
-                self.queue.write_buffer(&vertex_buffer, 0, &vertex_bytes);
-                let material_buffer = self.create_buffer(
-                    "lumark-material",
-                    MATERIAL_UNIFORM_SIZE,
-                    wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                );
-                self.queue
-                    .write_buffer(&material_buffer, 0, &material_uniform(&batch.material));
-                let base_upload = batch
-                    .material
-                    .textures
-                    .base_color
-                    .as_ref()
-                    .and_then(|texture| self.upload_texture(texture, settings.srgb_textures));
-                let normal_upload = batch
-                    .material
-                    .textures
-                    .normal
-                    .as_ref()
-                    .and_then(|texture| self.upload_texture(texture, false));
-                let orm_upload = batch
-                    .material
-                    .textures
-                    .metallic_roughness
-                    .as_ref()
-                    .and_then(|texture| self.upload_texture(texture, false));
-                let emissive_upload = batch
-                    .material
-                    .textures
-                    .emissive
-                    .as_ref()
-                    .and_then(|texture| self.upload_texture(texture, settings.srgb_textures));
-                let base_view = base_upload.as_ref().unwrap_or(&self.white_view);
-                let normal_view = normal_upload.as_ref().unwrap_or(&self.flat_normal_view);
-                let orm_view = orm_upload.as_ref().unwrap_or(&self.white_view);
-                let emissive_view = emissive_upload.as_ref().unwrap_or(&self.white_view);
-                let skin_data = skin_bytes(&batch.skin_matrices);
-                let skin_buffer = self.create_buffer(
-                    "lumark-skin",
-                    skin_data.len() as u64,
-                    wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                );
-                self.queue.write_buffer(&skin_buffer, 0, &skin_data);
-                let material_bind_group =
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("lumark-material"),
-                        layout: &self.material_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: material_buffer.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(base_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::TextureView(normal_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 3,
-                                resource: wgpu::BindingResource::Sampler(&self.sampler),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 4,
-                                resource: wgpu::BindingResource::TextureView(orm_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 5,
-                                resource: wgpu::BindingResource::TextureView(emissive_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 6,
-                                resource: skin_buffer.as_entire_binding(),
-                            },
-                        ],
-                    });
-                pass.set_bind_group(1, &material_bind_group, &[]);
-                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                let instance_data: Vec<f32> = batch
-                    .instances
-                    .iter()
-                    .flat_map(|matrix| matrix.iter().flat_map(|column| column.iter().copied()))
-                    .collect();
-                let instance_buffer = self.create_buffer(
-                    "lumark-instances",
-                    (instance_data.len() * 4) as u64,
-                    wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                );
-                // f32 切片 → 字节；instance_data 在本次 write_buffer 期间保持存活。
-                let instance_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        instance_data.as_ptr().cast::<u8>(),
-                        instance_data.len() * std::mem::size_of::<f32>(),
-                    )
-                };
-                self.queue.write_buffer(&instance_buffer, 0, instance_bytes);
-                pass.set_vertex_buffer(1, instance_buffer.slice(..));
-                pass.draw(0..batch.count, 0..batch.instances.len() as u32);
+                    let pipeline =
+                        self.select_material_pipeline(samples, material.two_sided, false);
+                    self.draw_batch(&mut pass, settings, batch, material, pipeline);
+                }
+            }
+            translucent.sort_by(|left, right| {
+                right
+                    .1
+                    .partial_cmp(&left.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for (batch, _) in translucent {
+                let material = batch.material(scene, &fallback_material);
+                let pipeline = self.select_material_pipeline(samples, material.two_sided, true);
+                self.draw_batch(&mut pass, settings, batch, material, pipeline);
             }
             let (line_data, line_count) = overlay_line_vertices(scene, settings);
             if line_count > 0 {
@@ -498,26 +468,18 @@ impl GpuRenderer {
             }
         }
 
-        // 回读：copy_texture_to_buffer 的每行字节数必须是 256 的倍数。
-        let padded_row = ((width * 4).div_ceil(256)) * 256;
-        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("lumark-readback"),
-            size: u64::from(padded_row) * u64::from(height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &target,
+                texture: &targets.color,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: &readback,
+                buffer: &targets.readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(padded_row),
+                    bytes_per_row: Some(targets.padded_row),
                     rows_per_image: Some(height),
                 },
             },
@@ -528,10 +490,9 @@ impl GpuRenderer {
             },
         );
         self.queue.submit(Some(encoder.finish()));
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|error| GpuError::new(format!("等待 GPU 完成失败：{error}")))?;
-        let slice = readback.slice(..);
+        // 回读只 poll 一次：提交后登记映射，等待 GPU 完成时映射回调一并就绪。
+        let padded_row = targets.padded_row;
+        let slice = targets.readback.slice(..);
         let (sender, receiver) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
@@ -553,7 +514,7 @@ impl GpuRenderer {
             rgba.extend_from_slice(&data[start..end]);
         }
         drop(data);
-        readback.unmap();
+        targets.readback.unmap();
         let rgba = if supersample > 1 {
             crate::downsample(&rgba, width, height, settings.width, settings.height)
         } else {
@@ -564,6 +525,148 @@ impl GpuRenderer {
             height: settings.height,
             rgba,
         })
+    }
+
+    /// 选择材质管线：采样数、双面与半透明混合三种维度。
+    fn select_material_pipeline(
+        &self,
+        samples: u32,
+        two_sided: bool,
+        alpha_blend: bool,
+    ) -> &wgpu::RenderPipeline {
+        match (samples > 1, two_sided, alpha_blend) {
+            (false, false, false) => &self.pipeline_single,
+            (false, true, false) => &self.pipeline_double,
+            (true, false, false) => &self.pipeline_single_4x,
+            (true, true, false) => &self.pipeline_double_4x,
+            (false, false, true) => &self.pipeline_blend_single,
+            (false, true, true) => &self.pipeline_blend_double,
+            (true, false, true) => &self.pipeline_blend_single_4x,
+            (true, true, true) => &self.pipeline_blend_double_4x,
+        }
+    }
+
+    /// 为一个批次创建顶点/材质/蒙皮缓冲并提交绘制。
+    fn draw_batch(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        settings: &RenderSettings,
+        batch: &Batch,
+        material: &MaterialData,
+        pipeline: &wgpu::RenderPipeline,
+    ) {
+        pass.set_pipeline(pipeline);
+        let vertex_bytes = f32_bytes(&batch.vertices);
+        let vertex_buffer = self.create_buffer(
+            "lumark-vertices",
+            vertex_bytes.len() as u64,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+        self.queue.write_buffer(&vertex_buffer, 0, &vertex_bytes);
+        let material_buffer = self.create_buffer(
+            "lumark-material",
+            MATERIAL_UNIFORM_SIZE,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        self.queue
+            .write_buffer(&material_buffer, 0, &material_uniform(material));
+        let base_upload = material
+            .textures
+            .base_color
+            .as_ref()
+            .and_then(|texture| self.upload_texture(texture, settings.srgb_textures));
+        let normal_upload = material
+            .textures
+            .normal
+            .as_ref()
+            .and_then(|texture| self.upload_texture(texture, false));
+        let orm_upload = material
+            .textures
+            .metallic_roughness
+            .as_ref()
+            .and_then(|texture| self.upload_texture(texture, false));
+        let emissive_upload = material
+            .textures
+            .emissive
+            .as_ref()
+            .and_then(|texture| self.upload_texture(texture, settings.srgb_textures));
+        let ao_upload = material
+            .textures
+            .occlusion
+            .as_ref()
+            .and_then(|texture| self.upload_texture(texture, false));
+        let base_view = base_upload.as_ref().unwrap_or(&self.white_view);
+        let normal_view = normal_upload.as_ref().unwrap_or(&self.flat_normal_view);
+        let orm_view = orm_upload.as_ref().unwrap_or(&self.white_view);
+        let emissive_view = emissive_upload.as_ref().unwrap_or(&self.white_view);
+        let ao_view = ao_upload.as_ref().unwrap_or(&self.white_view);
+        let skin_data = skin_bytes(&batch.skin_matrices);
+        let skin_buffer = self.create_buffer(
+            "lumark-skin",
+            skin_data.len() as u64,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+        self.queue.write_buffer(&skin_buffer, 0, &skin_data);
+        let material_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lumark-material"),
+            layout: &self.material_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: material_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(base_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(normal_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(orm_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(emissive_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: skin_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(ao_view),
+                },
+            ],
+        });
+        pass.set_bind_group(1, &material_bind_group, &[]);
+        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        let instance_data: Vec<f32> = batch
+            .instances
+            .iter()
+            .flat_map(|matrix| matrix.iter().flat_map(|column| column.iter().copied()))
+            .collect();
+        let instance_buffer = self.create_buffer(
+            "lumark-instances",
+            (instance_data.len() * 4) as u64,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+        // f32 切片 → 字节；instance_data 在本次 write_buffer 期间保持存活。
+        let instance_bytes = unsafe {
+            std::slice::from_raw_parts(
+                instance_data.as_ptr().cast::<u8>(),
+                instance_data.len() * std::mem::size_of::<f32>(),
+            )
+        };
+        self.queue.write_buffer(&instance_buffer, 0, instance_bytes);
+        pass.set_vertex_buffer(1, instance_buffer.slice(..));
+        pass.draw(0..batch.count, 0..batch.instances.len() as u32);
     }
 
     fn create_buffer(&self, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
@@ -655,6 +758,10 @@ struct Resources {
     pipeline_double: wgpu::RenderPipeline,
     pipeline_single_4x: wgpu::RenderPipeline,
     pipeline_double_4x: wgpu::RenderPipeline,
+    pipeline_blend_single: wgpu::RenderPipeline,
+    pipeline_blend_double: wgpu::RenderPipeline,
+    pipeline_blend_single_4x: wgpu::RenderPipeline,
+    pipeline_blend_double_4x: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     line_pipeline_4x: wgpu::RenderPipeline,
     background_pipeline: wgpu::RenderPipeline,
@@ -754,6 +861,16 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
                 },
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 7,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
         ],
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -820,63 +937,88 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
             shader_location: 10,
         },
     ];
-    let create_pipeline = |label: &'static str, cull_mode: Option<wgpu::Face>, samples: u32| {
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(label),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[
-                    Some(wgpu::VertexBufferLayout {
-                        array_stride: (VERTEX_FLOATS * 4) as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &vertex_attributes,
+    let create_pipeline =
+        |label: &'static str, cull_mode: Option<wgpu::Face>, samples: u32, alpha_blend: bool| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: (VERTEX_FLOATS * 4) as u64,
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &vertex_attributes,
+                        }),
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: 64,
+                            step_mode: wgpu::VertexStepMode::Instance,
+                            attributes: &instance_attributes,
+                        }),
+                    ],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(!alpha_blend),
+                    depth_compare: Some(if alpha_blend {
+                        wgpu::CompareFunction::LessEqual
+                    } else {
+                        wgpu::CompareFunction::Less
                     }),
-                    Some(wgpu::VertexBufferLayout {
-                        array_stride: 64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &instance_attributes,
-                    }),
-                ],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: samples,
-                ..Default::default()
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: COLOR_FORMAT,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        })
-    };
-    let pipeline_single = create_pipeline("lumark-pipeline-single", Some(wgpu::Face::Back), 1);
-    let pipeline_double = create_pipeline("lumark-pipeline-double", None, 1);
-    let pipeline_single_4x =
-        create_pipeline("lumark-pipeline-single-4x", Some(wgpu::Face::Back), 4);
-    let pipeline_double_4x = create_pipeline("lumark-pipeline-double-4x", None, 4);
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: samples,
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: COLOR_FORMAT,
+                        blend: alpha_blend.then_some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+    let pipeline_single =
+        create_pipeline("lumark-pipeline-single", Some(wgpu::Face::Back), 1, false);
+    let pipeline_double = create_pipeline("lumark-pipeline-double", None, 1, false);
+    let pipeline_single_4x = create_pipeline(
+        "lumark-pipeline-single-4x",
+        Some(wgpu::Face::Back),
+        4,
+        false,
+    );
+    let pipeline_double_4x = create_pipeline("lumark-pipeline-double-4x", None, 4, false);
+    let pipeline_blend_single = create_pipeline(
+        "lumark-pipeline-blend-single",
+        Some(wgpu::Face::Back),
+        1,
+        true,
+    );
+    let pipeline_blend_double = create_pipeline("lumark-pipeline-blend-double", None, 1, true);
+    let pipeline_blend_single_4x = create_pipeline(
+        "lumark-pipeline-blend-single-4x",
+        Some(wgpu::Face::Back),
+        4,
+        true,
+    );
+    let pipeline_blend_double_4x =
+        create_pipeline("lumark-pipeline-blend-double-4x", None, 4, true);
 
     // 叠加层线段管线：LineList、深度测试但不写深度。
     let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1031,6 +1173,10 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         pipeline_double,
         pipeline_single_4x,
         pipeline_double_4x,
+        pipeline_blend_single,
+        pipeline_blend_double,
+        pipeline_blend_single_4x,
+        pipeline_blend_double_4x,
         line_pipeline,
         line_pipeline_4x,
         background_pipeline,
@@ -1097,11 +1243,32 @@ fn create_solid_texture(
 struct Batch {
     vertices: Vec<f32>,
     count: u32,
-    material: MaterialData,
+    /// 场景材质索引；`None` 表示默认材质。
+    material_index: Option<usize>,
     /// 关节最终蒙皮矩阵；未蒙皮时为单个单位矩阵。
     skin_matrices: Vec<[[f32; 4]; 4]>,
     /// 实例世界矩阵（列主序）；静态网格可复用同一顶点缓冲。
     instances: Vec<[[f32; 4]; 4]>,
+    /// 批次中心（世界空间近似），用于半透明批次前后排序。
+    sort_center: [f32; 3],
+}
+
+/// 列主序 4×4 矩阵变换一个点。
+fn transform_point(matrix: &[[f32; 4]; 4], point: [f32; 3]) -> [f32; 3] {
+    [
+        matrix[0][0] * point[0] + matrix[1][0] * point[1] + matrix[2][0] * point[2] + matrix[3][0],
+        matrix[0][1] * point[0] + matrix[1][1] * point[1] + matrix[2][1] * point[2] + matrix[3][1],
+        matrix[0][2] * point[0] + matrix[1][2] * point[1] + matrix[2][2] * point[2] + matrix[3][2],
+    ]
+}
+
+impl Batch {
+    /// 返回批次材质；材质缺失时回退到默认材质。
+    fn material<'a>(&self, scene: &'a Scene, fallback: &'a MaterialData) -> &'a MaterialData {
+        self.material_index
+            .and_then(|index| scene.materials.get(index))
+            .unwrap_or(fallback)
+    }
 }
 
 /// GPU 顶点。
@@ -1121,7 +1288,6 @@ struct GpuVertex {
 /// 静态网格共享顶点缓冲，每个节点只追加实例矩阵；蒙皮网格姿态不同，
 /// 每个节点独占批次，实例矩阵为单位矩阵。
 fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
-    let default_material = MaterialData::default();
     let mut batches: Vec<Batch> = Vec::new();
     let mut index_by_key: HashMap<(usize, usize, Option<usize>, Option<usize>), usize> =
         HashMap::new();
@@ -1186,16 +1352,21 @@ fn build_batches(scene: &Scene, settings: &RenderSettings) -> Vec<Batch> {
                 batches[index].instances.push(instance);
                 index
             } else {
-                let material = material_handle
-                    .and_then(|handle| scene.materials.get(handle.0))
-                    .cloned()
-                    .unwrap_or_else(|| default_material.clone());
+                // 蒙皮批次独占该节点，可直接移动关节矩阵，避免重复克隆。
+                let skin_matrices = matrices.clone().unwrap_or_else(|| vec![skin::IDENTITY]);
+                let bounds_center = mesh.bounds.center();
+                let sort_center = if skinned {
+                    bounds_center
+                } else {
+                    transform_point(&instance, bounds_center)
+                };
                 batches.push(Batch {
                     vertices: Vec::new(),
                     count: 0,
-                    material,
-                    skin_matrices: matrices.clone().unwrap_or_else(|| vec![skin::IDENTITY]),
+                    material_index: material_handle.map(|handle| handle.0),
+                    skin_matrices,
                     instances: vec![instance],
+                    sort_center,
                 });
                 let index = batches.len() - 1;
                 index_by_key.insert(key, index);
@@ -1374,8 +1545,14 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
             crate::ShadingMode::Unlit => 1.0,
             crate::ShadingMode::Normals => 2.0,
         },
-        0.0,
-        0.0,
+        match settings.lighting_mode {
+            LightingMode::Studio => 0.0,
+            LightingMode::Headlight => 1.0,
+        },
+        match settings.normal_map_convention {
+            NormalMapConvention::Ue => 0.0,
+            NormalMapConvention::Fmodel => 1.0,
+        },
     ]);
     f32_bytes(&values)
 }
@@ -1419,9 +1596,16 @@ fn material_uniform(material: &MaterialData) -> Vec<u8> {
         } else {
             0.0
         },
-        0.5,
-        0.0,
-        0.0,
+        material.alpha_cutoff.clamp(0.0, 1.0),
+        match material.orm_layout {
+            OrmLayout::AoRoughMetal => 0.0,
+            OrmLayout::SpecularMask => 1.0,
+        },
+        if material.textures.occlusion.is_some() {
+            1.0
+        } else {
+            0.0
+        },
     ]);
     f32_bytes(&values)
 }
@@ -1724,6 +1908,90 @@ mod tests {
         assert_eq!(cache_len, 1, "同一贴图应复用缓存");
     }
 
+    /// 半透明材质走混合管线：与背景混合后应比不透明覆盖更暗。
+    #[test]
+    fn gpu_translucent_blend_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 半透明测试：{error}");
+                return;
+            }
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let opaque = renderer
+            .render(&triangle_scene(), &settings)
+            .expect("GPU 不透明渲染");
+        let mut scene = triangle_scene();
+        scene.materials[0].translucent = true;
+        scene.materials[0].base_color = [1.0, 0.0, 0.0, 0.5];
+        let translucent = renderer.render(&scene, &settings).expect("GPU 半透明渲染");
+        let total = |target: &crate::RenderTarget| {
+            target
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| u64::from(pixel[0]) + u64::from(pixel[1]))
+                .sum::<u64>()
+        };
+        assert!(
+            total(&translucent) < total(&opaque),
+            "半透明材质应与背景混合而不是直接覆盖"
+        );
+    }
+
+    /// AO 贴图 R 通道应压暗基础色；无 GPU 时跳过。
+    #[test]
+    fn gpu_ao_texture_darkens_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU AO 测试：{error}");
+                return;
+            }
+        };
+        let mut scene = triangle_scene();
+        scene.materials[0].base_color = [1.0; 4];
+        scene.materials[0].textures.base_color = Some(lumark_scene::TextureData {
+            name: "T_White".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![255, 255, 255, 255],
+        });
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let bright = renderer.render(&scene, &settings).expect("GPU 渲染");
+        scene.materials[0].textures.occlusion = Some(lumark_scene::TextureData {
+            name: "T_AO".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![64, 64, 64, 255],
+        });
+        let dark = renderer.render(&scene, &settings).expect("GPU 渲染");
+        let sum = |target: &crate::RenderTarget| {
+            target
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| u64::from(pixel[0]) + u64::from(pixel[1]) + u64::from(pixel[2]))
+                .sum::<u64>()
+        };
+        assert!(sum(&dark) < sum(&bright), "AO 贴图 R 通道应压暗基础色");
+    }
+
     /// sRGB 开关应改变基础色贴图采样结果。
     #[test]
     fn gpu_srgb_toggle_changes_output_or_skips() {
@@ -1927,7 +2195,119 @@ mod tests {
         );
     }
 
-    /// 有 GPU 时验证着色模式与网格叠加层；无 GPU 时跳过。
+    /// 有 GPU 时验证头灯让背面保持可见；无 GPU 时跳过。
+    #[test]
+    fn gpu_headlight_backface_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU 头灯测试：{error}");
+                return;
+            }
+        };
+        let mut scene = Scene::new("BackFace");
+        let mut material = MaterialData {
+            name: "Back".to_string(),
+            base_color: [1.0, 0.6, 0.3, 1.0],
+            two_sided: true,
+            ..MaterialData::default()
+        };
+        material.roughness = 0.6;
+        let material = scene.add_material(material);
+        let mut mesh = MeshData::new(
+            "BackTri",
+            vec![
+                [0.0, -100.0, -100.0],
+                [0.0, 100.0, -100.0],
+                [0.0, 100.0, 100.0],
+            ],
+            vec![0, 1, 2],
+        );
+        mesh.normals = vec![[-1.0, 0.0, 0.0]; 3];
+        mesh.sections = vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            index_count: 3,
+        }];
+        let mesh = scene.add_mesh(mesh);
+        scene.add_node(SceneNode {
+            name: "BackTri".to_string(),
+            parent: None,
+            transform: Transform::IDENTITY,
+            mesh: Some(mesh),
+            materials: vec![Some(material)],
+            visible: true,
+            kind: NodeKind::StaticMesh,
+            metadata: Vec::new(),
+        });
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            yaw_degrees: 0.0,
+            pitch_degrees: 0.0,
+            key_intensity: 0.0,
+            fill_intensity: 0.0,
+            ambient_strength: 0.0,
+            lighting_mode: crate::LightingMode::Headlight,
+            ..RenderSettings::default()
+        };
+        let target = renderer.render(&scene, &settings).expect("GPU 头灯渲染");
+        assert!(!target.is_uniform(), "头灯下背面不应全黑");
+    }
+
+    /// 有 GPU 时验证两种 ORM 布局解析出不同结果；无 GPU 时跳过。
+    #[test]
+    fn gpu_orm_layout_channels_or_skips() {
+        let renderer = match GpuRenderer::new() {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("跳过 GPU ORM 布局测试：{error}");
+                return;
+            }
+        };
+        let scene_with_layout = |layout: lumark_scene::OrmLayout| {
+            let mut scene = triangle_scene();
+            scene.materials[0].base_color = [1.0; 4];
+            scene.materials[0].metallic = 0.5;
+            scene.materials[0].roughness = 0.2;
+            scene.materials[0].orm_layout = layout;
+            scene.materials[0].textures.metallic_roughness = Some(lumark_scene::TextureData {
+                name: "T_Packed".to_string(),
+                width: 1,
+                height: 1,
+                rgba: vec![200, 30, 240, 255],
+            });
+            scene
+        };
+        let settings = RenderSettings {
+            width: 64,
+            height: 64,
+            supersample: 1,
+            background: [0.0; 3],
+            lighting_mode: crate::LightingMode::Headlight,
+            ..RenderSettings::default()
+        };
+        let ao_rough_metal = renderer
+            .render(
+                &scene_with_layout(lumark_scene::OrmLayout::AoRoughMetal),
+                &settings,
+            )
+            .expect("GPU 渲染");
+        let specular_mask = renderer
+            .render(
+                &scene_with_layout(lumark_scene::OrmLayout::SpecularMask),
+                &settings,
+            )
+            .expect("GPU 渲染");
+        assert_ne!(
+            ao_rough_metal.rgba, specular_mask.rgba,
+            "两种 ORM 布局应解析出不同的通道语义"
+        );
+    }
+
+    /// 有 GPU 时验证网格叠加层与着色模式共存；无 GPU 时跳过。
     #[test]
     fn gpu_shading_and_grid_or_skips() {
         let renderer = match GpuRenderer::new() {

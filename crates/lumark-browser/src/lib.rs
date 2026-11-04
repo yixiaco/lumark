@@ -5,7 +5,7 @@ pub mod model;
 pub mod selection;
 mod sidecar;
 
-pub use asset_type::AssetCategory;
+pub use asset_type::{AssetCategory, classify as classify_asset_path};
 pub use model::{
     BrowserEntry, BrowserLocation, BrowserModel, GameArchiveRow, SearchMode, SearchQuery,
 };

@@ -4,11 +4,13 @@ use std::path::PathBuf;
 
 use crate::i18n::tr;
 use lumark_unreal::{
-    AssetKind, AssetMetadata, LegacyPackage, Mappings, PropValue, ZenScriptObjects,
+    AssetKind, AssetMetadata, GameAssetOptions, GameAssetSource, LegacyPackage, Mappings,
+    MaterialResolveOptions, MaterialSlot, PropValue, ResolvedMaterial, ZenScriptObjects,
     is_legacy_package, parse_legacy_summary, parse_package, read_asset_package,
     read_legacy_anim_sequence, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_summary, read_legacy_skeleton, read_legacy_texture,
-    render_skeletal_mesh_orbit, render_skeleton_orbit,
+    render_skeletal_mesh_orbit, render_skeleton_orbit, resolve_material_slots,
+    resolve_material_slots_exact,
 };
 
 mod material;
@@ -49,6 +51,8 @@ pub(super) enum UePreviewResult {
         skins: Vec<Option<lumark_unreal::SkinWeights>>,
         /// 材质槽名称（顺序与 section.material_index 对应）。
         material_names: Vec<String>,
+        /// 已解析的材质（含贴图），供缩略图与交互查看器复用。
+        materials: Vec<ResolvedMaterial>,
         /// 只读字段行（无版本属性）。
         rows: Vec<(String, String)>,
     },
@@ -82,19 +86,24 @@ fn mesh_preview_scene(
     source: &str,
     mesh: &lumark_unreal::MeshLod,
     kind: lumark_scene::NodeKind,
+    materials: &[ResolvedMaterial],
 ) -> lumark_scene::Scene {
     use lumark_scene::{Axis, Scene, SceneNode, Transform};
     let mut scene = Scene::new(name);
     scene.source = source.to_string();
     scene.up_axis = Axis::Z;
     scene.unit_scale = lumark_unreal::UE_UNIT_SCALE;
+    let handles = materials
+        .iter()
+        .map(|material| lumark_unreal::add_material(&mut scene, material))
+        .collect();
     let handle = scene.add_mesh(lumark_unreal::convert_mesh(mesh, name));
     scene.add_node(SceneNode {
         name: name.to_string(),
         parent: None,
         transform: Transform::IDENTITY,
         mesh: Some(handle),
-        materials: Vec::new(),
+        materials: handles,
         visible: true,
         kind,
         metadata: Vec::new(),
@@ -102,7 +111,60 @@ fn mesh_preview_scene(
     scene
 }
 
+/// 解析 Zen 网格的全部材质（含贴图），供缩略图与交互查看器复用。
+///
+/// `imports` 与 `slots` 等长；有对象引用时走精确解析，否则按槽名/目录启发式。
+#[allow(clippy::too_many_arguments)]
+fn resolve_zen_materials(
+    archive: &std::path::Path,
+    global: &std::path::Path,
+    relative: &str,
+    mappings_path: &std::path::Path,
+    aes_key: Option<&str>,
+    oodle: Option<PathBuf>,
+    slots: &[MaterialSlot],
+    imports: &[Option<usize>],
+) -> Vec<ResolvedMaterial> {
+    if slots.is_empty() {
+        return Vec::new();
+    }
+    let Ok(mappings) = Mappings::parse_file(mappings_path) else {
+        return Vec::new();
+    };
+    let Ok(mut source) = GameAssetSource::open(
+        archive,
+        GameAssetOptions {
+            key: aes_key,
+            global: Some(global.to_path_buf()),
+            oodle,
+            mappings: Some(mappings_path.to_path_buf()),
+        },
+    ) else {
+        return Vec::new();
+    };
+    let options = MaterialResolveOptions {
+        load_textures: true,
+        max_texture_size: 512,
+        texture_cache: None,
+        ..Default::default()
+    };
+    if imports.iter().any(Option::is_some) {
+        resolve_material_slots_exact(
+            &mut source,
+            relative,
+            slots,
+            imports,
+            Some(&mappings),
+            &options,
+        )
+    } else {
+        resolve_material_slots(&mut source, relative, slots, Some(&mappings), &options)
+    }
+}
+
 /// 用共享渲染服务渲染缩略图到 `output`，返回后端标签。
+///
+/// 缩略图与 3D 查看器共用 FModel 观感：头灯 + FModel 法线约定。
 fn save_scene_thumbnail(
     scene: &lumark_scene::Scene,
     output: &std::path::Path,
@@ -113,6 +175,8 @@ fn save_scene_thumbnail(
         supersample: 2,
         yaw_degrees: 35.0,
         pitch_degrees: 25.0,
+        lighting_mode: lumark_render::LightingMode::Headlight,
+        normal_map_convention: lumark_render::NormalMapConvention::Fmodel,
         ..Default::default()
     };
     let service = crate::render_service::render_service();
@@ -136,8 +200,8 @@ pub(super) fn load_ue_asset_preview(
     aes_key: Option<&str>,
     output: &std::path::Path,
 ) -> UePreviewResult {
-    if let Some(oodle) = oodle {
-        let _ = lumark_archive::configure_oodle_library(Some(oodle));
+    if let Some(oodle) = &oodle {
+        let _ = lumark_archive::configure_oodle_library(Some(oodle.clone()));
     }
     let (data, ubulk, uexp, scripts) =
         match read_ue_asset_inputs(archive, global, relative, aes_key) {
@@ -260,6 +324,7 @@ pub(super) fn load_ue_asset_preview(
                         skeleton: Some(geometry.skeleton),
                         skins: vec![geometry.skin],
                         material_names: Vec::new(),
+                        materials: Vec::new(),
                         rows: legacy_property_rows(&data, uexp, Some(mappings_path)),
                     };
                 }
@@ -503,15 +568,31 @@ pub(super) fn load_ue_asset_preview(
             animation: None,
         };
     }
-    load_ue_asset_from_package(package, mappings_path, ubulk, output)
+    load_ue_asset_from_package(
+        package,
+        mappings_path,
+        ubulk,
+        output,
+        archive,
+        global,
+        relative,
+        aes_key,
+        oodle.clone(),
+    )
 }
 
 /// 从已解析包渲染纹理/模型/元数据。
+#[allow(clippy::too_many_arguments)]
 fn load_ue_asset_from_package(
     package: lumark_unreal::UnrealPackage,
     mappings_path: Option<&std::path::Path>,
     ubulk: Option<Vec<u8>>,
     output: &std::path::Path,
+    archive: &std::path::Path,
+    global: &std::path::Path,
+    relative: &str,
+    aes_key: Option<&str>,
+    oodle: Option<PathBuf>,
 ) -> UePreviewResult {
     let Some(mappings_path) = mappings_path else {
         let primary = package
@@ -576,13 +657,18 @@ fn load_ue_asset_from_package(
         if export.class_name == "StaticMesh"
             && let Ok(mesh) = package.read_static_mesh(primary, &mappings)
         {
-            // 复用引擎无关场景 + 共享渲染服务（GPU 优先，CPU 回退）。
-            let scene = mesh_preview_scene(
-                &mesh.name,
-                &export.name,
-                &mesh.lod,
-                lumark_scene::NodeKind::StaticMesh,
+            let materials = resolve_zen_materials(
+                archive,
+                global,
+                relative,
+                mappings_path,
+                aes_key,
+                oodle.clone(),
+                &mesh.material_slots,
+                &[],
             );
+            // 复用引擎无关场景 + 共享渲染服务（GPU 优先，CPU 回退）。
+            let scene = lumark_unreal::static_mesh_scene(&mesh.name, &mesh, &materials);
             let backend = match save_scene_thumbnail(&scene, output) {
                 Ok(backend) => backend,
                 Err(error) => return UePreviewResult::Error(error),
@@ -591,10 +677,11 @@ fn load_ue_asset_from_package(
                 path: output.to_path_buf(),
                 name: export.name.clone(),
                 subtitle: format!(
-                    "StaticMesh · {} LOD · {} 顶点 · {} 三角形 · {}",
+                    "StaticMesh · {} LOD · {} 顶点 · {} 三角形 · {} 材质 · {}",
                     mesh.lod_count,
                     mesh.lod.positions.len(),
                     mesh.lod.triangle_count(),
+                    materials.len(),
                     backend
                 ),
                 mesh: mesh.lod,
@@ -606,6 +693,7 @@ fn load_ue_asset_from_package(
                     .iter()
                     .map(|slot| slot.name.clone())
                     .collect(),
+                materials,
                 rows: zen_property_rows(&package, primary, &mappings),
             };
         }
@@ -621,6 +709,7 @@ fn load_ue_asset_from_package(
                         0,
                         None,
                         None,
+                        Vec::new(),
                         Vec::new(),
                         Vec::new(),
                         Vec::new(),
@@ -642,6 +731,7 @@ fn load_ue_asset_from_package(
                             preview.lods,
                             preview.lod_skins,
                             preview.material_names,
+                            preview.material_imports,
                         )
                     })
             };
@@ -657,6 +747,7 @@ fn load_ue_asset_from_package(
                 lods,
                 skins,
                 material_names,
+                material_imports,
             )) = preview
             {
                 let mut subtitle = format!(
@@ -691,12 +782,34 @@ fn load_ue_asset_from_package(
                     }
                 }
                 if let Some(mesh) = geometry {
+                    let slots: Vec<MaterialSlot> = material_names
+                        .iter()
+                        .map(|name| MaterialSlot {
+                            name: name.clone(),
+                            package: None,
+                        })
+                        .collect();
+                    let imports: Vec<Option<usize>> = material_imports
+                        .iter()
+                        .map(|index| (*index < 0).then(|| (-*index - 1) as usize))
+                        .collect();
+                    let materials = resolve_zen_materials(
+                        archive,
+                        global,
+                        relative,
+                        mappings_path,
+                        aes_key,
+                        oodle.clone(),
+                        &slots,
+                        &imports,
+                    );
                     // 复用引擎无关场景 + 共享渲染服务。
                     let scene = mesh_preview_scene(
                         &skeleton.name,
                         &export.name,
                         &mesh,
                         lumark_scene::NodeKind::SkeletalMesh,
+                        &materials,
                     );
                     let backend = match save_scene_thumbnail(&scene, output) {
                         Ok(backend) => backend,
@@ -712,6 +825,7 @@ fn load_ue_asset_from_package(
                         skeleton: Some(skeleton),
                         skins,
                         material_names,
+                        materials,
                         rows: zen_property_rows(&package, primary, &mappings),
                     };
                 }

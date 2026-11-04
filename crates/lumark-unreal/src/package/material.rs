@@ -16,6 +16,8 @@ pub enum MaterialTextureKind {
     Normal,
     /// 金属/粗糙度（ORM）贴图。
     MetallicRoughness,
+    /// 环境光遮蔽贴图（FModel `M`/`AEM`/`AO` 参数）。
+    Occlusion,
     /// 自发光贴图。
     Emissive,
     /// 遮罩贴图。
@@ -31,6 +33,8 @@ pub struct MaterialTextureRef {
     pub name: String,
     /// 贴图包路径（`/Game/...`），能解析到时填入。
     pub package: Option<String>,
+    /// Zen 目标包 ID（UE5 IoStore）；与 `package` 二选一，用于按包读取贴图。
+    pub package_id: Option<u64>,
     /// 用途分类。
     pub kind: MaterialTextureKind,
 }
@@ -48,6 +52,12 @@ pub struct MaterialAppearance {
     pub roughness: f32,
     /// 引用的贴图。
     pub textures: Vec<MaterialTextureRef>,
+    /// 是否双面（UE `TwoSided`）；材质实例继承父材质设置。
+    pub two_sided: bool,
+    /// 是否使用 alpha 裁剪（`BlendMode` 为 Masked）。
+    pub masked: bool,
+    /// 是否半透明混合（`BlendMode` 为 Translucent/Additive 等）。
+    pub translucent: bool,
     /// 参数是否来自父材质（材质实例未解析到自身参数时）。
     pub inherited: bool,
 }
@@ -60,6 +70,9 @@ impl Default for MaterialAppearance {
             metallic: 0.0,
             roughness: 0.55,
             textures: Vec::new(),
+            two_sided: false,
+            masked: false,
+            translucent: false,
             inherited: false,
         }
     }
@@ -85,6 +98,15 @@ impl MaterialAppearance {
         }
         if self.roughness == MaterialAppearance::default().roughness {
             self.roughness = parent.roughness;
+        }
+        if !self.two_sided {
+            self.two_sided = parent.two_sided;
+        }
+        if !self.masked {
+            self.masked = parent.masked;
+        }
+        if !self.translucent {
+            self.translucent = parent.translucent;
         }
         for texture in &parent.textures {
             if !self
@@ -143,6 +165,14 @@ pub fn read_legacy_material_appearance(
             } else if is_roughness_name(name.as_deref()) {
                 roughness = Some(value);
             }
+        } else if super::is_material_class(class) {
+            // 材质主体上的 TwoSided/BlendMode 标记；材质实例通常继承父材质。
+            if let Some(value) = two_sided_property(&properties.properties) {
+                appearance.two_sided = value;
+            }
+            let (masked, translucent) = blend_mode_property(&properties.properties);
+            appearance.masked |= masked;
+            appearance.translucent |= translucent;
         }
     }
     if let Some(color) = base_color {
@@ -193,6 +223,7 @@ pub fn texture_references(package: &LegacyPackage) -> Vec<MaterialTextureRef> {
         references.push(MaterialTextureRef {
             name: object.clone(),
             package: package_path,
+            package_id: None,
             kind,
         });
     }
@@ -223,8 +254,8 @@ pub fn material_parent_package(package: &LegacyPackage) -> Option<String> {
 
 /// 从 UE5 Zen 材质/材质实例属性中读取近似外观。
 ///
-/// Zen 包的对象引用不暴露包路径，因此贴图只记录参数名和用途，由 UI 按
-/// 同目录命名约定尝试定位贴图资产。
+/// 这里只读取属性流里的参数名/用途；对象引用（父材质、贴图包）由
+/// `material_graph` 模块按 ImportMap 精确解析。没有属性参数时返回默认外观。
 pub fn read_zen_material_appearance(
     package: &super::UnrealPackage,
     mappings: &Mappings,
@@ -239,7 +270,14 @@ pub fn read_zen_material_appearance(
     let Ok(properties) = package.read_export_properties(index, mappings) else {
         return appearance;
     };
+    let two_sided = two_sided_property(&properties.properties);
+    let masked = blend_mode_property(&properties.properties);
     let properties = properties.properties;
+    if let Some(value) = two_sided {
+        appearance.two_sided = value;
+    }
+    appearance.masked |= masked.0;
+    appearance.translucent |= masked.1;
     let mut base_color: Option<[f32; 3]> = None;
     let mut emissive: Option<[f32; 3]> = None;
     for entry in parameter_array(&properties, "VectorParameterValues") {
@@ -295,6 +333,7 @@ pub fn read_zen_material_appearance(
         appearance.textures.push(MaterialTextureRef {
             name,
             package: None,
+            package_id: None,
             kind,
         });
     }
@@ -302,7 +341,10 @@ pub fn read_zen_material_appearance(
 }
 
 /// 读取属性数组中的结构项。
-fn parameter_array<'a>(properties: &'a [(String, PropValue)], name: &str) -> &'a [PropValue] {
+pub(crate) fn parameter_array<'a>(
+    properties: &'a [(String, PropValue)],
+    name: &str,
+) -> &'a [PropValue] {
     properties
         .iter()
         .find(|(key, _)| key == name)
@@ -314,7 +356,7 @@ fn parameter_array<'a>(properties: &'a [(String, PropValue)], name: &str) -> &'a
 }
 
 /// 读取参数项里的 ParameterInfo.Name。
-fn parameter_entry_name(entry: &PropValue) -> Option<String> {
+pub(crate) fn parameter_entry_name(entry: &PropValue) -> Option<String> {
     let PropValue::Struct(fields) = entry else {
         return None;
     };
@@ -335,7 +377,7 @@ fn parameter_entry_name(entry: &PropValue) -> Option<String> {
 }
 
 /// 读取参数项里的颜色值。
-fn parameter_entry_color(entry: &PropValue) -> Option<[f32; 3]> {
+pub(crate) fn parameter_entry_color(entry: &PropValue) -> Option<[f32; 3]> {
     let PropValue::Struct(fields) = entry else {
         return None;
     };
@@ -350,7 +392,7 @@ fn parameter_entry_color(entry: &PropValue) -> Option<[f32; 3]> {
 }
 
 /// 读取参数项里的标量值。
-fn parameter_entry_scalar(entry: &PropValue) -> Option<f32> {
+pub(crate) fn parameter_entry_scalar(entry: &PropValue) -> Option<f32> {
     let PropValue::Struct(fields) = entry else {
         return None;
     };
@@ -364,17 +406,85 @@ fn parameter_entry_scalar(entry: &PropValue) -> Option<f32> {
         })
 }
 
+/// 读取材质主体上的双面标记（UE 可能写成 `TwoSided` 或 `bTwoSided`）。
+pub(crate) fn two_sided_property(properties: &[(String, PropValue)]) -> Option<bool> {
+    bool_property(properties, "TwoSided").or_else(|| bool_property(properties, "bTwoSided"))
+}
+
+/// 读取 bool 属性值。
+fn bool_property(properties: &[(String, PropValue)], name: &str) -> Option<bool> {
+    properties
+        .iter()
+        .find(|(key, _)| key == name)
+        .and_then(|(_, value)| match value {
+            PropValue::Bool(value) => Some(*value),
+            _ => None,
+        })
+}
+
+/// 读取 alpha 裁剪/半透明标记：`BlendMode`（材质）或
+/// `BasePropertyOverrides.BlendMode`（材质实例）。
+///
+/// 返回 `(masked, translucent)`；属性缺失（默认 Opaque）返回 `(false, false)`。
+pub(crate) fn blend_mode_property(properties: &[(String, PropValue)]) -> (bool, bool) {
+    let Some(blend_mode) = properties
+        .iter()
+        .find(|(key, _)| key == "BlendMode")
+        .map(|(_, value)| value)
+        .or_else(|| {
+            properties
+                .iter()
+                .find(|(key, _)| key == "BasePropertyOverrides")
+                .and_then(|(_, value)| match value {
+                    PropValue::Struct(fields) => fields
+                        .iter()
+                        .find(|(key, _)| key == "BlendMode")
+                        .map(|(_, value)| value),
+                    _ => None,
+                })
+        })
+    else {
+        return (false, false);
+    };
+    let text = match blend_mode {
+        PropValue::Name(name) => name.to_ascii_lowercase(),
+        PropValue::Int(value) => match value {
+            1 => return (true, false),
+            2..=4 => return (false, true),
+            _ => return (false, false),
+        },
+        PropValue::Bool(value) => return (*value, false),
+        _ => return (false, false),
+    };
+    (
+        text.contains("masked"),
+        (text.contains("translucent")
+            || text.contains("additive")
+            || text.contains("modulate")
+            || text.contains("alpha_composite"))
+            && !text.contains("masked"),
+    )
+}
+
 /// 按参数名猜测贴图用途。
-fn classify_parameter_texture(name: &str) -> MaterialTextureKind {
+pub(crate) fn classify_parameter_texture(name: &str) -> MaterialTextureKind {
     let lower = name.to_ascii_lowercase();
     if lower.contains("albedo") || lower.contains("basecolor") || lower.contains("diffuse") {
         MaterialTextureKind::BaseColor
     } else if lower.contains("normal") {
         MaterialTextureKind::Normal
+    } else if lower == "ao"
+        || lower == "aem"
+        || lower.contains("ambient")
+        || lower.contains("_ao")
+        || lower.contains("occlusion")
+    {
+        MaterialTextureKind::Occlusion
     } else if lower.contains("rough")
         || lower.contains("metal")
         || lower.contains("orm")
-        || lower.contains("occlusion")
+        || lower.contains("specular")
+        || lower.ends_with("_sm")
     {
         MaterialTextureKind::MetallicRoughness
     } else if lower.contains("emiss") {
@@ -387,7 +497,7 @@ fn classify_parameter_texture(name: &str) -> MaterialTextureKind {
 }
 
 /// 血液/透明度等叠加参数不应作为基础外观。
-fn is_overlay_name(lower: &str) -> bool {
+pub(crate) fn is_overlay_name(lower: &str) -> bool {
     lower.contains("blood") || lower.contains("opacity") || lower.contains("specular")
 }
 /// 判断导入项是否是贴图并返回用途分类。
@@ -402,18 +512,26 @@ fn texture_class_kind(class: &str, object: &str) -> Option<MaterialTextureKind> 
 }
 
 /// 按名称猜测贴图用途。
-fn classify_texture_name(name: &str) -> MaterialTextureKind {
+pub(crate) fn classify_texture_name(name: &str) -> MaterialTextureKind {
     let lower = name.to_ascii_lowercase();
     if lower.contains("normal") || lower.ends_with("_n") || lower.contains("_norm") {
         MaterialTextureKind::Normal
     } else if lower.contains("orm")
         || lower.contains("rough")
         || lower.contains("metal")
+        || lower.contains("specular")
+        || lower.ends_with("_sm")
         || lower.ends_with("_r")
     {
         MaterialTextureKind::MetallicRoughness
-    } else if lower.contains("emiss") || lower.contains("glow") {
+    } else if lower.contains("emiss") || lower.contains("glow") || lower.ends_with("_e") {
         MaterialTextureKind::Emissive
+    } else if lower == "ao"
+        || lower.ends_with("_ao")
+        || lower.contains("occlusion")
+        || lower.contains("ambientocclusion")
+    {
+        MaterialTextureKind::Occlusion
     } else if lower.contains("mask") {
         MaterialTextureKind::Mask
     } else if lower.ends_with("_d")
@@ -493,7 +611,7 @@ fn is_emissive_name(name: Option<&str>) -> bool {
 }
 
 /// 参数名是否表示基础色。
-fn is_base_color_name(name: Option<&str>) -> bool {
+pub(crate) fn is_base_color_name(name: Option<&str>) -> bool {
     name.is_some_and(|name| {
         let lower = name.to_ascii_lowercase();
         lower.contains("color")
@@ -585,6 +703,8 @@ pub struct MaterialViewerData {
     pub normal: Option<MaterialViewerImage>,
     /// 金属/粗糙度贴图。
     pub metallic_roughness: Option<MaterialViewerImage>,
+    /// 环境光遮蔽贴图。
+    pub occlusion: Option<MaterialViewerImage>,
 }
 #[cfg(test)]
 mod tests {
@@ -628,9 +748,11 @@ mod tests {
             base_color: [0.45, 0.4, 0.36],
             metallic: 0.2,
             roughness: 0.4,
+            two_sided: true,
             textures: vec![MaterialTextureRef {
                 name: "T_Hero_D".to_string(),
                 package: Some("/Game/Textures/T_Hero_D".to_string()),
+                package_id: None,
                 kind: MaterialTextureKind::BaseColor,
             }],
             ..Default::default()
@@ -639,12 +761,42 @@ mod tests {
         assert_eq!(child.base_color, parent.base_color);
         assert!(child.inherited);
         assert_eq!(child.metallic, 0.2);
+        assert!(child.two_sided, "材质实例应继承父材质的双面标记");
         assert_eq!(
             child
                 .texture(MaterialTextureKind::BaseColor)
                 .map(|t| t.name.as_str()),
             Some("T_Hero_D")
         );
+    }
+
+    /// TwoSided 属性兼容 `TwoSided` 与 `bTwoSided` 两种写法。
+    #[test]
+    fn reads_two_sided_bool_property() {
+        let properties = vec![
+            ("TwoSided".to_string(), PropValue::Bool(true)),
+            ("bTwoSided".to_string(), PropValue::Bool(false)),
+        ];
+        assert_eq!(two_sided_property(&properties), Some(true));
+        let only_b_prefix = vec![("bTwoSided".to_string(), PropValue::Bool(true))];
+        assert_eq!(two_sided_property(&only_b_prefix), Some(true));
+        assert_eq!(two_sided_property(&[]), None);
+    }
+
+    /// BlendMode 区分 Masked 与 Translucent。
+    #[test]
+    fn distinguishes_masked_and_translucent_blend_modes() {
+        let masked = vec![(
+            "BlendMode".to_string(),
+            PropValue::Name("BLEND_Masked".to_string()),
+        )];
+        assert_eq!(blend_mode_property(&masked), (true, false));
+        let translucent = vec![(
+            "BlendMode".to_string(),
+            PropValue::Name("BLEND_Translucent".to_string()),
+        )];
+        assert_eq!(blend_mode_property(&translucent), (false, true));
+        assert_eq!(blend_mode_property(&[]), (false, false));
     }
 }
 

@@ -10,7 +10,7 @@ impl AssetViewerWindowView {
                 self.yaw = 35.0;
                 self.pitch = 25.0;
                 self.zoom = 1.0;
-                self.render_preview();
+                self.request_preview(cx);
             }
             "space" => {
                 if self.has_animation() {
@@ -36,23 +36,23 @@ impl AssetViewerWindowView {
                     ShadingMode::Unlit => ShadingMode::Normals,
                     ShadingMode::Normals => ShadingMode::Lit,
                 };
-                self.render_preview();
+                self.request_preview(cx);
             }
             "g" => {
                 self.show_grid = !self.show_grid;
-                self.render_preview();
+                self.request_preview(cx);
             }
             "w" => {
                 self.wireframe = !self.wireframe;
-                self.render_preview();
+                self.request_preview(cx);
             }
             "b" => {
                 self.show_bones = !self.show_bones;
-                self.render_preview();
+                self.request_preview(cx);
             }
             "n" => {
                 self.shading = ShadingMode::Normals;
-                self.render_preview();
+                self.request_preview(cx);
             }
             _ => return false,
         }

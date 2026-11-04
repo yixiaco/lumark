@@ -270,14 +270,46 @@ pub(super) fn section_heading(
         .child(div().flex_1().h(px(1.)).bg(cx.theme().border))
 }
 
+/// 把 UE 资产类型映射为易识别的 IconPark 图标。
+pub(super) fn asset_icon_for_kind(kind: lumark_unreal::AssetKind) -> AppIcon {
+    use lumark_unreal::AssetKind;
+    match kind {
+        AssetKind::StaticMesh => AppIcon::AssetStaticMesh,
+        AssetKind::SkeletalMesh => AppIcon::AssetSkeletalMesh,
+        AssetKind::Skeleton => AppIcon::AssetSkeleton,
+        AssetKind::AnimSequence => AppIcon::AssetAnimation,
+        AssetKind::AnimBlueprint => AppIcon::AssetAnimBlueprint,
+        AssetKind::Blueprint => AppIcon::AssetBlueprint,
+        AssetKind::Material => AppIcon::AssetMaterial,
+        AssetKind::MaterialInstance => AppIcon::AssetMaterialInstance,
+        AssetKind::PhysicsAsset => AppIcon::AssetPhysics,
+        AssetKind::Texture => AppIcon::Picture,
+        AssetKind::Map => AppIcon::AssetMap,
+        AssetKind::Data => AppIcon::AssetData,
+        AssetKind::Sound => AppIcon::Music,
+        AssetKind::Font => AppIcon::AssetFont,
+        AssetKind::Vfx => AppIcon::AssetVfx,
+        AssetKind::Other => AppIcon::Doc,
+    }
+}
+
 /// 把文件行映射为易识别的 IconPark 图标。
-pub(super) fn entry_icon(entry: &BrowserEntry) -> AppIcon {
+///
+/// 游戏容器内的 `.uasset/.umap` 优先使用后台解析出的 UE 类名（例如
+/// `NanaF6_Hold` 没有 `SK_` 前缀也能显示骨骼网格图标）；解析未完成或
+/// 其它位置回退到扩展名/前缀启发式。
+pub(super) fn entry_icon(app: &LumarkApp, entry: &BrowserEntry) -> AppIcon {
     if entry.is_dir {
         return AppIcon::FolderOpen;
     }
-    if entry.encrypted {
-        return AppIcon::FileLock;
+    if let Some(kind) = app.game_asset_kind(entry) {
+        return asset_icon_for_kind(kind);
     }
+    fallback_entry_icon(entry)
+}
+
+/// 只按扩展名/文件名判断的图标回退逻辑。
+fn fallback_entry_icon(entry: &BrowserEntry) -> AppIcon {
     let lower = entry.name.to_ascii_lowercase();
     if [
         ".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz", ".zst", ".cab", ".iso",
@@ -287,13 +319,15 @@ pub(super) fn entry_icon(entry: &BrowserEntry) -> AppIcon {
     {
         return AppIcon::Zip;
     }
-    if [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"]
-        .iter()
-        .any(|extension| lower.ends_with(extension))
+    if [
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tga", ".dds",
+    ]
+    .iter()
+    .any(|extension| lower.ends_with(extension))
     {
         return AppIcon::Picture;
     }
-    if [".mp3", ".flac", ".wav", ".m4a", ".ogg"]
+    if [".mp3", ".flac", ".wav", ".m4a", ".ogg", ".wem", ".bnk"]
         .iter()
         .any(|extension| lower.ends_with(extension))
     {
@@ -305,23 +339,50 @@ pub(super) fn entry_icon(entry: &BrowserEntry) -> AppIcon {
     {
         return AppIcon::Video;
     }
+    let path = entry.path.to_string_lossy();
+    if let Some(kind) = lumark_browser::classify_asset_path(&path, false) {
+        use lumark_browser::AssetCategory;
+        return match kind {
+            AssetCategory::Model => AppIcon::AssetStaticMesh,
+            AssetCategory::Skeleton => AppIcon::AssetSkeleton,
+            AssetCategory::Animation => AppIcon::AssetAnimation,
+            AssetCategory::Image => AppIcon::Picture,
+            AssetCategory::Audio => AppIcon::Music,
+            AssetCategory::Archive => AppIcon::Zip,
+            AssetCategory::Text | AssetCategory::Other => AppIcon::Doc,
+        };
+    }
     AppIcon::Doc
 }
 
 /// 按文件类别返回参考图片中彩色文件图标的主题色。
 ///
 /// 颜色只取自主题语义色，因此深浅色切换时仍保持足够对比。
-pub(super) fn entry_icon_color(cx: &Context<LumarkApp>, entry: &BrowserEntry) -> gpui_kit::Hsla {
+pub(super) fn entry_icon_color(
+    cx: &Context<LumarkApp>,
+    entry: &BrowserEntry,
+    icon: AppIcon,
+) -> gpui_kit::Hsla {
     if entry.encrypted {
         return StatusTone::Danger.color(cx);
     }
     if entry.is_dir {
         return StatusTone::Warning.color(cx);
     }
-    match entry_icon(entry) {
+    match icon {
         AppIcon::Zip => cx.theme().accent_foreground,
-        AppIcon::Picture => StatusTone::Success.color(cx),
-        AppIcon::Music | AppIcon::Video => cx.theme().primary,
+        AppIcon::Picture | AppIcon::Music | AppIcon::Video => StatusTone::Success.color(cx),
+        AppIcon::AssetStaticMesh
+        | AppIcon::AssetSkeletalMesh
+        | AppIcon::AssetSkeleton
+        | AppIcon::AssetAnimation
+        | AppIcon::AssetAnimBlueprint
+        | AppIcon::AssetBlueprint => cx.theme().primary,
+        AppIcon::AssetMaterial
+        | AppIcon::AssetMaterialInstance
+        | AppIcon::AssetPhysics
+        | AppIcon::AssetVfx => StatusTone::Warning.color(cx),
+        AppIcon::AssetMap | AppIcon::AssetData | AppIcon::AssetFont => cx.theme().muted_foreground,
         AppIcon::FileLock => StatusTone::Danger.color(cx),
         _ => cx.theme().muted_foreground,
     }
@@ -351,5 +412,58 @@ pub(super) fn location_icon(label: &str) -> AppIcon {
         "视频" => AppIcon::Video,
         _ if label.ends_with(':') => AppIcon::Home,
         _ => AppIcon::FolderOpen,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lumark_unreal::AssetKind;
+
+    /// 主要 UE 资产类型必须映射到不同图标，便于文件表区分。
+    #[test]
+    fn asset_kinds_map_to_distinct_icons() {
+        let kinds = [
+            AssetKind::StaticMesh,
+            AssetKind::SkeletalMesh,
+            AssetKind::Skeleton,
+            AssetKind::AnimSequence,
+            AssetKind::AnimBlueprint,
+            AssetKind::Blueprint,
+            AssetKind::Material,
+            AssetKind::MaterialInstance,
+            AssetKind::PhysicsAsset,
+            AssetKind::Texture,
+            AssetKind::Map,
+            AssetKind::Data,
+            AssetKind::Sound,
+            AssetKind::Font,
+            AssetKind::Vfx,
+        ];
+        let mut icons = Vec::new();
+        for kind in kinds {
+            let icon = asset_icon_for_kind(kind);
+            assert!(!icons.contains(&icon), "{kind:?} 图标重复：{icon:?}");
+            icons.push(icon);
+        }
+    }
+
+    /// 没有类名时按扩展名回退：压缩包、图片和未知文件。
+    #[test]
+    fn fallback_icons_use_extension() {
+        let entry = |name: &str| BrowserEntry {
+            id: name.to_string(),
+            name: name.to_string(),
+            path: std::path::PathBuf::from(name),
+            is_dir: false,
+            size: 0,
+            modified: None,
+            kind: String::new(),
+            archive_entry: None,
+            encrypted: false,
+        };
+        assert_eq!(fallback_entry_icon(&entry("docs.zip")), AppIcon::Zip);
+        assert_eq!(fallback_entry_icon(&entry("photo.png")), AppIcon::Picture);
+        assert_eq!(fallback_entry_icon(&entry("readme.txt")), AppIcon::Doc);
     }
 }

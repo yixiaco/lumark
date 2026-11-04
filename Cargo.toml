@@ -145,3 +145,4 @@ zstd = "0.14"
 libazo = { path = "vendor/libazo" }
 xz2 = { path = "vendor/xz2" }
 zpaq_rs = { path = "vendor/zpaq_rs" }
+wim = { path = "vendor/wim" }

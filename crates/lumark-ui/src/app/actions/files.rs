@@ -204,6 +204,33 @@ impl LumarkApp {
         self.status = format!("{} {}", self.browser.entries.len(), tr("个项目", "items"));
     }
 
+    /// 应用搜索匹配方式：已有搜索结果时立即重跑，否则只更新状态提示。
+    pub(crate) fn apply_search_mode(&mut self, cx: &mut Context<Self>) {
+        if self.search_results.is_some() {
+            self.run_search(cx);
+            return;
+        }
+        let label = match self.search_mode {
+            lumark_browser::SearchMode::Contains => tr("包含", "Contains"),
+            lumark_browser::SearchMode::Wildcard => tr("通配符", "Wildcard"),
+            lumark_browser::SearchMode::Regex => tr("正则表达式", "Regex"),
+        };
+        self.status = format!("{}{label}", tr("搜索匹配方式：", "Search mode: "));
+    }
+
+    /// 应用资产类型筛选；切换类型立即产生结果，不再要求先点「搜索」。
+    ///
+    /// 类型是搜索条件的一部分，因此没有输入文本也会执行一次检索；选择
+    /// 「全部」且没有文本时会自然恢复到普通文件列表。
+    pub(crate) fn apply_search_category(
+        &mut self,
+        category: Option<lumark_browser::AssetCategory>,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_category = category;
+        self.run_search(cx);
+    }
+
     /// 根据数量与类型，把拖入文件路由到打开、压缩或复制操作。
     pub(crate) fn handle_external_drop(
         &mut self,

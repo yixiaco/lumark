@@ -91,7 +91,7 @@ impl AssetViewerWindowView {
         let timeline = AnimationTimeline::new(length, total, self.animation_time);
         self.animation_playing = false;
         self.animation_time = timeline.stepped(frames);
-        self.render_preview();
+        self.request_preview(cx);
         cx.notify();
     }
 
@@ -99,7 +99,7 @@ impl AssetViewerWindowView {
     pub(super) fn reset_animation(&mut self, cx: &mut Context<Self>) {
         self.animation_playing = false;
         self.animation_time = 0.0;
-        self.render_preview();
+        self.request_preview(cx);
         cx.notify();
     }
 
@@ -115,7 +115,7 @@ impl AssetViewerWindowView {
         if self.animation_playing {
             self.spawn_animation_loop(cx);
         }
-        self.render_preview();
+        self.request_preview(cx);
         cx.notify();
     }
 
@@ -142,7 +142,7 @@ impl AssetViewerWindowView {
                             return false;
                         }
                         this.animation_time = (this.animation_time + 0.05) % length;
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                         true
                     })

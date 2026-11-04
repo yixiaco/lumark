@@ -78,6 +78,35 @@ impl Render for LumarkApp {
         // 游戏库列表页没有文件表导航行和侧栏，保持页面专注。
         let browser = self.screen == Screen::Browser && !self.game_library;
         let game = self.game_session.is_some();
+        let show_sidebar = browser && self.sidebar_visible;
+        let content_panel = v_flex()
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .overflow_hidden()
+            .child(content);
+        // 侧栏宽度可拖动；内容面板始终占据剩余宽度。
+        let main_area = if show_sidebar {
+            let sidebar = if game {
+                self.render_game_sidebar(window, cx).into_any_element()
+            } else {
+                self.render_sidebar(window, cx).into_any_element()
+            };
+            gpui_kit::base::h_resizable("main-split")
+                .with_state(&self.sidebar_state)
+                .child(
+                    gpui_kit::base::resizable_panel()
+                        .size(px(self.sidebar_width))
+                        .size_range(px(200.)..px(480.))
+                        .flex_none()
+                        .child(sidebar),
+                )
+                .child(gpui_kit::base::resizable_panel().child(content_panel))
+                .into_any_element()
+        } else {
+            content_panel.into_any_element()
+        };
 
         v_flex()
             .size_full()
@@ -95,22 +124,7 @@ impl Render for LumarkApp {
                     .min_h_0()
                     .min_w_0()
                     .items_stretch()
-                    .when(browser && self.sidebar_visible, |this| {
-                        if game {
-                            this.child(self.render_game_sidebar(window, cx))
-                        } else {
-                            this.child(self.render_sidebar(window, cx).into_any_element())
-                        }
-                    })
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .h_full()
-                            .min_w_0()
-                            .min_h_0()
-                            .overflow_hidden()
-                            .child(content),
-                    ),
+                    .child(main_area),
             )
             .child(self.render_status_bar(cx))
             .into_any_element()

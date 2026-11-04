@@ -225,11 +225,14 @@ impl LumarkApp {
     }
 
     /// 自动尝试游戏目录中的 Oodle 库。
+    ///
+    /// 用户明确选择「移除 DLL、改用内置 Rust」后不再自动发现，避免每次
+    /// 编辑游戏都把 DLL 重新装回去。
     fn configure_setup_oodle(&mut self) {
         let Some(setup) = self.game_setup.as_mut() else {
             return;
         };
-        if setup.oodle.is_some() {
+        if setup.oodle.is_some() || lumark_archive::oodle_prefers_rust() {
             return;
         }
         let Some(game) = &setup.scanned else {
@@ -263,6 +266,11 @@ impl LumarkApp {
                                 setup.oodle = Some(path);
                                 setup.message =
                                     Some(tr("Oodle 库已加载", "Oodle library loaded").to_string());
+                                // 手动选择 DLL 时取消「强制 Rust」偏好。
+                                let _ = app
+                                    .settings
+                                    .update(|settings| settings.oodle_prefer_rust = false);
+                                lumark_archive::set_oodle_prefer_rust(false);
                             }
                             Err(error) => {
                                 setup.message = Some(format!(
@@ -277,6 +285,38 @@ impl LumarkApp {
             }
         })
         .detach();
+    }
+
+    /// 移除已配置的 Oodle DLL，改用内置纯 Rust 解码器。
+    ///
+    /// 同时清空当前编辑表单、保存到设置的偏好和本进程加载的库路径；
+    /// 下一次打开游戏时不会再自动发现 DLL。
+    pub(crate) fn clear_game_oodle(&mut self, cx: &mut Context<Self>) {
+        let _ = lumark_archive::configure_oodle_library(None);
+        lumark_archive::set_oodle_prefer_rust(true);
+        if let Some(setup) = self.game_setup.as_mut() {
+            setup.oodle = None;
+            setup.message = Some(
+                tr(
+                    "已移除 Oodle DLL，改用内置 Rust 解码器",
+                    "Removed the Oodle DLL; using the built-in Rust decoder",
+                )
+                .to_string(),
+            );
+        }
+        if let Err(error) = self
+            .settings
+            .update(|settings| settings.oodle_prefer_rust = true)
+        {
+            self.status = error.to_string();
+        } else {
+            self.status = tr(
+                "已改用内置 Rust Oodle 后端",
+                "Using the built-in Rust Oodle backend",
+            )
+            .to_string();
+        }
+        cx.notify();
     }
 
     /// 用户选择 `.usmap` 映射文件。
@@ -743,6 +783,10 @@ impl LumarkApp {
             key
         };
         let oodle = entry.oodle_dll.clone().or_else(|| {
+            // 用户选择「移除 DLL」后只走内置 Rust，不再自动发现候选。
+            if lumark_archive::oodle_prefers_rust() {
+                return None;
+            }
             game.oodle_candidates.iter().find_map(|candidate| {
                 lumark_archive::configure_oodle_library(Some(candidate.clone()))
                     .ok()
@@ -876,6 +920,9 @@ impl LumarkApp {
         self.game_setup = None;
         self.game_library = false;
         self.archive_password = None;
+        self.game_asset_classes.clear();
+        self.game_asset_class_key = None;
+        self.game_asset_class_scan = self.game_asset_class_scan.wrapping_add(1);
         self.restore_previous_directory(window, cx);
         cx.notify();
     }
@@ -899,6 +946,19 @@ impl LumarkApp {
     pub(crate) fn open_game_container(
         &mut self,
         entry: BrowserEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_game_container_path(entry.path, window, cx);
+    }
+
+    /// 按容器路径打开或切换到该归档；侧栏归档列表与容器行共用该入口。
+    ///
+    /// 不依赖 `browser.entries`：进入某个容器后侧栏仍要能直接切换到另一个
+    /// 容器（或从子目录回到当前容器根目录）。
+    pub(crate) fn open_game_container_path(
+        &mut self,
+        path: PathBuf,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -909,7 +969,7 @@ impl LumarkApp {
             .game
             .containers
             .iter()
-            .find(|container| container.path == entry.path)
+            .find(|container| container.path == path)
         else {
             self.status =
                 tr("容器不属于当前游戏", "Container is not part of this game").to_string();
@@ -925,30 +985,25 @@ impl LumarkApp {
             .to_string();
             return;
         }
-        let path = container.path.clone();
+        // 已经在该容器根目录时保持现状，避免重复加载整个容器索引。
+        if matches!(
+            &self.browser.location,
+            BrowserLocation::Archive { archive, inner } if archive == &path && inner.is_empty()
+        ) {
+            self.status = format!(
+                "{}{}",
+                tr("当前归档：", "Current archive: "),
+                path.display()
+            );
+            cx.notify();
+            return;
+        }
+        self.marquee = None;
         self.begin_archive_load(path.clone(), password, ArchiveOpenIntent::Browse);
         if let Some(session) = self.game_session.as_mut() {
             session.last_container = Some(path);
         }
         cx.notify();
-    }
-
-    /// 按容器路径打开归档列表中的容器。
-    pub(crate) fn open_game_container_path(
-        &mut self,
-        path: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(entry) = self
-            .browser
-            .entries
-            .iter()
-            .find(|entry| entry.path == path)
-            .cloned()
-        {
-            self.open_game_container(entry, window, cx);
-        }
     }
 
     /// 在游戏容器根目录返回归档列表；返回是否已切换位置。

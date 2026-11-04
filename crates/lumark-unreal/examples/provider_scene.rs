@@ -18,9 +18,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mapping_path = args.next().ok_or("缺少 .usmap")?;
     let mut entries = Vec::new();
     let mut animation = None;
+    let mut load_materials = true;
     while let Some(argument) = args.next() {
         if argument == "--anim" {
             animation = args.next();
+        } else if argument == "--nomaterials" {
+            load_materials = false;
         } else {
             entries.push(argument);
         }
@@ -60,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
     )?;
     let options = SceneLoadOptions {
-        load_materials: true,
+        load_materials,
         max_texture_size: 512,
         texture_cache: Some(texture_cache()),
         animation,

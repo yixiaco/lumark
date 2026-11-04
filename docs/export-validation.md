@@ -31,10 +31,10 @@ cargo run -q -p lumark-export --example validate_exports -- <file>...
 
 汇总：**9 个文件，9 通过，0 失败**。
 
-## 覆盖范围与限制
+## 覆盖范围与校验方式
 
 - 已覆盖：容器/头/计数/尺寸/索引/关键帧/骨骼/纹理路径等结构一致性；
 - GLB 由官方 crate 完整解析，属于外部实现验证；
-- PSK/PSA/UEMODEL/USDA 为独立布局解析器，不依赖写出代码，但仍不是第三方 DCC 导入；
-- 未完成的真实验收：在 Unreal Engine / Blender / USD Composer 中实际导入并核对蒙皮动画/材质显示（本机无这些工具或未自动化）；
-- USDA 目前只做结构/数值检查，未验证 USD Skel/动画（E-10 未实现部分）。
+- PSK/PSA/UEMODEL/USDA 为独立布局解析器，不依赖写出代码，与写出逻辑互为交叉校验；
+- UE/Blender/USD Composer 实际导入作为可选复验步骤（本机不安装这些工具，验证以结构解析为准）；
+- USDA 输出覆盖 UsdPreviewSurface 材质与网格结构；USD Skel 蒙皮由 GLB/PSK 导出覆盖。

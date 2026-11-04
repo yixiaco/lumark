@@ -2,6 +2,9 @@
 //!
 //! 图片由 GPUI 的 `img` 元素解码和绘制；这里只负责选择文件、预检尺寸、
 //! 适应/缩放和平移。图片只读，不写回原文件或归档。
+//!
+//! 非适应模式采用「全尺寸舞台 + 绝对定位图片」布局：图片尺寸只由原图尺寸和
+//! 缩放决定，位置由画布中心与平移偏移计算，不参与 flex 收缩，避免非等比压扁。
 
 use super::super::*;
 use super::components::AppIcon;
@@ -11,6 +14,8 @@ use gpui_kit::component::empty::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle,
 };
 use gpui_kit::component::tag::Tag;
+use std::cell::Cell;
+use std::rc::Rc;
 
 /// 解码前预检得到的图片元数据。
 #[derive(Clone, Debug)]
@@ -20,6 +25,18 @@ struct ImageMeta {
     format: String,
     animated: bool,
     vector: bool,
+}
+
+/// 画布在窗口中的精确边界缓存：每帧 prepaint 时由画布的舞台子元素 bounds 写入。
+type CanvasBoundsCell = Rc<Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>;
+
+/// 左键拖拽的锚点：按下时的绝对鼠标位置与当时的平移偏移。
+#[derive(Clone, Copy, Debug)]
+struct DragPan {
+    /// 鼠标按下时的窗口坐标。
+    start: (f32, f32),
+    /// 鼠标按下时的平移偏移。
+    base: (f32, f32),
 }
 
 /// 图片查看器窗口。
@@ -38,12 +55,12 @@ pub(crate) struct ImageViewerWindowView {
     error: Option<String>,
     fit: bool,
     zoom: f32,
-    /// 手动缩放后的平移偏移（像素）。
+    /// 手动缩放后的平移偏移（像素），以画布中心为基准。
     pan: (f32, f32),
-    /// 左键拖动平移的上一帧位置。
-    drag_pan: Option<(f32, f32)>,
-    /// 最近一次鼠标位置（窗口坐标），用于滚轮缩放锚点。
-    cursor: Option<(f32, f32)>,
+    /// 左键拖拽状态；仅手动缩放模式存在。
+    drag: Option<DragPan>,
+    /// 最近一帧画布的精确边界，用于绝对布局和滚轮锚点。
+    canvas_bounds: CanvasBoundsCell,
     /// 用户手动旋转的 90° 次数（0–3）。
     rotation: u8,
     /// 是否正在后台旋转图片。
@@ -105,8 +122,8 @@ impl ImageViewerWindowView {
             fit: true,
             zoom: 1.0,
             pan: (0.0, 0.0),
-            drag_pan: None,
-            cursor: None,
+            drag: None,
+            canvas_bounds: Rc::new(Cell::new(None)),
             rotation: 0,
             rotating: false,
             notice: None,
@@ -126,10 +143,78 @@ impl ImageViewerWindowView {
             .unwrap_or((1024.0, 768.0))
     }
 
-    /// 设置缩放并退出适应窗口模式。
-    fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+    /// 画布在窗口中的精确度量；首帧 prepaint 之前返回 `None`。
+    fn canvas_metrics(&self) -> Option<CanvasMetrics> {
+        self.canvas_bounds.get().map(|bounds| CanvasMetrics {
+            origin: (bounds.origin.x.as_f32(), bounds.origin.y.as_f32()),
+            size: (bounds.size.width.as_f32(), bounds.size.height.as_f32()),
+        })
+    }
+
+    /// 适应窗口（`ObjectFit::Contain`）时的显示比例；画布未知时退化为 1。
+    fn fit_scale(&self) -> f32 {
+        self.canvas_metrics()
+            .map(|canvas| canvas.fit_scale(self.natural_size()))
+            .unwrap_or(1.0)
+    }
+
+    /// 当前实际显示比例：适应窗口时由画布尺寸决定，否则为用户缩放值。
+    fn display_zoom(&self) -> f32 {
+        if self.fit {
+            self.fit_scale()
+        } else {
+            self.zoom
+        }
+    }
+
+    /// 以 `anchor`（窗口坐标）为锚点把显示比例调整到 `next_zoom`。
+    ///
+    /// 适应窗口态从当前显示比例继续并清零平移基准；锚点公式保持光标或
+    /// 画布中心的图片内容不漂移。
+    fn zoom_to(&mut self, anchor: (f32, f32), next_zoom: f32, cx: &mut Context<Self>) {
+        let old_zoom = self.display_zoom();
+        let (min_zoom, max_zoom) = zoom_bounds(self.fit_scale());
+        let next_zoom = next_zoom.clamp(min_zoom, max_zoom);
+        if (next_zoom - old_zoom).abs() <= f32::EPSILON {
+            return;
+        }
+        let pan = if self.fit { (0.0, 0.0) } else { self.pan };
+        let pan = match self.canvas_metrics() {
+            Some(canvas) => anchored_pan(pan, anchor, canvas.center(), old_zoom, next_zoom),
+            None => pan,
+        };
         self.fit = false;
-        self.zoom = zoom.clamp(0.05, 16.0);
+        self.zoom = next_zoom;
+        self.pan = pan;
+        self.drag = None;
+        cx.notify();
+    }
+
+    /// 滚轮缩放：Windows 滚轮向上（`delta.y > 0`）放大、向下缩小，锚点为光标。
+    fn zoom_by_wheel(&mut self, delta_y: f32, cursor: (f32, f32), cx: &mut Context<Self>) {
+        if delta_y.abs() < 0.01 {
+            return;
+        }
+        let next_zoom = wheel_zoom(self.display_zoom(), delta_y);
+        self.zoom_to(cursor, next_zoom, cx);
+    }
+
+    /// 工具栏按钮缩放：以画布中心为锚点按 `factor` 缩放。
+    fn zoom_by_factor(&mut self, factor: f32, cx: &mut Context<Self>) {
+        let next_zoom = self.display_zoom() * factor;
+        let anchor = self
+            .canvas_metrics()
+            .map(CanvasMetrics::center)
+            .unwrap_or((0.0, 0.0));
+        self.zoom_to(anchor, next_zoom, cx);
+    }
+
+    /// 切换到 100% 显示并清空平移。
+    fn actual_size(&mut self, cx: &mut Context<Self>) {
+        self.fit = false;
+        self.zoom = 1.0;
+        self.pan = (0.0, 0.0);
+        self.drag = None;
         cx.notify();
     }
 
@@ -138,7 +223,7 @@ impl ImageViewerWindowView {
         self.fit = true;
         self.zoom = 1.0;
         self.pan = (0.0, 0.0);
-        self.drag_pan = None;
+        self.drag = None;
     }
 
     /// 在后台旋转图片（`delta` 为正表示顺时针），完成后替换临时图片。

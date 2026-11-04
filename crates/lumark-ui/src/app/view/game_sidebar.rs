@@ -10,19 +10,12 @@ impl LumarkApp {
     /// 渲染游戏资产侧栏：游戏卡片、容器列表和详情检查器。
     pub(crate) fn render_game_sidebar(
         &self,
-        window: &Window,
+        _window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let Some(session) = &self.game_session else {
             return div().into_any_element();
         };
-        let height = window
-            .inner_window_bounds()
-            .get_bounds()
-            .size
-            .height
-            .as_f32();
-        let details_max_height = if height < 720. { 170. } else { 200. };
         let key_tag = match session.key_state {
             GameKeyState::NotNeeded => ("未加密", "Not encrypted"),
             GameKeyState::Valid => ("密钥已就绪", "Key ready"),
@@ -31,9 +24,8 @@ impl LumarkApp {
         };
         v_flex()
             .id("game-sidebar")
-            .w(px(252.))
+            .w_full()
             .h_full()
-            .flex_shrink_0()
             .min_h_0()
             .bg(cx.theme().sidebar)
             .border_r_1()
@@ -173,12 +165,12 @@ impl LumarkApp {
                     )
                     .child(
                         h_flex()
-                            .gap_1()
+                            .gap_2()
+                            .flex_wrap()
                             .child(
                                 button("game-sidebar-edit")
                                     .ghost()
-                                    .xsmall()
-                                    .icon(AppIcon::Edit.element(13.))
+                                    .icon(AppIcon::Edit.element(14.))
                                     .label(tr("编辑", "Edit"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.edit_current_game(window, cx);
@@ -187,8 +179,7 @@ impl LumarkApp {
                             .child(
                                 button("game-sidebar-list")
                                     .ghost()
-                                    .xsmall()
-                                    .icon(AppIcon::ArrowUp.element(13.))
+                                    .icon(AppIcon::ArrowUp.element(14.))
                                     .label(tr("返回列表", "Back to list"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.back_to_game_library(window, cx);
@@ -197,68 +188,100 @@ impl LumarkApp {
                     ),
             )
             .child(
-                v_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scrollbar()
-                    .px_2()
-                    .gap(px(1.))
-                    .child(
-                        div()
-                            .px_2()
-                            .py_1()
-                            .text_xs()
-                            .font_semibold()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr("归档", "Archives")),
-                    )
-                    .children(session.game.containers.iter().enumerate().map(
-                        |(index, container)| {
-                            let path = container.path.clone();
-                            let name = container
-                                .path
-                                .file_name()
-                                .and_then(|value| value.to_str())
-                                .unwrap_or("container")
-                                .to_string();
-                            let encrypted = container.encrypted == Some(true);
-                            h_flex()
-                                .id(("game-container", index))
-                                .h(px(27.))
-                                .w_full()
-                                .gap_2()
-                                .px_2()
-                                .rounded(cx.theme().radius)
-                                .text_sm()
-                                .hover(|style| style.bg(cx.theme().secondary))
-                                .child(
-                                    div()
-                                        .text_color(StatusTone::Warning.color(cx))
-                                        .child(AppIcon::FileZip.element(14.)),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .overflow_hidden()
-                                        .whitespace_nowrap()
-                                        .text_ellipsis()
-                                        .child(name),
-                                )
-                                .when(encrypted, |this| {
-                                    this.child(
+                div().flex_1().min_h_0().child(
+                    gpui_kit::base::v_resizable("game-sidebar-split")
+                        .with_state(&self.details_state)
+                        .child(
+                            gpui_kit::base::resizable_panel().child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_y_scrollbar()
+                                    .px_2()
+                                    .gap(px(1.))
+                                    .child(
                                         div()
-                                            .text_color(StatusTone::Warning.color(cx))
-                                            .child(AppIcon::FileLock.element(12.)),
+                                            .px_2()
+                                            .py_1()
+                                            .text_xs()
+                                            .font_semibold()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(tr("归档", "Archives")),
                                     )
-                                })
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.open_game_container_path(path.clone(), window, cx);
-                                }))
-                        },
-                    )),
+                                    .children(session.game.containers.iter().enumerate().map(
+                                        |(index, container)| {
+                                            let path = container.path.clone();
+                                            let name = container
+                                                .path
+                                                .file_name()
+                                                .and_then(|value| value.to_str())
+                                                .unwrap_or("container")
+                                                .to_string();
+                                            let encrypted = container.encrypted == Some(true);
+                                            let current = matches!(
+                                                &self.browser.location,
+                                                BrowserLocation::Archive { archive, .. }
+                                                    if archive == &container.path
+                                            );
+                                            h_flex()
+                                                .id(("game-container", index))
+                                                .h(px(27.))
+                                                .w_full()
+                                                .gap_2()
+                                                .px_2()
+                                                .rounded(cx.theme().radius)
+                                                .text_sm()
+                                                .when(current, |this| {
+                                                    this.bg(cx.theme().sidebar_accent)
+                                                })
+                                                .hover(|style| style.bg(cx.theme().secondary))
+                                                .child(
+                                                    div()
+                                                        .text_color(StatusTone::Warning.color(cx))
+                                                        .child(AppIcon::FileZip.element(14.)),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .overflow_hidden()
+                                                        .whitespace_nowrap()
+                                                        .text_ellipsis()
+                                                        .child(name),
+                                                )
+                                                .when(encrypted, |this| {
+                                                    this.child(
+                                                        div()
+                                                            .text_color(
+                                                                StatusTone::Warning.color(cx),
+                                                            )
+                                                            .child(AppIcon::FileLock.element(12.)),
+                                                    )
+                                                })
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        this.open_game_container_path(
+                                                            path.clone(),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    },
+                                                ))
+                                        },
+                                    )),
+                            ),
+                        )
+                        .when(self.details_visible, |this| {
+                            this.child(
+                                gpui_kit::base::resizable_panel()
+                                    .size(px(self.details_height))
+                                    .size_range(px(120.)..px(420.))
+                                    .flex_none()
+                                    .child(self.render_details(cx)),
+                            )
+                        }),
+                ),
             )
-            .child(self.render_details(details_max_height, cx))
             .into_any_element()
     }
 
@@ -291,7 +314,7 @@ impl LumarkApp {
         h_flex()
             .id("game-context-bar")
             .w_full()
-            .h(px(32.))
+            .h(px(40.))
             .flex_shrink_0()
             .px_3()
             .gap_2()
@@ -325,8 +348,7 @@ impl LumarkApp {
                     .child(
                         button("game-context-settings")
                             .ghost()
-                            .xsmall()
-                            .icon(AppIcon::Setting.element(13.))
+                            .icon(AppIcon::Setting.element(15.))
                             .tooltip(tr("游戏设置", "Game settings"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.edit_current_game(window, cx);
@@ -336,7 +358,6 @@ impl LumarkApp {
                         this.child(
                             button("game-context-back")
                                 .ghost()
-                                .xsmall()
                                 .label(tr("返回归档列表", "Back to archives"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     if this.leave_game_container_to_archives() {
@@ -354,8 +375,7 @@ impl LumarkApp {
                     .child(
                         button("game-context-exit")
                             .ghost()
-                            .xsmall()
-                            .icon(AppIcon::ArrowUp.element(13.))
+                            .icon(AppIcon::ArrowUp.element(15.))
                             .label(tr("返回列表", "Back to list"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.back_to_game_library(window, cx);

@@ -409,7 +409,9 @@ impl LumarkApp {
         if let (Some(handle), Some(view)) = (self.disguise_window, self.disguise_view.clone()) {
             view.update(cx, |view, cx| view.set_sources(sources.clone(), cx));
             if handle
-                .update(cx, |_, window, _| window.activate_window())
+                .update(cx, |_, window, _| {
+                    crate::window_focus::activate_and_raise(window)
+                })
                 .is_ok()
             {
                 return;
@@ -449,6 +451,7 @@ impl LumarkApp {
         let mask = self.compress_disguise_mask;
         let custom = self.compress_disguise_custom.clone();
         let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| {
                 DisguiseWindowView::new(
                     app.clone(),

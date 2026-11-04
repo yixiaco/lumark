@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use gpui_kit::AnyElement;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{ActiveTheme, Sizable, TitleBar};
+use gpui_kit::component::{ActiveTheme, TitleBar};
 use gpui_kit::{Context, IntoElement, ParentElement, Render, Styled, Window, div, px};
 use lumark_tasks::{TaskControl, TaskKind, TaskManager, TaskProgress, TaskReporter, TaskRequest};
 use lumark_unreal::{
@@ -156,7 +156,6 @@ impl BatchExportWindowView {
     fn format_button(&self, format: BatchExportFormat, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.config.formats.contains(&format);
         let mut button = Button::new(format!("batch-format-{}", format.extension()))
-            .xsmall()
             .label(format.label())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.toggle_format(format);
@@ -182,7 +181,6 @@ impl BatchExportWindowView {
             format!("batch-limit-{limit}")
         });
         let mut button = Button::new(id)
-            .xsmall()
             .label(label.to_string())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.config.limit = limit;
@@ -243,7 +241,6 @@ impl Render for BatchExportWindowView {
                     .items_center()
                     .child(
                         Button::new("batch-materials")
-                            .xsmall()
                             .ghost()
                             .selected(self.config.include_materials)
                             .label(tr("解析材质", "Resolve materials"))
@@ -254,7 +251,6 @@ impl Render for BatchExportWindowView {
                     )
                     .child(
                         Button::new("batch-overwrite")
-                            .xsmall()
                             .ghost()
                             .selected(self.config.overwrite)
                             .label(tr("覆盖已有文件", "Overwrite existing files"))
@@ -305,7 +301,6 @@ impl Render for BatchExportWindowView {
                     )))
                     .child(
                         Button::new("batch-open-dir")
-                            .xsmall()
                             .ghost()
                             .label(tr("打开输出目录", "Open output folder"))
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -602,7 +597,8 @@ impl LumarkApp {
             window_min_size: Some(gpui_kit::size(px(560.), px(480.))),
             ..TitleBar::window_options()
         };
-        let result = gpui_kit::open_window(options, cx, move |_window, cx| {
+        let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|_| BatchExportWindowView::new(target.clone(), manager.clone(), config.clone()))
         });
         match result {

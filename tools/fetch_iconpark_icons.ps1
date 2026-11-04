@@ -45,7 +45,21 @@ $icons = @(
     "picture",
     "zip",
     "zoom-in",
-    "zoom-out"
+    "zoom-out",
+    # 资产类型图标（U-10）：按 UE 类名区分模型、骨骼、材质、蓝图等。
+    "cube",
+    "user",
+    "bone",
+    "play-one",
+    "file-code",
+    "application-one",
+    "paint",
+    "color-filter",
+    "experiment",
+    "table-file",
+    "font-size",
+    "map-draw",
+    "planet"
 )
 
 $base = "https://cdn.jsdelivr.net/npm/@icon-park/svg@1.4.2/lib/icons"

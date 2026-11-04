@@ -10,11 +10,8 @@ impl LumarkApp {
     ///
     /// 选中项目时显示大小、时间、路径和归档条目元数据；未选中时显示
     /// 当前文件夹摘要，对应参考图片中“详细信息”区域的两种状态。
-    pub(crate) fn render_details(
-        &self,
-        max_height: f32,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// 面板高度由可拖动分栏决定，这里填满所属面板。
+    pub(crate) fn render_details(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.selected_entry();
         let has_selection = selected.is_some();
         let display = self.browser.current_display();
@@ -38,8 +35,7 @@ impl LumarkApp {
         v_flex()
             .id("details-panel")
             .w_full()
-            .flex_shrink_0()
-            .max_h(px(max_height))
+            .h_full()
             .overflow_hidden()
             .bg(cx.theme().popover)
             .border_t_1()
@@ -82,16 +78,19 @@ impl LumarkApp {
                     .min_h_0()
                     .overflow_y_scroll()
                     .when_some(selected, |this, entry| {
-                        let icon_color = entry_icon_color(cx, &entry);
+                        let detail_icon_kind = entry_icon(self, &entry);
+                        let icon_color = entry_icon_color(cx, &entry, detail_icon_kind);
                         let kind_text = if entry.is_dir {
                             tr("文件夹", "Folder").to_string()
+                        } else if let Some(kind) = self.game_asset_kind(&entry) {
+                            kind.label().to_string()
                         } else {
                             entry.kind.clone()
                         };
                         let detail_icon = if let Some(icon) = system_icon_for(self, &entry) {
                             gpui_kit::img(icon).size(px(17.)).into_any_element()
                         } else {
-                            entry_icon(&entry).element(17.).into_any_element()
+                            detail_icon_kind.element(17.).into_any_element()
                         };
                         let size_text = if entry.is_dir {
                             if let Some(size) = self.folder_sizes.get(&entry.path) {
@@ -268,7 +267,6 @@ fn render_asset_export_action(
         return div().into_any_element();
     }
     Button::new("details-export-asset")
-        .xsmall()
         .ghost()
         .label(tr("导出资产…", "Export asset…"))
         .tooltip(tr(

@@ -3,7 +3,7 @@
 //! `MeshData.skin` 提供关节索引/权重、inverse bind 矩阵与可选姿态覆盖；
 //! 本模块把「关节最终矩阵」与逐顶点混合结果提供给 CPU 光栅与 GPU 上传。
 
-use lumark_scene::{MeshData, Scene};
+use lumark_scene::{Bounds, MeshData, Scene, SceneNodeId};
 
 /// 4×4 单位矩阵。
 pub(crate) const IDENTITY: [[f32; 4]; 4] = [
@@ -12,6 +12,60 @@ pub(crate) const IDENTITY: [[f32; 4]; 4] = [
     [0.0, 0.0, 1.0, 0.0],
     [0.0, 0.0, 0.0, 1.0],
 ];
+
+/// 计算渲染取景用的场景包围盒。
+///
+/// `Scene::compute_bounds` 只用节点世界变换：蒙皮网格的顶点实际由关节矩阵
+/// 决定，直接用节点变换会把模型算到错误的位置（查看器取景偏移、近距离裁切）。
+/// 这里与光栅化/GPU 上传保持同一套蒙皮结果，并遍历全部顶点，避免抽样在
+/// 极端镂空网格上产生包围盒误差。
+pub(crate) fn render_bounds(scene: &Scene) -> Bounds {
+    let mut bounds = Bounds::EMPTY;
+    for (node_index, node) in scene.nodes.iter().enumerate() {
+        if !node.visible {
+            continue;
+        }
+        let Some(handle) = node.mesh else {
+            continue;
+        };
+        let Some(mesh) = scene.meshes.get(handle.0) else {
+            continue;
+        };
+        let Some(matrices) = rest_skin_matrices(scene, mesh) else {
+            let Some(world) = scene.world_transform(SceneNodeId(node_index)) else {
+                continue;
+            };
+            for position in &mesh.positions {
+                bounds.expand_point(world.transform_point(*position));
+            }
+            continue;
+        };
+        if mesh.positions.is_empty() {
+            continue;
+        }
+        let skin = mesh.skin.as_ref();
+        for (index, position) in mesh.positions.iter().enumerate() {
+            let (joints, weights) = skin
+                .map(|skin| {
+                    (
+                        skin.joint_indices.get(index).copied().unwrap_or([0; 4]),
+                        skin.joint_weights.get(index).copied().unwrap_or([0.0; 4]),
+                    )
+                })
+                .unwrap_or(([0; 4], [0.0; 4]));
+            let (skinned, _, _) = skin_vertex(
+                &matrices,
+                joints,
+                weights,
+                *position,
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 1.0],
+            );
+            bounds.expand_point(skinned);
+        }
+    }
+    bounds
+}
 
 /// 返回网格的关节最终矩阵；静态网格或数据不完整时返回 `None`。
 pub(crate) fn skin_matrices(scene: &Scene, mesh: &MeshData) -> Option<Vec<[[f32; 4]; 4]>> {
@@ -24,6 +78,17 @@ pub(crate) fn skin_matrices(scene: &Scene, mesh: &MeshData) -> Option<Vec<[[f32;
             return None;
         }
         return Some(pose.iter().map(unflatten).collect());
+    }
+    rest_skin_matrices(scene, mesh)
+}
+
+/// 返回网格休止姿态的关节矩阵（忽略动画姿态覆盖）。
+///
+/// 取景包围盒使用休止姿态，动画播放时相机不会跟着角色移动。
+fn rest_skin_matrices(scene: &Scene, mesh: &MeshData) -> Option<Vec<[[f32; 4]; 4]>> {
+    let skin = mesh.skin.as_ref()?;
+    if !skin.is_valid() {
+        return None;
     }
     let mut matrices = Vec::with_capacity(skin.joints.len());
     for (joint, inverse) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
@@ -202,5 +267,115 @@ mod tests {
             [1.0, 0.0, 0.0, 1.0],
         );
         assert!((position[0] - 5.0).abs() < 1e-6);
+    }
+
+    /// 蒙皮包围盒按蒙皮后的顶点统计，而不是节点世界变换。
+    #[test]
+    fn render_bounds_follow_skinned_vertices() {
+        use lumark_scene::{MeshSection, NodeKind, SceneNode, Transform};
+        let mut scene = Scene::new("SkinBounds");
+        let root = scene.add_node(SceneNode {
+            name: "Root".to_string(),
+            parent: None,
+            transform: Transform::from_translation([0.0, 0.0, 100.0]),
+            mesh: None,
+            materials: Vec::new(),
+            visible: true,
+            kind: NodeKind::Other("Bone".to_string()),
+            metadata: Vec::new(),
+        });
+        let mut mesh = MeshData::new(
+            "SkinTri",
+            vec![[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]],
+            vec![0, 1, 2],
+        );
+        mesh.sections = vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            index_count: 3,
+        }];
+        // inverse bind 抵消根骨骼的 +100 平移，休止姿态下顶点保持 bind 坐标。
+        mesh.skin = Some(lumark_scene::MeshSkin {
+            joints: vec![root],
+            joint_indices: vec![[0; 4]; 3],
+            joint_weights: vec![[1.0, 0.0, 0.0, 0.0]; 3],
+            inverse_bind_matrices: vec![[
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -100.0, 1.0,
+            ]],
+            pose: None,
+        });
+        let handle = scene.add_mesh(mesh);
+        scene.add_node(SceneNode {
+            name: "SkinTri".to_string(),
+            parent: Some(root),
+            transform: Transform::IDENTITY,
+            mesh: Some(handle),
+            materials: Vec::new(),
+            visible: true,
+            kind: NodeKind::SkeletalMesh,
+            metadata: Vec::new(),
+        });
+        let naive = scene.compute_bounds();
+        assert!(
+            (naive.min[2] - 100.0).abs() < 1e-3,
+            "节点变换把网格算到 +100"
+        );
+        let skinned = render_bounds(&scene);
+        assert!((skinned.min[2]).abs() < 1e-3, "蒙皮后应在 bind 坐标");
+        assert!((skinned.max[0] - 10.0).abs() < 1e-3);
+        assert!((skinned.max[1] - 10.0).abs() < 1e-3);
+    }
+
+    /// 包围盒遍历全部蒙皮顶点，不因抽样漏掉极端位置。
+    #[test]
+    fn render_bounds_include_every_skinned_vertex() {
+        use lumark_scene::{MeshSection, NodeKind, SceneNode, Transform};
+        let mut scene = Scene::new("AllVertices");
+        let root = scene.add_node(SceneNode {
+            name: "Root".to_string(),
+            parent: None,
+            transform: Transform::IDENTITY,
+            mesh: None,
+            materials: Vec::new(),
+            visible: true,
+            kind: NodeKind::Other("Bone".to_string()),
+            metadata: Vec::new(),
+        });
+        let mut positions = vec![[0.0f32; 3]; 9000];
+        // 奇数下标放置极端顶点：旧的步长抽样会跳过它们。
+        positions[1] = [500.0, 0.0, 0.0];
+        positions[3] = [0.0, 500.0, 0.0];
+        let mut mesh = MeshData::new("Big", positions, vec![0, 1, 2]);
+        mesh.sections = vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            index_count: 3,
+        }];
+        mesh.skin = Some(lumark_scene::MeshSkin {
+            joints: vec![root],
+            joint_indices: vec![[0; 4]; 9000],
+            joint_weights: vec![[1.0, 0.0, 0.0, 0.0]; 9000],
+            inverse_bind_matrices: vec![[
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ]],
+            pose: None,
+        });
+        let handle = scene.add_mesh(mesh);
+        scene.add_node(SceneNode {
+            name: "Big".to_string(),
+            parent: None,
+            transform: Transform::IDENTITY,
+            mesh: Some(handle),
+            materials: Vec::new(),
+            visible: true,
+            kind: NodeKind::SkeletalMesh,
+            metadata: Vec::new(),
+        });
+        let bounds = render_bounds(&scene);
+        assert!(
+            (bounds.max[0] - 500.0).abs() < 1e-3,
+            "奇数下标顶点应参与包围盒"
+        );
+        assert!((bounds.max[1] - 500.0).abs() < 1e-3);
     }
 }

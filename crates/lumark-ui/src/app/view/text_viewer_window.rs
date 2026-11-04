@@ -23,6 +23,9 @@ mod memory;
 #[path = "text_viewer_copy.rs"]
 mod copy;
 
+/// 查看器正文行高：标准 14px 字号下保证行间不重叠。
+pub(super) const VIEWER_LINE_HEIGHT: f32 = 20.0;
+
 /// 查看器当前内容视图。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewerMode {
@@ -106,7 +109,10 @@ impl TextViewerWindowView {
             ContentKind::Text => match TextDocument::open(&path) {
                 Ok(document) => {
                     let line_count = document.line_count();
-                    let line_sizes = Rc::new(vec![gpui_kit::size(px(1.), px(18.)); line_count]);
+                    let line_sizes = Rc::new(vec![
+                        gpui_kit::size(px(1.), px(VIEWER_LINE_HEIGHT));
+                        line_count
+                    ]);
                     let editor = document.editable().then(|| {
                         let language = language_for_name(&name);
                         let text = document.text();
@@ -151,7 +157,10 @@ impl TextViewerWindowView {
         let (hex, hex_sizes) = if mode == ViewerMode::Hex || pe.is_some() || document.is_none() {
             match HexDocument::open(&path) {
                 Ok(hex) => {
-                    let sizes = Rc::new(vec![gpui_kit::size(px(1.), px(18.)); hex.row_count()]);
+                    let sizes = Rc::new(vec![
+                        gpui_kit::size(px(1.), px(VIEWER_LINE_HEIGHT));
+                        hex.row_count()
+                    ]);
                     (Some(hex), sizes)
                 }
                 Err(error) => {
@@ -231,8 +240,10 @@ impl TextViewerWindowView {
         if mode == ViewerMode::Hex && self.hex.is_none() && self.error.is_none() {
             match HexDocument::open(&self.path) {
                 Ok(hex) => {
-                    self.hex_sizes =
-                        Rc::new(vec![gpui_kit::size(px(1.), px(18.)); hex.row_count()]);
+                    self.hex_sizes = Rc::new(vec![
+                        gpui_kit::size(px(1.), px(VIEWER_LINE_HEIGHT));
+                        hex.row_count()
+                    ]);
                     self.hex = Some(hex);
                 }
                 Err(error) => self.status = error.to_string(),
@@ -433,16 +444,16 @@ impl TextViewerWindowView {
         let line_number = format!("{:>6}", index + 1);
         h_flex()
             .w_full()
-            .h(px(18.))
+            .h(px(VIEWER_LINE_HEIGHT))
             .flex_shrink_0()
             .items_center()
             .gap_3()
             .px_2()
             .font_family(cx.theme().mono_font_family.clone())
-            .text_xs()
+            .text_sm()
             .child(
                 div()
-                    .w(px(52.))
+                    .w(px(56.))
                     .flex_shrink_0()
                     .text_right()
                     .text_color(cx.theme().muted_foreground)
@@ -477,12 +488,12 @@ impl TextViewerWindowView {
         let line = format!("{offset}  {}  {}", row.hex, row.ascii);
         h_flex()
             .w_full()
-            .h(px(18.))
+            .h(px(VIEWER_LINE_HEIGHT))
             .flex_shrink_0()
             .items_center()
             .px_2()
             .font_family(cx.theme().mono_font_family.clone())
-            .text_xs()
+            .text_sm()
             .child(
                 div()
                     .flex_1()
@@ -912,6 +923,7 @@ impl LumarkApp {
         let options = viewer_window_options(parent);
         let viewer_path = target.clone();
         let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| {
                 TextViewerWindowView::new(
                     viewer_path.clone(),

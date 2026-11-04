@@ -15,6 +15,7 @@ impl LumarkApp {
                 },
                 skeleton,
                 skins: self.details_skins.clone(),
+                materials: self.details_materials.clone(),
                 animation: self.details_animation.clone().map(Box::new),
             }),
             (Some(mesh), None) => Some(ViewerScene::Mesh {
@@ -23,6 +24,7 @@ impl LumarkApp {
                 } else {
                     self.details_lods.clone()
                 },
+                materials: self.details_materials.clone(),
             }),
             (None, Some(skeleton)) => Some(ViewerScene::Skeleton(skeleton)),
             (None, None) => None,
@@ -80,6 +82,7 @@ impl LumarkApp {
         let display = name.clone();
         let scene_for_window = scene.clone();
         let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             let focus = cx.focus_handle();
             let view = cx.new(|_cx| {
                 AssetViewerWindowView::new_with_focus(

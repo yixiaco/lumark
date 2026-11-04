@@ -1,265 +1,387 @@
-//! 查看器渲染：网格/骨骼网格走引擎无关场景 + 共享渲染服务（GPU 优先），
-//! 骨骼线与材质球仍使用轻量光栅函数。
+//! 查看器渲染：把当前视角整理成只读快照，由后台线程构建场景并离屏渲染。
+//!
+//! UI 线程只复制 `Arc<ViewerScene>` 与相机/开关参数（[`RenderSnapshot`]），
+//! 场景构建、材质贴图与 GPU 渲染都在 worker 内完成；骨骼/材质查看器的轻量
+//! 光栅同样走 worker，避免阻塞界面线程。
 
+use std::sync::Arc;
+
+use gpui_kit::RenderImage;
 use lumark_render::RenderSettings;
-use lumark_scene::{Axis, NodeKind, Scene, SceneNode, Transform};
+use lumark_scene::Scene;
 #[cfg(test)]
 use lumark_unreal::MeshSection;
 use lumark_unreal::{
-    AnimSequenceData, BonePose, MeshLod, SkeletalMeshPreview, Skeleton, SkinWeights, convert_mesh,
+    AnimSequenceData, BonePose, MeshLod, SkeletalMeshPreview, Skeleton, SkinWeights,
 };
 
 use super::*;
 use crate::render_service::{render_scene_image, render_target_to_image};
 
+/// 查看器画布宽度（离屏渲染固定尺寸，显示时按 Contain 缩放）。
+pub(super) const VIEWER_WIDTH: u32 = 900;
+/// 查看器画布高度。
+pub(super) const VIEWER_HEIGHT: u32 = 600;
+/// 材质球画面边宽（居中放入画布）。
+const MATERIAL_BALL_SIZE: u32 = 600;
+
+/// 渲染画质档位：交互时便宜，静止后补一帧精细画面。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RenderQuality {
+    /// 交互帧：SS=1、无 MSAA，保证拖拽跟手。
+    Interactive,
+    /// 静止帧：SS=2 + 4×MSAA。
+    Settled,
+}
+
+impl RenderQuality {
+    /// 该档位的超采样倍数。
+    fn supersample(self) -> u32 {
+        match self {
+            Self::Interactive => 1,
+            Self::Settled => 2,
+        }
+    }
+
+    /// 该档位的 MSAA 采样数。
+    fn msaa_samples(self) -> u32 {
+        match self {
+            Self::Interactive => 1,
+            Self::Settled => 4,
+        }
+    }
+}
+
+/// 一帧渲染的只读快照：UI 线程构建成本是 O(1)（只有 Arc 与少量参数）。
+pub(super) struct RenderSnapshot {
+    /// 查看器场景（Arc 共享，worker 内按需构建 `Scene`）。
+    pub(super) scene: Arc<ViewerScene>,
+    /// 资产名（用作场景名）。
+    pub(super) name: String,
+    /// 轨道相机水平角。
+    pub(super) yaw: f32,
+    /// 轨道相机俯仰角。
+    pub(super) pitch: f32,
+    /// 缩放倍率。
+    pub(super) zoom: f32,
+    /// 当前 LOD 索引。
+    pub(super) lod_index: usize,
+    /// 是否正在播放动画。
+    pub(super) animation_playing: bool,
+    /// 动画时间（秒）。
+    pub(super) animation_time: f32,
+    /// 是否显示蒙皮演示姿态。
+    pub(super) skin_pose: bool,
+    /// 着色模式。
+    pub(super) shading: ShadingMode,
+    /// 是否显示地面网格。
+    pub(super) show_grid: bool,
+    /// 是否显示骨骼线。
+    pub(super) show_bones: bool,
+    /// 线框模式。
+    pub(super) wireframe: bool,
+    /// 基础色/自发光贴图是否按 sRGB 采样。
+    pub(super) srgb_textures: bool,
+    /// 被隐藏的 section。
+    pub(super) hidden_sections: Vec<bool>,
+    /// 画质档位。
+    pub(super) quality: RenderQuality,
+}
+
+/// 一帧渲染结果。
+pub(super) struct ViewerFrame {
+    /// GPUI 可直接显示的图像。
+    pub(super) image: Arc<RenderImage>,
+    /// 实际渲染后端标签（GPUI 路径有，轻量光栅为空）。
+    pub(super) backend: Option<String>,
+    /// 场景规模统计（GPUI 路径有）。
+    pub(super) stats: Option<lumark_render::SceneStats>,
+}
+
 impl AssetViewerWindowView {
-    pub(super) fn render_preview(&mut self) {
-        // 骨骼/材质查看器沿用轻量光栅（需要骨骼线段/材质球专用绘制）。
-        let legacy_rgba = match &self.scene {
-            ViewerScene::Skeleton(skeleton) => Some(lumark_unreal::render_skeleton_orbit(
-                skeleton, 900, 600, self.yaw, self.pitch, self.zoom,
-            )),
-            ViewerScene::Material { viewer } => {
-                let ball = lumark_unreal::render_material_ball_orbit(
-                    &viewer.appearance,
-                    viewer.base_color.as_ref().map(|texture| {
-                        lumark_unreal::MaterialPreviewTexture::new(
-                            &texture.rgba,
-                            texture.width,
-                            texture.height,
-                        )
-                    }),
-                    viewer.normal.as_ref().map(|texture| {
-                        lumark_unreal::MaterialPreviewTexture::new(
-                            &texture.rgba,
-                            texture.width,
-                            texture.height,
-                        )
-                    }),
-                    viewer.metallic_roughness.as_ref().map(|texture| {
-                        lumark_unreal::MaterialPreviewTexture::new(
-                            &texture.rgba,
-                            texture.width,
-                            texture.height,
-                        )
-                    }),
-                    self.yaw,
-                    self.pitch,
-                    self.zoom,
-                    600,
-                );
-                Some(compose_square_canvas(&ball, 600, 900, 600))
-            }
-            _ => None,
-        };
-        if let Some(rgba) = legacy_rgba {
-            self.apply_rgba(rgba);
-            return;
-        }
-
-        let scene = match &self.scene {
-            ViewerScene::Mesh { lods } => {
-                let mesh = lods.get(self.lod_index).or_else(|| lods.first());
-                mesh.map(|mesh| self.static_scene(mesh))
-            }
-            ViewerScene::SkeletalMesh {
-                lods,
-                skeleton,
-                skins,
-                animation,
-            } => {
-                let mesh = lods.get(self.lod_index).or_else(|| lods.first());
-                let skin = skins
-                    .get(self.lod_index)
-                    .and_then(Option::as_ref)
-                    .or_else(|| skins.first().and_then(Option::as_ref));
-                mesh.map(|mesh| self.skeletal_scene(mesh, skeleton, skin, animation.as_deref()))
-            }
-            ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => None,
-        };
-        match scene {
-            Some(scene) => self.render_scene_preview(scene),
-            None => {
-                self.error = Some(tr("当前场景没有可渲染网格", "No renderable mesh").to_string());
-            }
-        }
-    }
-
-    /// 构建静态网格场景。
-    fn static_scene(&self, mesh: &MeshLod) -> Scene {
-        let mut scene = Scene::new(self.name.clone());
-        scene.source = self.name.clone();
-        scene.up_axis = Axis::Z;
-        scene.unit_scale = 0.01;
-        let handle = scene.add_mesh(convert_mesh(mesh, &self.name));
-        scene.add_node(SceneNode {
+    /// 收集当前视角的只读快照（UI 线程开销只有 Arc/小数组复制）。
+    pub(super) fn snapshot(&self, quality: RenderQuality) -> RenderSnapshot {
+        RenderSnapshot {
+            scene: self.scene.clone(),
             name: self.name.clone(),
-            parent: None,
-            transform: Transform::IDENTITY,
-            mesh: Some(handle),
-            materials: Vec::new(),
-            visible: true,
-            kind: NodeKind::StaticMesh,
-            metadata: Vec::new(),
-        });
-        scene
-    }
-
-    /// 构建骨骼网格场景并写入动画/蒙皮姿态。
-    fn skeletal_scene(
-        &self,
-        mesh: &MeshLod,
-        skeleton: &Skeleton,
-        skin: Option<&SkinWeights>,
-        animation: Option<&AnimSequenceData>,
-    ) -> Scene {
-        let preview = SkeletalMeshPreview {
-            skeleton: skeleton.clone(),
-            material_slots: mesh.sections.len().max(1),
-            material_names: Vec::new(),
-            lod_count: 1,
-            lod_sections: mesh.sections.len(),
-            required_bones: mesh.positions.len(),
-            bone_map: Vec::new(),
-            lod_vertices: mesh.positions.len(),
-            lod_triangles: mesh.indices.len() / 3,
-            geometry: Some(mesh.clone()),
-            lods: vec![mesh.clone()],
-            lod_skins: Vec::new(),
-            skin: skin.cloned(),
-        };
-        let mut scene = lumark_unreal::skeletal_mesh_scene(&self.name, &preview, &[]);
-        scene.name = self.name.clone();
-        if self.animation_playing || self.animation_time > 0.0 {
-            if let Some(animation) = animation {
-                lumark_unreal::apply_animation(
-                    &mut scene,
-                    skeleton,
-                    animation,
-                    self.animation_time,
-                );
-            }
-        } else if self.skin_pose
-            && let Some(skin) = skin
-            && let Some((bone, _)) = lumark_unreal::skinning::dominant_skinned_bone(skeleton, skin)
-        {
-            let half = std::f64::consts::PI / 24.0;
-            let mut poses: Vec<BonePose> = skeleton
-                .bones
-                .iter()
-                .map(|bone| BonePose {
-                    translation: bone.translation,
-                    rotation: bone.rotation,
-                    scale: bone.scale,
-                })
-                .collect();
-            if let Some(pose) = poses.get_mut(bone) {
-                pose.rotation = [half.sin(), 0.0, 0.0, half.cos()];
-            }
-            let matrices = lumark_unreal::skin_matrices_from_poses(skeleton, &poses);
-            lumark_unreal::apply_skin_pose(&mut scene, &matrices);
+            yaw: self.yaw,
+            pitch: self.pitch,
+            zoom: self.zoom,
+            lod_index: self.lod_index,
+            animation_playing: self.animation_playing,
+            animation_time: self.animation_time,
+            skin_pose: self.skin_pose,
+            shading: self.shading,
+            show_grid: self.show_grid,
+            show_bones: self.show_bones,
+            wireframe: self.wireframe,
+            srgb_textures: self.srgb_textures,
+            hidden_sections: self.hidden_sections.clone(),
+            quality,
         }
-        scene
     }
 
-    /// 构建当前场景与渲染设置；骨骼/材质查看器返回 `None`（走轻量光栅）。
-    pub(super) fn scene_and_settings(&self) -> Option<(Scene, RenderSettings)> {
-        let scene = match &self.scene {
-            ViewerScene::Mesh { lods } => {
-                let mesh = lods.get(self.lod_index).or_else(|| lods.first());
-                mesh.map(|mesh| self.static_scene(mesh))
-            }
-            ViewerScene::SkeletalMesh {
-                lods,
-                skeleton,
-                skins,
-                animation,
-            } => {
-                let mesh = lods.get(self.lod_index).or_else(|| lods.first());
-                let skin = skins
-                    .get(self.lod_index)
-                    .and_then(Option::as_ref)
-                    .or_else(|| skins.first().and_then(Option::as_ref));
-                mesh.map(|mesh| self.skeletal_scene(mesh, skeleton, skin, animation.as_deref()))
-            }
-            ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => None,
-        }?;
-        let settings = RenderSettings {
-            width: 900,
-            height: 600,
-            supersample: 2,
-            srgb_textures: self.srgb_textures,
-            wireframe: self.wireframe,
-            background: [0.055, 0.06, 0.075],
-            yaw_degrees: self.yaw,
-            pitch_degrees: self.pitch,
-            distance_scale: (2.2 / self.zoom).clamp(0.15, 20.0),
-            shading: self.shading,
-            show_grid: self.show_grid,
-            show_bones: self.show_bones,
-            hidden_sections: self
-                .hidden_sections
-                .iter()
-                .enumerate()
-                .filter_map(|(index, hidden)| hidden.then_some(index))
-                .collect(),
-            ..RenderSettings::default()
-        };
-        Some((scene, settings))
+    /// 应用一帧渲染结果。
+    pub(super) fn apply_frame(&mut self, frame: ViewerFrame) {
+        self.image = Some(frame.image);
+        self.last_backend = frame.backend;
+        self.last_stats = frame.stats;
+        self.error = None;
     }
 
-    /// 使用共享渲染服务渲染场景（GPU 优先，失败回退 CPU）。
-    fn render_scene_preview(&mut self, scene: Scene) {
-        let settings = RenderSettings {
-            width: 900,
-            height: 600,
-            supersample: 2,
-            srgb_textures: self.srgb_textures,
-            wireframe: self.wireframe,
-            background: [0.055, 0.06, 0.075],
-            yaw_degrees: self.yaw,
-            pitch_degrees: self.pitch,
-            distance_scale: (2.2 / self.zoom).clamp(0.15, 20.0),
-            shading: self.shading,
-            show_grid: self.show_grid,
-            show_bones: self.show_bones,
-            hidden_sections: self
-                .hidden_sections
-                .iter()
-                .enumerate()
-                .filter_map(|(index, hidden)| hidden.then_some(index))
-                .collect(),
-            ..RenderSettings::default()
-        };
-        match render_scene_image(&scene, &settings) {
-            Ok(rendered) => self.apply_rendered(rendered),
+    /// 同步渲染一帧（仅测试/无事件循环场景使用；正式窗口走后台帧泵）。
+    #[cfg(test)]
+    pub(super) fn render_preview(&mut self) {
+        let snapshot = self.snapshot(RenderQuality::Interactive);
+        match render_snapshot(&snapshot) {
+            Ok(frame) => self.apply_frame(frame),
             Err(error) => self.error = Some(error),
         }
     }
+}
 
-    /// 应用渲染结果。
-    pub(super) fn apply_rendered(&mut self, rendered: crate::render_service::RenderedImage) {
-        self.image = Some(rendered.image);
-        self.last_backend = Some(rendered.backend.label());
-        self.last_stats = Some(rendered.stats);
-        self.error = None;
+/// 渲染一帧快照：骨骼/材质查看器走轻量光栅，网格查看器构建场景后走共享服务。
+pub(super) fn render_snapshot(snapshot: &RenderSnapshot) -> Result<ViewerFrame, String> {
+    match &*snapshot.scene {
+        ViewerScene::Skeleton(skeleton) => {
+            let rgba = lumark_unreal::render_skeleton_orbit(
+                skeleton,
+                VIEWER_WIDTH,
+                VIEWER_HEIGHT,
+                snapshot.yaw,
+                snapshot.pitch,
+                snapshot.zoom,
+            );
+            frame_from_rgba(rgba)
+        }
+        ViewerScene::Material { viewer } => {
+            let orm_layout = viewer
+                .appearance
+                .texture(lumark_unreal::MaterialTextureKind::MetallicRoughness)
+                .map(|texture| lumark_unreal::materials::detect_orm_layout(&texture.name))
+                .unwrap_or(lumark_scene::OrmLayout::AoRoughMetal);
+            let settings = lumark_unreal::MaterialBallSettings {
+                // 与 3D 查看器默认一致：头灯 + FModel 法线约定 + 双面继承。
+                headlight: true,
+                fmodel_normals: true,
+                orm_layout,
+                two_sided: viewer.appearance.two_sided,
+            };
+            let ball = lumark_unreal::render_material_ball_orbit(
+                &viewer.appearance,
+                viewer.base_color.as_ref().map(|texture| {
+                    lumark_unreal::MaterialPreviewTexture::new(
+                        &texture.rgba,
+                        texture.width,
+                        texture.height,
+                    )
+                }),
+                viewer.normal.as_ref().map(|texture| {
+                    lumark_unreal::MaterialPreviewTexture::new(
+                        &texture.rgba,
+                        texture.width,
+                        texture.height,
+                    )
+                }),
+                viewer.metallic_roughness.as_ref().map(|texture| {
+                    lumark_unreal::MaterialPreviewTexture::new(
+                        &texture.rgba,
+                        texture.width,
+                        texture.height,
+                    )
+                }),
+                viewer.occlusion.as_ref().map(|texture| {
+                    lumark_unreal::MaterialPreviewTexture::new(
+                        &texture.rgba,
+                        texture.width,
+                        texture.height,
+                    )
+                }),
+                settings,
+                snapshot.yaw,
+                snapshot.pitch,
+                snapshot.zoom,
+                MATERIAL_BALL_SIZE,
+            );
+            let rgba = compose_square_canvas(
+                &ball,
+                MATERIAL_BALL_SIZE,
+                VIEWER_WIDTH as usize,
+                VIEWER_HEIGHT as usize,
+            );
+            frame_from_rgba(rgba)
+        }
+        _ => {
+            let scene = build_scene(snapshot)
+                .ok_or_else(|| tr("当前场景没有可渲染网格", "No renderable mesh").to_string())?;
+            let settings = viewer_settings(snapshot);
+            let rendered = render_scene_image(&scene, &settings)?;
+            Ok(ViewerFrame {
+                image: rendered.image,
+                backend: Some(rendered.backend.label()),
+                stats: Some(rendered.stats),
+            })
+        }
     }
+}
 
-    /// 旧路径 RGBA → RenderImage。
-    fn apply_rgba(&mut self, rgba: Vec<u8>) {
-        let Some(target) = lumark_render::RenderTarget::new(900, 600, rgba) else {
-            self.error = Some(tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string());
-            return;
-        };
-        let Some(image) = render_target_to_image(&target) else {
-            self.error = Some(tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string());
-            return;
-        };
-        self.image = Some(image);
-        self.last_backend = None;
-        self.last_stats = None;
-        self.error = None;
+/// 由快照构建引擎无关场景（在 worker 线程调用，重数据复制不占用 UI 线程）。
+fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
+    match &*snapshot.scene {
+        ViewerScene::Mesh { lods, materials } => {
+            let mesh = current_lod(lods, snapshot.lod_index)?;
+            Some(static_scene(&snapshot.name, mesh, materials))
+        }
+        ViewerScene::SkeletalMesh {
+            lods,
+            skeleton,
+            skins,
+            materials,
+            animation,
+        } => {
+            let mesh = current_lod(lods, snapshot.lod_index)?;
+            let skin = skins
+                .get(snapshot.lod_index)
+                .and_then(Option::as_ref)
+                .or_else(|| skins.first().and_then(Option::as_ref));
+            Some(skeletal_scene(
+                snapshot,
+                mesh,
+                skeleton,
+                skin,
+                materials,
+                animation.as_deref(),
+            ))
+        }
+        ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => None,
     }
+}
+
+/// 取当前 LOD（越界时回退到首个）。
+fn current_lod(lods: &[MeshLod], lod_index: usize) -> Option<&MeshLod> {
+    lods.get(lod_index).or_else(|| lods.first())
+}
+
+/// 构建静态网格场景（含已解析材质与贴图）。
+fn static_scene(
+    name: &str,
+    mesh: &MeshLod,
+    materials: &[lumark_unreal::ResolvedMaterial],
+) -> Scene {
+    let static_mesh = lumark_unreal::StaticMesh {
+        name: name.to_string(),
+        lod: mesh.clone(),
+        lod_count: 1,
+        lods: vec![mesh.clone()],
+        material_slots: materials
+            .iter()
+            .map(|material| material.slot.clone())
+            .collect(),
+    };
+    lumark_unreal::static_mesh_scene(name, &static_mesh, materials)
+}
+
+/// 构建骨骼网格场景并写入动画/蒙皮姿态。
+fn skeletal_scene(
+    snapshot: &RenderSnapshot,
+    mesh: &MeshLod,
+    skeleton: &Skeleton,
+    skin: Option<&SkinWeights>,
+    materials: &[lumark_unreal::ResolvedMaterial],
+    animation: Option<&AnimSequenceData>,
+) -> Scene {
+    let preview = SkeletalMeshPreview {
+        skeleton: skeleton.clone(),
+        material_slots: mesh.sections.len().max(1),
+        material_names: materials
+            .iter()
+            .map(|material| material.slot.name.clone())
+            .collect(),
+        material_imports: Vec::new(),
+        lod_count: 1,
+        lod_sections: mesh.sections.len(),
+        required_bones: mesh.positions.len(),
+        bone_map: Vec::new(),
+        lod_vertices: mesh.positions.len(),
+        lod_triangles: mesh.indices.len() / 3,
+        geometry: Some(mesh.clone()),
+        lods: vec![mesh.clone()],
+        lod_skins: Vec::new(),
+        skin: skin.cloned(),
+    };
+    let mut scene = lumark_unreal::skeletal_mesh_scene(&snapshot.name, &preview, materials);
+    scene.name = snapshot.name.clone();
+    if snapshot.animation_playing || snapshot.animation_time > 0.0 {
+        if let Some(animation) = animation {
+            lumark_unreal::apply_animation(
+                &mut scene,
+                skeleton,
+                animation,
+                snapshot.animation_time,
+            );
+        }
+    } else if snapshot.skin_pose
+        && let Some(skin) = skin
+        && let Some((bone, _)) = lumark_unreal::skinning::dominant_skinned_bone(skeleton, skin)
+    {
+        let half = std::f64::consts::PI / 24.0;
+        let mut poses: Vec<BonePose> = skeleton
+            .bones
+            .iter()
+            .map(|bone| BonePose {
+                translation: bone.translation,
+                rotation: bone.rotation,
+                scale: bone.scale,
+            })
+            .collect();
+        if let Some(pose) = poses.get_mut(bone) {
+            pose.rotation = [half.sin(), 0.0, 0.0, half.cos()];
+        }
+        let matrices = lumark_unreal::skin_matrices_from_poses(skeleton, &poses);
+        lumark_unreal::apply_skin_pose(&mut scene, &matrices);
+    }
+    scene
+}
+
+/// 由快照生成渲染设置：查看器使用 Headlight + FModel 约定，交互/静止两档画质。
+fn viewer_settings(snapshot: &RenderSnapshot) -> RenderSettings {
+    RenderSettings {
+        width: VIEWER_WIDTH,
+        height: VIEWER_HEIGHT,
+        supersample: snapshot.quality.supersample(),
+        msaa_samples: snapshot.quality.msaa_samples(),
+        srgb_textures: snapshot.srgb_textures,
+        wireframe: snapshot.wireframe,
+        background: [0.055, 0.06, 0.075],
+        yaw_degrees: snapshot.yaw,
+        pitch_degrees: snapshot.pitch,
+        distance_scale: (1.05 / snapshot.zoom).clamp(0.12, 12.0),
+        shading: snapshot.shading,
+        lighting_mode: LightingMode::Headlight,
+        normal_map_convention: NormalMapConvention::Fmodel,
+        show_grid: snapshot.show_grid,
+        show_bones: snapshot.show_bones,
+        hidden_sections: snapshot
+            .hidden_sections
+            .iter()
+            .enumerate()
+            .filter_map(|(index, hidden)| hidden.then_some(index))
+            .collect(),
+        ..RenderSettings::default()
+    }
+}
+
+/// RGBA 画布 → 可显示的帧。
+fn frame_from_rgba(rgba: Vec<u8>) -> Result<ViewerFrame, String> {
+    let target = lumark_render::RenderTarget::new(VIEWER_WIDTH, VIEWER_HEIGHT, rgba)
+        .ok_or_else(|| tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string())?;
+    let image = render_target_to_image(&target)
+        .ok_or_else(|| tr("资产渲染尺寸不匹配", "Asset render size mismatch").to_string())?;
+    Ok(ViewerFrame {
+        image,
+        backend: None,
+        stats: None,
+    })
 }
 
 /// section 可见性过滤网格索引（仅测试使用）。

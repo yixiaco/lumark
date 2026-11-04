@@ -1,0 +1,35 @@
+[package]
+name = "wim"
+version.workspace = true
+edition = "2024"
+rust-version = "1.96.0"
+license = "LGPL-2.1-or-later OR GPL-3.0-or-later"
+repository = "https://github.com/CaddyGlow/wim-rs"
+description = "Windows Imaging (WIM) archive reader and writer"
+
+readme = "README.md"
+include = ["Cargo.toml", "Cargo.lock", "build.rs", "README.md", "LICENSE-*", "src/**", "tests/**", "examples/**"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+name = "wim"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+test-support = []
+disk-capture = ["dep:virtdisk", "dep:partmgr", "dep:disk-capture"]
+
+[dependencies]
+ms-compress = { version = "0.2.1" }
+wim-format = { version = "0.1.1", path = "../wim-format" }
+hashbrown = { version = "0.15.5", default-features = false, features = ["default-hasher"] }
+sha1 = "0.10"
+libc = "=0.2.190"
+virtdisk = { version = "0.3.1", optional = true }
+partmgr = { version = "0.1.2", optional = true }
+disk-capture = { version = "0.1.1", optional = true }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

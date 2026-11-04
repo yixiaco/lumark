@@ -21,7 +21,9 @@ impl LumarkApp {
         if self.game_editor_window.is_some() {
             if let Some(handle) = self.game_editor_window
                 && handle
-                    .update(cx, |_, window, _| window.activate_window())
+                    .update(cx, |_, window, _| {
+                        crate::window_focus::activate_and_raise(window)
+                    })
                     .is_ok()
             {
                 self.status = tr(
@@ -42,7 +44,7 @@ impl LumarkApp {
         let options = game_editor_window_options(window, title);
         let entry_for_window = entry.clone();
         let result = gpui_kit::open_window(options, cx, move |window, cx| {
-            window.on_next_frame(|window, _| window.activate_window());
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(move |cx| {
                 let mut app = Self::new_shared(window, cx, stores, None, None);
                 app.game_editor_only = true;

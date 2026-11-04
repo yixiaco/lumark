@@ -263,7 +263,7 @@ pub(crate) fn show(
         SetWindowLongPtrW(
             hwnd,
             windows_sys::Win32::UI::WindowsAndMessaging::GWLP_USERDATA,
-            &mut *state as *mut DialogState as isize,
+            &mut *state as *mut DialogState as win::LongPtr,
         );
 
         let normal = if state.normal_font.is_null() {
@@ -816,7 +816,7 @@ pub(crate) fn confirm_overwrite(target: &Path) -> OverwriteChoice {
         SetWindowLongPtrW(
             hwnd,
             windows_sys::Win32::UI::WindowsAndMessaging::GWLP_USERDATA,
-            &mut *state as *mut OverwriteState as isize,
+            &mut *state as *mut OverwriteState as win::LongPtr,
         );
         let normal = state.normal_font;
         let bold = state.bold_font;

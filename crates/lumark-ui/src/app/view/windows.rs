@@ -341,7 +341,9 @@ impl LumarkApp {
         if let Some(entry) = self.progress_windows.get(&task_id)
             && entry
                 .handle
-                .update(cx, |_, window, _| window.activate_window())
+                .update(cx, |_, window, _| {
+                    crate::window_focus::activate_and_raise(window)
+                })
                 .is_ok()
         {
             return;
@@ -399,7 +401,10 @@ impl LumarkApp {
             window_min_size: Some(size),
             ..TitleBar::window_options()
         };
-        match gpui_kit::open_window(options, cx, |_, _| view) {
+        match gpui_kit::open_window(options, cx, |window, _| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
+            view
+        }) {
             Ok((handle, view)) => {
                 self.progress_windows
                     .insert(task_id, ProgressWindowEntry { handle, view });

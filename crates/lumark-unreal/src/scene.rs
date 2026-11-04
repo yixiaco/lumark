@@ -5,12 +5,14 @@
 
 use lumark_scene::{
     Axis, Bounds, MaterialData, MaterialHandle, MaterialTextures, MeshData, MeshHandle,
-    MeshSection, MeshSkin, NodeKind, Scene, SceneNode, SceneNodeId, TextureData, Transform,
+    MeshSection, MeshSkin, NodeKind, OrmLayout, Scene, SceneNode, SceneNodeId, TextureData,
+    Transform,
 };
 
+use crate::materials::detect_orm_layout;
 use crate::{
-    AnimSequenceData, MaterialAppearance, MaterialViewerData, MeshLod, ResolvedMaterial,
-    SkeletalMeshPreview, Skeleton, StaticMesh, sample_animation,
+    AnimSequenceData, MaterialAppearance, MaterialTextureKind, MaterialViewerData, MeshLod,
+    ResolvedMaterial, SkeletalMeshPreview, Skeleton, StaticMesh, sample_animation,
 };
 
 /// 1 UE 单位（厘米）对应的场景单位（米）。
@@ -359,7 +361,41 @@ pub fn scene_material(
             .metallic_roughness
             .as_ref()
             .map(|image| texture_data(name, "ORM", image));
+        textures.occlusion = viewer
+            .occlusion
+            .as_ref()
+            .map(|image| texture_data(name, "AO", image));
     }
+    // 按金属/粗糙度贴图的命名自动识别通道布局；无贴图时用默认 ORM 布局。
+    let orm_layout = appearance
+        .texture(MaterialTextureKind::MetallicRoughness)
+        .map(|reference| detect_orm_layout(&reference.name))
+        .unwrap_or(OrmLayout::AoRoughMetal);
+    // 半透明材质走混合，不做 alpha 裁剪；Masked 材质按阈值裁剪，Opaque 忽略贴图 alpha。
+    // 若基础色贴图的 alpha 几乎全透明，通常说明它是颜色遮罩而非透明度通道，
+    // 此时也不裁剪，避免把整块布料/皮肤裁掉。
+    let alpha_cutoff = if appearance.translucent {
+        0.0
+    } else if appearance.masked {
+        let visible = viewer
+            .and_then(|viewer| viewer.base_color.as_ref())
+            .filter(|image| image.rgba.len() >= 4)
+            .map(|image| {
+                let total = image.rgba.len() / 4;
+                let opaque = image
+                    .rgba
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|pixel| pixel[3] >= 128)
+                    .count();
+                opaque * 20 >= total
+            })
+            .unwrap_or(true);
+        if visible { 0.5 } else { 0.0 }
+    } else {
+        0.0
+    };
     MaterialData {
         name: name.to_string(),
         base_color: [
@@ -372,7 +408,10 @@ pub fn scene_material(
         roughness: appearance.roughness.clamp(0.0, 1.0),
         emissive: appearance.emissive,
         textures,
-        two_sided: false,
+        two_sided: appearance.two_sided,
+        orm_layout,
+        alpha_cutoff,
+        translucent: appearance.translucent,
     }
 }
 
@@ -482,6 +521,7 @@ mod tests {
                 textures: vec![MaterialTextureRef {
                     name: "BaseColor".to_string(),
                     package: None,
+                    package_id: None,
                     kind: MaterialTextureKind::BaseColor,
                 }],
                 ..Default::default()
@@ -495,6 +535,7 @@ mod tests {
                 }),
                 normal: None,
                 metallic_roughness: None,
+                occlusion: None,
             }),
             loaded_assets: Vec::new(),
             warnings: Vec::new(),
@@ -554,6 +595,7 @@ mod tests {
             skeleton: scene_skeleton.clone(),
             material_slots: 1,
             material_names: vec!["M_Test".to_string()],
+            material_imports: Vec::new(),
             lod_count: 1,
             lod_sections: 1,
             required_bones: 2,
@@ -603,6 +645,7 @@ mod tests {
             skeleton: skeleton.clone(),
             material_slots: 1,
             material_names: vec!["M_Test".to_string()],
+            material_imports: Vec::new(),
             lod_count: 1,
             lod_sections: 1,
             required_bones: 2,
@@ -641,5 +684,30 @@ mod tests {
             2
         );
         assert!(!apply_skin_pose(&mut scene, &[identity]));
+    }
+
+    /// 场景材质继承双面标记，并按金属/粗糙度贴图命名识别 ORM 布局。
+    #[test]
+    fn scene_material_carries_two_sided_and_orm_layout() {
+        let appearance = MaterialAppearance {
+            two_sided: true,
+            textures: vec![MaterialTextureRef {
+                name: "T_Nana_SpecularMask".to_string(),
+                package: None,
+                package_id: None,
+                kind: MaterialTextureKind::MetallicRoughness,
+            }],
+            ..MaterialAppearance::default()
+        };
+        let material = scene_material("M_Test", &appearance, None);
+        assert!(material.two_sided, "应继承材质的 TwoSided");
+        assert_eq!(
+            material.orm_layout,
+            lumark_scene::OrmLayout::SpecularMask,
+            "高光遮罩贴图应识别为 SpecularMask 布局"
+        );
+        let plain = scene_material("M_Plain", &MaterialAppearance::default(), None);
+        assert!(!plain.two_sided);
+        assert_eq!(plain.orm_layout, lumark_scene::OrmLayout::AoRoughMetal);
     }
 }

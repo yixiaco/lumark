@@ -88,13 +88,14 @@ DLL 查找顺序：
 ### 发布流水线
 
 ```powershell
-# 把授权 DLL 随安装器/便携包分发（复制到 target\release\oodle\）
-./tools/build_release.ps1 -Version 0.1.0 -OodleDll D:\path\to\oo2core_9_win64.dll
+# 把授权 DLL 随安装器/便携包分发（复制到目标架构 release\oodle\，并按 -Arch 打包）
+./tools/build_release.ps1 -Version 0.1.0 -Arch x64 -OodleDll D:\path\to\oo2core_9_win64.dll
+./tools/build_release.ps1 -Version 0.1.0 -Arch x86 -OodleDll D:\path\to\oo2core_9_win32.dll
 ```
 
-- `build_release.ps1` 校验扩展名并复制到 `target\release\oodle`；
-- `pack-installer.ps1` 将该目录复制到 `dist\windows\oodle`；
-- Inno Setup 的 `dist\windows\*` 递归规则与便携 zip 都会包含它；
+- `build_release.ps1` 校验扩展名并复制到对应架构的 release 目录（x64 为 `target\release\oodle`，x86 为 `target\i686-pc-windows-msvc\release\oodle`）；
+- `pack-installer.ps1` 将该目录复制到 `target\dist-stage\<架构>\oodle`；
+- Inno Setup 的 `{#StageDir}\*` 递归规则与便携 zip 都会包含它；
 - 未传 `-OodleDll` 时行为不变，仍可使用下载/设置/LUMARK_OODLE_DLL。
 
 ## 设置页（O-5）
@@ -104,9 +105,28 @@ DLL 查找顺序：
 - 当前选择或自动发现的库路径；
 - 「当前后端」摘要（配置模式、Rust/DLL 可用性、是否已加载）；
 - 「选择 Oodle 库…」按钮；
-- 「下载 Oodle…」按钮：打开下载窗口，填写授权 zip 的 URL、可选 SHA-256，默认缓存目录 `系统缓存/Lumark/oodle`；下载显示百分比/已下载字节，成功后自动解压并 `configure_oodle_library`，失败显示原因。
+- 「下载 Oodle…」按钮：打开下载窗口，填写授权 zip 的 URL、可选 SHA-256，默认缓存目录 `系统缓存/Lumark/oodle`；下载显示百分比/已下载字节，成功后自动解压并 `configure_oodle_library`，失败显示原因；
+- 「移除 DLL（内置 Rust）」按钮：清除已配置的 DLL、保存偏好并立即切到内置 Rust 后端。
 
-下载/安装向导尚未提供内置默认下载源，需用户提供已获授权的 zip 地址。
+## 移除 DLL 与运行期 Rust 偏好
+
+除环境变量外，界面可以强制使用内置 Rust 后端：
+
+```rust
+lumark_archive::set_oodle_prefer_rust(true);  // 覆盖 LUMARK_OODLE_BACKEND
+lumark_archive::oodle_prefers_rust();         // 当前偏好
+lumark_archive::set_oodle_prefer_rust(false); // 恢复环境变量语义
+```
+
+- 偏好保存在 `Settings.oodle_prefer_rust`，每次启动由 `LumarkApp` 应用；
+- 点击「移除 DLL（内置 Rust）」会同时：
+  1. `configure_oodle_library(None)` 清除本进程已加载的库；
+  2. 清空当前编辑表单的 DLL 路径，保存后条目的 `oodle_dll` 为空；
+  3. 设置 `oodle_prefer_rust = true`，后续打开游戏不再自动发现 DLL；
+- 手动选择 DLL 时自动关闭该偏好；
+- 强制 Rust 时 `OodleStatus.setting == "rust"`，`summary()` 显示 `Rust（配置 rust；…）`。
+
+下载/安装向导按 Oodle 授权要求由用户提供已获授权的 zip 地址（应用不内置分发源）。
 
 ## 诊断与文档
 
@@ -143,8 +163,8 @@ cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\BNB" "pakch
 cargo run -q -p lumark-unreal --example oodle_preflight -- "D:\Games\FINAL FANTASY VII REMAKE" "pakchunk0-WindowsNoEditor.pak"
 ```
 
-## 限制
+## 部署要求
 
-- 默认下载源未内置；调用方必须提供授权 zip 的 URL 与 SHA-256；
-- 仓库不随包分发 Oodle 二进制，需使用 `-OodleDll` 指向已授权 DLL；
-- O-7 需在 FF7R 等更多容器上验收。
+- 官方 Oodle zip 需由调用方提供授权 URL 与 SHA-256（应用内置向导不内置下载源）；
+- 仓库不随包分发 Oodle 二进制；需要 DLL 后端时使用 `-OodleDll` 指向已授权 DLL；
+- O-7 在 FF7R 等更多容器上的验收按增量进行，已有 BNB/FF7R 实机记录。

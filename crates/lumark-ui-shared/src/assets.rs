@@ -17,6 +17,32 @@ pub enum AppIcon {
     ArrowRight,
     /// ArrowUp 图标。
     ArrowUp,
+    /// 静态网格资产图标。
+    AssetStaticMesh,
+    /// 骨骼网格资产图标。
+    AssetSkeletalMesh,
+    /// 骨骼资产图标。
+    AssetSkeleton,
+    /// 动画序列资产图标。
+    AssetAnimation,
+    /// 动画蓝图资产图标。
+    AssetAnimBlueprint,
+    /// 蓝图类资产图标。
+    AssetBlueprint,
+    /// 材质资产图标。
+    AssetMaterial,
+    /// 材质实例资产图标。
+    AssetMaterialInstance,
+    /// 物理资产图标。
+    AssetPhysics,
+    /// 地图/关卡资产图标。
+    AssetMap,
+    /// 数据表/数据资产图标。
+    AssetData,
+    /// 字体资产图标。
+    AssetFont,
+    /// 粒子/特效资产图标。
+    AssetVfx,
     /// Check 图标。
     Check,
     /// Close 图标。
@@ -101,6 +127,23 @@ impl AppIcon {
             Self::ArrowLeft => include_bytes!("../assets/icons/iconpark/arrow-left.svg"),
             Self::ArrowRight => include_bytes!("../assets/icons/iconpark/arrow-right.svg"),
             Self::ArrowUp => include_bytes!("../assets/icons/iconpark/arrow-up.svg"),
+            Self::AssetStaticMesh => include_bytes!("../assets/icons/iconpark/cube.svg"),
+            Self::AssetSkeletalMesh => include_bytes!("../assets/icons/iconpark/user.svg"),
+            Self::AssetSkeleton => include_bytes!("../assets/icons/iconpark/bone.svg"),
+            Self::AssetAnimation => include_bytes!("../assets/icons/iconpark/play-one.svg"),
+            Self::AssetAnimBlueprint => include_bytes!("../assets/icons/iconpark/file-code.svg"),
+            Self::AssetBlueprint => {
+                include_bytes!("../assets/icons/iconpark/application-one.svg")
+            }
+            Self::AssetMaterial => include_bytes!("../assets/icons/iconpark/paint.svg"),
+            Self::AssetMaterialInstance => {
+                include_bytes!("../assets/icons/iconpark/color-filter.svg")
+            }
+            Self::AssetPhysics => include_bytes!("../assets/icons/iconpark/experiment.svg"),
+            Self::AssetMap => include_bytes!("../assets/icons/iconpark/map-draw.svg"),
+            Self::AssetData => include_bytes!("../assets/icons/iconpark/table-file.svg"),
+            Self::AssetFont => include_bytes!("../assets/icons/iconpark/font-size.svg"),
+            Self::AssetVfx => include_bytes!("../assets/icons/iconpark/planet.svg"),
             Self::Check => include_bytes!("../assets/icons/iconpark/check.svg"),
             Self::Close => include_bytes!("../assets/icons/iconpark/close.svg"),
             Self::Compression => include_bytes!("../assets/icons/iconpark/compression.svg"),

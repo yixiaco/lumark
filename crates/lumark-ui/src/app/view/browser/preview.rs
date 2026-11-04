@@ -60,6 +60,7 @@ impl LumarkApp {
     /// 预览解析结果同时携带查看器场景数据（网格/骨骼/材质）；渲染期间会
     /// 重新同步预览，若预览 key 未变则恢复这些缓存，避免双击时退回图片查看器。
     pub(crate) fn sync_details_preview(&mut self, cx: &mut Context<Self>) {
+        self.ensure_game_asset_classes(cx);
         let cached_key = self
             .details_preview
             .as_ref()
@@ -68,6 +69,7 @@ impl LumarkApp {
         let cached_skeleton = self.details_skeleton.take();
         let cached_material = self.details_material.take();
         let cached_material_names = std::mem::take(&mut self.details_material_names);
+        let cached_materials = self.details_materials.clone();
         self.sync_details_preview_inner(cx);
         if self
             .details_preview
@@ -79,7 +81,88 @@ impl LumarkApp {
             self.details_skeleton = cached_skeleton;
             self.details_material = cached_material;
             self.details_material_names = cached_material_names;
+            self.details_materials = cached_materials;
         }
+    }
+
+    /// 为游戏容器当前目录批量解析 `.uasset/.umap` 的类名与资产类型。
+    ///
+    /// 只在目录变化时启动一次后台扫描；扫描代号保证切换目录后旧结果不会
+    /// 覆盖新目录的图标。解析失败或非游戏容器时保留名称/扩展名回退。
+    fn ensure_game_asset_classes(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.game_session.as_ref() else {
+            self.game_asset_classes.clear();
+            self.game_asset_class_key = None;
+            return;
+        };
+        let BrowserLocation::Archive { archive, inner } = &self.browser.location else {
+            self.game_asset_classes.clear();
+            self.game_asset_class_key = None;
+            return;
+        };
+        let key = format!("{}|{}", archive.display(), inner);
+        if self.game_asset_class_key.as_deref() == Some(key.as_str()) {
+            return;
+        }
+        self.game_asset_class_key = Some(key);
+        self.game_asset_classes.clear();
+        let entries: Vec<String> = self
+            .displayed_entries()
+            .iter()
+            .filter(|entry| !entry.is_dir && is_ue_package_name(&entry.name))
+            .map(|entry| entry.path.to_string_lossy().replace('\\', "/"))
+            .take(400)
+            .collect();
+        if entries.is_empty() {
+            return;
+        }
+        let archive = archive.clone();
+        let global = archive
+            .parent()
+            .map(|parent| parent.join("global.utoc"))
+            .unwrap_or_default();
+        let mappings = session.mappings.clone();
+        let oodle = session.oodle.clone();
+        let aes_key = session
+            .key
+            .as_ref()
+            .map(|key| Zeroizing::new(key.to_string()));
+        self.game_asset_class_scan = self.game_asset_class_scan.wrapping_add(1);
+        let generation = self.game_asset_class_scan;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut source = lumark_unreal::GameAssetSource::open(
+                        &archive,
+                        lumark_unreal::GameAssetOptions {
+                            key: aes_key.as_ref().map(|key| key.as_str()),
+                            global: Some(global),
+                            oodle,
+                            mappings,
+                        },
+                    )
+                    .ok()?;
+                    let mut classes = std::collections::HashMap::new();
+                    for path in entries {
+                        if let Some(summary) = source.read_asset_class(&path) {
+                            classes.insert(path, summary.kind);
+                        }
+                    }
+                    Some(classes)
+                })
+                .await;
+            let _ = this.update(cx, |app, cx| {
+                if app.game_asset_class_scan != generation {
+                    return;
+                }
+                if let Some(classes) = result {
+                    app.game_asset_classes = classes;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 重新同步详情预览的内部实现。
@@ -91,11 +174,13 @@ impl LumarkApp {
             self.details_skeleton = None;
             self.details_material = None;
             self.details_material_names.clear();
+            self.details_materials = std::sync::Arc::new(Vec::new());
             return;
         };
         self.details_mesh = None;
         self.details_skeleton = None;
         self.details_material = None;
+        self.details_materials = std::sync::Arc::new(Vec::new());
         self.details_material_names.clear();
         if !entry.is_dir
             && self.game_session.is_some()
@@ -285,6 +370,21 @@ impl LumarkApp {
             .join(format!("ue-{}.png", Uuid::new_v4()));
         let relative = entry.path.to_string_lossy().replace('\\', "/");
         cx.spawn(async move |this, cx| {
+            // 键盘连续选择时只有停稳的那一项才开始解析容器，避免为每一行
+            // 都打开容器并解析包。
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(120))
+                .await;
+            let still_current = this
+                .update(cx, |app, _| {
+                    app.details_preview
+                        .as_ref()
+                        .is_some_and(|preview| preview.key() == key)
+                })
+                .unwrap_or(false);
+            if !still_current {
+                return;
+            }
             let result = cx
                 .background_executor()
                 .spawn(async move {
@@ -352,6 +452,7 @@ impl LumarkApp {
                         skeleton,
                         skins,
                         material_names,
+                        materials,
                         rows,
                     } => {
                         app.details_mesh = Some(mesh);
@@ -359,6 +460,7 @@ impl LumarkApp {
                         app.details_skeleton = skeleton;
                         app.details_skins = skins;
                         app.details_material_names = material_names;
+                        app.details_materials = std::sync::Arc::new(materials);
                         DetailsPreview::Ready {
                             key,
                             path,

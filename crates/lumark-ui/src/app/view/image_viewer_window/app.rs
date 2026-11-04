@@ -62,6 +62,7 @@ impl LumarkApp {
         };
         let image_path = target.clone();
         let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| {
                 ImageViewerWindowView::new(image_path.clone(), name.clone(), size, window, cx)
             })

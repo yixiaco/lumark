@@ -4,7 +4,7 @@
 
 ## 模型格式
 
-| 格式 | 写出函数 | 能力 | 限制 |
+| 格式 | 写出函数 | 能力 | 说明 |
 |---|---|---|---|
 | ActorX PSK | `write_psk` | 静态/骨骼网格、section 材质、顶点/法线/切线、UV0..n、顶点色、蒙皮权重、参考骨架；Y 镜像 | 单 LOD、不写材质贴图、无 morph target/插槽 |
 | ActorX PSA | `write_psa` | 逐帧骨骼关键值（position/quat/scale），版本 20100422，含 `ANIMKEYS`/`SCALEKEYS` | 参考缩放固定 1（`ExportBone` 无缩放字段）；单动画序列 |

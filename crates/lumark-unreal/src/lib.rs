@@ -6,7 +6,9 @@ pub mod asset_export;
 pub mod batch;
 pub mod export_input;
 pub mod game;
+mod imports;
 pub mod keys;
+mod material_graph;
 pub mod materials;
 pub mod package;
 pub mod provider;
@@ -31,7 +33,7 @@ pub use game::{
 pub use keys::{KeyExtraction, KeyStage, extract_key, extract_key_for_game, verify_container_key};
 pub use materials::{
     MaterialResolveOptions, ResolvedMaterial, TextureCache, resolve_material_asset,
-    resolve_material_slots, texture_cache,
+    resolve_material_slots, resolve_material_slots_exact, texture_cache,
 };
 pub use package::legacy::{
     LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader, is_legacy_package,
@@ -55,12 +57,12 @@ pub use provider::{
     SceneRequest, load_scene, lod_index,
 };
 pub use raster::{
-    MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,
+    MaterialBallSettings, MaterialPreviewTexture, render_material_ball, render_material_ball_orbit,
     render_skeletal_mesh_orbit, render_skeleton_orbit, render_static_mesh,
     render_static_mesh_orbit,
 };
 pub use scene::{
-    UE_UNIT_SCALE, apply_animation, apply_skin_pose, convert_mesh, scene_material,
+    UE_UNIT_SCALE, add_material, apply_animation, apply_skin_pose, convert_mesh, scene_material,
     skeletal_mesh_scene, static_mesh_scene,
 };
 pub use skinning::{
@@ -68,7 +70,7 @@ pub use skinning::{
     skin_matrices_from_poses, skin_mesh, skin_mesh_animation, skin_mesh_pose,
 };
 pub use source::{
-    AssetContainerKind, AssetInputs, AssetPackageRead, AssetSourceError, GameAssetEntry,
-    GameAssetOptions, GameAssetSource, read_asset_package,
+    AssetClassSummary, AssetContainerKind, AssetInputs, AssetPackageRead, AssetSourceError,
+    GameAssetEntry, GameAssetOptions, GameAssetSource, read_asset_package,
 };
 pub use world_scene::{WorldSceneLoad, WorldSceneOptions, WorldSceneReport, load_world_scene};

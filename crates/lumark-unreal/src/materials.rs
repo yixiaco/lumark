@@ -1,21 +1,41 @@
 //! 网格材质槽解析：槽位 → 材质包 → 父材质链 → 贴图。
 //!
 //! 查看器和后续导出都需要把 `StaticMesh`/`SkeletalMesh` 的材质槽对应到具体
-//! 材质资产，并尽量加载基础色/法线/ORM 贴图。Zen 包不暴露对象引用的包路径，
-//! 因此这里以材质槽名、资产目录和贴图命名约定为线索；旧式包则沿导入表读取
-//! 父材质和贴图包。
+//! 材质资产，并尽量加载基础色/法线/ORM 贴图。Zen 包优先使用 `SkeletalMaterials`
+//! 里的对象引用（ImportMap → 目标包/导出）精确定位材质，再由 `material_graph`
+//! 还原父链与贴图；没有对象引用时才退回材质槽名/目录/命名约定。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use lumark_scene::OrmLayout;
+
 use crate::LegacyPackage;
+use crate::material_graph::{self, MaterialGraph, MaterialObjectRef, resolve_material_object};
 use crate::package::{
     Mappings, MaterialAppearance, MaterialSlot, MaterialTextureKind, MaterialViewerData,
-    MaterialViewerImage, material_parent_package, read_legacy_material_appearance,
+    MaterialViewerImage, PackageInfo, material_parent_package, read_legacy_material_appearance,
     read_zen_material_appearance, texture_references,
 };
 use crate::source::GameAssetSource;
 use crate::{is_legacy_package, parse_package, read_legacy_texture};
+
+/// 根据金属/粗糙度贴图的命名推断通道布局。
+///
+/// UE 资产常见两类：`_ORM`/`_OcclusionRoughnessMetallic` 用 R=AO、G=粗糙度、
+/// B=金属度；`_SpecularMask`/`_SM` 这类高光遮罩把金属度放在 G、粗糙度放在 B。
+pub fn detect_orm_layout(name: &str) -> OrmLayout {
+    let lower = name.to_ascii_lowercase();
+    let looks_like_specular_mask = lower.contains("specular")
+        || lower.contains("specmask")
+        || lower.contains("_sm")
+        || lower.ends_with("srm");
+    if looks_like_specular_mask {
+        OrmLayout::SpecularMask
+    } else {
+        OrmLayout::AoRoughMetal
+    }
+}
 
 /// 解码后的贴图缓存（跨资产复用）。
 pub type TextureCache = Arc<Mutex<HashMap<String, Option<MaterialViewerImage>>>>;
@@ -74,11 +94,130 @@ pub fn resolve_material_slots(
     mappings: Option<&Mappings>,
     options: &MaterialResolveOptions,
 ) -> Vec<ResolvedMaterial> {
+    resolve_material_slots_impl(source, mesh_path, slots, &[], mappings, options)
+}
+
+/// 使用网格材质槽的对象引用精确解析材质（Zen `SkeletalMaterials`）。
+///
+/// `imports` 与 `slots` 等长：`Some(导入索引)` 时按 ImportMap 精确定位材质包，
+/// `None` 或解析失败时回退到 [`resolve_material_slots`] 的命名启发式。
+pub fn resolve_material_slots_exact(
+    source: &mut GameAssetSource,
+    mesh_path: &str,
+    slots: &[MaterialSlot],
+    imports: &[Option<usize>],
+    mappings: Option<&Mappings>,
+    options: &MaterialResolveOptions,
+) -> Vec<ResolvedMaterial> {
+    resolve_material_slots_impl(source, mesh_path, slots, imports, mappings, options)
+}
+
+/// 网格包的 ImportMap 上下文，用于解析材质槽对象引用。
+struct MeshImportContext {
+    info: Option<PackageInfo>,
+    imported_ids: Vec<u64>,
+}
+
+impl MeshImportContext {
+    /// 读取网格包元数据；非 IoStore 或读取失败时返回空上下文。
+    fn new(source: &mut GameAssetSource, mesh_path: &str) -> Self {
+        let Some(package_id) = source.package_id_for_path(mesh_path) else {
+            return Self {
+                info: None,
+                imported_ids: Vec::new(),
+            };
+        };
+        let imported_ids = source.imported_packages(package_id).unwrap_or_default();
+        let info = source
+            .read_package(mesh_path)
+            .ok()
+            .and_then(|inputs| parse_package(inputs.uasset, source.scripts(), None).ok())
+            .map(|package| package.info().clone());
+        Self { info, imported_ids }
+    }
+}
+
+/// 材质槽解析实现；`imports` 为空时全部走命名启发式。
+fn resolve_material_slots_impl(
+    source: &mut GameAssetSource,
+    mesh_path: &str,
+    slots: &[MaterialSlot],
+    imports: &[Option<usize>],
+    mappings: Option<&Mappings>,
+    options: &MaterialResolveOptions,
+) -> Vec<ResolvedMaterial> {
     let packages = package_index(source);
+    let context = if imports.is_empty() {
+        None
+    } else {
+        Some(MeshImportContext::new(source, mesh_path))
+    };
+    let mut graph = MaterialGraph::new();
     slots
         .iter()
-        .map(|slot| resolve_one(source, mesh_path, slot, mappings, options, &packages))
+        .enumerate()
+        .map(|(index, slot)| {
+            if let Some(object) = imports.get(index).copied().flatten().and_then(|import| {
+                context
+                    .as_ref()
+                    .and_then(|context| context.info_import(import))
+            }) && let Some(resolved) = resolve_exact_slot(
+                source, &mut graph, object, slot, mappings, options, &packages,
+            ) {
+                return resolved;
+            }
+            resolve_one(source, mesh_path, slot, mappings, options, &packages)
+        })
         .collect()
+}
+
+/// `MeshImportContext` 的导入解析辅助。
+impl MeshImportContext {
+    /// 把导入索引解析为目标包/导出。
+    fn info_import(&self, import: usize) -> Option<MaterialObjectRef> {
+        let info = self.info.as_ref()?;
+        resolve_material_object(info, &self.imported_ids, import)
+    }
+}
+
+/// 用精确对象引用解析一个材质槽。
+fn resolve_exact_slot(
+    source: &mut GameAssetSource,
+    graph: &mut MaterialGraph,
+    object: MaterialObjectRef,
+    slot: &MaterialSlot,
+    mappings: Option<&Mappings>,
+    options: &MaterialResolveOptions,
+    packages: &[String],
+) -> Option<ResolvedMaterial> {
+    let mappings = mappings?;
+    let mut resolved = ResolvedMaterial {
+        slot: slot.clone(),
+        package_path: Some(format!("package:0x{:016X}", object.package_id)),
+        appearance: None,
+        viewer: None,
+        loaded_assets: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let appearance = material_graph::load_material_by_id(
+        source,
+        graph,
+        object,
+        mappings,
+        0,
+        &mut resolved.loaded_assets,
+        &mut resolved.warnings,
+    )?;
+    fill_viewer_from_appearance(
+        source,
+        "",
+        appearance,
+        Some(mappings),
+        options,
+        packages,
+        &mut resolved,
+    );
+    Some(resolved)
 }
 
 /// 返回容器内全部 `.uasset` 路径。
@@ -165,7 +304,7 @@ fn fill_resolved(
     options: &MaterialResolveOptions,
     packages: &[String],
 ) {
-    let mut appearance = match load_material(
+    let appearance = match load_material(
         source,
         path,
         mappings,
@@ -182,10 +321,25 @@ fn fill_resolved(
             return;
         }
     };
+    fill_viewer_from_appearance(
+        source, path, appearance, mappings, options, packages, resolved,
+    );
+}
+
+/// 按材质外观加载查看器贴图并写入解析结果。
+fn fill_viewer_from_appearance(
+    source: &mut GameAssetSource,
+    material_path: &str,
+    appearance: MaterialAppearance,
+    mappings: Option<&Mappings>,
+    options: &MaterialResolveOptions,
+    packages: &[String],
+    resolved: &mut ResolvedMaterial,
+) {
     if options.load_textures {
         let base = resolve_texture(
             source,
-            path,
+            material_path,
             &appearance,
             MaterialTextureKind::BaseColor,
             mappings,
@@ -195,7 +349,7 @@ fn fill_resolved(
         );
         let normal = resolve_texture(
             source,
-            path,
+            material_path,
             &appearance,
             MaterialTextureKind::Normal,
             mappings,
@@ -205,7 +359,7 @@ fn fill_resolved(
         );
         let orm = resolve_texture(
             source,
-            path,
+            material_path,
             &appearance,
             MaterialTextureKind::MetallicRoughness,
             mappings,
@@ -213,15 +367,23 @@ fn fill_resolved(
             packages,
             &mut resolved.loaded_assets,
         );
-        if base.is_some() {
-            // 已加载基础色贴图时让材质球使用白色基色，避免与贴图重复着色。
-            appearance.base_color = [1.0, 1.0, 1.0];
-        }
+        let occlusion = resolve_texture(
+            source,
+            material_path,
+            &appearance,
+            MaterialTextureKind::Occlusion,
+            mappings,
+            options,
+            packages,
+            &mut resolved.loaded_assets,
+        );
+        // 基础色 tint 已由材质图按 FModel DiffuseColor 规则计算，无需再覆盖。
         resolved.viewer = Some(MaterialViewerData {
             appearance: appearance.clone(),
             base_color: base,
             normal,
             metallic_roughness: orm,
+            occlusion,
         });
     }
     resolved.appearance = Some(appearance);
@@ -282,7 +444,31 @@ fn load_material(
     }
     let package = parse_package(inputs.uasset, source.scripts(), None).ok()?;
     let mappings = mappings?;
-    Some(read_zen_material_appearance(&package, mappings))
+    // Zen 材质按包 ID 走材质图：对象引用精确定位父材质与贴图包。
+    let package_id = source.package_id_for_path(path)?;
+    let mut graph = MaterialGraph::new();
+    material_graph::load_material_by_id(
+        source,
+        &mut graph,
+        MaterialObjectRef {
+            package_id,
+            export_hash: 0,
+        },
+        mappings,
+        depth,
+        loaded,
+        warnings,
+    )
+    .or_else(|| {
+        // 没有可解析的对象引用时保留属性流近似值（至少拿到颜色/双面标记）。
+        // 只有确认包里存在材质导出才回退，避免把贴图资产误当材质。
+        let is_material_package = package
+            .info()
+            .exports
+            .iter()
+            .any(|export| export.class_name.to_ascii_lowercase().contains("material"));
+        is_material_package.then(|| read_zen_material_appearance(&package, mappings))
+    })
 }
 
 /// 加载一张贴图为查看器图像（带可选缓存）。
@@ -350,7 +536,32 @@ fn decode_texture_image(
     )
 }
 
-/// 解析一张贴图：优先精确包路径，其次按用途与命名约定搜索。
+/// 按包 ID 加载一张贴图为查看器图像（带可选缓存）。
+fn load_texture_image_by_id(
+    source: &mut GameAssetSource,
+    package_id: u64,
+    mappings: Option<&Mappings>,
+    options: &MaterialResolveOptions,
+) -> Option<MaterialViewerImage> {
+    let mappings = mappings?;
+    let max_size = options.max_texture_size;
+    let cache_key = format!("id:{package_id:016X}|{max_size}");
+    if let Some(cache) = &options.texture_cache
+        && let Ok(cache) = cache.lock()
+        && let Some(cached) = cache.get(&cache_key)
+    {
+        return cached.clone();
+    }
+    let image = material_graph::decode_texture_by_id(source, package_id, mappings, max_size);
+    if let Some(cache) = &options.texture_cache
+        && let Ok(mut cache) = cache.lock()
+    {
+        cache.insert(cache_key, image.clone());
+    }
+    image
+}
+
+/// 解析一张贴图：优先精确包路径/包 ID，其次按用途与命名约定搜索。
 #[allow(clippy::too_many_arguments)]
 fn resolve_texture(
     source: &mut GameAssetSource,
@@ -363,6 +574,12 @@ fn resolve_texture(
     loaded: &mut Vec<String>,
 ) -> Option<MaterialViewerImage> {
     if let Some(reference) = appearance.texture(kind) {
+        if let Some(package_id) = reference.package_id
+            && let Some(image) = load_texture_image_by_id(source, package_id, mappings, options)
+        {
+            loaded.push(format!("package:0x{package_id:016X}"));
+            return Some(image);
+        }
         if let Some(package) = &reference.package
             && let Some(relative) = package_to_relative(material_path, package)
             && let Some(image) = load_texture_image(source, &relative, mappings, options)
@@ -441,7 +658,98 @@ fn find_material_package(
         })
         .collect();
     candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    candidates.first().map(|(_, _, path)| (*path).clone())
+    if let Some((_, _, path)) = candidates.first() {
+        return Some((*path).clone());
+    }
+    // 槽名与材质资产名常常不一致（例如槽位 `N_Lip` 对应 `M/N_Lips`，
+    // `N_Body` 对应 `N_Body_Inst6`）。游戏资产里材质不会按槽名精确命名，
+    // 因此再按「名称前缀/分词前缀 + 同角色目录亲和度」做一次模糊匹配。
+    fuzzy_material_package(mesh_dir, name, packages)
+}
+
+/// 按槽名前缀和目录亲和度挑选材质资产，作为精确同名的兜底。
+///
+/// 只接受明显的材质候选：名称以槽名开头、槽名以资产名开头，或两者按
+/// `_` 分词后除末段外完全一致且末段互为前缀（`N_Lip` ↔ `N_Lips`）。
+/// 跳过网格/贴图/动画前缀，避免把 `SK_`、`T_` 资产当成材质。
+fn fuzzy_material_package(mesh_dir: &str, slot_name: &str, packages: &[String]) -> Option<String> {
+    let slot = slot_name.trim().to_ascii_lowercase();
+    if slot.len() < 3 {
+        return None;
+    }
+    // 网格路径的上一级是角色目录（例如 `.../CH/Nana`），用于目录亲和度。
+    let character_root = mesh_dir
+        .rsplit_once('/')
+        .map(|(parent, _)| parent)
+        .unwrap_or(mesh_dir);
+    let mut best: Option<(i32, usize, usize, &String)> = None;
+    for path in packages {
+        let Some(file) = path.rsplit('/').next() else {
+            continue;
+        };
+        let Some(stem) = file.strip_suffix(".uasset") else {
+            continue;
+        };
+        let stem_lower = stem.to_ascii_lowercase();
+        if stem_lower.len() < 2
+            || matches!(
+                stem_lower.split('_').next().unwrap_or_default(),
+                "sk" | "sm" | "t" | "tx" | "anim" | "abp" | "bp" | "phys" | "ns"
+            )
+        {
+            continue;
+        }
+        let name_score = if stem_lower == slot {
+            5
+        } else if stem_lower.starts_with(&slot) {
+            4
+        } else if slot.starts_with(&stem_lower) {
+            3
+        } else if tokens_prefix_match(&slot, &stem_lower) {
+            2
+        } else {
+            continue;
+        };
+        let directory_score = shared_directory_len(character_root, path);
+        // 同类材质通常集中放在角色目录下的 `M/` 子目录。
+        let material_dir_bonus = i32::from(
+            path.rsplit_once('/')
+                .map(|(dir, _)| dir.rsplit('/').next() == Some("M") || dir.ends_with("/M"))
+                .unwrap_or(false),
+        ) * 2;
+        let score = name_score * 10 + material_dir_bonus;
+        let extra_len = stem_lower.len().saturating_sub(slot.len());
+        let entry = (score, directory_score, usize::MAX - extra_len, path);
+        let better = match &best {
+            None => true,
+            Some((best_score, best_dir, best_extra, _)) => {
+                score > *best_score
+                    || (score == *best_score && directory_score > *best_dir)
+                    || (score == *best_score
+                        && directory_score == *best_dir
+                        && entry.2 > *best_extra)
+            }
+        };
+        if better {
+            best = Some(entry);
+        }
+    }
+    best.map(|(_, _, _, path)| path.clone())
+}
+
+/// 判断两个下划线分词名称除最后一段外相同，且最后一段互为前缀。
+fn tokens_prefix_match(slot: &str, stem: &str) -> bool {
+    let slot_tokens: Vec<&str> = slot.split('_').filter(|part| !part.is_empty()).collect();
+    let stem_tokens: Vec<&str> = stem.split('_').filter(|part| !part.is_empty()).collect();
+    if slot_tokens.len() < 2 || stem_tokens.len() < 2 || slot_tokens.len() != stem_tokens.len() {
+        return false;
+    }
+    let (slot_last, stem_last) = (
+        slot_tokens[slot_tokens.len() - 1],
+        stem_tokens[stem_tokens.len() - 1],
+    );
+    slot_tokens[..slot_tokens.len() - 1] == stem_tokens[..stem_tokens.len() - 1]
+        && (slot_last.starts_with(stem_last) || stem_last.starts_with(slot_last))
 }
 
 /// 按用途、材质资产名和参数提示生成贴图候选路径。
@@ -533,6 +841,7 @@ fn texture_kind_suffixes(kind: MaterialTextureKind) -> &'static [&'static str] {
             "_mr",
             "_r",
         ],
+        MaterialTextureKind::Occlusion => &["_ao", "_occlusion", "_ambientocclusion"],
         _ => &[],
     }
 }
@@ -668,5 +977,65 @@ mod tests {
         assert_eq!(material_stem("M_Wood.uasset"), "wood");
         assert_eq!(material_stem("MI_Wood_Inst.uasset"), "wood_inst");
         assert_eq!(material_stem("MAT-Wood.uasset"), "wood");
+    }
+
+    /// 按金属/粗糙度贴图命名识别 ORM 通道布局。
+    #[test]
+    fn detects_orm_layout_from_texture_name() {
+        assert_eq!(
+            detect_orm_layout("T_Nana_ORM"),
+            lumark_scene::OrmLayout::AoRoughMetal
+        );
+        assert_eq!(
+            detect_orm_layout("T_Nana_OcclusionRoughnessMetallic"),
+            lumark_scene::OrmLayout::AoRoughMetal
+        );
+        assert_eq!(
+            detect_orm_layout("T_Nana_SpecularMask"),
+            lumark_scene::OrmLayout::SpecularMask
+        );
+        assert_eq!(
+            detect_orm_layout("T_Nana_SM"),
+            lumark_scene::OrmLayout::SpecularMask
+        );
+    }
+
+    /// 槽名与材质资产名不一致时按前缀/分词做模糊匹配，并优先精确同名。
+    #[test]
+    fn fuzzy_matches_slot_names_to_materials() {
+        let packages = vec![
+            "Game/Content/CH/Nana/Cloth/MI_C_N01.uasset".to_string(),
+            "Game/Content/CH/Nana/M/N_Lips.uasset".to_string(),
+            "Game/Content/CH/Nana/M/N_Body_Inst6.uasset".to_string(),
+            "Game/Content/CH/Nana/M/N_Nail_Inst1.uasset".to_string(),
+            "Game/Content/CH/Nana/N_All/SK_Body.uasset".to_string(),
+            "Game/Content/CH/Nana/N_All/T_N_Lip.uasset".to_string(),
+        ];
+        let mesh = "Game/Content/CH/Nana/N_All/NanaF6_Hold.uasset";
+        let pick = |name: &str| {
+            find_material_package(
+                mesh,
+                &crate::MaterialSlot {
+                    name: name.to_string(),
+                    package: None,
+                },
+                &packages,
+            )
+        };
+        assert_eq!(
+            pick("N_Lip").as_deref(),
+            Some("Game/Content/CH/Nana/M/N_Lips.uasset")
+        );
+        assert_eq!(
+            pick("N_Nail").as_deref(),
+            Some("Game/Content/CH/Nana/M/N_Nail_Inst1.uasset")
+        );
+        // 精确同名仍优先于模糊匹配。
+        assert_eq!(
+            pick("MI_C_N01").as_deref(),
+            Some("Game/Content/CH/Nana/Cloth/MI_C_N01.uasset")
+        );
+        // 没有合理候选时保持未解析，避免随机错配材质。
+        assert_eq!(pick("Zzz_Unknown"), None);
     }
 }

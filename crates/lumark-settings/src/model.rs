@@ -296,6 +296,10 @@ pub struct Settings {
     pub window_height: f32,
     /// 侧栏宽度。
     pub sidebar_width: f32,
+    /// 侧栏详细信息面板高度。
+    pub details_height: f32,
+    /// 是否强制使用内置纯 Rust Oodle 解码器（移除 DLL 后使用）。
+    pub oodle_prefer_rust: bool,
     /// 是否自动解压单文件归档。
     pub auto_extract_enabled: bool,
     /// 是否提示保存密码。
@@ -376,6 +380,8 @@ impl Default for Settings {
             window_width: 1280.0,
             window_height: 800.0,
             sidebar_width: 250.0,
+            details_height: 190.0,
+            oodle_prefer_rust: false,
             auto_extract_enabled: true,
             prompt_save_password: true,
             auto_lock_minutes: 10,

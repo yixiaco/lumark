@@ -511,7 +511,9 @@ impl LumarkApp {
     pub(crate) fn open_settings_window(&mut self, parent: &Window, cx: &mut Context<Self>) {
         if let Some(handle) = self.settings_window
             && handle
-                .update(cx, |_, window, _| window.activate_window())
+                .update(cx, |_, window, _| {
+                    crate::window_focus::activate_and_raise(window)
+                })
                 .is_ok()
         {
             return;
@@ -566,6 +568,7 @@ impl LumarkApp {
             status: self.status.clone(),
         };
         match gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| SettingsWindowView::new(app.clone(), snapshot.clone(), window, cx))
         }) {
             Ok((handle, _)) => self.settings_window = Some(handle),

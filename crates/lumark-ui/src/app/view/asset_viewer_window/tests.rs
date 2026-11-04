@@ -3,6 +3,11 @@
 use super::animation::AnimationTimeline;
 use super::render::filter_sections;
 use super::*;
+
+/// 测试用空材质列表。
+fn no_materials() -> std::sync::Arc<Vec<lumark_unreal::ResolvedMaterial>> {
+    std::sync::Arc::new(Vec::new())
+}
 use gpui_kit::test::TestWindowExt;
 use lumark_unreal::{
     LegacyPackage, Mappings, MeshSection, read_legacy_anim_sequence,
@@ -22,8 +27,13 @@ fn viewer_renders_initial_preview_image() {
         }],
         attributes: Default::default(),
     };
-    let view =
-        AssetViewerWindowView::new("Mesh".to_string(), ViewerScene::Mesh { lods: vec![mesh] });
+    let view = AssetViewerWindowView::new(
+        "Mesh".to_string(),
+        ViewerScene::Mesh {
+            materials: no_materials(),
+            lods: vec![mesh],
+        },
+    );
     assert!(view.error.is_none());
     assert_eq!(view.hidden_sections.len(), 1);
     assert!(view.image.is_some());
@@ -32,6 +42,48 @@ fn viewer_renders_initial_preview_image() {
             .as_ref()
             .and_then(|image| image.as_bytes(0))
             .is_some_and(|bytes| !bytes.is_empty())
+    );
+}
+
+/// 查看器必须实际绘制渲染图像元素（防止画布空白回归）。
+#[gpui_kit::test]
+fn viewer_paints_rendered_image_element(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let (_view, cx) = cx.add_window_view(|_, _| {
+        AssetViewerWindowView::new(
+            "Mesh".to_string(),
+            ViewerScene::Mesh {
+                materials: no_materials(),
+                lods: vec![mesh],
+            },
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+    });
+    let canvas = cx
+        .debug_bounds("model-viewer-canvas")
+        .expect("画布应记录布局 bounds");
+    let image = cx
+        .debug_bounds("model-viewer-image-container")
+        .expect("渲染图像容器应记录布局 bounds");
+    assert!(
+        image.size.height > px(100.) && image.size.width > px(100.),
+        "渲染图像容器尺寸异常（{image:?}），查看器会显示空白画布"
+    );
+    assert!(
+        image.origin.y >= canvas.origin.y - px(1.0),
+        "渲染图像容器应位于画布内部"
     );
 }
 
@@ -61,6 +113,7 @@ fn viewer_switches_static_lods() {
     let mut view = AssetViewerWindowView::new(
         "Mesh".to_string(),
         ViewerScene::Mesh {
+            materials: no_materials(),
             lods: vec![lod0, lod1],
         },
     );
@@ -105,6 +158,7 @@ fn viewer_switches_skeletal_lods() {
     let mut view = AssetViewerWindowView::new(
         "SK_Test".to_string(),
         ViewerScene::SkeletalMesh {
+            materials: no_materials(),
             lods: vec![lod0, lod1],
             skeleton,
             skins: vec![None],
@@ -146,6 +200,7 @@ fn skeletal_mesh_viewer_renders_preview_with_bones() {
     let view = AssetViewerWindowView::new(
         "SK_Test".to_string(),
         ViewerScene::SkeletalMesh {
+            materials: no_materials(),
             lods: vec![mesh],
             skeleton,
             skins: vec![None],
@@ -200,6 +255,7 @@ fn skeletal_mesh_viewer_skins_dominant_bone() {
     let mut view = AssetViewerWindowView::new(
         "SK_Test".to_string(),
         ViewerScene::SkeletalMesh {
+            materials: no_materials(),
             lods: vec![mesh],
             skeleton,
             skins: vec![Some(skin)],
@@ -344,6 +400,7 @@ fn viewer_renders_animation_timeline_with_real_fixture(cx: &mut gpui_kit::TestAp
     assert!(animation.length > 0.0);
     assert!(animation.frames > 1);
     let scene = ViewerScene::SkeletalMesh {
+        materials: no_materials(),
         lods: vec![geometry.mesh],
         skeleton: geometry.skeleton,
         skins: vec![geometry.skin],
@@ -391,6 +448,7 @@ fn viewer_renders_material_scene_and_orbits() {
         ),
         normal: None,
         metallic_roughness: None,
+        occlusion: None,
     };
     let mut view =
         AssetViewerWindowView::new("MAT_Teapot".to_string(), ViewerScene::Material { viewer });
@@ -429,6 +487,7 @@ fn material_viewer_toolbar_hides_mesh_controls(cx: &mut gpui_kit::TestAppContext
             base_color: None,
             normal: None,
             metallic_roughness: None,
+            occlusion: None,
         },
     };
     let (_view, cx) =
@@ -462,6 +521,7 @@ fn inspector_panel_renders_and_toggles(cx: &mut gpui_kit::TestAppContext) {
         attributes: Default::default(),
     };
     let scene = ViewerScene::Mesh {
+        materials: no_materials(),
         lods: vec![mesh.clone(), mesh],
     };
     cx.update(gpui_kit::init);
@@ -499,7 +559,10 @@ fn viewer_async_preview_updates_image(cx: &mut gpui_kit::TestAppContext) {
     let (view, cx) = cx.add_window_view(|_, _| {
         AssetViewerWindowView::new(
             "SM_Async".to_string(),
-            ViewerScene::Mesh { lods: vec![mesh] },
+            ViewerScene::Mesh {
+                materials: no_materials(),
+                lods: vec![mesh],
+            },
         )
     });
     view.update(cx, |view, cx| {
@@ -519,6 +582,68 @@ fn viewer_async_preview_updates_image(cx: &mut gpui_kit::TestAppContext) {
     assert!(!rendering, "渲染完成后应复位 rendering");
 }
 
+/// 静止 180ms 后自动补一帧高质量画面（帧泵端到端）。
+#[gpui_kit::test]
+fn viewer_settles_to_high_quality_frame(cx: &mut gpui_kit::TestAppContext) {
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    cx.update(gpui_kit::init);
+    let (view, cx) = cx.add_window_view(|window, cx| {
+        AssetViewerWindowView::new_with_focus(
+            "SM_Settle".to_string(),
+            ViewerScene::Mesh {
+                materials: no_materials(),
+                lods: vec![mesh],
+            },
+            cx.focus_handle(),
+            window,
+            cx,
+        )
+    });
+    // 交互帧由后台帧泵产出。
+    let mut has_image = false;
+    for _ in 0..400 {
+        cx.run_until_parked();
+        if view.read_with(cx, |view, _| view.image.is_some()) {
+            has_image = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(has_image, "首帧应由后台帧泵产出");
+    // 静止超过 180ms 后应触发并完成高质量帧。
+    let mut settle_requested = false;
+    for _ in 0..400 {
+        cx.run_until_parked();
+        if view.read_with(cx, |view, _| view.frame_pump.has_settled_frame()) {
+            settle_requested = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(settle_requested, "静止 180ms 后应补高质量帧");
+    let mut settled_done = false;
+    for _ in 0..400 {
+        cx.run_until_parked();
+        if view.read_with(cx, |view, _| {
+            !view.frame_pump.in_flight() && view.frame_pump.has_settled_frame()
+        }) {
+            settled_done = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(settled_done, "高质量帧应渲染完成");
+}
+
 /// 查看器接收材质槽名称，供 section 列表展示。
 #[test]
 fn viewer_accepts_material_names() {
@@ -532,9 +657,14 @@ fn viewer_accepts_material_names() {
         }],
         attributes: Default::default(),
     };
-    let view =
-        AssetViewerWindowView::new("SM_Mat".to_string(), ViewerScene::Mesh { lods: vec![mesh] })
-            .with_material_names(vec!["M_Brick".to_string()]);
+    let view = AssetViewerWindowView::new(
+        "SM_Mat".to_string(),
+        ViewerScene::Mesh {
+            materials: no_materials(),
+            lods: vec![mesh],
+        },
+    )
+    .with_material_names(vec!["M_Brick".to_string()]);
     assert_eq!(view.material_names, vec!["M_Brick"]);
 }
 
@@ -564,7 +694,10 @@ fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
     let (view, cx) = cx.add_window_view(|window, cx| {
         AssetViewerWindowView::new_with_focus(
             "SM_Keys".to_string(),
-            ViewerScene::Mesh { lods: vec![mesh] },
+            ViewerScene::Mesh {
+                materials: no_materials(),
+                lods: vec![mesh],
+            },
             cx.focus_handle(),
             window,
             cx,
@@ -582,6 +715,9 @@ fn viewer_keyboard_shortcuts_update_state(cx: &mut gpui_kit::TestAppContext) {
             assert!(view.handle_shortcut("f", cx));
             assert_eq!(view.yaw, 35.0);
             assert_eq!(view.zoom, 1.0);
+            assert!(view.show_grid, "3D 查看器默认显示地面网格");
+            assert!(view.handle_shortcut("g", cx));
+            assert!(!view.show_grid, "G 键应关闭网格");
             assert!(view.handle_shortcut("g", cx));
             assert!(view.show_grid);
             assert!(view.handle_shortcut("w", cx));
@@ -615,8 +751,14 @@ fn viewer_shading_grid_and_sections_render() {
     };
     let mut view = AssetViewerWindowView::new(
         "SM_Shading".to_string(),
-        ViewerScene::Mesh { lods: vec![mesh] },
+        ViewerScene::Mesh {
+            materials: no_materials(),
+            lods: vec![mesh],
+        },
     );
+    // 3D 查看器默认显示网格；先关掉，便于对比着色与叠加层差异。
+    view.show_grid = false;
+    view.render_preview();
     let bytes = |view: &AssetViewerWindowView| {
         view.image
             .as_ref()
@@ -639,4 +781,88 @@ fn viewer_shading_grid_and_sections_render() {
     assert!(view.error.is_none());
     let hidden = bytes(&view);
     assert_ne!(hidden, unlit, "隐藏 section 应改变图像");
+}
+
+/// 轨道拖拽方向与 FModel 一致：向右拖拽减小 yaw，向下拖拽抬高相机。
+#[test]
+fn orbit_drag_matches_fmodel_direction() {
+    let (yaw, pitch) = super::body::apply_orbit_drag(35.0, 25.0, 10.0, 0.0);
+    assert!((yaw - 31.0).abs() < 1.0e-4, "向右拖拽应绕 -Up 旋转：{yaw}");
+    assert_eq!(pitch, 25.0);
+    let (yaw_left, _) = super::body::apply_orbit_drag(35.0, 25.0, -10.0, 0.0);
+    assert!((yaw_left - 39.0).abs() < 1.0e-4, "向左拖拽应增大 yaw");
+    let (_, pitch_down) = super::body::apply_orbit_drag(0.0, 0.0, 0.0, 10.0);
+    assert!((pitch_down - 4.0).abs() < 1.0e-4, "向下拖拽抬高相机");
+    let (wrapped, _) = super::body::apply_orbit_drag(0.0, 0.0, 1000.0, 0.0);
+    assert!((0.0..360.0).contains(&wrapped), "yaw 应归一化到 [0,360)");
+    let (_, clamped) = super::body::apply_orbit_drag(0.0, 0.0, 0.0, 1000.0);
+    assert_eq!(clamped, 89.0, "pitch 应限制在 ±89 度");
+}
+
+/// 查看器应使用已解析材质贴图，而不是默认灰色材质。
+#[test]
+fn viewer_applies_resolved_materials() {
+    let mesh = MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let appearance = lumark_unreal::MaterialAppearance {
+        base_color: [1.0, 1.0, 1.0],
+        ..Default::default()
+    };
+    let material = lumark_unreal::ResolvedMaterial {
+        slot: lumark_unreal::MaterialSlot {
+            name: "M_Red".to_string(),
+            package: None,
+        },
+        package_path: None,
+        appearance: Some(appearance.clone()),
+        viewer: Some(lumark_unreal::MaterialViewerData {
+            appearance,
+            base_color: Some(lumark_unreal::MaterialViewerImage {
+                rgba: vec![255, 0, 0, 255],
+                width: 1,
+                height: 1,
+            }),
+            normal: None,
+            metallic_roughness: None,
+            occlusion: None,
+        }),
+        loaded_assets: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut textured = AssetViewerWindowView::new(
+        "Mesh".to_string(),
+        ViewerScene::Mesh {
+            materials: std::sync::Arc::new(vec![material]),
+            lods: vec![mesh.clone()],
+        },
+    );
+    let mut plain = AssetViewerWindowView::new(
+        "Mesh".to_string(),
+        ViewerScene::Mesh {
+            materials: std::sync::Arc::new(Vec::new()),
+            lods: vec![mesh],
+        },
+    );
+    let image_bytes = |view: &AssetViewerWindowView| {
+        view.image
+            .as_ref()
+            .and_then(|image| image.as_bytes(0))
+            .map(<[u8]>::to_vec)
+            .expect("查看器图像")
+    };
+    textured.render_preview();
+    plain.render_preview();
+    assert_ne!(
+        image_bytes(&textured),
+        image_bytes(&plain),
+        "已解析材质贴图应改变查看器渲染结果"
+    );
 }

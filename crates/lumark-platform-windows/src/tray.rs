@@ -51,7 +51,11 @@ impl TrayIcon {
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = TRAY_CALLBACK_MESSAGE;
         data.hIcon = icon;
-        copy_tip(&mut data.szTip, tooltip);
+        // i686 上 NOTIFYICONDATAW 是 packed 结构，不能对 szTip 取引用；
+        // 先按值复制到局部数组，填好后整体写回。
+        let mut tip = data.szTip;
+        copy_tip(&mut tip, tooltip);
+        data.szTip = tip;
         let added = unsafe { Shell_NotifyIconW(NIM_ADD, &data) };
         if added == 0 {
             let error = io::Error::last_os_error();

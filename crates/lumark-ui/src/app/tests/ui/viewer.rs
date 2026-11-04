@@ -2,6 +2,56 @@
 
 use super::*;
 
+/// 验证模型查看器的画布、工具栏和按钮尺寸在窗口放大后仍然正确：
+/// 画布必须位于工具栏下方（最大化时也不能盖住按钮），且工具栏高度符合
+/// 标准按钮尺寸（32px + 上下内边距）。
+#[gpui_kit::test]
+fn model_viewer_layout_stays_below_toolbar_when_resized(cx: &mut gpui_kit::TestAppContext) {
+    use crate::app::view::asset_viewer_window::{AssetViewerWindowView, ViewerScene};
+    cx.update(gpui_kit::init);
+    let mesh = lumark_unreal::MeshLod {
+        positions: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        sections: vec![lumark_unreal::MeshSection {
+            material_index: 0,
+            first_index: 0,
+            triangle_count: 1,
+        }],
+        attributes: Default::default(),
+    };
+    let (view, cx) = cx.add_window_view(|_window, _cx| {
+        AssetViewerWindowView::new(
+            "Mesh".to_string(),
+            ViewerScene::Mesh {
+                lods: vec![mesh],
+                materials: std::sync::Arc::new(Vec::new()),
+            },
+        )
+    });
+    let _ = view;
+    cx.simulate_resize(gpui_kit::size(px(1920.), px(1080.)));
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+    });
+    let toolbar = cx
+        .debug_bounds("model-viewer-toolbar")
+        .expect("工具栏应记录布局 bounds");
+    let canvas = cx
+        .debug_bounds("model-viewer-canvas")
+        .expect("画布应记录布局 bounds");
+    assert!(
+        canvas.origin.y >= toolbar.origin.y + toolbar.size.height - px(1.0),
+        "画布（top={:?}）不应覆盖工具栏（bottom={:?}），窗口放大后尤其不能遮挡按钮",
+        canvas.origin.y,
+        toolbar.origin.y + toolbar.size.height
+    );
+    assert!(
+        toolbar.size.height >= px(44.),
+        "工具栏高度 {:?} 过小：线框/sRGB/S0/S1/LOD 按钮应使用标准尺寸",
+        toolbar.size.height
+    );
+}
+
 /// 验证内置文本查看器可以渲染只读编辑器和状态行。
 #[gpui_kit::test]
 fn text_viewer_renders_readonly_editor(cx: &mut gpui_kit::TestAppContext) {
@@ -504,6 +554,7 @@ fn material_viewer_opens_dedicated_window(cx: &mut gpui_kit::TestAppContext) {
         base_color: None,
         normal: None,
         metallic_roughness: None,
+        occlusion: None,
     };
     cx.update(|window, cx| {
         app.update(cx, |app, cx| {

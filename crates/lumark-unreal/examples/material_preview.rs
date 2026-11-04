@@ -47,7 +47,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if let Some(output) = std::env::args().nth(4) {
         let size = 320u32;
-        let rgba = render_material_ball(&appearance, None, None, None, size);
+        let rgba = render_material_ball(
+            &appearance,
+            None,
+            None,
+            None,
+            None,
+            lumark_unreal::MaterialBallSettings::default(),
+            size,
+        );
         let image = image::RgbaImage::from_raw(size, size, rgba).expect("材质球尺寸");
         image.save(&output)?;
         println!("ball saved to {output}");

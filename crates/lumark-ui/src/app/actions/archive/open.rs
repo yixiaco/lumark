@@ -19,7 +19,7 @@ impl LumarkApp {
         let options = window_options(&stores);
         let request = StartupRequest::for_nested_archive(archive, owned_temp);
         gpui_kit::open_window(options, cx, move |window, cx| {
-            window.on_next_frame(|window, _| window.activate_window());
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| Self::new_shared(window, cx, stores, None, Some(request)))
         })
         .map(|_| ())

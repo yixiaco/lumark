@@ -29,9 +29,9 @@ impl LumarkApp {
 
     /// 把主窗口带到前台，供设置窗口跳转到密码库等主界面操作。
     pub(crate) fn activate_main_window(&self, cx: &mut gpui_kit::App) {
-        let _ = self
-            .main_window
-            .update(cx, |_, window, _| window.activate_window());
+        let _ = self.main_window.update(cx, |_, window, _| {
+            crate::window_focus::activate_and_raise(window)
+        });
     }
 
     /// 恢复界面与压缩偏好的出厂值，同时保留路径、窗口尺寸和用户数据。

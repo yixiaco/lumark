@@ -22,14 +22,17 @@ impl TextViewerWindowView {
         let size = bytes.len() as u64;
         let document = TextDocument::from_bytes(text).ok();
         let line_sizes = Rc::new(vec![
-            gpui_kit::size(px(1.), px(18.));
+            gpui_kit::size(px(1.), px(VIEWER_LINE_HEIGHT));
             document
                 .as_ref()
                 .map(|document| document.line_count())
                 .unwrap_or(0)
         ]);
         let hex = HexDocument::from_bytes(bytes);
-        let hex_sizes = Rc::new(vec![gpui_kit::size(px(1.), px(18.)); hex.row_count()]);
+        let hex_sizes = Rc::new(vec![
+            gpui_kit::size(px(1.), px(VIEWER_LINE_HEIGHT));
+            hex.row_count()
+        ]);
         Self {
             name,
             path: PathBuf::new(),
@@ -70,7 +73,8 @@ impl LumarkApp {
     ) {
         let options = super::viewer_window_options(parent);
         let viewer_name = name.clone();
-        let result = gpui_kit::open_window(options, cx, move |_window, cx| {
+        let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|_| {
                 TextViewerWindowView::from_memory(
                     viewer_name.clone(),
@@ -116,5 +120,14 @@ mod tests {
         assert!(view.document.is_some());
         assert!(view.hex.is_some());
         assert!(!view.can_save);
+        // 正文使用标准行高，避免 14px 字号被 18px 行高挤压。
+        assert_eq!(
+            view.line_sizes.first().map(|size| size.height),
+            Some(px(super::VIEWER_LINE_HEIGHT))
+        );
+        assert_eq!(
+            view.hex_sizes.first().map(|size| size.height),
+            Some(px(super::VIEWER_LINE_HEIGHT))
+        );
     }
 }

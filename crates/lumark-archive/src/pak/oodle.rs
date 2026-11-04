@@ -20,6 +20,22 @@ enum Backend {
     Dll,
 }
 
+/// 运行期是否强制使用纯 Rust 后端。
+///
+/// 环境变量只在进程启动时读取一次即可确定默认值；用户移除 DLL 后需要
+/// 立即切到 Rust，因此用原子偏好覆盖环境变量，避免运行时修改环境变量。
+static PREFER_RUST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 设置是否强制使用纯 Rust 后端；关闭后恢复 `LUMARK_OODLE_BACKEND` 的语义。
+pub fn set_oodle_prefer_rust(enabled: bool) {
+    PREFER_RUST.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 是否已由界面强制选择纯 Rust 后端。
+pub fn oodle_prefers_rust() -> bool {
+    PREFER_RUST.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// 解析后端环境变量；非法或缺失时回落到 `auto`。
 fn parse_backend(value: Option<&str>) -> Backend {
     match value.map(str::trim).map(str::to_ascii_lowercase) {
@@ -29,9 +45,18 @@ fn parse_backend(value: Option<&str>) -> Backend {
     }
 }
 
+/// 当前生效的后端：界面偏好优先于环境变量。
+fn current_backend() -> Backend {
+    if oodle_prefers_rust() {
+        Backend::Rust
+    } else {
+        parse_backend(std::env::var("LUMARK_OODLE_BACKEND").ok().as_deref())
+    }
+}
+
 /// 当前配置的后端名称；用于诊断和界面展示。
 pub fn oodle_backend_setting() -> &'static str {
-    match parse_backend(std::env::var("LUMARK_OODLE_BACKEND").ok().as_deref()) {
+    match current_backend() {
         Backend::Auto => "auto",
         Backend::Rust => "rust",
         Backend::Dll => "dll",
@@ -109,7 +134,7 @@ pub fn oodle_status() -> OodleStatus {
 
 /// 解压一个 Oodle 压缩块。
 pub(crate) fn decompress(input: &[u8], output: &mut [u8]) -> Result<(), String> {
-    match parse_backend(std::env::var("LUMARK_OODLE_BACKEND").ok().as_deref()) {
+    match current_backend() {
         Backend::Rust => decompress_rust(input, output),
         Backend::Dll => dll::decompress(input, output),
         Backend::Auto => match decompress_rust(input, output) {
@@ -411,6 +436,17 @@ pub fn configure_oodle_library(path: Option<std::path::PathBuf>) -> Result<(), S
 #[cfg(test)]
 mod tests {
     use super::{Backend, decompress_rust, parse_backend};
+
+    /// 界面选择 Rust 后应覆盖环境变量；关闭偏好后恢复原语义。
+    #[test]
+    fn prefer_rust_overrides_environment_setting() {
+        super::set_oodle_prefer_rust(true);
+        assert!(super::oodle_prefers_rust());
+        assert_eq!(super::oodle_backend_setting(), "rust");
+        assert_eq!(super::current_backend(), Backend::Rust);
+        super::set_oodle_prefer_rust(false);
+        assert!(!super::oodle_prefers_rust());
+    }
 
     /// 验证后端配置解析：大小写、空白与非法值。
     #[test]

@@ -742,6 +742,7 @@ fn cached_preview_keeps_viewer_scene_data(cx: &mut gpui_kit::TestAppContext) {
                 base_color: None,
                 normal: None,
                 metallic_roughness: None,
+                occlusion: None,
             });
             // 模拟渲染期间的再次同步：预览 key 未变，查看器数据应保留。
             app.sync_details_preview(cx);
@@ -750,6 +751,138 @@ fn cached_preview_keeps_viewer_scene_data(cx: &mut gpui_kit::TestAppContext) {
                 "缓存预览不应丢失材质查看器数据"
             );
         });
+    });
+    let _ = app;
+}
+
+/// 侧栏归档点击应切换容器，而不是只在当前目录条目里查找。
+#[cfg(windows)]
+#[gpui_kit::test]
+fn sidebar_archive_click_switches_container(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    let project = directory.path().join("TogetherBNB");
+    let paks = project.join("Content/Paks");
+    std::fs::create_dir_all(&paks).unwrap();
+    let payload = directory.path().join("readme.txt");
+    std::fs::write(&payload, b"hello game").unwrap();
+    for name in ["pakchunk0-Windows.pak", "pakchunk1-Windows.pak"] {
+        lumark_archive::ArchiveService::create(
+            &paks.join(name),
+            std::slice::from_ref(&payload),
+            &lumark_archive::CompressionOptions {
+                format: lumark_archive::ArchiveFormat::Zip,
+                path_mode: lumark_archive::PathMode::NoRoot,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+    }
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        app.update(cx, |app, cx| {
+            app.open_game_assets(window, cx);
+            app.start_game_setup(None, window, cx);
+            app.scan_game_directory(project.clone(), window, cx);
+            app.save_game_setup(window, cx);
+            assert!(app.game_session.is_some());
+        });
+        let containers: Vec<std::path::PathBuf> = app
+            .read(cx)
+            .game_session
+            .as_ref()
+            .expect("游戏会话")
+            .game
+            .containers
+            .iter()
+            .map(|container| container.path.clone())
+            .collect();
+        assert_eq!(containers.len(), 2, "应扫描出两个容器");
+        // 模拟已进入第一个容器的子目录；此时 browser.entries 不含归档行。
+        app.update(cx, |app, cx| {
+            app.browser.location = lumark_browser::BrowserLocation::Archive {
+                archive: containers[0].clone(),
+                inner: "Sub".to_string(),
+            };
+            app.open_game_container_path(containers[1].clone(), window, cx);
+            assert!(
+                app.status.contains("正在读取归档目录"),
+                "点击另一个归档应切换加载：{}",
+                app.status
+            );
+            assert_eq!(
+                app.game_session
+                    .as_ref()
+                    .and_then(|session| session.last_container.clone()),
+                Some(containers[1].clone()),
+                "应记录切换后的容器"
+            );
+        });
+        // 已在目标容器根目录时保持现状，不重复加载。
+        app.update(cx, |app, cx| {
+            app.browser.location = lumark_browser::BrowserLocation::Archive {
+                archive: containers[1].clone(),
+                inner: String::new(),
+            };
+            app.open_game_container_path(containers[1].clone(), window, cx);
+            assert!(
+                app.status.contains("当前归档"),
+                "同容器根目录应提示当前归档：{}",
+                app.status
+            );
+        });
+    });
+    let _ = app;
+}
+
+/// 拖动侧栏分栏后宽度写入设置，主界面使用新宽度。
+#[gpui_kit::test]
+fn sidebar_width_resize_persists(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(gpui_kit::init);
+    let directory = tempdir().unwrap();
+    std::fs::write(directory.path().join("readme.txt"), b"lumark").unwrap();
+    let (app, cx) = cx.add_window_view(|window, cx| {
+        LumarkApp::new_with_stores(
+            window,
+            cx,
+            directory.path().join("vault.dat"),
+            directory.path().join("settings.json"),
+            Some(directory.path().to_path_buf()),
+        )
+    });
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        app.update(cx, |app, cx| {
+            let before = app.sidebar_width;
+            let state = app.sidebar_state.clone();
+            state.update(cx, |state, cx| {
+                state.resize_panel(0, gpui_kit::px((before + 40.0).min(460.0)), window, cx);
+            });
+        });
+    });
+    // ResizableState 的 Resized 事件在本次更新结束后派发，因此断言放在外层，
+    // 与真实界面“拖动结束 → 写设置”的时序一致。
+    app.update(cx, |app, _| {
+        assert!(
+            app.sidebar_width > 250.5,
+            "拖动分栏应更新侧栏宽度：{}",
+            app.sidebar_width
+        );
+        assert!(
+            (app.settings.get().sidebar_width - app.sidebar_width).abs() < 0.5,
+            "侧栏宽度应写入设置：{} vs {}",
+            app.settings.get().sidebar_width,
+            app.sidebar_width
+        );
     });
     let _ = app;
 }

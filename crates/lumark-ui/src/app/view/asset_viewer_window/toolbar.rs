@@ -42,6 +42,7 @@ impl AssetViewerWindowView {
         h_flex()
             .w_full()
             .flex_shrink_0()
+            .flex_wrap()
             .items_center()
             .gap_1()
             .px_3()
@@ -58,7 +59,7 @@ impl AssetViewerWindowView {
                         this.yaw = 35.0;
                         this.pitch = 25.0;
                         this.zoom = 1.0;
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     })),
             )
@@ -70,7 +71,7 @@ impl AssetViewerWindowView {
                     .accessibility_label(tr("缩小", "Zoom out"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.zoom = (this.zoom / 1.2).clamp(0.2, 6.0);
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     })),
             )
@@ -82,26 +83,24 @@ impl AssetViewerWindowView {
                     .accessibility_label(tr("放大", "Zoom in"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.zoom = (this.zoom * 1.2).clamp(0.2, 6.0);
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     })),
             )
             .child(
                 button("model-wireframe")
                     .ghost()
-                    .xsmall()
                     .label("线框")
                     .tooltip(tr("线框模式", "Wireframe mode"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.wireframe = !this.wireframe;
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     })),
             )
             .child(
                 button("model-srgb")
                     .ghost()
-                    .xsmall()
                     .label("sRGB")
                     .tooltip(tr(
                         "基础色/自发光贴图 sRGB 采样",
@@ -109,14 +108,13 @@ impl AssetViewerWindowView {
                     ))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.srgb_textures = !this.srgb_textures;
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     })),
             )
             .children((0..self.hidden_sections.len()).map(|index| {
                 let visible = !self.hidden_sections[index];
                 let mut section_button = button(format!("model-section-{index}"))
-                    .xsmall()
                     .label(format!("S{index}"))
                     .tooltip(tr(
                         "切换 section/材质可见性",
@@ -126,7 +124,7 @@ impl AssetViewerWindowView {
                         if let Some(hidden) = this.hidden_sections.get_mut(index) {
                             *hidden = !*hidden;
                         }
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     }));
                 if visible {
@@ -153,7 +151,7 @@ impl AssetViewerWindowView {
                                             false;
                                             this.scene_mesh().map_or(0, |mesh| mesh.sections.len())
                                         ];
-                                    this.render_preview();
+                                    this.request_preview(cx);
                                     cx.notify();
                                 }
                             }))
@@ -241,7 +239,7 @@ impl AssetViewerWindowView {
                     ))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.skin_pose = !this.skin_pose;
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     }));
                 if self.skin_pose {
@@ -272,7 +270,7 @@ impl AssetViewerWindowView {
                                     lumark_render::ShadingMode::Lit
                                 }
                             };
-                            this.render_preview();
+                            this.request_preview(cx);
                             cx.notify();
                         })),
                 )
@@ -284,7 +282,7 @@ impl AssetViewerWindowView {
                         .tooltip(tr("显示/隐藏地面网格", "Toggle ground grid"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.show_grid = !this.show_grid;
-                            this.render_preview();
+                            this.request_preview(cx);
                             cx.notify();
                         })),
                 )
@@ -298,7 +296,7 @@ impl AssetViewerWindowView {
                         .tooltip(tr("显示/隐藏骨骼线段", "Toggle bone lines"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.show_bones = !this.show_bones;
-                            this.render_preview();
+                            this.request_preview(cx);
                             cx.notify();
                         })),
                 )

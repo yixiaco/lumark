@@ -64,11 +64,38 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     if let Some(viewer) = &resolved.viewer {
         println!(
-            "textures base={} normal={} orm={}",
+            "textures base={} normal={} orm={} ao={}",
             viewer.base_color.is_some(),
             viewer.normal.is_some(),
-            viewer.metallic_roughness.is_some()
+            viewer.metallic_roughness.is_some(),
+            viewer.occlusion.is_some()
         );
+        for (label, image) in [
+            ("base", viewer.base_color.as_ref()),
+            ("normal", viewer.normal.as_ref()),
+            ("orm", viewer.metallic_roughness.as_ref()),
+            ("ao", viewer.occlusion.as_ref()),
+        ] {
+            if let Some(image) = image {
+                let pixels = image.rgba.len() / 4;
+                let mut sums = [0u64; 4];
+                for pixel in image.rgba.as_chunks::<4>().0 {
+                    for channel in 0..4 {
+                        sums[channel] += u64::from(pixel[channel]);
+                    }
+                }
+                let count = pixels.max(1) as u64;
+                println!(
+                    "  {label}: {}x{} avg=({}, {}, {}, {})",
+                    image.width,
+                    image.height,
+                    sums[0] / count,
+                    sums[1] / count,
+                    sums[2] / count,
+                    sums[3] / count
+                );
+            }
+        }
     }
     for asset in &resolved.loaded_assets {
         println!("loaded={asset}");

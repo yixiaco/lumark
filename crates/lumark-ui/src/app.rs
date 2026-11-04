@@ -15,7 +15,7 @@ static IPC_POLL_OWNER: AtomicBool = AtomicBool::new(false);
 
 use gpui_kit::base::{StyledExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::{Notification, NotificationType};
 use gpui_kit::component::{ActiveTheme, Selectable, Sizable, TitleBar, WindowExt as _};
 use gpui_kit::prelude::*;
@@ -232,6 +232,17 @@ pub struct LumarkApp {
     compress_classic: bool,
     compress_password_visible: bool,
     sidebar_visible: bool,
+    /// 侧栏宽度（可拖动分栏；同时用于文件表/平铺列宽估算）。
+    sidebar_width: f32,
+    /// 侧栏详细信息面板高度（可拖动分栏）。
+    details_height: f32,
+    /// 主窗口左右分栏状态。
+    sidebar_state: gpui_kit::Entity<gpui_kit::base::ResizableState>,
+    /// 侧栏上下分栏状态。
+    details_state: gpui_kit::Entity<gpui_kit::base::ResizableState>,
+    /// 分栏尺寸变化订阅；窗口存活期间保持订阅。
+    sidebar_resize_subscription: Option<gpui_kit::Subscription>,
+    details_resize_subscription: Option<gpui_kit::Subscription>,
     extract_output: gpui_kit::Entity<InputState>,
     extract_password: gpui_kit::Entity<InputState>,
     password_label: gpui_kit::Entity<InputState>,
@@ -283,6 +294,8 @@ pub struct LumarkApp {
     search_mode: SearchMode,
     /// 搜索时按资产类型过滤；`None` 表示不限类型。
     search_category: Option<lumark_browser::AssetCategory>,
+    /// 搜索框回车事件订阅；键盘确认与「搜索」按钮走同一条立即生效路径。
+    search_subscription: Option<gpui_kit::Subscription>,
     details_visible: bool,
     column_layout: u8,
     tile_view: bool,
@@ -354,10 +367,18 @@ pub struct LumarkApp {
     /// 主窗口记录的游戏编辑窗口句柄，用于在窗口关闭后刷新游戏库列表。
     game_editor_window: Option<gpui_kit::AnyWindowHandle>,
     details_preview: Option<view::DetailsPreview>,
+    /// 当前游戏目录按类名解析出的资产类型；键为容器内相对路径。
+    game_asset_classes: HashMap<String, lumark_unreal::AssetKind>,
+    /// 资产类型扫描代号；目录切换后丢弃过期结果。
+    game_asset_class_scan: u64,
+    /// 已触发类型扫描的「容器 + 目录」键，避免每帧重复扫描。
+    game_asset_class_key: Option<String>,
     details_mesh: Option<lumark_unreal::MeshLod>,
     details_lods: Vec<lumark_unreal::MeshLod>,
     details_skins: Vec<Option<lumark_unreal::SkinWeights>>,
     details_material_names: Vec<String>,
+    /// 网格资产已解析的材质（含贴图），供交互查看器复用。
+    details_materials: std::sync::Arc<Vec<lumark_unreal::ResolvedMaterial>>,
     details_animation: Option<lumark_unreal::AnimSequenceData>,
     details_skeleton: Option<lumark_unreal::Skeleton>,
     /// 材质详情预览对应的交互式查看器数据。
@@ -441,6 +462,8 @@ impl LumarkApp {
         let settings_error = stores.settings_error.clone();
         let settings_snapshot = settings.get();
         crate::i18n::set_language(&settings_snapshot.language);
+        // 运行期 Oodle 偏好早于任何容器读取生效，保证「移除 DLL」后立即走 Rust。
+        lumark_archive::set_oodle_prefer_rust(settings_snapshot.oodle_prefer_rust);
         let headless_shell_host = request.as_ref().is_some_and(|request| {
             matches!(
                 request.mode,
@@ -490,7 +513,9 @@ impl LumarkApp {
         let master_remove = new_input(window, cx, "当前主密码", true);
         let archive_password_input = new_input(window, cx, "压缩包密码", true);
         let location_input = new_input(window, cx, "输入路径后按“转到”", false);
-        let search_input = new_input(window, cx, "搜索名称或通配符", false);
+        let search_input = new_input(window, cx, "搜索名称（包含匹配）", false);
+        let sidebar_state = cx.new(|_| gpui_kit::base::ResizableState::default());
+        let details_state = cx.new(|_| gpui_kit::base::ResizableState::default());
         let new_folder_name = new_input(window, cx, "新文件夹名称", false);
         let rename_name = new_input(window, cx, "新名称", false);
         let password_search = new_input(window, cx, "搜索名称、备注或匹配规则", false);
@@ -547,6 +572,12 @@ impl LumarkApp {
             compress_classic: false,
             compress_password_visible: false,
             sidebar_visible: true,
+            sidebar_width: settings_snapshot.sidebar_width.clamp(200.0, 480.0),
+            details_height: settings_snapshot.details_height.clamp(120.0, 420.0),
+            sidebar_state,
+            details_state,
+            sidebar_resize_subscription: None,
+            details_resize_subscription: None,
             extract_output,
             extract_password,
             password_label,
@@ -592,8 +623,9 @@ impl LumarkApp {
             location_input,
             search_input,
             search_results: None,
-            search_mode: SearchMode::Wildcard,
+            search_mode: SearchMode::Contains,
             search_category: None,
+            search_subscription: None,
             details_visible,
             column_layout: settings_snapshot.column_layout.min(2),
             tile_view: false,
@@ -652,10 +684,14 @@ impl LumarkApp {
             game_editor_only: false,
             game_editor_window: None,
             details_preview: None,
+            game_asset_classes: HashMap::new(),
+            game_asset_class_scan: 0,
+            game_asset_class_key: None,
             details_mesh: None,
             details_lods: Vec::new(),
             details_skins: Vec::new(),
             details_material_names: Vec::new(),
+            details_materials: std::sync::Arc::new(Vec::new()),
             details_animation: None,
             details_skeleton: None,
             details_material: None,
@@ -674,6 +710,47 @@ impl LumarkApp {
             app.status = format!("密码库不可用：{error}");
         }
         cleanup_stale_temp_dirs();
+        // 搜索框回车直接执行搜索，不再要求用户再点一次「搜索」按钮。
+        app.search_subscription = Some(cx.subscribe(
+            &app.search_input,
+            |app, _input, event: &InputEvent, cx| {
+                if matches!(
+                    event,
+                    InputEvent::PressEnter {
+                        secondary: false,
+                        ..
+                    }
+                ) {
+                    app.run_search(cx);
+                    cx.notify();
+                }
+            },
+        ));
+        // 分栏拖动结束后落盘；ResizableState 只在拖动结束时发事件。
+        app.sidebar_resize_subscription = Some(cx.subscribe(
+            &app.sidebar_state,
+            |app, state, _event: &gpui_kit::base::ResizablePanelEvent, cx| {
+                if let Some(width) = state.read(cx).sizes().first().copied() {
+                    app.sidebar_width = width.as_f32().clamp(200.0, 480.0);
+                    let _ = app
+                        .settings
+                        .update(|settings| settings.sidebar_width = app.sidebar_width);
+                }
+                cx.notify();
+            },
+        ));
+        app.details_resize_subscription = Some(cx.subscribe(
+            &app.details_state,
+            |app, state, _event: &gpui_kit::base::ResizablePanelEvent, cx| {
+                if let Some(height) = state.read(cx).sizes().first().copied() {
+                    app.details_height = height.as_f32().clamp(120.0, 420.0);
+                    let _ = app
+                        .settings
+                        .update(|settings| settings.details_height = app.details_height);
+                }
+                cx.notify();
+            },
+        ));
         if let Some(request) = request {
             app.apply_startup_request(request, window, cx);
         }
@@ -773,7 +850,7 @@ impl LumarkApp {
         let stores = self.shared_stores();
         let options = window_options(&stores);
         if let Err(error) = gpui_kit::open_window(options, cx, move |window, cx| {
-            window.on_next_frame(|window, _| window.activate_window());
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| Self::new_shared(window, cx, stores, start_dir, request))
         }) {
             eprintln!("无法打开 Lumark 窗口：{error}");
@@ -954,6 +1031,7 @@ pub fn run() -> anyhow::Result<()> {
             rust_i18n::extend!(gpui_component);
             gpui_kit::init(cx);
             gpui_kit::open_window(window_options, cx, move |window, cx| {
+                window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
                 cx.new(|cx| LumarkApp::new_shared(window, cx, stores, None, request))
             })
             .expect("open Lumark window");

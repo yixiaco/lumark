@@ -16,7 +16,15 @@ mod skin;
 
 pub use gpu::{GpuError, GpuRenderer};
 
-use lumark_scene::Scene;
+use lumark_scene::{Bounds, Scene};
+
+/// 计算渲染取景使用的场景包围盒。
+///
+/// 蒙皮网格按关节矩阵变换后的顶点统计；静态网格按节点世界变换统计。
+/// 查看器/离屏导出用该包围盒拟合相机，避免蒙皮模型取景偏移。
+pub fn render_bounds(scene: &Scene) -> Bounds {
+    skin::render_bounds(scene)
+}
 
 /// 场景渲染统计（V-20 状态/性能展示）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -75,6 +83,33 @@ pub enum ShadingMode {
     Normals,
 }
 
+/// 光照模式。
+///
+/// `Studio` 是查看器最初的观感（双方向光 + 环境光），作为默认值保证既有
+/// 渲染结果与测试不回归；`Headlight` 对齐 FModel Snooper `default.frag`：
+/// 以视线方向为头灯，漫反射取 `max(N·V, 0.4)`，高光用 Schlick + GGX。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LightingMode {
+    /// 双方向光 + 环境光（默认）。
+    #[default]
+    Studio,
+    /// 视线方向头灯（FModel 观感）。
+    Headlight,
+}
+
+/// 法线贴图的切线空间约定。
+///
+/// 两种约定只在副切线方向上不同：UE 网格切线使用 `cross(N, T) * sign(w)`，
+/// 而 FModel Snooper 固定使用 `-cross(N, T)` 并忽略 `w`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NormalMapConvention {
+    /// UE 网格切线约定（默认，保留既有渲染结果）。
+    #[default]
+    Ue,
+    /// FModel Snooper 约定。
+    Fmodel,
+}
+
 /// 渲染设置。
 #[derive(Debug, Clone)]
 pub struct RenderSettings {
@@ -114,6 +149,10 @@ pub struct RenderSettings {
     pub wireframe: bool,
     /// 着色模式。
     pub shading: ShadingMode,
+    /// 光照模式（Studio 默认 / Headlight 对齐 FModel）。
+    pub lighting_mode: LightingMode,
+    /// 法线贴图切线空间约定（Ue 默认 / Fmodel）。
+    pub normal_map_convention: NormalMapConvention,
     /// 是否显示地面网格。
     pub show_grid: bool,
     /// 是否显示骨骼线段。
@@ -130,10 +169,11 @@ impl Default for RenderSettings {
             width: 512,
             height: 512,
             background: [0.025, 0.03, 0.04],
-            fov_y_degrees: 40.0,
+            // FModel 查看器默认：45° 垂直视场、约 1.05 倍拟合距离（模型占满画面）。
+            fov_y_degrees: 45.0,
             yaw_degrees: 35.0,
             pitch_degrees: 20.0,
-            distance_scale: 2.2,
+            distance_scale: 1.05,
             target_offset: [0.0; 3],
             key_direction: [0.4, -0.55, 0.75],
             key_color: [1.0, 0.97, 0.92],
@@ -145,6 +185,8 @@ impl Default for RenderSettings {
             srgb_textures: true,
             wireframe: false,
             shading: ShadingMode::Lit,
+            lighting_mode: LightingMode::Studio,
+            normal_map_convention: NormalMapConvention::Ue,
             show_grid: false,
             show_bones: false,
             hidden_material_slots: Vec::new(),
@@ -264,7 +306,7 @@ pub fn render_scene(scene: &Scene, settings: &RenderSettings) -> Result<RenderTa
     let supersample = settings.supersample.clamp(1, 4);
     let width = settings.width * supersample;
     let height = settings.height * supersample;
-    let bounds = scene.compute_bounds();
+    let bounds = render_bounds(scene);
     let camera = camera::Camera::fit(&bounds, settings);
     let rgba = raster::render(scene, settings, &camera, width, height);
     let rgba = if supersample > 1 {

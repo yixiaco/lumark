@@ -14,8 +14,8 @@ impl AssetViewerWindowView {
             .bg(cx.theme().status_bar)
             .text_xs()
             .text_color(cx.theme().muted_foreground)
-            .child(match &self.scene {
-                ViewerScene::Mesh { lods } => {
+            .child(match self.scene.as_ref() {
+                ViewerScene::Mesh { lods, .. } => {
                     let mesh = lods.get(self.lod_index).or_else(|| lods.first());
                     match mesh {
                         Some(mesh) => format!(

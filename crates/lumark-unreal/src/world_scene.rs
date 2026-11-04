@@ -8,10 +8,12 @@ use std::collections::HashMap;
 
 use lumark_scene::{NodeKind, Scene, SceneNode, Transform};
 
-use crate::scene::{UE_UNIT_SCALE, convert_mesh};
+use crate::materials::MaterialResolveOptions;
+use crate::scene::{UE_UNIT_SCALE, add_material, convert_mesh};
 use crate::source::GameAssetSource;
 use crate::{
-    Mappings, PackageError, PackageExport, PackageInfo, PropValue, UnrealPackage, parse_package,
+    Mappings, MaterialSlot, PackageError, PackageExport, PackageInfo, PropValue, UnrealPackage,
+    parse_package, resolve_material_slots,
 };
 
 /// 世界场景加载选项。
@@ -23,6 +25,8 @@ pub struct WorldSceneOptions {
     pub max_meshes: usize,
     /// 是否把无法解析的 Actor 写入 warnings。
     pub warn_skipped: bool,
+    /// 网格材质解析选项；`None` 表示世界网格使用默认材质。
+    pub material_options: Option<MaterialResolveOptions>,
 }
 
 impl Default for WorldSceneOptions {
@@ -31,6 +35,7 @@ impl Default for WorldSceneOptions {
             max_actors: 10_000,
             max_meshes: 10_000,
             warn_skipped: true,
+            material_options: Some(MaterialResolveOptions::default()),
         }
     }
 }
@@ -104,15 +109,41 @@ pub fn load_world_scene(
             mappings,
             &mut package_cache,
         ) {
-            Ok(Some((mesh_name, mesh, transform))) => {
-                let mesh_handle = scene.add_mesh(convert_mesh(&mesh, &mesh_name));
-                report.triangle_count += mesh.indices.len() / 3;
+            Ok(Some(instance)) => {
+                let mesh_handle = scene.add_mesh(convert_mesh(&instance.mesh, &instance.name));
+                // 世界网格的材质按网格包路径 + 槽名解析；解析失败时回退默认材质。
+                let mut material_handles = Vec::new();
+                if let Some(material_options) = &options.material_options {
+                    let resolved = match &instance.mesh_path {
+                        Some(mesh_path) => resolve_material_slots(
+                            source,
+                            mesh_path,
+                            &instance.material_slots,
+                            Some(mappings),
+                            material_options,
+                        ),
+                        None => Vec::new(),
+                    };
+                    for material in &resolved {
+                        if material.appearance.is_none() {
+                            report.warnings.push(format!(
+                                "世界网格 {} 的材质槽 {} 未解析到材质",
+                                instance.name, material.slot.name
+                            ));
+                        }
+                        for warning in &material.warnings {
+                            report.warnings.push(warning.clone());
+                        }
+                        material_handles.push(add_material(&mut scene, material));
+                    }
+                }
+                report.triangle_count += instance.mesh.indices.len() / 3;
                 scene.add_node(SceneNode {
                     name: actor.name.clone(),
                     parent: None,
-                    transform,
+                    transform: instance.transform,
                     mesh: Some(mesh_handle),
-                    materials: Vec::new(),
+                    materials: material_handles,
                     visible: true,
                     kind: NodeKind::StaticMesh,
                     metadata: vec![("class".to_string(), actor.class_name.clone())],
@@ -147,6 +178,20 @@ fn is_static_mesh_actor(class_name: &str) -> bool {
     class_name == "StaticMeshActor" || class_name.ends_with("_C") && class_name.contains("Static")
 }
 
+/// 从 World Actor 解析出的静态网格实例。
+struct WorldMeshInstance {
+    /// 网格资产名。
+    name: String,
+    /// 首个 LOD 几何。
+    mesh: crate::MeshLod,
+    /// 材质槽（顺序与 section 对应）。
+    material_slots: Vec<MaterialSlot>,
+    /// 网格所在的容器内路径（用于定位材质包）。
+    mesh_path: Option<String>,
+    /// 世界变换。
+    transform: Transform,
+}
+
 /// 读取 Actor 的组件、网格与变换。
 fn actor_instance(
     source: &GameAssetSource,
@@ -155,7 +200,7 @@ fn actor_instance(
     imported_ids: &[u64],
     mappings: &Mappings,
     package_cache: &mut HashMap<u64, UnrealPackage>,
-) -> Result<Option<(String, crate::package::MeshLod, Transform)>, PackageError> {
+) -> Result<Option<WorldMeshInstance>, PackageError> {
     let actor_class = world
         .info()
         .exports
@@ -197,7 +242,13 @@ fn actor_instance(
         )));
     }
     let static_mesh = target.read_static_mesh(export_index, mappings)?;
-    Ok(Some((static_mesh.name, static_mesh.lod, transform)))
+    Ok(Some(WorldMeshInstance {
+        name: static_mesh.name,
+        mesh: static_mesh.lod,
+        material_slots: static_mesh.material_slots,
+        mesh_path: source.package_path_for_id(target_package),
+        transform,
+    }))
 }
 
 /// 解析一条包导入：返回 (目标包 ID, 目标公共导出哈希)。
@@ -206,37 +257,12 @@ fn resolve_package_import(
     imported_ids: &[u64],
     import_index: usize,
 ) -> Result<(u64, u64), PackageError> {
-    let raw = *info
-        .import_map
-        .get(import_index)
-        .ok_or_else(|| PackageError::Unsupported("导入索引越界".to_string()))?;
-    if raw == u64::MAX {
-        return Err(PackageError::Unsupported("空导入索引".to_string()));
-    }
-    let kind = raw >> 62;
-    if kind != 2 {
-        return Err(PackageError::Unsupported(format!(
-            "导入类型 {kind} 不是 PackageImport"
-        )));
-    }
-    let value = raw & ((1u64 << 62) - 1);
-    let package_index = (value >> 32) as usize;
-    let hash_index = (value & 0xffff_ffff) as usize;
-    let package_id = *imported_ids
-        .get(package_index)
-        .ok_or_else(|| PackageError::Unsupported(format!("导入包索引 {package_index} 越界")))?;
-    let hash = *info
-        .imported_public_export_hashes
-        .get(hash_index)
-        .ok_or_else(|| PackageError::Unsupported(format!("公共导出哈希索引 {hash_index} 越界")))?;
-    Ok((package_id, hash))
+    crate::imports::resolve_package_import(info, imported_ids, import_index)
 }
 
 /// 按公共导出哈希查找导出。
 fn find_export_by_public_hash(exports: &[PackageExport], hash: u64) -> Option<usize> {
-    exports
-        .iter()
-        .position(|export| export.public_export_hash == hash)
+    crate::imports::find_export_by_public_hash(exports, hash)
 }
 
 /// 属性中的对象 → 导出索引（正值为 package index，导出 = value - 1）。
@@ -345,29 +371,6 @@ mod tests {
 
     fn float(value: f64) -> PropValue {
         PropValue::Float(value)
-    }
-
-    #[test]
-    fn decodes_package_import_reference() {
-        // type=2, package_index=0x52, hash_index=0
-        let info = PackageInfo {
-            package_name: "Test".to_string(),
-            file_version_ue4: 0,
-            file_version_ue5: 0,
-            header_version: 5,
-            names: Vec::new(),
-            import_map: vec![0x8000_0052_0000_0000],
-            imported_public_export_hashes: vec![0xAAAA],
-            bulk_data: Vec::new(),
-            exports: Vec::new(),
-        };
-        let ids = vec![0u64; 0x53];
-        let mut ids = ids;
-        ids[0x52] = 0x1234;
-        assert_eq!(
-            resolve_package_import(&info, &ids, 0).unwrap(),
-            (0x1234, 0xAAAA)
-        );
     }
 
     #[test]

@@ -375,7 +375,7 @@ unsafe fn create_window(state_ptr: *mut ProgressState) -> windows_sys::Win32::Fo
     SetWindowLongPtrW(
         hwnd,
         windows_sys::Win32::UI::WindowsAndMessaging::GWLP_USERDATA,
-        state_ptr as isize,
+        state_ptr as win::LongPtr,
     );
 
     let state = &mut *state_ptr;

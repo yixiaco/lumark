@@ -650,7 +650,9 @@ impl LumarkApp {
     ) {
         if let Some(handle) = self.compress_window
             && handle
-                .update(cx, |_, window, _| window.activate_window())
+                .update(cx, |_, window, _| {
+                    crate::window_focus::activate_and_raise(window)
+                })
                 .is_ok()
         {
             return;
@@ -730,6 +732,7 @@ impl LumarkApp {
             ..TitleBar::window_options()
         };
         let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| {
                 CompressWindowView::new(
                     app.clone(),

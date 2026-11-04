@@ -212,6 +212,7 @@ fn viewer_data(
         base_color: image(base),
         normal: image(normal),
         metallic_roughness: image(orm),
+        occlusion: None,
     }
 }
 
@@ -272,6 +273,8 @@ pub(super) fn load_legacy_material_preview(
         orm_texture.as_ref().map(|texture| {
             MaterialPreviewTexture::new(&texture.rgba, texture.width, texture.height)
         }),
+        None,
+        lumark_unreal::MaterialBallSettings::default(),
         size,
     );
     let image = image::RgbaImage::from_raw(size, size, rgba)?;
@@ -468,6 +471,8 @@ pub(super) fn load_zen_material_preview(
                 texture.texture.height,
             )
         }),
+        None,
+        lumark_unreal::MaterialBallSettings::default(),
         size,
     );
     let image = image::RgbaImage::from_raw(size, size, rgba)?;

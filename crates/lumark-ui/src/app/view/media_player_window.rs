@@ -482,7 +482,8 @@ impl LumarkApp {
             window_min_size: Some(gpui_kit::size(px(560.), px(360.))),
             ..TitleBar::window_options()
         };
-        let result = gpui_kit::open_window(options, cx, move |_window, cx| {
+        let result = gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| MediaPlayerWindowView::new(path.clone(), name.clone(), cx))
         });
         match result {

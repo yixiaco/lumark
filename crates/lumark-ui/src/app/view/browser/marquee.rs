@@ -8,8 +8,10 @@
 pub(super) const LIST_ROW_HEIGHT: f32 = 31.0;
 /// 平铺视图行高。
 pub(super) const TILE_ROW_HEIGHT: f32 = 132.0;
-/// 平铺卡片宽度。
-pub(super) const TILE_WIDTH: f32 = 120.0;
+/// 平铺卡片的参考宽度；实际宽度按可用空间均分。
+pub(super) const TILE_NOMINAL_WIDTH: f32 = 120.0;
+/// 平铺卡片最小宽度；窄窗口下减少列数而不是继续压缩。
+pub(super) const TILE_MIN_WIDTH: f32 = 96.0;
 /// 平铺卡片水平间距。
 pub(super) const TILE_GAP: f32 = 8.0;
 /// 平铺视图左右内边距。
@@ -20,6 +22,56 @@ pub(super) const SCROLLBAR_GUARD: f32 = 14.0;
 pub(super) const MIN_MARQUEE_DRAG: f32 = 3.0;
 /// 靠近上下边缘时触发自动滚动的距离。
 pub(super) const AUTOSCROLL_EDGE: f32 = 24.0;
+
+/// 平铺视图的列布局；卡片宽度按可用宽度均分，避免右侧留下空白。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct TileMetrics {
+    /// 每行列数。
+    pub(super) columns: usize,
+    /// 卡片宽度。
+    pub(super) tile_width: f32,
+    /// 卡片中心距（宽度 + 间距）。
+    pub(super) pitch: f32,
+    /// 行高。
+    pub(super) row_height: f32,
+    /// 左右内边距。
+    pub(super) padding: f32,
+}
+
+impl TileMetrics {
+    /// 根据文件表可用宽度计算平铺布局；列表视图返回单列。
+    pub(super) fn for_width(width: f32, tile: bool) -> Self {
+        if !tile {
+            return Self {
+                columns: 1,
+                tile_width: width.max(1.0),
+                pitch: width.max(1.0),
+                row_height: LIST_ROW_HEIGHT,
+                padding: 0.0,
+            };
+        }
+        let available = (width - TILE_PADDING_X * 2.0).max(TILE_MIN_WIDTH);
+        let mut columns = ((available + TILE_GAP) / (TILE_NOMINAL_WIDTH + TILE_GAP))
+            .floor()
+            .max(1.0) as usize;
+        let tile_width_for = |columns: usize| {
+            (available - TILE_GAP * columns.saturating_sub(1) as f32) / columns as f32
+        };
+        let mut tile_width = tile_width_for(columns);
+        // 窄窗口先减列，保证卡片不小于最小可读宽度。
+        while tile_width < TILE_MIN_WIDTH && columns > 1 {
+            columns -= 1;
+            tile_width = tile_width_for(columns);
+        }
+        Self {
+            columns,
+            tile_width,
+            pitch: tile_width + TILE_GAP,
+            row_height: TILE_ROW_HEIGHT,
+            padding: TILE_PADDING_X,
+        }
+    }
+}
 
 /// 一次框选所需的文件表布局快照。
 pub(super) struct MarqueeLayout {
@@ -41,6 +93,12 @@ pub(super) struct MarqueeLayout {
     pub(super) row_count: usize,
     /// 平铺列数；详情列表固定为 1。
     pub(super) tile_columns: usize,
+    /// 平铺卡片宽度（与渲染使用的动态宽度一致）。
+    pub(super) tile_width: f32,
+    /// 平铺卡片中心距（宽度 + 间距）。
+    pub(super) tile_pitch: f32,
+    /// 平铺视图左右内边距。
+    pub(super) tile_padding: f32,
     /// 是否为平铺视图。
     pub(super) tile: bool,
 }
@@ -73,16 +131,16 @@ impl MarqueeLayout {
         }
         let row = self.virtual_row(y);
         if self.tile {
-            let content_x = x - self.left - TILE_PADDING_X;
+            let content_x = x - self.left - self.tile_padding;
             if content_x < 0.0 {
                 return None;
             }
-            let column = (content_x / (TILE_WIDTH + TILE_GAP)).floor() as usize;
+            let column = (content_x / self.tile_pitch).floor() as usize;
             if column >= self.tile_columns {
                 return None;
             }
             // 卡片之间的水平间隙属于空白区域，不命中卡片。
-            if content_x - column as f32 * (TILE_WIDTH + TILE_GAP) >= TILE_WIDTH {
+            if content_x - column as f32 * self.tile_pitch >= self.tile_width {
                 return None;
             }
             let index = row * self.tile_columns + column;
@@ -122,10 +180,10 @@ impl MarqueeLayout {
         let last_row = self.virtual_row(bottom);
         let mut entries = Vec::new();
         if self.tile {
-            let content_left = left - self.left - TILE_PADDING_X;
-            let content_right = right - self.left - TILE_PADDING_X;
-            let first_column = (content_left.max(0.0) / (TILE_WIDTH + TILE_GAP)).floor() as usize;
-            let last_column = (content_right.max(0.0) / (TILE_WIDTH + TILE_GAP)).floor() as usize;
+            let content_left = left - self.left - self.tile_padding;
+            let content_right = right - self.left - self.tile_padding;
+            let first_column = (content_left.max(0.0) / self.tile_pitch).floor() as usize;
+            let last_column = (content_right.max(0.0) / self.tile_pitch).floor() as usize;
             for row in first_row..=last_row.min(self.row_count.saturating_sub(1)) {
                 for column in first_column..=last_column.min(self.tile_columns.saturating_sub(1)) {
                     let index = row * self.tile_columns + column;
@@ -202,8 +260,40 @@ mod tests {
             parent_row,
             row_count: 10,
             tile_columns: 1,
+            tile_width: 600.0,
+            tile_pitch: 600.0,
+            tile_padding: 0.0,
             tile: false,
         }
+    }
+
+    /// 平铺布局：各列宽度均分可用宽度，窄窗口通过减少列数保证最小宽度。
+    #[test]
+    fn tile_metrics_fill_available_width() {
+        for width in [420.0_f32, 700.0, 1024.0, 1600.0] {
+            let metrics = TileMetrics::for_width(width, true);
+            assert!(metrics.columns >= 1);
+            assert!(
+                metrics.tile_width >= TILE_MIN_WIDTH,
+                "{width}: {:?}",
+                metrics
+            );
+            let used = metrics.padding * 2.0
+                + metrics.tile_width * metrics.columns as f32
+                + TILE_GAP * metrics.columns.saturating_sub(1) as f32;
+            assert!(
+                (used - width).abs() < 0.5,
+                "{width} 宽应铺满：used={used} metrics={metrics:?}"
+            );
+        }
+        // 极窄宽度至少保留一列，不产生 0 宽度卡片。
+        let narrow = TileMetrics::for_width(120.0, true);
+        assert_eq!(narrow.columns, 1);
+        assert!(narrow.tile_width >= TILE_MIN_WIDTH);
+        // 列表视图固定单列并使用列表行高。
+        let list = TileMetrics::for_width(640.0, false);
+        assert_eq!(list.columns, 1);
+        assert_eq!(list.row_height, LIST_ROW_HEIGHT);
     }
 
     /// 验证详情列表按行命中，滚动偏移参与换算。
@@ -260,6 +350,9 @@ mod tests {
             parent_row: true,
             row_count: 7,
             tile_columns: 3,
+            tile_width: 120.0,
+            tile_pitch: 128.0,
+            tile_padding: TILE_PADDING_X,
             tile: true,
         };
         assert_eq!(layout.virtual_index_at(112.0, 60.0), Some(0));

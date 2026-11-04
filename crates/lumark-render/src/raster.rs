@@ -1,12 +1,13 @@
 //! CPU 光栅化：三角形收集、近裁面裁剪、Z-buffer 与近似 PBR 着色。
 
-use lumark_scene::{MaterialData, MeshData, Scene, TextureData};
+use lumark_scene::{MaterialData, MeshData, OrmLayout, Scene, TextureData};
 
 use crate::RenderSettings;
 use crate::ShadingMode;
 use crate::camera::{Camera, cross, dot, normalize, sub};
 use crate::overlay;
 use crate::skin;
+use crate::{LightingMode, NormalMapConvention};
 
 /// 近裁面阈值（裁剪空间 w）。
 const NEAR_EPSILON: f32 = 1.0e-4;
@@ -25,6 +26,7 @@ pub(crate) fn render(
         height,
         color: vec![[0.0f32; 3]; pixel_count],
         depth: vec![f32::INFINITY; pixel_count],
+        translucent: Vec::new(),
     };
     // 背景：自上而下略微变亮的渐变。
     let background = settings.background;
@@ -107,6 +109,7 @@ pub(crate) fn render(
             }
         }
     }
+    frame.resolve_translucent();
     draw_overlays(scene, settings, camera, &mut frame);
     frame.to_rgba8()
 }
@@ -607,8 +610,15 @@ fn project_and_raster(
                 color,
             };
             let shaded = shade(&surface, material, lights, settings, camera);
-            // 首版 alpha 采用 0.5 阈值裁剪，避免排序与混合复杂度。
-            if shaded[3] < 0.5 {
+            // Masked 材质按阈值裁剪；Opaque 材质 alpha_cutoff=0，不裁剪。
+            if material.alpha_cutoff > 0.0 && shaded[3] < material.alpha_cutoff {
+                continue;
+            }
+            if material.translucent {
+                // 半透明片元先收集，全部三角形绘制后按由远到近混合。
+                if shaded[3] > 0.001 {
+                    frame.translucent.push((offset, depth, shaded));
+                }
                 continue;
             }
             frame.color[offset] = [shaded[0], shaded[1], shaded[2]];
@@ -667,6 +677,12 @@ fn shade(
         ];
         alpha *= sampled[3];
     }
+    if let Some(texture) = material.textures.occlusion.as_ref() {
+        // 与 FModel 一致：AO 贴图 R 通道直接乘到基础色上。
+        let sampled = sample_texture(texture, surface.uv);
+        let ao = srgb_to_linear(sampled[0]).clamp(0.0, 1.0);
+        base = [base[0] * ao, base[1] * ao, base[2] * ao];
+    }
     base = [
         base[0] * surface.color[0],
         base[1] * surface.color[1],
@@ -675,52 +691,22 @@ fn shade(
     if settings.shading == ShadingMode::Unlit {
         return [base[0], base[1], base[2], alpha];
     }
-    // ORM：R=环境光遮蔽、G=粗糙度、B=金属度（线性数据）。
-    let mut metallic = material.metallic.clamp(0.0, 1.0);
-    let mut roughness = material.roughness.clamp(0.04, 1.0);
-    let mut occlusion = 1.0f32;
-    if let Some(texture) = material.textures.metallic_roughness.as_ref() {
-        let sampled = sample_texture(texture, surface.uv);
-        occlusion = sampled[0];
-        roughness = (roughness * sampled[1]).clamp(0.04, 1.0);
-        metallic = (metallic * sampled[2]).clamp(0.0, 1.0);
-    }
+    let (occlusion, roughness, metallic) = resolve_pbr_params(material, surface.uv);
     let mut normal = normalize(surface.normal);
     if let Some(texture) = material.textures.normal.as_ref() {
-        let sampled = sample_texture(texture, surface.uv);
-        let tangent_normal = [
-            sampled[0] * 2.0 - 1.0,
-            sampled[1] * 2.0 - 1.0,
-            sampled[2] * 2.0 - 1.0,
-        ];
-        let tangent_dot = dot(
+        normal = apply_normal_texture(
             normal,
-            [surface.tangent[0], surface.tangent[1], surface.tangent[2]],
+            surface.tangent,
+            texture,
+            surface.uv,
+            settings.normal_map_convention,
         );
-        let tangent = normalize([
-            surface.tangent[0] - normal[0] * tangent_dot,
-            surface.tangent[1] - normal[1] * tangent_dot,
-            surface.tangent[2] - normal[2] * tangent_dot,
-        ]);
-        let bitangent = cross(normal, tangent);
-        let scale = surface.tangent[3].signum();
-        normal = normalize([
-            tangent[0] * tangent_normal[0]
-                + bitangent[0] * tangent_normal[1] * scale
-                + normal[0] * tangent_normal[2],
-            tangent[1] * tangent_normal[0]
-                + bitangent[1] * tangent_normal[1] * scale
-                + normal[1] * tangent_normal[2],
-            tangent[2] * tangent_normal[0]
-                + bitangent[2] * tangent_normal[1] * scale
-                + normal[2] * tangent_normal[2],
-        ]);
     }
     let view = normalize(sub(camera.eye, surface.world));
-    if dot(normal, view) < 0.0 {
-        normal = [-normal[0], -normal[1], -normal[2]];
-    }
     if settings.shading == ShadingMode::Normals {
+        if dot(normal, view) < 0.0 {
+            normal = [-normal[0], -normal[1], -normal[2]];
+        }
         return [
             normal[0] * 0.5 + 0.5,
             normal[1] * 0.5 + 0.5,
@@ -728,41 +714,175 @@ fn shade(
             alpha,
         ];
     }
-    let shininess = (2.0 / (roughness * roughness * roughness * roughness)).clamp(4.0, 2048.0);
-    let ambient = settings.ambient_strength * occlusion;
-    let mut color = [base[0] * ambient, base[1] * ambient, base[2] * ambient];
-    for (direction, light_color, intensity) in lights {
-        let light = normalize(*direction);
-        let ndl = dot(normal, light).max(0.0);
-        if ndl <= 0.0 {
-            continue;
+    let mut color = match settings.lighting_mode {
+        LightingMode::Headlight => {
+            shade_headlight(base, normal, view, metallic, roughness, occlusion)
         }
-        let half_vector = normalize([light[0] + view[0], light[1] + view[1], light[2] + view[2]]);
-        let ndh = dot(normal, half_vector).max(0.0);
-        let specular = ndh.powf(shininess);
-        let specular_strength = 0.04 + metallic * 0.5;
-        let diffuse = ndl * intensity;
-        for channel in 0..3 {
-            let light_channel = light_color[channel];
-            color[channel] += base[channel] * light_channel * diffuse;
-            color[channel] += light_channel * specular * specular_strength * intensity;
+        LightingMode::Studio => {
+            // Studio 保持既有观感：法线朝视线方向翻转后走双方向光。
+            if dot(normal, view) < 0.0 {
+                normal = [-normal[0], -normal[1], -normal[2]];
+            }
+            let shininess =
+                (2.0 / (roughness * roughness * roughness * roughness)).clamp(4.0, 2048.0);
+            let ambient = settings.ambient_strength * occlusion;
+            let mut color = [base[0] * ambient, base[1] * ambient, base[2] * ambient];
+            for (direction, light_color, intensity) in lights {
+                let light = normalize(*direction);
+                let ndl = dot(normal, light).max(0.0);
+                if ndl <= 0.0 {
+                    continue;
+                }
+                let half_vector =
+                    normalize([light[0] + view[0], light[1] + view[1], light[2] + view[2]]);
+                let ndh = dot(normal, half_vector).max(0.0);
+                let specular = ndh.powf(shininess);
+                let specular_strength = 0.04 + metallic * 0.5;
+                let diffuse = ndl * intensity;
+                for channel in 0..3 {
+                    let light_channel = light_color[channel];
+                    color[channel] += base[channel] * light_channel * diffuse;
+                    color[channel] += light_channel * specular * specular_strength * intensity;
+                }
+            }
+            color
         }
-    }
-    let mut emissive = material.emissive;
+    };
     if let Some(texture) = material.textures.emissive.as_ref() {
         let sampled = sample_texture(texture, surface.uv);
-        emissive = [
-            emissive[0] * srgb_to_linear(sampled[0]),
-            emissive[1] * srgb_to_linear(sampled[1]),
-            emissive[2] * srgb_to_linear(sampled[2]),
+        color = [
+            color[0] + material.emissive[0] * srgb_to_linear(sampled[0]),
+            color[1] + material.emissive[1] * srgb_to_linear(sampled[1]),
+            color[2] + material.emissive[2] * srgb_to_linear(sampled[2]),
+        ];
+    } else {
+        color = [
+            color[0] + material.emissive[0],
+            color[1] + material.emissive[1],
+            color[2] + material.emissive[2],
         ];
     }
-    [
-        color[0] + emissive[0],
-        color[1] + emissive[1],
-        color[2] + emissive[2],
-        alpha,
-    ]
+    [color[0], color[1], color[2], alpha]
+}
+
+/// 按 ORM 布局解析环境光遮蔽、粗糙度与金属度。
+///
+/// `AoRoughMetal`：R=遮蔽、G=粗糙度、B=金属度；`SpecularMask`：G=金属度、
+/// B=粗糙度（R 通道暂不参与着色，遮蔽按 1 处理）。
+fn resolve_pbr_params(material: &MaterialData, uv: [f32; 2]) -> (f32, f32, f32) {
+    let mut occlusion = 1.0f32;
+    let mut roughness = material.roughness.clamp(0.04, 1.0);
+    let mut metallic = material.metallic.clamp(0.0, 1.0);
+    if let Some(texture) = material.textures.metallic_roughness.as_ref() {
+        let sampled = sample_texture(texture, uv);
+        match material.orm_layout {
+            OrmLayout::AoRoughMetal => {
+                occlusion = sampled[0];
+                roughness = (roughness * sampled[1]).clamp(0.04, 1.0);
+                metallic = (metallic * sampled[2]).clamp(0.0, 1.0);
+            }
+            OrmLayout::SpecularMask => {
+                occlusion = 1.0;
+                roughness = (roughness * sampled[2]).clamp(0.04, 1.0);
+                metallic = sampled[1].clamp(0.0, 1.0);
+            }
+        }
+    }
+    (occlusion, roughness, metallic)
+}
+
+/// 用切线空间法线贴图扰动世界法线。
+///
+/// `Ue`：切线正交化后副切线带 `w` 符号；`Fmodel`：FModel Snooper 的
+/// `-cross(N, T)` 副切线并忽略 `w`。
+fn apply_normal_texture(
+    normal: [f32; 3],
+    tangent: [f32; 4],
+    texture: &TextureData,
+    uv: [f32; 2],
+    convention: NormalMapConvention,
+) -> [f32; 3] {
+    let sampled = sample_texture(texture, uv);
+    let tangent_normal = [
+        sampled[0] * 2.0 - 1.0,
+        sampled[1] * 2.0 - 1.0,
+        sampled[2] * 2.0 - 1.0,
+    ];
+    let handedness = tangent[3].signum();
+    let tangent = normalize([tangent[0], tangent[1], tangent[2]]);
+    let bitangent = match convention {
+        NormalMapConvention::Ue => {
+            let tangent_dot = dot(normal, tangent);
+            let ortho = normalize([
+                tangent[0] - normal[0] * tangent_dot,
+                tangent[1] - normal[1] * tangent_dot,
+                tangent[2] - normal[2] * tangent_dot,
+            ]);
+            let cross_nt = cross(normal, ortho);
+            [
+                cross_nt[0] * handedness,
+                cross_nt[1] * handedness,
+                cross_nt[2] * handedness,
+            ]
+        }
+        NormalMapConvention::Fmodel => {
+            let cross_nt = cross(normal, tangent);
+            [-cross_nt[0], -cross_nt[1], -cross_nt[2]]
+        }
+    };
+    normalize([
+        tangent[0] * tangent_normal[0]
+            + bitangent[0] * tangent_normal[1]
+            + normal[0] * tangent_normal[2],
+        tangent[1] * tangent_normal[0]
+            + bitangent[1] * tangent_normal[1]
+            + normal[1] * tangent_normal[2],
+        tangent[2] * tangent_normal[0]
+            + bitangent[2] * tangent_normal[1]
+            + normal[2] * tangent_normal[2],
+    ])
+}
+
+/// FModel Snooper `default.frag` 风格的头灯着色。
+///
+/// 漫反射用 `max(N·V, 0.4)` 作为头灯强度（背面因此不会全黑）；高光按
+/// Schlick 菲涅尔 + GGX 分布 + Smith 几何项，光源与视线同向。
+fn shade_headlight(
+    base: [f32; 3],
+    normal: [f32; 3],
+    view: [f32; 3],
+    metallic: f32,
+    roughness: f32,
+    occlusion: f32,
+) -> [f32; 3] {
+    const PI: f32 = std::f32::consts::PI;
+    let n_dot_v_raw = dot(normal, view).max(0.0);
+    let diffuse_factor = n_dot_v_raw.max(0.4);
+    let n_dot_v = n_dot_v_raw.max(1.0e-4);
+    let n_dot_l = n_dot_v;
+    // 头灯方向的半程向量与视线同向，因此 H·V = 1、N·H = N·V。
+    let f0 = [
+        0.04 + (base[0] - 0.04) * metallic,
+        0.04 + (base[1] - 0.04) * metallic,
+        0.04 + (base[2] - 0.04) * metallic,
+    ];
+    let alpha2 = roughness * roughness * roughness * roughness;
+    let denominator = n_dot_v * n_dot_v * (alpha2 - 1.0) + 1.0;
+    let distribution = alpha2 / (PI * denominator * denominator);
+    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    let geometry = (n_dot_l / (n_dot_l * (1.0 - k) + k)) * (n_dot_v / (n_dot_v * (1.0 - k) + k));
+    let specular_denominator = 4.0 * n_dot_v * n_dot_l + 1.0e-4;
+    // kS = F（Schlick，H·V=1 时等于 F0），kD 按环境光遮蔽衰减。
+    let mut color = [0.0f32; 3];
+    for channel in 0..3 {
+        let fresnel = f0[channel];
+        let specular = distribution * geometry * fresnel / specular_denominator;
+        let kd = (1.0 - fresnel) * (1.0 - occlusion);
+        let diffuse_brdf = kd * base[channel] / PI;
+        let headlight = (diffuse_brdf + specular) * n_dot_l;
+        color[channel] = base[channel] * diffuse_factor + headlight;
+    }
+    color
 }
 
 /// sRGB 分量转线性。
@@ -819,9 +939,34 @@ struct Frame {
     height: u32,
     color: Vec<[f32; 3]>,
     depth: Vec<f32>,
+    /// 半透明片元：像素下标、深度、线性 RGBA；全部三角形后再按深度混合。
+    translucent: Vec<(usize, f32, [f32; 4])>,
 }
 
 impl Frame {
+    /// 按深度由远到近混合半透明片元（不写深度，仅与不透明帧缓冲混合）。
+    fn resolve_translucent(&mut self) {
+        self.translucent.sort_by(|left, right| {
+            right
+                .1
+                .partial_cmp(&left.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for (offset, _, source) in self.translucent.drain(..) {
+            let alpha = source[3].clamp(0.0, 1.0);
+            if alpha <= 0.0 {
+                continue;
+            }
+            let Some(destination) = self.color.get_mut(offset) else {
+                continue;
+            };
+            for channel in 0..3 {
+                destination[channel] =
+                    destination[channel] * (1.0 - alpha) + source[channel] * alpha;
+            }
+        }
+    }
+
     /// 色调映射 + gamma 编码为 RGBA8。
     fn to_rgba8(&self) -> Vec<u8> {
         let mut output = Vec::with_capacity(self.color.len() * 4);
@@ -856,6 +1001,9 @@ mod tests {
             emissive: [0.0; 3],
             textures: Default::default(),
             two_sided: false,
+            orm_layout: lumark_scene::OrmLayout::AoRoughMetal,
+            alpha_cutoff: 0.0,
+            translucent: false,
         });
         let mut mesh = MeshData::new(
             "Tri",
@@ -991,10 +1139,68 @@ mod tests {
         assert!(red_pixels > 0, "红色基础色贴图未生效");
     }
 
-    /// 基础色贴图 alpha < 0.5 的像素被裁剪。
+    /// AO 贴图 R 通道压暗基础色。
+    #[test]
+    fn occlusion_texture_darkens_base_color() {
+        let mut bright = triangle_scene([1.0; 4], 0.0);
+        bright.materials[0].textures.base_color = Some(TextureData {
+            name: "T_White".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![255, 255, 255, 255],
+        });
+        let mut dark = triangle_scene([1.0; 4], 0.0);
+        dark.materials[0].textures.base_color = Some(TextureData {
+            name: "T_White".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![255, 255, 255, 255],
+        });
+        dark.materials[0].textures.occlusion = Some(TextureData {
+            name: "T_AO".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![64, 64, 64, 255],
+        });
+        let sum = |rgba: &[u8]| {
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| u64::from(pixel[0]) + u64::from(pixel[1]) + u64::from(pixel[2]))
+                .sum::<u64>()
+        };
+        let bright = render(&bright, 96);
+        let dark = render(&dark, 96);
+        assert!(sum(&dark) < sum(&bright), "AO 贴图 R 通道应压暗基础色");
+    }
+
+    /// 半透明材质按 alpha 与背景混合，而不是直接覆盖。
+    #[test]
+    fn translucent_material_blends_with_background() {
+        let opaque_scene = triangle_scene([1.0, 0.0, 0.0, 1.0], 0.0);
+        let mut translucent_scene = triangle_scene([1.0, 0.0, 0.0, 1.0], 0.0);
+        translucent_scene.materials[0].translucent = true;
+        translucent_scene.materials[0].base_color = [1.0, 0.0, 0.0, 0.5];
+        let opaque = render(&opaque_scene, 96);
+        let translucent = render(&translucent_scene, 96);
+        let center = |rgba: &[u8]| {
+            let offset = (48 * 96 + 48) * 4;
+            (rgba[offset], rgba[offset + 1], rgba[offset + 2])
+        };
+        let opaque_pixel = center(&opaque);
+        let translucent_pixel = center(&translucent);
+        assert!(
+            translucent_pixel.0 < opaque_pixel.0,
+            "半透明红色应比不透明红色暗（与背景混合）"
+        );
+        assert!(translucent_pixel.0 > 0, "半透明红色仍应可见");
+    }
+
+    /// Masked 材质中基础色贴图 alpha < 0.5 的像素被裁剪。
     #[test]
     fn alpha_texture_culls_transparent_pixels() {
         let mut scene = triangle_scene([1.0; 4], 0.0);
+        scene.materials[0].alpha_cutoff = 0.5;
         scene.materials[0].textures.base_color = Some(TextureData {
             name: "T_Transparent".to_string(),
             width: 1,
@@ -1336,5 +1542,240 @@ mod tests {
             },
         ];
         assert!(clip_near(&behind).is_empty());
+    }
+
+    /// 位于 YZ 平面、法线朝 -X 的三角形：相机在 +X 方向时是背面。
+    fn back_facing_scene() -> Scene {
+        let mut scene = Scene::new("BackFace");
+        let mut material = MaterialData {
+            name: "Back".to_string(),
+            base_color: [1.0, 0.6, 0.3, 1.0],
+            two_sided: true,
+            ..MaterialData::default()
+        };
+        material.roughness = 0.6;
+        let material = scene.add_material(material);
+        let mut mesh = MeshData::new(
+            "BackTri",
+            vec![
+                [0.0, -100.0, -100.0],
+                [0.0, 100.0, -100.0],
+                [0.0, 100.0, 100.0],
+            ],
+            vec![0, 1, 2],
+        );
+        mesh.normals = vec![[-1.0, 0.0, 0.0]; 3];
+        mesh.sections = vec![MeshSection {
+            material_index: 0,
+            first_index: 0,
+            index_count: 3,
+        }];
+        let mesh = scene.add_mesh(mesh);
+        scene.add_node(SceneNode {
+            name: "BackTri".to_string(),
+            parent: None,
+            transform: Transform::IDENTITY,
+            mesh: Some(mesh),
+            materials: vec![Some(material)],
+            visible: true,
+            kind: NodeKind::StaticMesh,
+            metadata: Vec::new(),
+        });
+        scene
+    }
+
+    /// 头灯下背面（N·V<0）不会全黑，而 Studio 无环境光时保持黑色。
+    #[test]
+    fn headlight_keeps_back_facing_surface_visible() {
+        let base = RenderSettings {
+            width: 96,
+            height: 96,
+            supersample: 1,
+            background: [0.0; 3],
+            yaw_degrees: 0.0,
+            pitch_degrees: 0.0,
+            key_intensity: 0.0,
+            fill_intensity: 0.0,
+            ambient_strength: 0.0,
+            ..RenderSettings::default()
+        };
+        let headlight = crate::render_scene(
+            &back_facing_scene(),
+            &RenderSettings {
+                lighting_mode: LightingMode::Headlight,
+                ..base.clone()
+            },
+        )
+        .expect("头灯渲染")
+        .rgba;
+        let studio = crate::render_scene(&back_facing_scene(), &base)
+            .expect("Studio 渲染")
+            .rgba;
+        let max_channel = |rgba: &[u8]| {
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| pixel[0].max(pixel[1]).max(pixel[2]))
+                .max()
+                .unwrap_or(0)
+        };
+        assert!(
+            max_channel(&headlight) > 100,
+            "头灯背面应保持可见（0.4 下限），最大通道={}",
+            max_channel(&headlight)
+        );
+        assert!(
+            max_channel(&studio) < 20,
+            "Studio 无灯光时背面应接近黑色，最大通道={}",
+            max_channel(&studio)
+        );
+    }
+
+    /// 两种法线贴图约定在头灯下给出不同的法线方向。
+    #[test]
+    fn normal_map_conventions_differ() {
+        let render_convention = |convention: NormalMapConvention| {
+            let mut scene = Scene::new("NormalConvention");
+            let mut material = MaterialData {
+                name: "Normal".to_string(),
+                base_color: [1.0; 4],
+                two_sided: true,
+                roughness: 0.6,
+                ..MaterialData::default()
+            };
+            // 贴图 y=+1：UE 约定副切线为 cross(N,T)，FModel 取 -cross(N,T)。
+            material.textures.normal = Some(TextureData {
+                name: "T_N".to_string(),
+                width: 1,
+                height: 1,
+                rgba: vec![128, 255, 255, 255],
+            });
+            let material = scene.add_material(material);
+            let mut mesh = MeshData::new(
+                "Tri",
+                vec![
+                    [0.0, -100.0, -100.0],
+                    [0.0, 100.0, -100.0],
+                    [0.0, 100.0, 100.0],
+                ],
+                vec![0, 1, 2],
+            );
+            mesh.normals = vec![[0.0, 0.0, 1.0]; 3];
+            mesh.tangents = vec![[0.0, 1.0, 0.0, 1.0]; 3];
+            mesh.uvs = vec![vec![[0.0, 0.0]; 3]];
+            mesh.sections = vec![MeshSection {
+                material_index: 0,
+                first_index: 0,
+                index_count: 3,
+            }];
+            let mesh = scene.add_mesh(mesh);
+            scene.add_node(SceneNode {
+                name: "Tri".to_string(),
+                parent: None,
+                transform: Transform::IDENTITY,
+                mesh: Some(mesh),
+                materials: vec![Some(material)],
+                visible: true,
+                kind: NodeKind::StaticMesh,
+                metadata: Vec::new(),
+            });
+            let settings = RenderSettings {
+                width: 96,
+                height: 96,
+                supersample: 1,
+                background: [0.0; 3],
+                yaw_degrees: 0.0,
+                pitch_degrees: 0.0,
+                key_intensity: 0.0,
+                fill_intensity: 0.0,
+                ambient_strength: 0.0,
+                lighting_mode: LightingMode::Headlight,
+                normal_map_convention: convention,
+                ..RenderSettings::default()
+            };
+            crate::render_scene(&scene, &settings).expect("渲染").rgba
+        };
+        let ue = render_convention(NormalMapConvention::Ue);
+        let fmodel = render_convention(NormalMapConvention::Fmodel);
+        let brightness = |rgba: &[u8]| rgba.iter().map(|value| u64::from(*value)).sum::<u64>();
+        assert_ne!(ue, fmodel, "两种法线约定应得到不同的光照结果");
+        assert!(
+            brightness(&ue).abs_diff(brightness(&fmodel)) > 10_000,
+            "两种法线约定的亮度差异应可观察"
+        );
+    }
+
+    /// ORM 与高光遮罩两种通道布局解析出正确的遮蔽/粗糙度/金属度。
+    #[test]
+    fn orm_layout_maps_channels() {
+        let texture = TextureData {
+            name: "T_Packed".to_string(),
+            width: 1,
+            height: 1,
+            rgba: vec![10, 20, 30, 255],
+        };
+        let mut material = MaterialData {
+            name: "Packed".to_string(),
+            metallic: 0.5,
+            roughness: 0.8,
+            textures: lumark_scene::MaterialTextures {
+                metallic_roughness: Some(texture),
+                ..lumark_scene::MaterialTextures::default()
+            },
+            ..MaterialData::default()
+        };
+        material.orm_layout = OrmLayout::AoRoughMetal;
+        let (occlusion, roughness, metallic) = resolve_pbr_params(&material, [0.5, 0.5]);
+        assert!((occlusion - 10.0 / 255.0).abs() < 1e-5, "R 通道应为遮蔽");
+        assert!(
+            (roughness - 0.8 * 20.0 / 255.0).abs() < 1e-5,
+            "G 通道应为粗糙度"
+        );
+        assert!(
+            (metallic - 0.5 * 30.0 / 255.0).abs() < 1e-5,
+            "B 通道应为金属度"
+        );
+
+        material.orm_layout = OrmLayout::SpecularMask;
+        let (occlusion, roughness, metallic) = resolve_pbr_params(&material, [0.5, 0.5]);
+        assert!((occlusion - 1.0).abs() < 1e-5, "高光遮罩布局不提供遮蔽");
+        assert!(
+            (roughness - 0.8 * 30.0 / 255.0).abs() < 1e-5,
+            "高光遮罩布局 B 通道应为粗糙度"
+        );
+        assert!(
+            (metallic - 20.0 / 255.0).abs() < 1e-5,
+            "高光遮罩布局 G 通道应为金属度"
+        );
+    }
+
+    /// 默认设置保持 Studio 光照与 UE 法线约定（既有渲染不回归）。
+    #[test]
+    fn default_settings_keep_studio_lighting() {
+        let defaults = RenderSettings::default();
+        assert_eq!(defaults.lighting_mode, LightingMode::Studio);
+        assert_eq!(defaults.normal_map_convention, NormalMapConvention::Ue);
+        assert!((defaults.fov_y_degrees - 45.0).abs() < f32::EPSILON);
+        assert!((defaults.distance_scale - 1.05).abs() < 1e-6);
+        let base = RenderSettings {
+            width: 96,
+            height: 96,
+            supersample: 1,
+            background: [0.0; 3],
+            ..defaults
+        };
+        let scene = triangle_scene([0.8, 0.2, 0.2, 1.0], 0.0);
+        let implicit = crate::render_scene(&scene, &base).expect("默认渲染").rgba;
+        let explicit = crate::render_scene(
+            &scene,
+            &RenderSettings {
+                lighting_mode: LightingMode::Studio,
+                normal_map_convention: NormalMapConvention::Ue,
+                ..base
+            },
+        )
+        .expect("显式 Studio 渲染")
+        .rgba;
+        assert_eq!(implicit, explicit, "默认设置应走 Studio 光照");
     }
 }

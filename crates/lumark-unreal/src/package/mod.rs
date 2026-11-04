@@ -17,10 +17,28 @@ pub enum AssetKind {
     Skeleton,
     /// 动画序列。
     AnimSequence,
+    /// 动画蓝图。
+    AnimBlueprint,
+    /// 蓝图类。
+    Blueprint,
+    /// 材质。
+    Material,
+    /// 材质实例。
+    MaterialInstance,
+    /// 物理资产。
+    PhysicsAsset,
     /// 纹理。
     Texture,
     /// 地图/关卡。
     Map,
+    /// 数据表/数据资产。
+    Data,
+    /// 音频。
+    Sound,
+    /// 字体。
+    Font,
+    /// 粒子/特效。
+    Vfx,
     /// 其它或未识别的资产。
     Other,
 }
@@ -33,13 +51,25 @@ impl AssetKind {
             Self::SkeletalMesh => "SkeletalMesh",
             Self::Skeleton => "Skeleton",
             Self::AnimSequence => "AnimSequence",
+            Self::AnimBlueprint => "AnimBlueprint",
+            Self::Blueprint => "Blueprint",
+            Self::Material => "Material",
+            Self::MaterialInstance => "MaterialInstance",
+            Self::PhysicsAsset => "PhysicsAsset",
             Self::Texture => "Texture2D",
             Self::Map => "World",
+            Self::Data => "DataAsset",
+            Self::Sound => "SoundWave",
+            Self::Font => "Font",
+            Self::Vfx => "NiagaraSystem",
             Self::Other => "Asset",
         }
     }
 
     /// 根据类名或对象名推断资产种类。
+    ///
+    /// 精确类名优先于对象名前缀：游戏资产常见 `NanaF6_Hold` 这类没有
+    /// `SK_`/`SM_` 前缀的命名，只有类名能判断真实类型。
     pub fn classify(class_name: &str, object_name: &str) -> Self {
         let class = class_name.to_ascii_lowercase();
         if class.ends_with("staticmesh") {
@@ -48,27 +78,80 @@ impl AssetKind {
         if class.ends_with("skeletalmesh") {
             return Self::SkeletalMesh;
         }
-        if class.ends_with("skeleton") {
+        if class.contains("skeleton") {
             return Self::Skeleton;
         }
-        if class.contains("animsequence") || class.contains("animmontage") {
+        if class.contains("animblueprint") || class.contains("animinstance") {
+            return Self::AnimBlueprint;
+        }
+        if class.contains("animsequence")
+            || class.contains("animmontage")
+            || class.contains("animcomposite")
+            || class.contains("levelsequence")
+        {
             return Self::AnimSequence;
         }
-        if class.contains("texture2d") || class.contains("texture") {
+        if class.contains("blueprint") || class.contains("userdefined") {
+            return Self::Blueprint;
+        }
+        if class.contains("materialinstance") {
+            return Self::MaterialInstance;
+        }
+        if class.contains("material") {
+            return Self::Material;
+        }
+        if class.contains("physicsasset") {
+            return Self::PhysicsAsset;
+        }
+        if class.contains("texture") {
             return Self::Texture;
         }
-        if class.contains("world") || class.contains("level") {
+        if class.contains("niagara") || class.contains("particlesystem") {
+            return Self::Vfx;
+        }
+        if class.contains("world") || class.contains("level") || class.contains("map") {
             return Self::Map;
         }
+        if class.contains("datatable")
+            || class.contains("dataasset")
+            || class.contains("curvetable")
+            || class.contains("stringtable")
+        {
+            return Self::Data;
+        }
+        if class.contains("sound") || class.contains("metasound") {
+            return Self::Sound;
+        }
+        if class.contains("font") {
+            return Self::Font;
+        }
         let name = object_name.to_ascii_lowercase();
-        if name.starts_with("sm_") {
+        if name.starts_with("sm_") || name.starts_with("s_") {
             Self::StaticMesh
-        } else if name.starts_with("sk_") {
+        } else if name.starts_with("sk_") || name.starts_with("skm_") {
             Self::SkeletalMesh
-        } else if name.starts_with("t_") {
+        } else if name.contains("skeleton") {
+            Self::Skeleton
+        } else if name.starts_with("t_") || name.starts_with("tex_") {
             Self::Texture
-        } else if name.starts_with("a_") || name.starts_with("as_") {
+        } else if name.starts_with("a_") || name.starts_with("as_") || name.starts_with("am_") {
             Self::AnimSequence
+        } else if name.starts_with("abp_") {
+            Self::AnimBlueprint
+        } else if name.starts_with("bp_") {
+            Self::Blueprint
+        } else if name.starts_with("mi_") {
+            Self::MaterialInstance
+        } else if name.starts_with("m_") || name.starts_with("mat_") {
+            Self::Material
+        } else if name.starts_with("phys_") || name.starts_with("pa_") {
+            Self::PhysicsAsset
+        } else if name.starts_with("ns_") {
+            Self::Vfx
+        } else if name.starts_with("dt_") {
+            Self::Data
+        } else if name.starts_with('w') && name.contains("map") {
+            Self::Map
         } else {
             Self::Other
         }
@@ -313,8 +396,8 @@ mod zen;
 pub use animation::{AnimSequenceData, TrackPose, read_anim_sequence};
 pub use asset::{AssetMetadata, read_asset_metadata};
 pub use legacy::{
-    LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader,
-    read_legacy_property_header, read_legacy_texture,
+    LegacyExport, LegacyPackage, LegacyPackageSummary, LegacyPropertyHeader, is_legacy_package,
+    parse_legacy_summary, read_legacy_property_header, read_legacy_texture,
 };
 pub use legacy_animation::read_legacy_anim_sequence;
 pub use legacy_skeleton::{
@@ -326,6 +409,11 @@ pub use material::{
     MaterialAppearance, MaterialTextureKind, MaterialTextureRef, MaterialViewerData,
     MaterialViewerImage, material_parent_package, read_legacy_material_appearance,
     read_zen_material_appearance, texture_references,
+};
+/// 材质属性解析辅助函数：供 `material_graph` 等 crate 内模块复用。
+pub(crate) use material::{
+    blend_mode_property, is_base_color_name, is_overlay_name, parameter_array,
+    parameter_entry_color, parameter_entry_name, parameter_entry_scalar, two_sided_property,
 };
 pub use mesh::{
     MaterialSlot, MeshLod, MeshSection, MeshVertexAttributes, StaticMesh, read_static_mesh,
@@ -386,7 +474,7 @@ pub(crate) fn read_i64(cursor: &mut Cursor<&[u8]>) -> Result<i64, PackageError> 
 
 #[cfg(test)]
 mod tests {
-    use super::is_material_class;
+    use super::{AssetKind, is_material_class};
 
     /// 材质相关类名应被识别为材质资产。
     #[test]
@@ -403,5 +491,49 @@ mod tests {
         for class in ["StaticMesh", "Texture2D", "AnimSequence", "BluePrint"] {
             assert!(!is_material_class(class), "{class} 不应识别为材质类");
         }
+    }
+
+    /// 游戏资产按类名区分类型；无前缀命名依赖类名而不是对象名。
+    #[test]
+    fn classifies_asset_kinds_by_class_name() {
+        let cases = [
+            ("StaticMesh", "NanaF6_2", AssetKind::StaticMesh),
+            ("SkeletalMesh", "NanaF6_Hold", AssetKind::SkeletalMesh),
+            ("Skeleton", "NanaF6_Skeleton", AssetKind::Skeleton),
+            ("AnimSequence", "Idle", AssetKind::AnimSequence),
+            (
+                "AnimBlueprintGeneratedClass",
+                "ABP_Nana",
+                AssetKind::AnimBlueprint,
+            ),
+            ("BlueprintGeneratedClass", "BP_Tool", AssetKind::Blueprint),
+            ("Material", "M_Cloth", AssetKind::Material),
+            (
+                "MaterialInstanceConstant",
+                "MI_Cloth",
+                AssetKind::MaterialInstance,
+            ),
+            ("PhysicsAsset", "PHYS_Nana", AssetKind::PhysicsAsset),
+            ("Texture2D", "NanaF6_2_D", AssetKind::Texture),
+            ("World", "GinkgoTree", AssetKind::Map),
+            ("DataTable", "DT_Items", AssetKind::Data),
+            ("SoundWave", "S_Click", AssetKind::Sound),
+            ("Font", "F_UI", AssetKind::Font),
+            ("NiagaraSystem", "NS_Fire", AssetKind::Vfx),
+            ("SomethingUnknown", "NanaF6_Hold", AssetKind::Other),
+        ];
+        for (class, name, expected) in cases {
+            assert_eq!(
+                AssetKind::classify(class, name),
+                expected,
+                "{class}/{name} 分类错误"
+            );
+        }
+        // 没有类名时保留对象名前缀回退。
+        assert_eq!(AssetKind::classify("", "SM_Box"), AssetKind::StaticMesh);
+        assert_eq!(
+            AssetKind::classify("", "SK_Chicken"),
+            AssetKind::SkeletalMesh
+        );
     }
 }

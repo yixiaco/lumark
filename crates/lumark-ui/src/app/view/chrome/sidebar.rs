@@ -11,24 +11,33 @@ impl LumarkApp {
     /// 窗口较矮时压缩详细信息区的高度，保证目录树仍有一行以上可见。
     pub(crate) fn render_sidebar(
         &self,
-        window: &Window,
+        _window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let locations = quick_locations(&self.settings.get());
         let tree_rows = self.tree_rows();
         let vault_locked = self.vault.state() == VaultState::Locked;
-        let window_height = window
-            .inner_window_bounds()
-            .get_bounds()
-            .size
-            .height
-            .as_f32();
-        let details_max_height = if window_height < 720. { 170. } else { 200. };
+        let list =
+            v_flex()
+                .id("sidebar-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .py_2()
+                .children(locations.iter().enumerate().map(|(index, (label, path))| {
+                    self.sidebar_location_item(index, label, path, cx)
+                }))
+                .child(div().mx_3().my_2().h(px(1.)).bg(cx.theme().sidebar_border))
+                .children(
+                    tree_rows
+                        .iter()
+                        .enumerate()
+                        .map(|(index, row)| self.sidebar_tree_item(index, row, cx)),
+                );
         v_flex()
             .id("global-sidebar")
-            .w(px(252.))
+            .w_full()
             .h_full()
-            .flex_shrink_0()
             .min_h_0()
             .bg(cx.theme().sidebar)
             .border_r_1()
@@ -85,26 +94,21 @@ impl LumarkApp {
                     ),
             )
             .child(
-                v_flex()
-                    .id("sidebar-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .py_2()
-                    .children(locations.iter().enumerate().map(|(index, (label, path))| {
-                        self.sidebar_location_item(index, label, path, cx)
-                    }))
-                    .child(div().mx_3().my_2().h(px(1.)).bg(cx.theme().sidebar_border))
-                    .children(
-                        tree_rows
-                            .iter()
-                            .enumerate()
-                            .map(|(index, row)| self.sidebar_tree_item(index, row, cx)),
-                    ),
+                div().flex_1().min_h_0().child(
+                    gpui_kit::base::v_resizable("sidebar-split")
+                        .with_state(&self.details_state)
+                        .child(gpui_kit::base::resizable_panel().child(list))
+                        .when(self.details_visible, |this| {
+                            this.child(
+                                gpui_kit::base::resizable_panel()
+                                    .size(px(self.details_height))
+                                    .size_range(px(120.)..px(420.))
+                                    .flex_none()
+                                    .child(self.render_details(cx)),
+                            )
+                        }),
+                ),
             )
-            .when(self.details_visible, |this| {
-                this.child(self.render_details(details_max_height, cx))
-            })
             .when(vault_locked, |this| {
                 this.child(
                     h_flex()

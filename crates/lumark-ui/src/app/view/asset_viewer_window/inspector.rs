@@ -22,7 +22,7 @@ impl AssetViewerWindowView {
         if self.has_animation() {
             content = content.child(self.inspector_animation(cx));
         }
-        if let ViewerScene::Material { viewer } = &self.scene {
+        if let ViewerScene::Material { viewer } = self.scene.as_ref() {
             content = content.child(self.inspector_material(viewer, cx));
         }
         v_flex()
@@ -151,7 +151,7 @@ impl AssetViewerWindowView {
                         this.lod_index = index;
                         this.hidden_sections =
                             vec![false; this.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     })),
             );
@@ -191,7 +191,7 @@ impl AssetViewerWindowView {
                         if let Some(hidden) = this.hidden_sections.get_mut(index) {
                             *hidden = !*hidden;
                         }
-                        this.render_preview();
+                        this.request_preview(cx);
                         cx.notify();
                     })),
             );
@@ -201,7 +201,7 @@ impl AssetViewerWindowView {
 
     /// 骨骼列表（支持名称搜索，最多 200 根）。
     fn inspector_bones(&self, cx: &mut Context<Self>) -> Option<gpui_kit::AnyElement> {
-        let skeleton = match &self.scene {
+        let skeleton = match self.scene.as_ref() {
             ViewerScene::Skeleton(skeleton) => skeleton,
             ViewerScene::SkeletalMesh { skeleton, .. } => skeleton,
             _ => return None,
@@ -309,7 +309,7 @@ impl AssetViewerWindowView {
 
     /// 骨骼数量（Skeleton/SkeletalMesh）。
     fn inspector_bone_count(&self) -> Option<usize> {
-        match &self.scene {
+        match self.scene.as_ref() {
             ViewerScene::Skeleton(skeleton) => Some(skeleton.bones.len()),
             ViewerScene::SkeletalMesh { skeleton, .. } => Some(skeleton.bones.len()),
             _ => None,

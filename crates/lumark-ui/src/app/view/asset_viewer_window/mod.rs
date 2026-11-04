@@ -11,13 +11,14 @@ use gpui_kit::RenderImage;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use lumark_render::ShadingMode;
+use lumark_render::{LightingMode, NormalMapConvention, ShadingMode};
 use lumark_unreal::{MeshLod, Skeleton};
 
 mod animation;
 mod app;
 mod async_render;
 mod body;
+mod frame_pump;
 mod input;
 mod inspector;
 mod render;
@@ -27,10 +28,12 @@ mod toolbar;
 /// 查看器展示的资产类型
 #[derive(Clone)]
 pub(crate) enum ViewerScene {
-    /// StaticMesh 几何（可能包含多?LOD）
+    /// StaticMesh 几何（可能包含多个 LOD）
     Mesh {
         /// 按顺序排列的 LOD；至少一个
         lods: Vec<MeshLod>,
+        /// 已解析材质（含贴图），按 section.material_index 对齐
+        materials: std::sync::Arc<Vec<lumark_unreal::ResolvedMaterial>>,
     },
     /// Skeleton 参考骨骼
     Skeleton(Skeleton),
@@ -40,8 +43,10 @@ pub(crate) enum ViewerScene {
         lods: Vec<MeshLod>,
         /// 参考骨骼
         skeleton: Skeleton,
-        /// 每个 LOD 的蒙皮权重；?`lods` 等长
+        /// 每个 LOD 的蒙皮权重；与 `lods` 等长
         skins: Vec<Option<lumark_unreal::SkinWeights>>,
+        /// 已解析材质（含贴图），按 section.material_index 对齐
+        materials: std::sync::Arc<Vec<lumark_unreal::ResolvedMaterial>>,
         /// 可播放的压缩动画
         animation: Option<Box<lumark_unreal::AnimSequenceData>>,
     },
@@ -58,7 +63,7 @@ struct DragState {
 /// 模型查看器窗口
 pub(crate) struct AssetViewerWindowView {
     name: String,
-    scene: ViewerScene,
+    scene: Arc<ViewerScene>,
     yaw: f32,
     pitch: f32,
     zoom: f32,
@@ -98,6 +103,8 @@ pub(crate) struct AssetViewerWindowView {
     render_generation: u64,
     /// 是否有后台渲染进行中
     rendering: bool,
+    /// 帧泵状态：单飞行帧、输入合并与静止高质量帧
+    frame_pump: frame_pump::FramePump,
     /// 骨骼搜索输入（正式窗口创建）
     bone_filter: Option<gpui_kit::Entity<InputState>>,
     /// 基础色/自发光贴图按 sRGB 采样
@@ -111,7 +118,10 @@ impl AssetViewerWindowView {
     /// 创建窗口并渲染默认视角（无键盘焦点，供测试/内部使用）。
     #[cfg(test)]
     pub(crate) fn new(name: String, scene: ViewerScene) -> Self {
-        Self::create(name, scene, None)
+        let mut view = Self::create(name, scene, None);
+        // 测试没有事件循环：同步渲染首帧，保持断言确定性。
+        view.render_preview();
+        view
     }
 
     /// 创建带键盘焦点的正式查看器窗口。
@@ -133,7 +143,7 @@ impl AssetViewerWindowView {
             };
             view.animation_playing = false;
             view.animation_time = value.end().clamp(0.0, 1.0) * length;
-            view.render_preview();
+            view.request_preview(cx);
             cx.notify();
         });
         let bone_filter = cx.new(|cx| {
@@ -142,13 +152,16 @@ impl AssetViewerWindowView {
         view.timeline_slider = Some(slider);
         view.slider_subscription = Some(subscription);
         view.bone_filter = Some(bone_filter);
+        // 首帧也在后台渲染：窗口打开不阻塞界面线程。
+        view.request_preview(cx);
         view
     }
 
+    /// 创建查看器状态（不渲染；首帧由对话框/测试显式触发）。
     fn create(name: String, scene: ViewerScene, focus: Option<gpui_kit::FocusHandle>) -> Self {
         let mut view = Self {
             name,
-            scene,
+            scene: Arc::new(scene),
             yaw: 35.0,
             pitch: 25.0,
             zoom: 1.0,
@@ -162,7 +175,8 @@ impl AssetViewerWindowView {
             animation_time: 0.0,
             inspector_open: true,
             shading: ShadingMode::Lit,
-            show_grid: false,
+            // 3D 查看器默认显示地面网格（与 FModel 查看器一致）。
+            show_grid: true,
             show_bones: false,
             last_backend: None,
             last_stats: None,
@@ -171,13 +185,13 @@ impl AssetViewerWindowView {
             slider_subscription: None,
             render_generation: 0,
             rendering: false,
+            frame_pump: frame_pump::FramePump::new(),
             bone_filter: None,
             srgb_textures: true,
             wireframe: false,
             material_names: Vec::new(),
         };
         view.hidden_sections = vec![false; view.scene_mesh().map_or(0, |mesh| mesh.sections.len())];
-        view.render_preview();
         view
     }
     /// 附带材质槽名称（由详情解析结果提供）。
@@ -187,7 +201,7 @@ impl AssetViewerWindowView {
     }
 
     fn kind_label(&self) -> &'static str {
-        match self.scene {
+        match self.scene.as_ref() {
             ViewerScene::Mesh { .. } => tr("模型查看器", "Model viewer"),
             ViewerScene::Skeleton(_) => tr("骨骼查看器", "Skeleton viewer"),
             ViewerScene::SkeletalMesh { .. } => tr("骨骼网格查看器", "Skeletal mesh viewer"),
@@ -195,8 +209,8 @@ impl AssetViewerWindowView {
         }
     }
     fn scene_mesh(&self) -> Option<&MeshLod> {
-        match &self.scene {
-            ViewerScene::Mesh { lods } => lods.get(self.lod_index).or_else(|| lods.first()),
+        match self.scene.as_ref() {
+            ViewerScene::Mesh { lods, .. } => lods.get(self.lod_index).or_else(|| lods.first()),
             ViewerScene::Skeleton(_) => None,
             ViewerScene::SkeletalMesh { lods, .. } => {
                 lods.get(self.lod_index).or_else(|| lods.first())
@@ -207,8 +221,8 @@ impl AssetViewerWindowView {
 
     /// 返回当前场景?LOD 列表
     fn static_lods(&self) -> Option<&[MeshLod]> {
-        match &self.scene {
-            ViewerScene::Mesh { lods } | ViewerScene::SkeletalMesh { lods, .. } => Some(lods),
+        match self.scene.as_ref() {
+            ViewerScene::Mesh { lods, .. } | ViewerScene::SkeletalMesh { lods, .. } => Some(lods),
             _ => None,
         }
     }
@@ -216,7 +230,7 @@ impl AssetViewerWindowView {
     /// 当前场景是否包含蒙皮权重（用于显示蒙皮演示按钮）。
     fn has_skin(&self) -> bool {
         matches!(
-            &self.scene,
+            self.scene.as_ref(),
             ViewerScene::SkeletalMesh { skins, .. } if skins.iter().any(Option::is_some)
         )
     }
@@ -224,7 +238,7 @@ impl AssetViewerWindowView {
     /// 是否具备可播放动画
     fn has_animation(&self) -> bool {
         let has_animation = matches!(
-            self.scene,
+            self.scene.as_ref(),
             ViewerScene::SkeletalMesh {
                 animation: Some(_),
                 ..
@@ -235,7 +249,7 @@ impl AssetViewerWindowView {
 
     /// 当前动画时长
     fn animation_length(&self) -> Option<f32> {
-        match &self.scene {
+        match self.scene.as_ref() {
             ViewerScene::SkeletalMesh {
                 animation: Some(animation),
                 ..
@@ -246,7 +260,7 @@ impl AssetViewerWindowView {
 
     /// 当前动画的时长和总帧数
     fn animation_info(&self) -> Option<(f32, u32)> {
-        match &self.scene {
+        match self.scene.as_ref() {
             ViewerScene::SkeletalMesh {
                 animation: Some(animation),
                 ..
@@ -275,13 +289,27 @@ impl Render for AssetViewerWindowView {
                     },
                 ))
             })
-            .child(self.render_title_bar(cx))
-            .child(self.render_toolbar(cx))
+            .child(
+                div()
+                    .debug_selector(|| "model-viewer-titlebar".into())
+                    .w_full()
+                    .flex_shrink_0()
+                    .child(self.render_title_bar(cx)),
+            )
+            .child(
+                div()
+                    .debug_selector(|| "model-viewer-toolbar".into())
+                    .w_full()
+                    .flex_shrink_0()
+                    .child(self.render_toolbar(cx)),
+            )
             .child(
                 h_flex()
                     .flex_1()
                     .min_h_0()
                     .w_full()
+                    .items_stretch()
+                    .overflow_hidden()
                     .child(self.render_body(cx))
                     .children(self.inspector_open.then(|| self.render_inspector(cx))),
             )

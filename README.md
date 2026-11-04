@@ -42,7 +42,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - 后台任务：固定工作线程池按提交顺序排队执行归档加载、压缩、解压、测试、编辑和记录密码验证，排队中的任务可直接取消；支持进度、暂停/继续、取消、状态栏和独立进度窗口，任务中心同时显示运行中/排队中/已完成数量和跨任务合并进度。
 - 压缩后可测试归档并在成功时删除源文件。
 - 压缩完成邮件通知：设置窗口“通知”页配置 SMTP 主机、端口、1–300 秒超时、账号、DPAPI 加密密码/XOAUTH2 访问令牌/客户端密钥/刷新令牌、发件人和收件人，支持隐式 TLS/STARTTLS/无 TLS 及测试发送；瞬时网络/4xx 错误最多退避重试 3 次，保留最近 8 条发送结果，并把失败通知持久化到待重试队列；配置刷新令牌后通过 `reqwest` 从令牌端点自动获取访问令牌。
-- 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z，可带密码，不支持分卷），生成的可执行文件内置 `lumark-sfx` 运行时；双击后打开参考 360 压缩布局的原生 Win32 设置窗口（左侧品牌栏、说明文字、目标目录/浏览、密码、解压/取消），解压时显示原生进度窗口（已用/剩余时间、总长度、速率、已处理、文件数、当前文件、进度条、后台/取消），取消会停止后台解压；也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数，静默模式不初始化界面且失败返回非零退出码；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。运行时刻意使用原生 Win32 控件而非 GPUI/DirectX：新 GPUI stub 会被 360 的 QVM 启发式误报，原生 stub 已由用户实测不触发。
+- 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z 单卷载荷，可带密码），生成的可执行文件内置 `lumark-sfx` 运行时；双击后打开参考 360 压缩布局的原生 Win32 设置窗口（左侧品牌栏、说明文字、目标目录/浏览、密码、解压/取消），解压时显示原生进度窗口（已用/剩余时间、总长度、速率、已处理、文件数、当前文件、进度条、后台/取消），取消会停止后台解压；也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数，静默模式不初始化界面且失败返回非零退出码；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。运行时刻意使用原生 Win32 控件而非 GPUI/DirectX：新 GPUI stub 会被 360 的 QVM 启发式误报，原生 stub 已由用户实测不触发。
 - 伪装压缩（全格式）：压缩窗口可勾选“伪装为媒体文件”，把 ZIP、7Z、LZH、ZPAQ、TAR 系列、GZ/BZ2/XZ/ZST/Brotli/LZ4 的输出包装成可正常播放/查看的 MP4/JPG 外观；ZIP、7Z、LZH、TAR 系列和单文件流边生成边写入伪装容器，不再额外保留完整内层文件；内层归档格式保持不变，载荷按 128 KiB 分块用 BLAKE3 密钥流混淆，尾部 512 字节记录载荷偏移/长度、原文件名、混淆盐和载荷类型。内置视频/图片面具，也可选择自定义媒体文件；伪装不提供加密。
 - 一键打开与一键还原：Lumark 文件表双击伪装归档、或资源管理器“用 Lumark 打开”，直接浏览/选择性解压/测试内层归档；ZIP/7Z/TAR 系列/单文件流/LZH 使用读取视图不复制载荷，ZPAQ/RAR/ALZ/传统只读格式物化到临时目录并做进程内缓存。右键“还原伪装文件”或资源管理器“Lumark 一键还原”把真身写回伪装文件旁，同名文件自动追加序号；伪装 ZIP/7Z 还支持原地重命名、删除和添加，自动复用原面具重新包装。
 - 任意文件伪装：文件或归档右键“伪装为媒体文件…”打开独立伪装窗口，资源管理器右键菜单也提供“伪装为媒体文件…”入口；可选择输出目录、面具和“伪装后删除源文件”；已有 ZIP/7Z 等归档伪装后仍可直接浏览，普通文件伪装只能还原。
@@ -62,7 +62,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - **读写**：ZIP、ZIPX（AES/传统加密、Deflate/Bzip2/XZ/Zstd/PPMd 写入；LZMA/Deflate64 只读）、7Z、LZH（lh0/lh4–lh7）、ZPAQ、WIM（LZX 创建）、TAR、PAX、APK、JAR、ASAR（无密码）、TAR.GZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.BR、TAR.LZ4、TAR.LZ、TAR.LZMA、GZ、BZ2、XZ、ZST、Brotli、LZ4、Snappy Framed（`.sz`/`.snappy`）、BZip3（`.bz3`）。
 - **只读解压**：PE（节/资源目录，图标组重建为 ICO）、RAR、ISO/UDF、CAB、ARJ、ACE、ARC/PAK、Quake PAK、Chromium PAK、Unreal PAK（版本 1–11，AES-256，Oodle 优先内置 Rust 解码、可选 DLL）、CPIO、WIM（仅第一映像，XPRESS/LZX/LZMS，支持 SWM）、DEB、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、ALZ、TAR.Z、ZOO、HA、HYP、SQ/SQ2/QQQ、SQZ、UC2、ICE、PACKICE；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode。
 - **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
-- **暂不支持**：PAQ8/LPAQ；MSI 支持内嵌及同目录外部 CAB 读取并还原目录层级，写入未实现；WIM 的 LZMS/SWM 写入、RAR/CAB/ISO/UDF/ALZ 创建；ZIP Deflate64 等旧方法和 `.tar.Z` 的写入。
+- **格式支持范围**：PAQ8/LPAQ 按许可与兼容性评估不纳入；MSI 提供内嵌及同目录外部 CAB 读取与目录层级还原；WIM 的 LZMS/SWM 写入、RAR/CAB/ISO/UDF/ALZ 创建、ZIP Deflate64 等旧方法与 `.tar.Z` 写入不在当前格式矩阵内。
 
 ## 运行
 
@@ -70,7 +70,7 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 cargo run -p lumark-app
 ```
 
-要求 Rust stable（当前环境为 1.99，工作区 MSRV 为 1.96），Windows x64，MSVC 工具链。首次构建会下载 GPUI Kit 及其依赖。
+要求 Rust stable（当前环境为 1.99，工作区 MSRV 为 1.96），Windows x64/x86，MSVC 工具链。首次构建会下载 GPUI Kit 及其依赖；构建 x86 发布产物前需要先执行 `rustup target add i686-pc-windows-msvc`。
 
 生成安装包或自解压功能需要同时构建运行时模块。自解压运行时使用原生 Win32 UI 的常规 release 构建，产物位于 `target\release\lumark-sfx.exe`：
 
@@ -85,36 +85,41 @@ Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 
 
 ### 一键发布构建
 
-推荐用 `tools/build_release.ps1` 完成构建、信任检查、签名、安装器和校验文件：
+推荐用 `tools/build_release.ps1` 完成构建、信任检查、签名、安装器和校验文件。`-Arch` 支持 `x64`（默认）和 `x86`；x64 与 x86 各跑一次，产物会汇总到同一个 `dist`：
 
 ```powershell
-./tools/build_release.ps1 -Version 0.1.0
-./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
+./tools/build_release.ps1 -Version 0.1.0 -Arch x64
+# 首次构建 x86 前安装目标：rustup target add i686-pc-windows-msvc
+./tools/build_release.ps1 -Version 0.1.0 -Arch x86
+./tools/build_release.ps1 -Version 0.1.0 -Arch x64 -UseDevCert
 # 可选：随安装器/便携包分发已授权的 Oodle DLL
 ./tools/build_release.ps1 -Version 0.1.0 -OodleDll .\oo2core_9_win64.dll
 ```
 
 首次使用开发证书先运行 `./installer/self-sign.ps1`（当前用户级，不需要管理员）。脚本会：
 
-- 编译 `lumark-app`（release）和原生 Win32 `lumark-sfx`（release，不链接 GPUI/DirectX）；
-- 清除 MOTW；检测并恢复工作区根目录、`target`/`target\release`/`target\debug`/`dist` 的 Low 完整性（见“打开文件 - 安全警告”章节）；
+- 按 `-Arch` 编译 `lumark-app`（release）和原生 Win32 `lumark-sfx`（release，不链接 GPUI/DirectX）；x64 使用默认 `target\release`，x86 使用 `--target i686-pc-windows-msvc`；
+- 清除 MOTW；检测并恢复工作区根目录、`target`、架构对应的 `release`/`debug`、`dist`、`target\dist-stage` 的 Low 完整性（见“打开文件 - 安全警告”章节）；
 - 按需用 `-UseDevCert`、`-SignThumbprint` 或 `-SignPfxPath` 签名；
-- 调用 `installer/pack-installer.ps1` 生成 `dist\Lumark-Setup-<版本>.exe` 和 `.sha256`；
-- 生成 `dist\Lumark-<版本>-portable-x64.zip` 和 `dist\SHA256SUMS.txt`。
+- 把二进制和许可文本暂存到 `target\dist-stage\<架构>`（不再放进 `dist`），调用 `installer/pack-installer.ps1` 生成 `dist\Lumark-Setup-<版本>-<架构>.exe`；
+- 生成 `dist\Lumark-<版本>-windows-<架构>-portable.zip`，并按 `dist` 中实际存在的本版本产物刷新 `dist\SHA256SUMS.txt`。
 
-需要单独控制打包时仍可直接调用 Inno 脚本；它只负责暂存、编译和签名，不清理 `target\release` 的 MOTW/完整性标签：
+`dist` 只保留可分发的最终文件：安装包、便携包和校验文件。`windows\`、`Lumark.exe`、`lumark-sfx.exe` 等内部文件只存在于 `target\dist-stage\<架构>`，不会再进入 CI artifact 或 GitHub Release。
+
+需要单独控制打包时仍可直接调用 Inno 脚本；它只负责暂存、编译和签名，不清理 release 产物的 MOTW/完整性标签：
 
 ```powershell
-./installer/pack-installer.ps1 -Version 0.1.0
+./installer/pack-installer.ps1 -Version 0.1.0 -Arch x64
+./installer/pack-installer.ps1 -Version 0.1.0 -Arch x86
 ```
 
 Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup。仓库已内置 Inno Setup 6.7.3 命令行编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装；不要删除该目录。`build_release.ps1` 会签名 `target\release` 和安装器，直接调用 `pack-installer.ps1` 时只签名暂存二进制和最终安装器：
 
 ```powershell
-./tools/build_release.ps1 -Version 0.1.0 -SignThumbprint <SHA1指纹>
-./tools/build_release.ps1 -Version 0.1.0 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
-./installer/pack-installer.ps1 -Version 0.1.0 -SignThumbprint <SHA1指纹>
-./installer/pack-installer.ps1 -Version 0.1.0 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
+./tools/build_release.ps1 -Version 0.1.0 -Arch x64 -SignThumbprint <SHA1指纹>
+./tools/build_release.ps1 -Version 0.1.0 -Arch x86 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
+./installer/pack-installer.ps1 -Version 0.1.0 -Arch x64 -SignThumbprint <SHA1指纹>
+./installer/pack-installer.ps1 -Version 0.1.0 -Arch x86 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
 ```
 
 开发阶段可创建当前用户级自签名证书，不需要管理员权限。脚本会把证书加入当前用户的根和受信任发布者存储，并输出指纹；之后用 `-UseDevCert` 自动选中：
@@ -124,7 +129,7 @@ Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/
 ./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
 ```
 
-自签名只对本机或已手动信任 `dist\dev-cert\Lumark-Dev.cer` 的机器有效；其它机器仍可能显示未知发布者，SmartScreen 信誉也不能靠自签名获得。正式分发应使用受信任 CA 的 Authenticode 证书。签名不会授予管理员权限；当前安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限，默认安装到 `C:\Program Files\Lumark`。
+自签名只对本机或已手动信任 `dist\dev-cert\Lumark-Dev.cer` 的机器有效；其它机器仍可能显示未知发布者，SmartScreen 信誉也不能靠自签名获得。正式分发应使用受信任 CA 的 Authenticode 证书。签名不会授予管理员权限；当前安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限。x64 安装包默认安装到 `C:\Program Files\Lumark`，x86 安装包在 64 位系统上默认安装到 `C:\Program Files (x86)\Lumark`（32 位系统上仍是 `C:\Program Files\Lumark`）。
 
 也可以单独校验已有签名：
 
@@ -138,7 +143,7 @@ Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/
 cargo test --workspace
 ```
 
-完整验收矩阵、实机证据与已知限制见 [`docs/acceptance.md`](docs/acceptance.md)。
+完整验收矩阵、实机证据与支持范围见 [`docs/acceptance.md`](docs/acceptance.md)。
 
 提交前额外运行：
 
@@ -280,8 +285,8 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 - ALZ 使用 MIT 的 `unalz` 库做只读解压，支持 Store、Deflate、ALZ 改造 Bzip2、ZipCrypto 和 `.a00` 分卷；ALZ 路径接口是 UTF-8 字符串，非 UTF-8 路径会明确报错，`.egg` 属于另一种格式，不在支持范围。
 - ZOO/HA/HYP/SQ/SQZ/UC2/ICE/PACKICE/TAR.Z 通过现有 `unarc-rs` 统一读取接口接入；这些格式按整条目缓冲读取，因此没有条目内逐块进度和中途取消，预算以“读取前声明大小 + 读取后实际长度”双重检查为准，不把它们描述为对大归档零风险。
 - ZIP 旧方法（Deflate64/Shrink/Reduce/Implode）只读：启用 `zip` 的 `deflate64` 与 `legacy-zip` 特性，不提供这些方法的写入入口。
-- ZPAQ 使用本地 fork 的 `zpaq_rs` 内嵌 libzpaq/JIDAC 参考实现：普通压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；新增的 `ArchiveWriter` 可把无密码或 AES-CTR 加密归档逐条目写入任意流，伪装创建因此不再落完整内层文件。解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此普通压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），暂不支持。
-- 自解压包使用自有运行时模块，支持 ZIP/7Z 和密码、不支持分卷；解压路径的包含性、符号链接和覆盖行为复用归档层的安全校验，不自研第二套路径检查。自定义图标通过 Win32 资源 API 在追加载荷前替换，避免重写已拼接的数据段。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规。交互式自解压窗口曾尝试 GPUI 官方组件，但 360 QVM 会把带 GPUI/DirectX 的 stub 判为木马；当前改为原生 Win32 设置/进度窗口，左侧品牌栏用 GDI 绘制，不把 `lumark-ui`、归档、任务和渲染依赖带入 stub。进度窗口用独立后台线程和 80ms 定时器刷新，取消标记在读写块之间检查。
+- ZPAQ 使用本地 fork 的 `zpaq_rs` 内嵌 libzpaq/JIDAC 参考实现：普通压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；新增的 `ArchiveWriter` 可把无密码或 AES-CTR 加密归档逐条目写入任意流，伪装创建因此不再落完整内层文件。解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此普通压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），不纳入支持列表。
+- 自解压包使用自有运行时模块，ZIP/7Z 载荷、密码可选、按单卷设计；解压路径的包含性、符号链接和覆盖行为复用归档层的安全校验，不自研第二套路径检查。自定义图标通过 Win32 资源 API 在追加载荷前替换，避免重写已拼接的数据段。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规。交互式自解压窗口曾尝试 GPUI 官方组件，但 360 QVM 会把带 GPUI/DirectX 的 stub 判为木马；当前改为原生 Win32 设置/进度窗口，左侧品牌栏用 GDI 绘制，不把 `lumark-ui`、归档、任务和渲染依赖带入 stub。进度窗口用独立后台线程和 80ms 定时器刷新，取消标记在读写块之间检查。
 - XZ 编解码统一使用纯 Rust `lzma-rust2`（RPM/XAR 解码、TAR/单文件流创建），不再直接依赖 `xz2`；本地 `vendor/xz2` 适配层把本地 `lumark-legacy` 的 XZ/LZMA 调用转到 `lzma-rust2`，SquashFS 的 XZ 后端起用 `liblzma`。`lumark-legacy` 从 GeeZipX 0.7.4 裁剪，只保留实际使用的传统格式读取器，外部 `geezipx-core` 及其重复 ZIP 2/7z 0.21 依赖已移除；WIM 和 AES 容器使用自有标准后端。
 - 伪装容器使用自有格式，不与 Apate 做二进制互通：Apate 为 GPL-3.0，读取或生成其格式需要研究并受其许可约束；Lumark 只借鉴“伪装/一键还原”的功能形态，容器、实现和内置面具均为独立实现。容器固定为“面具 + 混淆载荷 + 512 字节尾部”，尾部保存载荷边界、原文件名、混淆盐和载荷类型，因此还原不依赖面具内容。
 - ZIP/7Z/LZH/TAR 系列/单文件流以及 ZPAQ（含密码）边生成边写入伪装容器；ZPAQ 密码流由写入器生成盐并用 AES-CTR 加密，不再落完整内层归档。
@@ -292,7 +297,7 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 - LZH 创建复用 `oxiarc-lzhuf` 的 LZSS 匹配器和本地可续写块编码器，按预设映射到 lh4/lh5/lh7；跨 1 MiB 读取块保持历史窗口和位写入状态，不再限制单条目 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
 - ISO 挂载不引入第三方驱动，直接调用系统 `Mount-DiskImage`/`Dismount-DiskImage`；挂载状态在 Lumark 退出后仍由 Windows 保留，卸载入口在 Lumark 文件列表和资源管理器右键菜单。资源管理器入口注册在 `SystemFileAssociations\.iso\shell`，不依赖 `.iso` 当前绑定的 ProgID，因此第三方软件占用文件关联也不影响。
 - Windows 分发使用 Inno Setup 安装器；安装/卸载时调用应用自身的经典右键菜单注册命令。会话锁定、Authenticode 签名脚本和 UI 自动化已覆盖。
-- 视频、图片、PDF 压缩按规划暂不实现。
+- 视频、图片、PDF 压缩不在当前格式矩阵内。
 
 ## 许可与来源
 
@@ -315,19 +320,24 @@ DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 S
 ```powershell
 cargo build --release --locked -p lumark-app
 cargo build --release --locked -p lumark-sfx
-./installer/pack-installer.ps1 -Version 0.1.0
+./installer/pack-installer.ps1 -Version 0.1.0 -Arch x64
+
+rustup target add i686-pc-windows-msvc
+cargo build --release --locked --target i686-pc-windows-msvc -p lumark-app
+cargo build --release --locked --target i686-pc-windows-msvc -p lumark-sfx
+./installer/pack-installer.ps1 -Version 0.1.0 -Arch x86
 ```
 
-仓库内置 Inno Setup 6.7.3 编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装 Inno Setup，也不再从 PATH 或系统安装目录查找 `ISCC.exe`。直接调用 `pack-installer.ps1` 时脚本会：
+仓库内置 Inno Setup 6.7.3 编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装 Inno Setup，也不再从 PATH 或系统安装目录查找 `ISCC.exe`。`x64` 与 `x86` 共用同一份 `installer/lumark.iss`，由 `/DArch` 和 `/DX64`、`/DX86` 切换安装器架构。直接调用 `pack-installer.ps1` 时脚本会：
 
-- 校验并暂存 `Lumark.exe`、`lumark-sfx.exe` 和许可文本到 `dist\windows`；
-- 调用 `installer/lumark.iss` 生成 `dist\Lumark-Setup-<版本>.exe`；
-- 写出对应的 `.sha256` 校验文件；
+- 校验 release 产物的 PE 架构与 `-Arch` 一致，防止把 x64 二进制打进 x86 安装包；
+- 把 `Lumark.exe`、`lumark-sfx.exe` 和许可文本暂存到 `target\dist-stage\<架构>`（不再放进 `dist`）；
+- 调用 `installer/lumark.iss` 生成 `dist\Lumark-Setup-<版本>-<架构>.exe`；
 - 传入 `-SignThumbprint` 或 `-SignPfxPath` 时，先签名暂存二进制，再签名最终安装器。
 
-安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限，默认安装到 `C:\Program Files\Lumark`；admin 模式下 `{autoprograms}`/`{autodesktop}` 自动使用公共开始菜单和公共桌面。安装/卸载时调用 `--register-shell` / `--unregister-shell`；`--register-shell` 使用 `runasoriginaluser`，以启动安装器的原始用户身份写入 HKCU，避免写入提权管理员账户。
+安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限；x64 安装包只允许 64 位 Windows，默认安装到 `C:\Program Files\Lumark`；x86 安装包可在 32 位和 64 位 Windows 上运行，在 64 位系统上默认安装到 `C:\Program Files (x86)\Lumark`。admin 模式下 `{autoprograms}`/`{autodesktop}` 自动使用公共开始菜单和公共桌面。安装/卸载时调用 `--register-shell` / `--unregister-shell`；`--register-shell` 使用 `runasoriginaluser`，以启动安装器的原始用户身份写入 HKCU，避免写入提权管理员账户。
 
-旧版（`PrivilegesRequired=lowest`，安装到 `%LOCALAPPDATA%\Programs\Lumark`）不会被新安装器识别为同一安装；升级前先在“设置 → 应用”中卸载旧版，避免残留目录和重复卸载项。`AppId` 保持不变，后续管理员安装版本可正常升级。
+旧版（`PrivilegesRequired=lowest`，安装到 `%LOCALAPPDATA%\Programs\Lumark`）不会被新安装器识别为同一安装；升级前先在“设置 → 应用”中卸载旧版，避免残留目录和重复卸载项。`AppId` 保持不变，后续管理员安装版本可正常升级。x86 与 x64 安装包共用同一个 `AppId`：同一台机器只保留一个架构的安装，切换架构前先卸载旧架构版本。
 
 安装器本身已经包含 Inno Setup 运行时；构建机不需要安装 Inno Setup。若运行时出现 `Temp\is-*.tmp` 的 Error 5，通常是 `%TEMP%` 权限、受限令牌或安全软件拦截，而不是缺少 Inno Setup；需要为安装器放行临时目录或使用代码签名后的安装器。自签名只能让本机信任该签名，不能绕过安全软件或获得 SmartScreen 信誉。
 
@@ -337,7 +347,7 @@ cargo build --release --locked -p lumark-sfx
 
 处理方式：
 
-- 打开 360 的“木马查杀 → 信任区”或“安全防护中心 → 主动防御 → 信任列表”，把 `Lumark-Setup-<版本>.exe` 加入信任；
+- 打开 360 的“木马查杀 → 信任区”或“安全防护中心 → 主动防御 → 信任列表”，把 `Lumark-Setup-<版本>-<架构>.exe` 加入信任；
 - 也可以临时退出 360 或关闭主动防御做一次对照测试，确认后立即恢复，并把安装器加入白名单；
 - 不要用注册表全局关闭 Windows 的附件管理器或文件写入保护来绕过；
 - 自签名证书不能解决这类拦截；对外分发应使用受信任 CA 的代码签名证书，并向安全厂商提交误报/白名单申请。
@@ -390,10 +400,20 @@ icacls "$root\target\release\lumark-app.exe" /setintegritylevel Medium
 
 `.github/workflows/windows-build.yml`：
 
-- `push`、`pull_request`、`workflow_dispatch` 运行 `check`（格式、文件行数、clippy、测试）和 `build`（Rust 1.99.0、release 构建、安装器、便携包），上传 `Lumark-<版本>-windows-x64` artifact；
-- 推送 `v*` tag 时，`release` job 创建或更新 GitHub Release；tag 必须与 `Cargo.toml` 版本一致；
+- `push`、`pull_request`、`workflow_dispatch` 运行 `check`（格式、文件行数、clippy、测试）和 `build` 矩阵（`x64`、`x86`；Rust 1.99.0、对应 rustup target、release 构建、安装器、便携包）；每个架构上传独立 artifact（`Lumark-<版本>-windows-x64` / `Lumark-<版本>-windows-x86`），artifact 内只有安装包和便携包两个文件；
+- 推送 `v*` tag 时，`release` job 汇总两个架构 artifact，重新生成覆盖四个产物的 `SHA256SUMS.txt`，然后创建或更新 GitHub Release；tag 必须与 `Cargo.toml` 版本一致；
 - 可选签名：配置仓库 secret `LUMARK_SIGN_PFX_BASE64`（PFX 的 Base64）和 `LUMARK_SIGN_PFX_PASSWORD`；自签名/无时间戳可设仓库变量 `LUMARK_SIGN_NO_TIMESTAMP=true`；未配置时构建未签名产物并给出警告。CI 签名请使用受信任 CA 的 PFX；自签名 PFX 需要先在 runner 的受信任根/发布者存储中安装，否则 `sign.ps1` 的 `signtool verify /pa` 会失败。
 - 构建机不需要安装 Inno Setup；CI runner 的工作区是正常 Medium，不会带本机 Low 标签。
+
+Release 最终只包含 5 个文件：
+
+```text
+Lumark-Setup-<版本>-x64.exe
+Lumark-Setup-<版本>-x86.exe
+Lumark-<版本>-windows-x64-portable.zip
+Lumark-<版本>-windows-x86-portable.zip
+SHA256SUMS.txt
+```
 
 发布示例：
 

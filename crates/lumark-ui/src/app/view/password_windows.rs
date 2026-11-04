@@ -714,6 +714,7 @@ impl LumarkApp {
         let app = cx.entity();
         let entry_for_view = entry;
         match gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| {
                 PasswordEditorWindowView::new(app.clone(), entry_for_view.clone(), window, cx)
             })
@@ -765,6 +766,7 @@ impl LumarkApp {
         };
         let app = cx.entity();
         match gpui_kit::open_window(options, cx, move |window, cx| {
+            window.on_next_frame(|window, _| crate::window_focus::activate_and_raise(window));
             cx.new(|cx| MasterPasswordWindowView::new(app.clone(), has_master, window, cx))
         }) {
             Ok((handle, _)) => self.master_password_window = Some(handle),
