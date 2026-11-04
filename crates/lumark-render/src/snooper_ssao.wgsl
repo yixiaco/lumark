@@ -1,13 +1,12 @@
-//! Snooper SSAO：半分辨率深度重建 + 法线半球采样，仅作为环境光遮蔽乘到颜色。
+//! Snooper `Framebuffers/ssao.frag` 的 WGSL 移植（深度重建世界位置/法线）。
 
 struct SsaoUniform {
     eye: vec4<f32>,
     forward: vec4<f32>,
     right: vec4<f32>,
     up: vec4<f32>,
-    // x=tan(fov/2), y=aspect, z=near, w=far
     params: vec4<f32>,
-    // x=width, y=height, z=radius_pixels, w=strength
+    // x=width, y=height, z=radius(world), w=maxDistance
     screen: vec4<f32>,
 };
 
@@ -56,10 +55,8 @@ fn world_from_depth(uv: vec2<f32>, depth: f32) -> vec3<f32> {
     return ssao.eye.xyz + ray * (view_z / max(dot(ray, ssao.forward.xyz), 1e-5));
 }
 
-fn sample_direction(index: i32, count: i32) -> vec2<f32> {
-    let angle = (f32(index) + 0.5) / f32(count) * 6.2831853;
-    let radius = sqrt((f32(index) + 0.5) / f32(count));
-    return vec2<f32>(cos(angle), sin(angle)) * radius;
+fn interleaved_gradient_noise(position: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(position, vec2<f32>(0.06711056, 0.00583715))));
 }
 
 @fragment
@@ -71,33 +68,63 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     if (depth >= 1.0) {
         return base;
     }
-
     let world = world_from_depth(in.uv, depth);
-    let normal = normalize(cross(dpdx(world), dpdy(world)));
+    let view_depth = max(dot(world - ssao.eye.xyz, ssao.forward.xyz), 0.0);
+    if (view_depth <= 0.0 || view_depth >= ssao.screen.w) {
+        return base;
+    }
+    var normal = normalize(cross(dpdx(world), dpdy(world)));
+    let view = normalize(ssao.eye.xyz - world);
+    if (dot(normal, view) < 0.0) {
+        normal = -normal;
+    }
+
+    let radius = max(ssao.screen.z, 1.0);
+    let radius_pixels = clamp(
+        radius * ssao.screen.y / (2.0 * max(view_depth, 1.0) * ssao.params.x),
+        4.0,
+        256.0,
+    );
+    let noise = interleaved_gradient_noise(vec2<f32>(coord));
+    let slice_rotation = noise * 3.1415927;
+    let step_jitter = fract(noise * 8.423);
+    let radius_sq = radius * radius;
+    let texel = vec2<f32>(1.0) / vec2<f32>(dimensions);
     var occlusion = 0.0;
-    var count = 0.0;
-    let radius = ssao.screen.z;
-    for (var index = 0; index < 10; index = index + 1) {
-        let direction = sample_direction(index, 10);
-        let sample_coord = coord + vec2<i32>(direction * radius);
-        let sample_depth = depth_at(sample_coord, dimensions);
-        if (sample_depth >= 1.0 || sample_depth >= depth) {
-            continue;
+    for (var slice = 0; slice < 3; slice = slice + 1) {
+        let angle = slice_rotation + 3.1415927 * f32(slice) / 3.0;
+        let direction = vec2<f32>(cos(angle), sin(angle));
+        for (var side = 0; side < 2; side = side + 1) {
+            let side_sign = select(-1.0, 1.0, side == 0);
+            var max_contribution = 0.0;
+            for (var step = 0; step < 4; step = step + 1) {
+                let t = (f32(step) + step_jitter) / 4.0;
+                let step_distance = t * t * radius_pixels;
+                let sample_uv = in.uv + direction * side_sign * step_distance * texel;
+                let sample_depth = depth_at(
+                    vec2<i32>(sample_uv * vec2<f32>(dimensions)),
+                    dimensions,
+                );
+                if (sample_depth >= 1.0) {
+                    continue;
+                }
+                let sample_world = world_from_depth(sample_uv, sample_depth);
+                let horizon = sample_world - world;
+                let horizon_sq = dot(horizon, horizon);
+                if (horizon_sq < 1e-8) {
+                    continue;
+                }
+                let contribution = max(0.0, dot(normalize(horizon), normal))
+                    * clamp(1.0 - horizon_sq / radius_sq, 0.0, 1.0);
+                max_contribution = max(max_contribution, contribution);
+            }
+            occlusion += max_contribution;
         }
-        let sample_uv = vec2<f32>(sample_coord) / vec2<f32>(dimensions);
-        let sample_world = world_from_depth(sample_uv, sample_depth);
-        let delta = sample_world - world;
-        let distance = length(delta);
-        if (distance <= 0.5 || distance > 80.0) {
-            continue;
-        }
-        let normal_dot = abs(dot(normalize(delta), normal));
-        occlusion = occlusion + normal_dot * (1.0 - smoothstep(20.0, 80.0, distance));
-        count = count + 1.0;
     }
-    var ao = 1.0;
-    if (count > 0.0) {
-        ao = clamp(1.0 - ssao.screen.w * occlusion / count, 0.35, 1.0);
-    }
-    return vec4<f32>(base.rgb * ao, base.a);
+    occlusion /= 6.0;
+    let visibility = clamp(1.0 - occlusion, 0.0, 1.0);
+    var ao = mix(0.05, 1.0, visibility);
+    ao = mix(1.0, ao, 1.0 - smoothstep(ssao.screen.w * 0.7, ssao.screen.w, view_depth));
+    // 前向管线没有单独的 ambient 通道，按 Snooper AO 强度折半近似。
+    return vec4<f32>(base.rgb * mix(1.0, ao, 0.45), base.a);
 }

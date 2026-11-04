@@ -12,6 +12,7 @@ const PI: f32 = 3.141592653589793;
 struct Camera {
     view_proj: mat4x4<f32>,
     eye: vec4<f32>,
+    forward: vec4<f32>,
     light0_dir: vec4<f32>,
     light0_color: vec4<f32>,
     light1_dir: vec4<f32>,
@@ -23,6 +24,8 @@ struct Camera {
     fog_params: vec4<f32>,
     shadow_view_proj_0: mat4x4<f32>,
     shadow_view_proj_1: mat4x4<f32>,
+    shadow_view_proj_2: mat4x4<f32>,
+    shadow_view_proj_3: mat4x4<f32>,
     shadow_params: vec4<f32>,
     shadow_splits: vec4<f32>,
 };
@@ -335,17 +338,34 @@ fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     if (camera.shadow_params.x < 0.5) {
         return 1.0;
     }
-    let position = world + normal * max(camera.shadow_params.w, 0.5);
-    let distance = length(camera.eye.xyz - world);
-    var clip: vec4<f32>;
-    var layer: i32;
-    if (distance < camera.shadow_splits.x) {
-        clip = camera.shadow_view_proj_0 * vec4<f32>(position, 1.0);
+    let view_depth = dot(world - camera.eye.xyz, camera.forward.xyz);
+    var layer = -1;
+    if (view_depth < camera.shadow_splits.x) {
         layer = 0;
-    } else {
-        clip = camera.shadow_view_proj_1 * vec4<f32>(position, 1.0);
+    } else if (view_depth < camera.shadow_splits.y) {
         layer = 1;
+    } else if (view_depth < camera.shadow_splits.z) {
+        layer = 2;
+    } else if (view_depth < camera.shadow_splits.w) {
+        layer = 3;
     }
+    if (layer < 0) {
+        return 0.0;
+    }
+
+    var view_projection: mat4x4<f32>;
+    if (layer == 0) {
+        view_projection = camera.shadow_view_proj_0;
+    } else if (layer == 1) {
+        view_projection = camera.shadow_view_proj_1;
+    } else if (layer == 2) {
+        view_projection = camera.shadow_view_proj_2;
+    } else {
+        view_projection = camera.shadow_view_proj_3;
+    }
+
+    let position = world + normal * max(camera.shadow_params.w, 0.5);
+    let clip = view_projection * vec4<f32>(position, 1.0);
     if (clip.w <= 0.0) {
         return 1.0;
     }
@@ -370,7 +390,6 @@ fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     }
     return lit / 9.0;
 }
-
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
     var normal = normalize(in.normal);

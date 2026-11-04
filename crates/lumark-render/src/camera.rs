@@ -21,8 +21,8 @@ pub(crate) struct Camera {
     pub aspect: f32,
     pub near: f32,
     pub far: f32,
-    pub shadow_view_projections: [Mat4; 2],
-    pub shadow_splits: [f32; 2],
+    pub shadow_view_projections: [Mat4; 4],
+    pub shadow_splits: [f32; 4],
 }
 
 impl Camera {
@@ -90,6 +90,16 @@ impl Camera {
         let view = look_at(eye, center, up_world);
         let aspect = settings.width.max(1) as f32 / settings.height.max(1) as f32;
         let projection = perspective(fov_y, aspect, near, far);
+        let cascades = build_shadow_cascades(
+            eye,
+            forward,
+            up,
+            (fov_y * 0.5).tan(),
+            aspect,
+            near,
+            far,
+            settings,
+        );
         Self {
             view_projection: multiply(&projection, &view),
             eye,
@@ -100,11 +110,8 @@ impl Camera {
             aspect,
             near,
             far,
-            shadow_view_projections: [
-                shadow_view_projection(&bounds, settings.key_direction),
-                shadow_view_projection_scaled(&bounds, settings.key_direction, 3.0),
-            ],
-            shadow_splits: [distance * 1.5, f32::MAX],
+            shadow_view_projections: cascades.projections,
+            shadow_splits: cascades.splits,
         }
     }
 
@@ -115,11 +122,13 @@ impl Camera {
 }
 
 /// 覆盖场景包围盒的太阳阴影视图投影（正交，深度 0..1）。
+#[allow(dead_code)]
 pub(crate) fn shadow_view_projection(bounds: &Bounds, light_direction: [f32; 3]) -> Mat4 {
     shadow_view_projection_scaled(bounds, light_direction, 1.0)
 }
 
 /// 按级联范围缩放的正交阴影视图投影。
+#[allow(dead_code)]
 pub(crate) fn shadow_view_projection_scaled(
     bounds: &Bounds,
     light_direction: [f32; 3],
@@ -160,6 +169,89 @@ pub(crate) fn shadow_view_projection_scaled(
     multiply(&projection, &view)
 }
 
+struct ShadowCascades {
+    projections: [Mat4; 4],
+    splits: [f32; 4],
+}
+
+/// 按 Snooper `SunCascades` 的球拟合/texel 对齐构造 4 级联。
+#[allow(clippy::too_many_arguments)]
+fn build_shadow_cascades(
+    eye: [f32; 3],
+    forward: [f32; 3],
+    _up: [f32; 3],
+    tan_half_fov: f32,
+    aspect: f32,
+    near: f32,
+    far: f32,
+    settings: &RenderSettings,
+) -> ShadowCascades {
+    let shadows = &settings.snooper.shadows;
+    let max_distance = (shadows.max_distance * 100.0).max(near + 1.0);
+    let caster_distance = (shadows.caster_distance * 100.0).max(1.0);
+    let far = far.min(max_distance);
+    let light = normalize(settings.key_direction);
+    let up_world = if dot(light, [0.0, 0.0, 1.0]).abs() > 0.99 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [0.0, 0.0, 1.0]
+    };
+    let light_forward = [-light[0], -light[1], -light[2]];
+    let light_right = normalize(cross(light_forward, up_world));
+    let light_up = cross(light_right, light_forward);
+    let k2 = tan_half_fov * tan_half_fov * (1.0 + aspect * aspect);
+    let mut projections = [[[0.0; 4]; 4]; 4];
+    let mut splits = [0.0; 4];
+    for index in 0..4 {
+        let p = (index + 1) as f32 / 4.0;
+        let near_i = if index == 0 { near } else { splits[index - 1] };
+        let logarithmic = near * (far / near).powf(p);
+        let linear = near + (far - near) * p;
+        let split = linear + (logarithmic - linear) * shadows.lambda;
+        splits[index] = split;
+        let near_i = near_i.max(0.01);
+        let far_i = split.max(near_i + 1.0);
+        let (distance, radius) = if k2 * (far_i + near_i) >= far_i - near_i {
+            (far_i, far_i * k2.sqrt())
+        } else {
+            let distance = 0.5 * (far_i + near_i) * (1.0 + k2);
+            let radius = 0.5
+                * ((far_i - near_i) * (far_i - near_i)
+                    + 2.0 * (far_i * far_i + near_i * near_i) * k2
+                    + (far_i + near_i) * (far_i + near_i) * k2 * k2)
+                    .sqrt();
+            (distance, radius)
+        };
+        let radius = (radius * 16.0).ceil() / 16.0;
+        let mut center = [
+            eye[0] + forward[0] * distance,
+            eye[1] + forward[1] * distance,
+            eye[2] + forward[2] * distance,
+        ];
+        let texel = radius * 2.0 / shadows.resolution.max(1) as f32;
+        let x = (dot(center, light_right) / texel).floor() * texel;
+        let y = (dot(center, light_up) / texel).floor() * texel;
+        let z = dot(center, light_forward);
+        center = [
+            light_right[0] * x + light_up[0] * y + light_forward[0] * z,
+            light_right[1] * x + light_up[1] * y + light_forward[1] * z,
+            light_right[2] * x + light_up[2] * y + light_forward[2] * z,
+        ];
+        let depth_range = radius * 2.0 + caster_distance;
+        let light_eye = [
+            center[0] + light[0] * (radius + caster_distance),
+            center[1] + light[1] * (radius + caster_distance),
+            center[2] + light[2] * (radius + caster_distance),
+        ];
+        let view = look_at(light_eye, center, up_world);
+        let projection = orthographic(-radius, radius, -radius, radius, 0.0, depth_range);
+        projections[index] = multiply(&projection, &view);
+    }
+    ShadowCascades {
+        projections,
+        splits,
+    }
+}
 /// 正交投影，深度映射到 0..1（wgpu）。
 pub(crate) fn orthographic(
     left: f32,

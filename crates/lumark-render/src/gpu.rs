@@ -30,7 +30,7 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4 + joints4 + weights4。
 const VERTEX_FLOATS: usize = 24;
 /// 相机 uniform 大小（字节）。
-const CAMERA_UNIFORM_SIZE: u64 = 384;
+const CAMERA_UNIFORM_SIZE: u64 = 528;
 /// 材质 uniform 大小（字节）。
 const MATERIAL_UNIFORM_SIZE: u64 = 112;
 
@@ -187,7 +187,7 @@ struct RenderTargets {
     /// 太阳阴影视图（2 级联数组）。
     shadow_view: wgpu::TextureView,
     /// 每个级联的渲染视图。
-    shadow_layer_views: [wgpu::TextureView; 2],
+    shadow_layer_views: [wgpu::TextureView; 4],
     /// 回读缓冲；行字节数补齐到 256 的倍数。
     readback: wgpu::Buffer,
     /// 回读缓冲的补齐行宽（字节）。
@@ -270,7 +270,7 @@ impl RenderTargets {
             size: wgpu::Extent3d {
                 width: 2048,
                 height: 2048,
-                depth_or_array_layers: 2,
+                depth_or_array_layers: 4,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -293,7 +293,12 @@ impl RenderTargets {
                 ..Default::default()
             })
         };
-        let shadow_layer_views = [shadow_layer_view(0), shadow_layer_view(1)];
+        let shadow_layer_views = [
+            shadow_layer_view(0),
+            shadow_layer_view(1),
+            shadow_layer_view(2),
+            shadow_layer_view(3),
+        ];
         // 回读：copy_texture_to_buffer 的每行字节数必须是 256 的倍数。
         let padded_row = width.div_ceil(64) * 256;
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -2191,7 +2196,7 @@ fn ssao_uniform(camera: &Camera, width: u32, height: u32) -> Vec<f32> {
     }
     values.push(0.0);
     values.extend_from_slice(&[camera.tan_half_fov, camera.aspect, camera.near, camera.far]);
-    values.extend_from_slice(&[width as f32, height as f32, 10.0, 0.8]);
+    values.extend_from_slice(&[width as f32, height as f32, 100.0, 8000.0]);
     values
 }
 
@@ -2206,6 +2211,12 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
         camera.eye[1],
         camera.eye[2],
         if settings.vertex_colors { 1.0 } else { 0.0 },
+    ]);
+    values.extend_from_slice(&[
+        camera.forward[0],
+        camera.forward[1],
+        camera.forward[2],
+        0.0,
     ]);
     let key = normalize(settings.key_direction);
     values.extend_from_slice(&[key[0], key[1], key[2], settings.key_intensity]);
@@ -2654,8 +2665,8 @@ mod tests {
                 bytes[index * 4 + 3],
             ])
         };
-        assert!((value(48) - settings.snooper.fog.color[0]).abs() < 1e-6);
-        assert!((value(52) - settings.snooper.fog.density).abs() < 1e-6);
+        assert!((value(52) - settings.snooper.fog.color[0]).abs() < 1e-6);
+        assert!((value(56) - settings.snooper.fog.density).abs() < 1e-6);
     }
     /// 背景/天空 WGSL 也需要通过解析与语义校验。
     #[test]
