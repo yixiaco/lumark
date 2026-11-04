@@ -323,8 +323,9 @@ fn add_snooper_contact_shadow(scene: &mut Scene) {
     let mesh = scene.add_mesh(mesh);
     let material = scene.add_material(lumark_scene::MaterialData {
         name: "SnooperContactShadow".to_string(),
-        base_color: [0.02, 0.02, 0.025, 1.0],
+        base_color: [0.0, 0.0, 0.0, 0.42],
         roughness: 1.0,
+        translucent: true,
         two_sided: true,
         ..lumark_scene::MaterialData::default()
     });
