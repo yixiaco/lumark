@@ -163,6 +163,8 @@ pub struct MaterialData {
     pub roughness_min: f32,
     /// FModel 粗糙度上限。
     pub roughness_max: f32,
+    /// 基础高光强度（Snooper 模式使用 `0.08 × specular` 作为 F0 基值）。
+    pub specular: f32,
     /// 自发光倍率。
     pub emissive_multiplier: f32,
     /// AO 颜色增强 RGB。
@@ -194,6 +196,7 @@ impl Default for MaterialData {
             roughness: 0.55,
             roughness_min: 0.0,
             roughness_max: 1.0,
+            specular: 0.5,
             emissive_multiplier: 1.0,
             ao_boost_color: [0.0; 3],
             ao_boost_exponent: 0.0,

@@ -38,9 +38,10 @@
 - **StaticMesh 预览**：首个 LOD 的顶点/索引/section 解析，并识别资产声明的 LOD 数量；
   CPU 光栅器生成 3D 缩略图显示在详情面板；独立模型查看器窗口支持左键轨道旋转、右键拖拽
   平移、滚轮缩放和重置；右侧检查器可切换 LOD、按 section/材质槽显示或隐藏几何，并查看
-  材质 blend/shading、粗糙度区间、AO/自发光与贴图尺寸。材质按 CUE4Parse
-  `CMaterialParams2` 与 FModel `default.frag` 对齐（specular mask G=金属度/腔体、
-  B=粗糙度，AO R/G/B，Skin Boost，RoughnessMin/Max），默认隐藏无贴图/半透明 section；
+  材质 blend/shading、高光强度、粗糙度区间、AO/自发光与贴图尺寸。材质按 CUE4Parse
+  `CMaterialParams2` 与 Snooper `scene_lighting` 对齐（太阳 + 天空上下半球环境光、
+  R=高光/G=金属/B=粗糙、F0 高光基值、gamma-only 输出），同时保留 FModel
+  `default.frag` 的 spec/AO/Skin Boost 头灯兼容；默认隐藏无贴图/半透明 section；
   工具栏“属性 JSON”可打开导出表 + 属性树的只读 JSON 窗口。StaticMesh 与 SkeletalMesh
   的全部 LOD 均可在检查器中切换（后续 LOD 为尽力探测）。
 - **骨骼与动画**：Skeleton 参考姿态累积为世界空间线条图，可在同一查看器中旋转/缩放；

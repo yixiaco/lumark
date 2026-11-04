@@ -12,6 +12,22 @@
 - [x] BNB 实机验收：`NanaF6_2` 的 `N_EyeLip`/`N_EyeShadow` 默认隐藏，`N_Eye`/`N_Skin` 可见；`N_Eye` 基础色为 `eyeBro`，`N_Skin` spec/AO 均为 `NewNana_AO`。产物 `artifacts/viewer-nana-f6-2-fmodel.png`、`artifacts/viewer-nana-eye-base.png`。
 - [x] 大文件/高内存测试清理：按用户要求删除 33 MB 的 `zpaq_large_file_uses_configured_worker`，以及 1 MB 的 `bin_roundtrip_large`、`img_roundtrip_large`、`lz_large_data`；只保留小文件测试。
 
+## 2026-11-04 Snooper 色彩/光泽对齐（第二轮）
+
+- [x] `LightingMode::Snooper`：按 Snooper OpenGL `scene_lighting.glsl` 实现太阳方向光 + 天空上下半球环境光；`F0 = mix(0.08*Specular, albedo, Metallic)`；`kD = (1-F)*(1-metallic)`；Snooper GGX/Smith；不做 Reinhard，只做 gamma。
+- [x] 材质通道：`R=Specular/G=Metallic/B=Roughness`，新增 `MaterialAppearance.specular`（`Specular`/`Spec`/`Base Specular`，默认 0.5）并传入 `MaterialData`/CPU/GPU uniform；AO 用于近似 SSAO；检查器显示高光强度。
+- [x] 查看器默认切到 `Snooper + Fmodel`：太阳/天空常量按 Snooper `SunActor`/`EnvironmentActor` 参考并针对无阴影/无天空盒的查看器调整曝光；背景改为天空蓝。
+- [x] 测试：`snooper_lighting_uses_sky_ambient_and_sun`、`snooper_specular_scalar_changes_highlight`、`snooper_frame_uses_gamma_only_encoding`、`wgsl_shader_parses_and_validates`；BNB `NanaF6_2` 实机出新图 `artifacts/viewer-nana-f6-2-fmodel.png`，另导出皮肤基础色 `artifacts/viewer-nana-skin-base.png`。
+
+### Snooper 验收
+
+- `cargo fmt --all -- --check`：通过。
+- `cargo clippy -p lumark-render -p lumark-unreal -p lumark-ui -j 2 --all-targets -- -D warnings`：通过。
+- `cargo test -p lumark-render --lib -j 2 -- --test-threads=2`：47 passed（含 `wgsl_shader_parses_and_validates`）。
+- `cargo test -p lumark-unreal --lib -j 2 -- --test-threads=2`：88 passed。
+- `cargo test -p lumark-ui --lib app::view::asset_viewer_window::tests:: -j 2 -- --test-threads=2`：24 passed；BNB 实机用例定向通过。
+- 按用户资源限制，完整 workspace/UI 套件未重跑，只跑受影响包与查看器定向用例。
+
 ## 验收（按用户资源限制：最多 2 线程、只跑受影响包）
 
 - `cargo fmt --all -- --check`：通过。

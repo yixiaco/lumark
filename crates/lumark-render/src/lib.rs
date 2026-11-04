@@ -95,6 +95,8 @@ pub enum LightingMode {
     Studio,
     /// 视线方向头灯（FModel 观感）。
     Headlight,
+    /// Snooper 场景光照：方向光太阳 + 天空上下半球环境光，输出只做 gamma。
+    Snooper,
 }
 
 /// 法线贴图的切线空间约定。
@@ -141,6 +143,10 @@ pub struct RenderSettings {
     pub fill_intensity: f32,
     /// 环境光强度。
     pub ambient_strength: f32,
+    /// Snooper 天空上半球环境色（线性 RGB，仅 `Snooper` 模式使用）。
+    pub sky_upper_color: [f32; 3],
+    /// Snooper 天空下半球环境色（线性 RGB，仅 `Snooper` 模式使用）。
+    pub sky_lower_color: [f32; 3],
     /// 超采样倍数（1–4）；提高画质并降低锯齿。
     pub supersample: u32,
     /// MSAA 采样数（1 或 4）；仅 GPU 后端使用。
@@ -185,6 +191,8 @@ impl Default for RenderSettings {
             key_intensity: 1.15,
             fill_intensity: 0.35,
             ambient_strength: 0.22,
+            sky_upper_color: [0.0; 3],
+            sky_lower_color: [0.0; 3],
             supersample: 2,
             msaa_samples: 1,
             srgb_textures: true,

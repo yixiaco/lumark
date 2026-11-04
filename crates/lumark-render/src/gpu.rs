@@ -27,9 +27,9 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4 + joints4 + weights4。
 const VERTEX_FLOATS: usize = 24;
 /// 相机 uniform 大小（字节）。
-const CAMERA_UNIFORM_SIZE: u64 = 160;
+const CAMERA_UNIFORM_SIZE: u64 = 192;
 /// 材质 uniform 大小（字节）。
-const MATERIAL_UNIFORM_SIZE: u64 = 96;
+const MATERIAL_UNIFORM_SIZE: u64 = 112;
 
 /// GPU 渲染错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -378,7 +378,10 @@ impl GpuRenderer {
                     depth_slice: None,
                     resolve_target,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear_color(settings.background)),
+                        load: wgpu::LoadOp::Clear(clear_color(
+                            settings.background,
+                            settings.lighting_mode == LightingMode::Snooper,
+                        )),
                         store: if samples > 1 {
                             wgpu::StoreOp::Discard
                         } else {
@@ -1521,9 +1524,9 @@ fn overlay_line_vertices(scene: &Scene, settings: &RenderSettings) -> (Vec<u8>, 
     (f32_bytes(&values), count)
 }
 
-/// 相机 uniform（160 字节）。
+/// 相机 uniform（192 字节）。
 fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
-    let mut values = Vec::with_capacity(40);
+    let mut values = Vec::with_capacity(48);
     for column in &camera.view_projection {
         values.extend_from_slice(column);
     }
@@ -1553,18 +1556,31 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
         match settings.lighting_mode {
             LightingMode::Studio => 0.0,
             LightingMode::Headlight => 1.0,
+            LightingMode::Snooper => 2.0,
         },
         match settings.normal_map_convention {
             NormalMapConvention::Ue => 0.0,
             NormalMapConvention::Fmodel => 1.0,
         },
     ]);
+    values.extend_from_slice(&[
+        settings.sky_upper_color[0],
+        settings.sky_upper_color[1],
+        settings.sky_upper_color[2],
+        0.0,
+    ]);
+    values.extend_from_slice(&[
+        settings.sky_lower_color[0],
+        settings.sky_lower_color[1],
+        settings.sky_lower_color[2],
+        0.0,
+    ]);
     f32_bytes(&values)
 }
 
-/// 材质 uniform（96 字节）。
+/// 材质 uniform（112 字节）。
 fn material_uniform(material: &MaterialData) -> Vec<u8> {
-    let mut values = Vec::with_capacity(20);
+    let mut values = Vec::with_capacity(28);
     values.extend_from_slice(&[
         material.base_color[0],
         material.base_color[1],
@@ -1625,14 +1641,20 @@ fn material_uniform(material: &MaterialData) -> Vec<u8> {
         material.ao_boost_color[2],
         material.ao_boost_exponent.max(0.0),
     ]);
+    // Snooper 高光强度标量。
+    values.extend_from_slice(&[material.specular.clamp(0.0, 1.0), 0.0, 0.0, 0.0]);
     f32_bytes(&values)
 }
 
 /// 线性背景色 → 清屏颜色（gamma 编码，与着色器输出同一空间）。
-fn clear_color(background: [f32; 3]) -> wgpu::Color {
+fn clear_color(background: [f32; 3], gamma_only: bool) -> wgpu::Color {
     let encode = |value: f32| {
         let positive = value.max(0.0);
-        let mapped = positive / (1.0 + positive);
+        let mapped = if gamma_only {
+            positive
+        } else {
+            positive / (1.0 + positive)
+        };
         f64::from(mapped.powf(1.0 / 2.2))
     };
     wgpu::Color {
@@ -1689,6 +1711,18 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 mod tests {
     use super::*;
     use lumark_scene::{MeshData, MeshSection, NodeKind, SceneNode, Transform};
+
+    /// WGSL 语法/语义校验；不需要 GPU 适配器，防止着色器改动只在运行时暴露。
+    #[test]
+    fn wgsl_shader_parses_and_validates() {
+        let module = wgpu::naga::front::wgsl::parse_str(include_str!("shader.wgsl"))
+            .expect("解析 shader.wgsl");
+        let mut validator = wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::all(),
+        );
+        validator.validate(&module).expect("校验 shader.wgsl");
+    }
 
     /// 构造一个红色三角形场景。
     fn triangle_scene() -> Scene {

@@ -182,6 +182,11 @@ impl AssetViewerWindowView {
             ));
             rows.push(inspector_row(
                 cx,
+                tr("高光强度", "Specular"),
+                &format!("{:.2}", appearance.specular),
+            ));
+            rows.push(inspector_row(
+                cx,
                 tr("金属度", "Metallic"),
                 &format!("{:.2}", appearance.metallic),
             ));

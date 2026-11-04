@@ -22,8 +22,8 @@ use crate::material_params::{
     AO_BOOST_TRIGGERS, AO_TRIGGERS, DIFFUSE_COLOR_TRIGGERS, DIFFUSE_TRIGGERS,
     EMISSIVE_COLOR_TRIGGERS, EMISSIVE_MULT_COLOR_TRIGGERS, EMISSIVE_MULT_TRIGGERS,
     EMISSIVE_TRIGGERS, NORMAL_TRIGGERS, ROUGHNESS_MAX_TRIGGERS, ROUGHNESS_MIN_TRIGGERS,
-    ROUGHNESS_TRIGGERS, SPECULAR_TRIGGERS, matches_diffuse, matches_emissive, matches_normals,
-    matches_specular_masks,
+    ROUGHNESS_TRIGGERS, SPECULAR_SCALAR_TRIGGERS, SPECULAR_TRIGGERS, matches_diffuse,
+    matches_emissive, matches_normals, matches_specular_masks,
 };
 use crate::package::{
     Mappings, MaterialAppearance, MaterialTextureKind, MaterialTextureRef, MaterialViewerImage,
@@ -336,6 +336,9 @@ fn apply_chain_selection(appearance: &mut MaterialAppearance, chain: &ChainParam
     }
     appearance.roughness_min = min;
     appearance.roughness_max = max;
+    if let Some(specular) = select_scalar(chain, SPECULAR_SCALAR_TRIGGERS) {
+        appearance.specular = specular.clamp(0.0, 1.0);
+    }
     if let Some(multiplier) = select_scalar(chain, EMISSIVE_MULT_TRIGGERS)
         .or_else(|| select_color3(chain, EMISSIVE_MULT_COLOR_TRIGGERS).map(|color| color[0]))
     {
@@ -773,6 +776,7 @@ mod tests {
             scalars: vec![
                 ("RoughnessMin".to_string(), 0.2),
                 ("RoughnessMax".to_string(), 0.9),
+                ("Specular".to_string(), 0.25),
                 ("Emissive_Mult".to_string(), 1.7),
             ],
             colors: vec![(
@@ -784,6 +788,7 @@ mod tests {
         apply_chain_selection(&mut appearance, &chain);
         assert!((appearance.roughness_min - 0.2).abs() < 1e-6);
         assert!((appearance.roughness_max - 0.9).abs() < 1e-6);
+        assert!((appearance.specular - 0.25).abs() < 1e-6);
         assert!((appearance.emissive_multiplier - 1.7).abs() < 1e-6);
         assert!(appearance.has_ao_boost);
         assert_eq!(appearance.ao_boost_color, [1.2, 1.1, 1.0]);

@@ -392,6 +392,9 @@ pub(crate) const ROUGHNESS_TRIGGERS: &[&str] = &[
     "Roughness_Mult",
 ];
 
+/// 高光强度标量参数名（Snooper `Specular`）。
+pub(crate) const SPECULAR_SCALAR_TRIGGERS: &[&str] = &["Specular", "Spec", "Base Specular"];
+
 /// 自发光倍率标量参数名。
 pub(crate) const EMISSIVE_MULT_TRIGGERS: &[&str] = &[
     "emissive mult",

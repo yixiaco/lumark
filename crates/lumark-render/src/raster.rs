@@ -57,7 +57,7 @@ pub(crate) fn render(
     // 线框模式跳过三角形填充，只绘制边线。
     if settings.wireframe {
         draw_overlays(scene, settings, camera, &mut frame);
-        return frame.to_rgba8();
+        return frame.to_rgba8(settings.lighting_mode == LightingMode::Snooper);
     }
     for (node_index, node) in scene.nodes.iter().enumerate() {
         if !node.visible {
@@ -111,7 +111,7 @@ pub(crate) fn render(
     }
     frame.resolve_translucent();
     draw_overlays(scene, settings, camera, &mut frame);
-    frame.to_rgba8()
+    frame.to_rgba8(settings.lighting_mode == LightingMode::Snooper)
 }
 
 /// 绘制地面网格与骨骼线段（带深度测试）。
@@ -713,6 +713,18 @@ fn shade(
         ];
     }
     let color = match settings.lighting_mode {
+        // Snooper 场景光照：方向光太阳 + 天空上下半球环境光，不做头灯。
+        LightingMode::Snooper => {
+            let (specular, metallic, roughness) = resolve_snooper_params(material, surface.uv);
+            let ao = material
+                .textures
+                .occlusion
+                .as_ref()
+                .map_or(1.0, |texture| sample_texture(texture, surface.uv)[0]);
+            snooper_lighting(
+                base, normal, view, specular, metallic, roughness, ao, settings,
+            )
+        }
         // FModel 头灯：AO 只乘基础色，自发光在头灯前叠加。
         LightingMode::Headlight => {
             let (cavity, roughness, metallic, ao_sample) =
@@ -834,6 +846,103 @@ fn resolve_fmodel_params(
         cavity = ao[1].clamp(0.0, 1.0);
     }
     (cavity, roughness, metallic, ao_sample)
+}
+
+/// Snooper 材质参数：R=高光强度、G=金属度、B=粗糙度；无贴图时回退到材质标量。
+fn resolve_snooper_params(material: &MaterialData, uv: [f32; 2]) -> (f32, f32, f32) {
+    let mut specular = material.specular.clamp(0.0, 1.0);
+    let mut metallic = material.metallic.clamp(0.0, 1.0);
+    let mut roughness = material.roughness_max.clamp(0.02, 1.0);
+    if let Some(texture) = material.textures.metallic_roughness.as_ref() {
+        let sampled = sample_texture(texture, uv);
+        // BNB 的 AO 贴图 R 通道是遮蔽而非高光；用材质 Specular 兜底，
+        // 避免把它误读成 0 高光。
+        specular = sampled[0].max(material.specular).clamp(0.0, 1.0);
+        metallic = sampled[1].clamp(0.0, 1.0);
+        roughness = (material.roughness_min
+            + (material.roughness_max - material.roughness_min) * sampled[2])
+            .clamp(0.02, 1.0);
+    }
+    (specular, metallic, roughness)
+}
+
+/// Snooper `SceneLighting`：天空环境光 + 单方向太阳光，线性输出。
+///
+/// 参数较多是为了与 Snooper 的材质通道/光照公式一一对应，避免在调用处
+/// 构造临时结构体。
+#[allow(clippy::too_many_arguments)]
+fn snooper_lighting(
+    base: [f32; 3],
+    normal: [f32; 3],
+    view: [f32; 3],
+    specular: f32,
+    metallic: f32,
+    roughness: f32,
+    ao: f32,
+    settings: &RenderSettings,
+) -> [f32; 3] {
+    const PI: f32 = std::f32::consts::PI;
+    let n_dot_v = dot(normal, view).max(0.001);
+    let light = normalize(settings.key_direction);
+    let n_dot_l = dot(normal, light).max(0.0);
+    let half = normalize([light[0] + view[0], light[1] + view[1], light[2] + view[2]]);
+    let h_dot_v = dot(half, view).max(0.0);
+    // Snooper：F0 = mix(0.08 * specular, albedo, metallic)。
+    let mut f0 = [0.0f32; 3];
+    for channel in 0..3 {
+        let dielectric = 0.08 * specular;
+        f0[channel] = dielectric + (base[channel] - dielectric) * metallic;
+    }
+    let fresnel = |channel: usize| f0[channel] + (1.0 - f0[channel]) * (1.0 - h_dot_v).powi(5);
+    let distribution = snooper_distribution_ggx(normal, half, roughness);
+    let geometry = snooper_geometry_smith(normal, view, light, roughness);
+    let specular_denominator = 4.0 * n_dot_v * n_dot_l + 0.001;
+
+    let upper = settings.sky_upper_color;
+    let lower = settings.sky_lower_color;
+    // Snooper 以 Y 为上；Lumark 场景是 Z 上，所以用 normal.z 混合上下半球。
+    let sky_mix = (normal[2] * 0.5 + 0.5).clamp(0.0, 1.0);
+    let mut color = [0.0f32; 3];
+    for channel in 0..3 {
+        let ambient = (lower[channel] + (upper[channel] - lower[channel]) * sky_mix)
+            * base[channel]
+            * ao.clamp(0.0, 1.0);
+        let f = fresnel(channel);
+        let spec = distribution * geometry * f / specular_denominator;
+        let kd = (1.0 - f) * (1.0 - metallic);
+        let diffuse = kd * base[channel] / PI;
+        let sun = (diffuse + spec) * settings.key_color[channel] * n_dot_l * settings.key_intensity;
+        color[channel] = ambient + sun;
+    }
+    color
+}
+
+/// Snooper `DistributionGGX`。
+fn snooper_distribution_ggx(normal: [f32; 3], half: [f32; 3], roughness: f32) -> f32 {
+    const PI: f32 = std::f32::consts::PI;
+    let a = roughness * roughness;
+    let n_dot_h = dot(normal, half).max(0.0);
+    let cross_nt = cross(normal, half);
+    let k = a / (dot(cross_nt, cross_nt) + n_dot_h * a * n_dot_h * a);
+    k * k / PI
+}
+
+/// Snooper `GeometrySchlickGGX`。
+fn snooper_geometry_schlick(n_dot_v: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = (r * r) / 8.0;
+    n_dot_v / (n_dot_v * (1.0 - k) + k)
+}
+
+/// Snooper `GeometrySmith`。
+fn snooper_geometry_smith(
+    normal: [f32; 3],
+    view: [f32; 3],
+    light: [f32; 3],
+    roughness: f32,
+) -> f32 {
+    snooper_geometry_schlick(dot(normal, view).max(0.0), roughness)
+        * snooper_geometry_schlick(dot(normal, light).max(0.0), roughness)
 }
 
 /// FModel 头灯高光/漫反射项（不含 `diffuseFactor * base` 与 AO/自发光）。
@@ -1029,14 +1138,21 @@ impl Frame {
     }
 
     /// 色调映射 + gamma 编码为 RGBA8。
-    fn to_rgba8(&self) -> Vec<u8> {
+    ///
+    /// Snooper 模式与 Snooper `mesh.frag` 一致，只做 gamma；Studio/Headlight
+    /// 保留既有 Reinhard + gamma。
+    fn to_rgba8(&self, gamma_only: bool) -> Vec<u8> {
         let mut output = Vec::with_capacity(self.color.len() * 4);
         for color in &self.color {
-            let mapped = [
-                color[0].max(0.0) / (1.0 + color[0].max(0.0)),
-                color[1].max(0.0) / (1.0 + color[1].max(0.0)),
-                color[2].max(0.0) / (1.0 + color[2].max(0.0)),
-            ];
+            let mapped = if gamma_only {
+                [color[0].max(0.0), color[1].max(0.0), color[2].max(0.0)]
+            } else {
+                [
+                    color[0].max(0.0) / (1.0 + color[0].max(0.0)),
+                    color[1].max(0.0) / (1.0 + color[1].max(0.0)),
+                    color[2].max(0.0) / (1.0 + color[2].max(0.0)),
+                ]
+            };
             output.push((mapped[0].powf(1.0 / 2.2).clamp(0.0, 1.0) * 255.0) as u8);
             output.push((mapped[1].powf(1.0 / 2.2).clamp(0.0, 1.0) * 255.0) as u8);
             output.push((mapped[2].powf(1.0 / 2.2).clamp(0.0, 1.0) * 255.0) as u8);
@@ -1940,5 +2056,69 @@ mod tests {
             render_with([0.0; 3], true),
             "有自发光贴图时应改变结果"
         );
+    }
+
+    /// Snooper：天空环境光在无太阳时也提供基础亮度，太阳再叠加。
+    #[test]
+    fn snooper_lighting_uses_sky_ambient_and_sun() {
+        let settings = RenderSettings {
+            key_direction: [0.0, 0.0, 1.0],
+            key_color: [1.0, 1.0, 1.0],
+            key_intensity: 0.0,
+            sky_upper_color: [0.2, 0.2, 0.2],
+            sky_lower_color: [0.1, 0.1, 0.1],
+            ..RenderSettings::default()
+        };
+        let base = [1.0, 1.0, 1.0];
+        let normal = [0.0, 0.0, 1.0];
+        let view = [0.0, 0.0, 1.0];
+        let ambient = snooper_lighting(base, normal, view, 0.5, 0.0, 0.5, 1.0, &settings);
+        assert!(
+            (ambient[0] - 0.2).abs() < 1e-5,
+            "天空上半球环境光：{ambient:?}"
+        );
+
+        let lit_settings = RenderSettings {
+            key_intensity: 2.0,
+            ..settings
+        };
+        let lit = snooper_lighting(base, normal, view, 0.5, 0.0, 0.5, 1.0, &lit_settings);
+        assert!(lit[0] > ambient[0], "太阳光应叠加在环境光上：{lit:?}");
+    }
+
+    /// Snooper：高光强度标量进入 F0，改变高光亮度。
+    #[test]
+    fn snooper_specular_scalar_changes_highlight() {
+        let settings = RenderSettings {
+            key_direction: [0.0, 0.0, 1.0],
+            key_color: [1.0, 1.0, 1.0],
+            key_intensity: 2.0,
+            sky_upper_color: [0.0; 3],
+            sky_lower_color: [0.0; 3],
+            ..RenderSettings::default()
+        };
+        let base = [1.0, 1.0, 1.0];
+        let normal = [0.0, 0.0, 1.0];
+        let view = [0.0, 0.0, 1.0];
+        let low = snooper_lighting(base, normal, view, 0.1, 0.0, 0.2, 1.0, &settings);
+        let high = snooper_lighting(base, normal, view, 0.8, 0.0, 0.2, 1.0, &settings);
+        assert!(
+            high[0] > low[0],
+            "更高 specular 应有更强高光：{low:?} {high:?}"
+        );
+    }
+
+    /// Snooper 输出只做 gamma，不压缩高光；FModel/Studio 仍走 Reinhard。
+    #[test]
+    fn snooper_frame_uses_gamma_only_encoding() {
+        let frame = Frame {
+            width: 1,
+            height: 1,
+            color: vec![[4.0, 0.0, 0.0]],
+            depth: vec![0.0],
+            translucent: Vec::new(),
+        };
+        assert_eq!(frame.to_rgba8(true)[0], 255);
+        assert!(frame.to_rgba8(false)[0] < 255);
     }
 }

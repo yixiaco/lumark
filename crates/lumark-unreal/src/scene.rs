@@ -408,6 +408,7 @@ pub fn scene_material(
         roughness: appearance.roughness.clamp(0.0, 1.0),
         roughness_min: appearance.roughness_min.clamp(0.0, 1.0),
         roughness_max: appearance.roughness_max.clamp(0.0, 1.0),
+        specular: appearance.specular.clamp(0.0, 1.0),
         emissive_multiplier: appearance.emissive_multiplier.max(0.0),
         ao_boost_color: appearance.ao_boost_color,
         ao_boost_exponent: appearance.ao_boost_exponent.max(0.0),

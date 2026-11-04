@@ -2,7 +2,7 @@
 // 输出到 Rgba8Unorm 目标，因此这里手动做 tone mapping 与 sRGB 编码。
 //
 // 光照模式与法线约定通过 camera.ambient 的 z/w 分量传入（见 camera_uniform）：
-//   ambient.z = 0 → Studio，1 → Headlight；
+//   ambient.z = 0 → Studio，1 → Headlight，2 → Snooper；
 //   ambient.w = 0 → UE 切线约定，1 → FModel Snooper 约定。
 // ORM 贴图布局通过 material.flags.z 传入：0 → R=AO/G=粗糙度/B=金属度，
 // 1 → 高光遮罩（G=金属度、B=粗糙度）。
@@ -17,6 +17,8 @@ struct Camera {
     light1_dir: vec4<f32>,
     light1_color: vec4<f32>,
     ambient: vec4<f32>,
+    sky_upper: vec4<f32>,
+    sky_lower: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -33,6 +35,8 @@ struct Material {
     extra: vec4<f32>,
     // xyz = ao_boost_color, w = ao_boost_exponent
     extra2: vec4<f32>,
+    // x = Snooper 高光强度标量
+    extra3: vec4<f32>,
 };
 
 @group(1) @binding(0) var<uniform> material: Material;
@@ -214,6 +218,90 @@ fn resolve_fmodel_params(uv: vec2<f32>) -> vec3<f32> {
     return vec3<f32>(clamp(cavity, 0.0, 1.0), clamp(roughness, 0.0, 1.0), clamp(metallic, 0.0, 1.0));
 }
 
+// Snooper 材质参数：x=高光强度、y=金属度、z=粗糙度。
+fn resolve_snooper_params(uv: vec2<f32>) -> vec3<f32> {
+    var specular = clamp(material.extra3.x, 0.0, 1.0);
+    var metallic = clamp(material.params.x, 0.0, 1.0);
+    var roughness = clamp(material.extra.y, 0.02, 1.0);
+    if (material.flags.x > 0.5) {
+        let sampled = textureSample(orm_texture, tex_sampler, uv).rgb;
+        // AO 贴图的 R 通道不是高光；用材质 Specular 兜底。
+        specular = max(sampled.r, material.extra3.x);
+        metallic = clamp(sampled.g, 0.0, 1.0);
+        roughness = clamp(mix(material.extra.x, material.extra.y, sampled.b), 0.02, 1.0);
+    }
+    return vec3<f32>(specular, metallic, roughness);
+}
+
+// Snooper pbr.glsl 的 GGX 分布（cross(N,H) 形式）。
+fn snooper_distribution_ggx(normal: vec3<f32>, half_vector: vec3<f32>, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let n_dot_h = max(dot(normal, half_vector), 0.0);
+    let cross_nh = cross(normal, half_vector);
+    let k = a / (dot(cross_nh, cross_nh) + n_dot_h * a * n_dot_h * a);
+    return k * k / PI;
+}
+
+fn snooper_geometry_schlick(n_dot_v: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = (r * r) / 8.0;
+    return n_dot_v / (n_dot_v * (1.0 - k) + k);
+}
+
+fn snooper_geometry_smith(
+    normal: vec3<f32>,
+    view: vec3<f32>,
+    light: vec3<f32>,
+    roughness: f32,
+) -> f32 {
+    let n_dot_v = max(dot(normal, view), 0.0);
+    let n_dot_l = max(dot(normal, light), 0.0);
+    return snooper_geometry_schlick(n_dot_v, roughness)
+        * snooper_geometry_schlick(n_dot_l, roughness);
+}
+
+// Snooper scene_lighting.glsl：天空上下半球环境光 + 单方向太阳光。
+fn snooper_lighting(
+    base: vec3<f32>,
+    normal: vec3<f32>,
+    view: vec3<f32>,
+    specular: f32,
+    metallic: f32,
+    roughness: f32,
+    ao: f32,
+) -> vec3<f32> {
+    let n_dot_v = max(dot(normal, view), 0.001);
+    let light = normalize(camera.light0_dir.xyz);
+    let n_dot_l = max(dot(normal, light), 0.0);
+    let half_vector = normalize(light + view);
+    let h_dot_v = max(dot(half_vector, view), 0.0);
+
+    // F0 = mix(0.08 * specular, albedo, metallic)。
+    let f0 = mix(vec3<f32>(0.08 * specular), base, vec3<f32>(metallic));
+    let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - h_dot_v, 5.0);
+    let distribution = snooper_distribution_ggx(normal, half_vector, roughness);
+    let geometry = snooper_geometry_smith(normal, view, light, roughness);
+    let specular_denominator = 4.0 * n_dot_v * n_dot_l + 0.001;
+
+    let sky_mix = clamp(normal.z * 0.5 + 0.5, 0.0, 1.0);
+    let sky = mix(camera.sky_lower.rgb, camera.sky_upper.rgb, sky_mix);
+    let ambient = sky * base * ao;
+    let specular_term = distribution * geometry * fresnel / specular_denominator;
+    let kd = (vec3<f32>(1.0) - fresnel) * (1.0 - metallic);
+    let diffuse = kd * base / PI;
+    let sun = (diffuse + specular_term)
+        * camera.light0_color.rgb
+        * n_dot_l
+        * camera.light0_dir.w;
+    return ambient + sun;
+}
+
+// Snooper 只做 gamma，不做 Reinhard 高光压缩。
+fn encode_gamma(color: vec3<f32>, alpha: f32) -> vec4<f32> {
+    let non_negative = max(color, vec3<f32>(0.0));
+    return vec4<f32>(pow(non_negative, vec3<f32>(1.0 / 2.2)), clamp(alpha, 0.0, 1.0));
+}
+
 // 线性辐射度 → 基础色/自发光输出（tone mapping + gamma），同时保留 alpha
 // 供半透明混合使用。
 fn encode(color: vec3<f32>, alpha: f32) -> vec4<f32> {
@@ -262,6 +350,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
     }
     if (material.params.w > 0.5) {
         normal = apply_normal_map(normal, in.tangent.xyz, in.tangent.w, in.uv);
+    }
+    if (camera.ambient.z > 1.5) {
+        // Snooper：方向光太阳 + 天空环境光；材质 AO 近似 SSAO，输出只做 gamma。
+        let params = resolve_snooper_params(in.uv);
+        var ao = 1.0;
+        if (material.flags.w > 0.5) {
+            ao = textureSample(ao_texture, tex_sampler, in.uv).r;
+        }
+        return encode_gamma(
+            snooper_lighting(base, normal, view, params.x, params.y, params.z, ao),
+            alpha,
+        );
     }
     var color: vec3<f32>;
     if (camera.ambient.z > 0.5) {

@@ -1036,14 +1036,7 @@ fn renders_real_nana_f6_2_viewer_frame_when_available() {
         .appearance
         .as_ref()
         .expect("N_Eye 外观");
-    println!(
-        "N_Eye textures={:?} base_image={}",
-        eye_appearance.textures,
-        materials_for_assert[eye]
-            .viewer
-            .as_ref()
-            .is_some_and(|viewer| viewer.base_color.is_some())
-    );
+
     assert!(
         eye_appearance.textures.iter().any(|texture| {
             texture.kind == lumark_unreal::MaterialTextureKind::BaseColor
@@ -1056,22 +1049,7 @@ fn renders_real_nana_f6_2_viewer_frame_when_available() {
         .appearance
         .as_ref()
         .expect("N_Skin 外观");
-    println!(
-        "N_Skin textures={:?} base_image={} spec_image={} ao_image={}",
-        skin_appearance.textures,
-        materials_for_assert[skin]
-            .viewer
-            .as_ref()
-            .is_some_and(|viewer| viewer.base_color.is_some()),
-        materials_for_assert[skin]
-            .viewer
-            .as_ref()
-            .is_some_and(|viewer| viewer.metallic_roughness.is_some()),
-        materials_for_assert[skin]
-            .viewer
-            .as_ref()
-            .is_some_and(|viewer| viewer.occlusion.is_some())
-    );
+
     assert!(
         materials_for_assert[skin]
             .viewer
@@ -1110,6 +1088,18 @@ fn renders_real_nana_f6_2_viewer_frame_when_available() {
                 image::ColorType::Rgba8,
             )
             .expect("写出眼睛基础色贴图");
+        }
+        if let Some(viewer) = materials_for_assert[skin].viewer.as_ref()
+            && let Some(texture) = viewer.base_color.as_ref()
+        {
+            image::save_buffer(
+                directory.join("viewer-nana-skin-base.png"),
+                &texture.rgba,
+                texture.width,
+                texture.height,
+                image::ColorType::Rgba8,
+            )
+            .expect("写出皮肤基础色贴图");
         }
         let image = view.image.as_ref().expect("查看器帧");
         let source = image.as_bytes(0).expect("帧像素");

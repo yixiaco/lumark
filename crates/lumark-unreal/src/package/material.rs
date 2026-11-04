@@ -54,6 +54,8 @@ pub struct MaterialAppearance {
     pub roughness_min: f32,
     /// 粗糙度上限（FModel `RoughnessMax`）。
     pub roughness_max: f32,
+    /// 基础高光强度（Snooper `Specular` 参数；无参数时默认 0.5）。
+    pub specular: f32,
     /// 自发光倍率（FModel `EmissiveMult`）。
     pub emissive_multiplier: f32,
     /// AO 颜色增强（FModel `Skin Boost Color And Exponent` 的 RGB）。
@@ -87,6 +89,7 @@ impl Default for MaterialAppearance {
             roughness: 0.55,
             roughness_min: 0.0,
             roughness_max: 1.0,
+            specular: 0.5,
             emissive_multiplier: 1.0,
             ao_boost_color: [0.0; 3],
             ao_boost_exponent: 0.0,
@@ -128,6 +131,9 @@ impl MaterialAppearance {
         }
         if self.roughness_max == 1.0 {
             self.roughness_max = parent.roughness_max;
+        }
+        if self.specular == 0.5 {
+            self.specular = parent.specular;
         }
         if self.emissive_multiplier == 1.0 {
             self.emissive_multiplier = parent.emissive_multiplier;
@@ -208,6 +214,8 @@ pub fn read_legacy_material_appearance(
                 metallic = Some(value);
             } else if is_roughness_name(name.as_deref()) {
                 roughness = Some(value);
+            } else if is_specular_name(name.as_deref()) {
+                appearance.specular = value.clamp(0.0, 1.0);
             }
         } else if super::is_material_class(class) {
             // 材质主体上的 TwoSided/BlendMode 标记；材质实例通常继承父材质。
@@ -352,6 +360,7 @@ pub fn read_zen_material_appearance(
     }
     let mut roughness: Option<f32> = None;
     let mut metallic: Option<f32> = None;
+    let mut specular: Option<f32> = None;
     for entry in parameter_array(&properties, "ScalarParameterValues") {
         let Some(name) = parameter_entry_name(entry) else {
             continue;
@@ -367,6 +376,8 @@ pub fn read_zen_material_appearance(
             metallic = Some(value);
         } else if is_roughness_name(Some(&name)) {
             roughness = Some(value);
+        } else if is_specular_name(Some(&name)) {
+            specular = Some(value);
         }
     }
     if let Some(color) = base_color {
@@ -380,6 +391,9 @@ pub fn read_zen_material_appearance(
     }
     if let Some(value) = roughness {
         appearance.roughness = value.clamp(0.04, 1.0);
+    }
+    if let Some(value) = specular {
+        appearance.specular = value.clamp(0.0, 1.0);
     }
     for entry in parameter_array(&properties, "TextureParameterValues") {
         let Some(name) = parameter_entry_name(entry) else {
@@ -748,6 +762,14 @@ fn is_roughness_name(name: Option<&str>) -> bool {
     name.is_some_and(|name| {
         let lower = name.to_ascii_lowercase();
         lower.contains("rough") || lower.contains("gloss")
+    })
+}
+
+/// 参数名是否表示 Snooper `Specular` 标量。
+fn is_specular_name(name: Option<&str>) -> bool {
+    name.is_some_and(|name| {
+        let lower = name.to_ascii_lowercase();
+        matches!(lower.as_str(), "specular" | "spec" | "base specular")
     })
 }
 

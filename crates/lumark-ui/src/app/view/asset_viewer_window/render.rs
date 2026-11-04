@@ -365,14 +365,23 @@ fn viewer_settings(snapshot: &RenderSnapshot) -> RenderSettings {
         msaa_samples: snapshot.quality.msaa_samples(),
         srgb_textures: snapshot.srgb_textures,
         wireframe: snapshot.wireframe,
-        background: [0.055, 0.06, 0.075],
+        background: [0.12, 0.24, 0.42],
         yaw_degrees: snapshot.yaw,
         pitch_degrees: snapshot.pitch,
         pan_pixels: snapshot.pan,
         distance_scale: (1.05 / snapshot.zoom).clamp(0.12, 12.0),
         shading: snapshot.shading,
-        lighting_mode: LightingMode::Headlight,
+        // Snooper 默认场景：SunActor(10, (1.0,0.96,0.90), yaw140/pitch37) +
+        // EnvironmentActor SkyLight((0.6,0.7,0.8)*1.5, lower (0.4,0.35,0.3)*1.5)。
+        // 查看器没有阴影/SSAO/天空盒，按当前取景把太阳与天空压到可读的曝光；
+        // 材质 AO 用于近似 SSAO。
+        lighting_mode: LightingMode::Snooper,
         normal_map_convention: NormalMapConvention::Fmodel,
+        key_direction: [0.35, 0.30, 0.887],
+        key_color: [1.0, 0.96, 0.90],
+        key_intensity: 1.0,
+        sky_upper_color: [0.16, 0.19, 0.24],
+        sky_lower_color: [0.07, 0.06, 0.05],
         // FModel 默认不把顶点色乘到基础色；查看器可在工具栏打开。
         vertex_colors: snapshot.vertex_colors,
         show_grid: snapshot.show_grid,
