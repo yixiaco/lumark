@@ -21,6 +21,7 @@ pub(crate) struct Camera {
     pub aspect: f32,
     pub near: f32,
     pub far: f32,
+    pub shadow_view_projection: Mat4,
 }
 
 impl Camera {
@@ -98,6 +99,7 @@ impl Camera {
             aspect,
             near,
             far,
+            shadow_view_projection: shadow_view_projection(&bounds, settings.key_direction),
         }
     }
 
@@ -107,6 +109,64 @@ impl Camera {
     }
 }
 
+/// 覆盖场景包围盒的太阳阴影视图投影（正交，深度 0..1）。
+pub(crate) fn shadow_view_projection(bounds: &Bounds, light_direction: [f32; 3]) -> Mat4 {
+    let center = if bounds.is_empty() {
+        [0.0; 3]
+    } else {
+        bounds.center()
+    };
+    let radius = if bounds.is_empty() {
+        100.0
+    } else {
+        (bounds.extent() * 0.5).max(1.0)
+    };
+    let light = normalize(light_direction);
+    let up = if dot(light, [0.0, 0.0, 1.0]).abs() > 0.99 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [0.0, 0.0, 1.0]
+    };
+    let distance = radius * 2.0 + 10.0;
+    let eye = [
+        center[0] + light[0] * distance,
+        center[1] + light[1] * distance,
+        center[2] + light[2] * distance,
+    ];
+    let view = look_at(eye, center, up);
+    let extent = radius * 1.35;
+    let projection = orthographic(
+        -extent,
+        extent,
+        -extent,
+        extent,
+        0.05,
+        distance + radius * 2.0,
+    );
+    multiply(&projection, &view)
+}
+
+/// 正交投影，深度映射到 0..1（wgpu）。
+pub(crate) fn orthographic(
+    left: f32,
+    right: f32,
+    bottom: f32,
+    top: f32,
+    near: f32,
+    far: f32,
+) -> Mat4 {
+    [
+        [2.0 / (right - left), 0.0, 0.0, 0.0],
+        [0.0, 2.0 / (top - bottom), 0.0, 0.0],
+        [0.0, 0.0, -1.0 / (far - near), 0.0],
+        [
+            -(right + left) / (right - left),
+            -(top + bottom) / (top - bottom),
+            -near / (far - near),
+            1.0,
+        ],
+    ]
+}
 /// 由观察方向构造视图矩阵（右手系，Z 向上）。
 pub(crate) fn look_at(eye: [f32; 3], target: [f32; 3], up: [f32; 3]) -> Mat4 {
     let forward = normalize(sub(target, eye));
@@ -208,6 +268,20 @@ mod tests {
         assert!((clip[1] / clip[3]).abs() < 1e-4);
     }
 
+    /// 阴影视图投影必须覆盖场景中心。
+    #[test]
+    fn shadow_projection_covers_scene_center() {
+        let bounds = Bounds::new([-80.0, -30.0, 0.0], [80.0, 30.0, 170.0]);
+        let matrix = shadow_view_projection(&bounds, [0.766, 0.643, 0.0]);
+        let clip = transform_point4(&matrix, bounds.center());
+        assert!(clip[3] > 0.0);
+        let ndc = [clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3]];
+        assert!(
+            (-1.0..=1.0).contains(&ndc[0]) && (-1.0..=1.0).contains(&ndc[1]),
+            "阴影 NDC 应在范围内：{ndc:?}"
+        );
+        assert!((0.0..=1.0).contains(&ndc[2]), "阴影深度应在 0..1：{ndc:?}");
+    }
     /// Snooper 默认相机：眼睛在地面上方，屏幕底部射线向下，能命中地面。
     #[test]
     fn default_camera_ray_can_hit_ground() {

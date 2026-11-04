@@ -21,9 +21,13 @@ struct Camera {
     sky_lower: vec4<f32>,
     fog_color: vec4<f32>,
     fog_params: vec4<f32>,
+    shadow_view_proj: mat4x4<f32>,
+    shadow_params: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var shadow_texture: texture_depth_2d;
+@group(0) @binding(2) var shadow_sampler: sampler_comparison;
 
 struct Material {
     base_color: vec4<f32>,
@@ -272,6 +276,7 @@ fn snooper_lighting(
     metallic: f32,
     roughness: f32,
     ao: f32,
+    shadow: f32,
 ) -> vec3<f32> {
     let n_dot_v = max(dot(normal, view), 0.001);
     let light = normalize(camera.light0_dir.xyz);
@@ -295,7 +300,8 @@ fn snooper_lighting(
     let sun = (diffuse + specular_term)
         * camera.light0_color.rgb
         * n_dot_l
-        * camera.light0_dir.w;
+        * camera.light0_dir.w
+        * shadow;
     return ambient + sun;
 }
 
@@ -311,6 +317,37 @@ fn encode(color: vec3<f32>, alpha: f32) -> vec4<f32> {
     let non_negative = max(color, vec3<f32>(0.0));
     let mapped = non_negative / (vec3<f32>(1.0) + non_negative);
     return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), clamp(alpha, 0.0, 1.0));
+}
+
+// 太阳阴影：正交阴影贴图 + 3x3 PCF，未启用时返回全亮。
+fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
+    if (camera.shadow_params.x < 0.5) {
+        return 1.0;
+    }
+    let position = world + normal * max(camera.shadow_params.w, 0.5);
+    let clip = camera.shadow_view_proj * vec4<f32>(position, 1.0);
+    if (clip.w <= 0.0) {
+        return 1.0;
+    }
+    let ndc = clip.xyz / clip.w;
+    if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0 || ndc.z >= 1.0) {
+        return 1.0;
+    }
+    let uv = ndc.xy * 0.5 + vec2<f32>(0.5);
+    let reference = ndc.z - 0.0015;
+    let texel = 1.0 / max(camera.shadow_params.y, 1.0);
+    var lit = 0.0;
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            lit = lit + textureSampleCompare(
+                shadow_texture,
+                shadow_sampler,
+                uv + vec2<f32>(f32(x), f32(y)) * texel,
+                reference,
+            );
+        }
+    }
+    return lit / 9.0;
 }
 
 @fragment
@@ -370,7 +407,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
         if (material.flags.w > 0.5) {
             ao = textureSample(ao_texture, tex_sampler, in.uv).r;
         }
-        var color = snooper_lighting(base, normal, view, params.x, params.y, params.z, ao);
+        let shadow = shadow_factor(in.world, normal);
+        var color = snooper_lighting(base, normal, view, params.x, params.y, params.z, ao, shadow);
         if (camera.fog_color.w > 0.5) {
             // UE 场景单位为厘米，Snooper 雾参数按米换算。
             let distance = length(camera.eye.xyz - in.world) / 100.0;
