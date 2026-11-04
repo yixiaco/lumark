@@ -302,43 +302,57 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
 /// 接触阴影：带 snooper_extra 标记，跳过模型 section/material 隐藏过滤。
 fn add_snooper_contact_shadow(scene: &mut Scene) {
     let segments = 32usize;
-    let radius = 30.0;
-    let mut positions = vec![[0.0, 0.0, 0.1]];
-    for index in 0..segments {
-        let angle = index as f32 / segments as f32 * std::f32::consts::TAU;
-        positions.push([angle.cos() * radius, angle.sin() * radius, 0.1]);
+    // 多层半透明圆盘叠加，近似柔和接触阴影。
+    let rings = [
+        (18.0f32, 0.10f32),
+        (24.0, 0.08),
+        (30.0, 0.06),
+        (36.0, 0.045),
+        (42.0, 0.03),
+    ];
+    for (ring_index, (radius, alpha)) in rings.into_iter().enumerate() {
+        let height = 0.1 + ring_index as f32 * 0.01;
+        let mut positions = vec![[0.0, 0.0, height]];
+        for index in 0..segments {
+            let angle = index as f32 / segments as f32 * std::f32::consts::TAU;
+            positions.push([angle.cos() * radius, angle.sin() * radius, height]);
+        }
+        let mut indices = Vec::with_capacity(segments * 3);
+        for index in 0..segments {
+            let next = (index + 1) % segments;
+            indices.extend_from_slice(&[0, index as u32 + 1, next as u32 + 1]);
+        }
+        let mut mesh = lumark_scene::MeshData::new(
+            format!("SnooperContactShadow{ring_index}"),
+            positions,
+            indices,
+        );
+        mesh.normals = vec![[0.0, 0.0, 1.0]; segments + 1];
+        mesh.sections = vec![lumark_scene::MeshSection {
+            material_index: 0,
+            first_index: 0,
+            index_count: (segments * 3) as u32,
+        }];
+        let mesh = scene.add_mesh(mesh);
+        let material = scene.add_material(lumark_scene::MaterialData {
+            name: format!("SnooperContactShadow{ring_index}"),
+            base_color: [0.0, 0.0, 0.0, alpha],
+            roughness: 1.0,
+            translucent: true,
+            two_sided: true,
+            ..lumark_scene::MaterialData::default()
+        });
+        scene.add_node(lumark_scene::SceneNode {
+            name: format!("SnooperContactShadow{ring_index}"),
+            parent: None,
+            transform: lumark_scene::Transform::default(),
+            mesh: Some(mesh),
+            materials: vec![Some(material)],
+            visible: true,
+            kind: lumark_scene::NodeKind::StaticMesh,
+            metadata: vec![("snooper_extra".to_string(), "true".to_string())],
+        });
     }
-    let mut indices = Vec::with_capacity(segments * 3);
-    for index in 0..segments {
-        let next = (index + 1) % segments;
-        indices.extend_from_slice(&[0, index as u32 + 1, next as u32 + 1]);
-    }
-    let mut mesh = lumark_scene::MeshData::new("SnooperContactShadow", positions, indices);
-    mesh.normals = vec![[0.0, 0.0, 1.0]; segments + 1];
-    mesh.sections = vec![lumark_scene::MeshSection {
-        material_index: 0,
-        first_index: 0,
-        index_count: (segments * 3) as u32,
-    }];
-    let mesh = scene.add_mesh(mesh);
-    let material = scene.add_material(lumark_scene::MaterialData {
-        name: "SnooperContactShadow".to_string(),
-        base_color: [0.0, 0.0, 0.0, 0.42],
-        roughness: 1.0,
-        translucent: true,
-        two_sided: true,
-        ..lumark_scene::MaterialData::default()
-    });
-    scene.add_node(lumark_scene::SceneNode {
-        name: "SnooperContactShadow".to_string(),
-        parent: None,
-        transform: lumark_scene::Transform::default(),
-        mesh: Some(mesh),
-        materials: vec![Some(material)],
-        visible: true,
-        kind: lumark_scene::NodeKind::StaticMesh,
-        metadata: vec![("snooper_extra".to_string(), "true".to_string())],
-    });
 }
 /// 查看器地面：深色大平面，放在网格线下方，避免改变相机取景（相机使用 fit_bounds）。
 fn add_snooper_ground(scene: &mut Scene) {
