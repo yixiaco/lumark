@@ -27,7 +27,7 @@ pub fn render_bounds(scene: &Scene) -> Bounds {
 }
 
 /// Snooper 预览/查看器共享预设版本；修改环境/效果后递增，使详情缩略图缓存失效。
-pub const SNOOPER_PRESET_VERSION: u32 = 2;
+pub const SNOOPER_PRESET_VERSION: u32 = 3;
 /// 场景渲染统计（V-20 状态/性能展示）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SceneStats {
