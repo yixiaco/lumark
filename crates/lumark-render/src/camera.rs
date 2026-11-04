@@ -7,12 +7,20 @@ use crate::RenderSettings;
 /// 列主序 4×4 矩阵。
 pub(crate) type Mat4 = [[f32; 4]; 4];
 
-/// 渲染相机。
+/// 渲染相机（后处理/阴影还需基向量与近远面）。
+#[allow(dead_code)]
 pub(crate) struct Camera {
     /// 视图投影矩阵。
     pub view_projection: Mat4,
     /// 相机世界位置。
     pub eye: [f32; 3],
+    pub forward: [f32; 3],
+    pub right: [f32; 3],
+    pub up: [f32; 3],
+    pub tan_half_fov: f32,
+    pub aspect: f32,
+    pub near: f32,
+    pub far: f32,
 }
 
 impl Camera {
@@ -83,6 +91,13 @@ impl Camera {
         Self {
             view_projection: multiply(&projection, &view),
             eye,
+            forward,
+            right,
+            up,
+            tan_half_fov: (fov_y * 0.5).tan(),
+            aspect,
+            near,
+            far,
         }
     }
 
@@ -193,6 +208,22 @@ mod tests {
         assert!((clip[1] / clip[3]).abs() < 1e-4);
     }
 
+    /// Snooper 默认相机：眼睛在地面上方，屏幕底部射线向下，能命中地面。
+    #[test]
+    fn default_camera_ray_can_hit_ground() {
+        let bounds = Bounds::new([-0.8, -0.3, 0.0], [0.8, 0.3, 1.7]);
+        let settings = RenderSettings::snooper_viewer(900, 600);
+        let camera = Camera::fit(&bounds, &settings);
+        assert!(camera.eye[2] > 0.0, "相机应在地面上方：{:?}", camera.eye);
+        let bottom = [
+            camera.forward[0] - camera.up[0] * camera.tan_half_fov,
+            camera.forward[1] - camera.up[1] * camera.tan_half_fov,
+            camera.forward[2] - camera.up[2] * camera.tan_half_fov,
+        ];
+        assert!(bottom[2] < 0.0, "屏幕底部射线应向下：{:?}", bottom);
+        let hit = -camera.eye[2] / bottom[2];
+        assert!(hit > 0.0, "地面交点应在相机前方：hit={hit}");
+    }
     /// 透视投影把近/远裁面映射到 0/1。
     #[test]
     fn perspective_maps_depth() {
