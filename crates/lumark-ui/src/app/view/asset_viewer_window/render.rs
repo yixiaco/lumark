@@ -259,7 +259,9 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
     match &*snapshot.scene {
         ViewerScene::Mesh { lods, materials } => {
             let mesh = current_lod(lods, snapshot.lod_index)?;
-            Some(static_scene(&snapshot.name, mesh, materials))
+            let mut scene = static_scene(&snapshot.name, mesh, materials);
+            add_snooper_ground(&mut scene);
+            Some(scene)
         }
         ViewerScene::SkeletalMesh {
             lods,
@@ -273,19 +275,70 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
                 .get(snapshot.lod_index)
                 .and_then(Option::as_ref)
                 .or_else(|| skins.first().and_then(Option::as_ref));
-            Some(skeletal_scene(
+            let mut scene = skeletal_scene(
                 snapshot,
                 mesh,
                 skeleton,
                 skin,
                 materials,
                 animation.as_deref(),
-            ))
+            );
+            add_snooper_ground(&mut scene);
+            Some(scene)
         }
         ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => None,
     }
 }
 
+/// 查看器地面：深色大平面，放在网格线下方，避免改变相机取景（相机使用 fit_bounds）。
+fn add_snooper_ground(scene: &mut Scene) {
+    let extent = 200.0;
+    let height = -0.02;
+    let positions = [
+        [-extent, -extent, height],
+        [extent, -extent, height],
+        [extent, extent, height],
+        [-extent, extent, height],
+    ];
+    let mut mesh = lumark_scene::MeshData::new(
+        "SnooperGround",
+        positions.to_vec(),
+        vec![0, 1, 2, 0, 2, 3],
+    );
+    mesh.normals = vec![[0.0, 0.0, 1.0]; 4];
+    mesh.uvs = vec![vec![
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 1.0],
+        [0.0, 1.0],
+    ]];
+    // 使用多个 section 避免查看器按模型 section 隐藏时把整个地面跳过。
+    mesh.sections = (0..3)
+        .map(|_| lumark_scene::MeshSection {
+            material_index: 0,
+            first_index: 0,
+            index_count: 6,
+        })
+        .collect();
+    let mesh = scene.add_mesh(mesh);
+    let material = scene.add_material(lumark_scene::MaterialData {
+        name: "SnooperGround".to_string(),
+        base_color: [0.035, 0.04, 0.045, 1.0],
+        roughness: 0.9,
+        two_sided: true,
+        ..lumark_scene::MaterialData::default()
+    });
+    scene.add_node(lumark_scene::SceneNode {
+        name: "SnooperGround".to_string(),
+        parent: None,
+        transform: lumark_scene::Transform::default(),
+        mesh: Some(mesh),
+        materials: vec![Some(material)],
+        visible: true,
+        kind: lumark_scene::NodeKind::StaticMesh,
+        metadata: Vec::new(),
+    });
+}
 /// 取当前 LOD（越界时回退到首个）。
 fn current_lod(lods: &[MeshLod], lod_index: usize) -> Option<&MeshLod> {
     lods.get(lod_index).or_else(|| lods.first())
