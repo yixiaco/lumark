@@ -170,6 +170,44 @@ fn resolve_zen_materials(
     }
 }
 
+/// 缩略图地面：与查看器一致，但相机仍按模型包围盒拟合。
+fn add_thumbnail_ground(scene: &mut lumark_scene::Scene) {
+    let extent = 200.0;
+    let positions = [
+        [-extent, -extent, -2.0],
+        [extent, -extent, -2.0],
+        [extent, extent, -2.0],
+        [-extent, extent, -2.0],
+    ];
+    let mut mesh =
+        lumark_scene::MeshData::new("SnooperGround", positions.to_vec(), vec![0, 1, 2, 0, 2, 3]);
+    mesh.normals = vec![[0.0, 0.0, 1.0]; 4];
+    mesh.sections = (0..3)
+        .map(|_| lumark_scene::MeshSection {
+            material_index: 0,
+            first_index: 0,
+            index_count: 6,
+        })
+        .collect();
+    let mesh = scene.add_mesh(mesh);
+    let material = scene.add_material(lumark_scene::MaterialData {
+        name: "SnooperGround".to_string(),
+        base_color: [0.12, 0.13, 0.15, 1.0],
+        roughness: 0.9,
+        two_sided: true,
+        ..lumark_scene::MaterialData::default()
+    });
+    scene.add_node(lumark_scene::SceneNode {
+        name: "SnooperGround".to_string(),
+        parent: None,
+        transform: lumark_scene::Transform::default(),
+        mesh: Some(mesh),
+        materials: vec![Some(material)],
+        visible: true,
+        kind: lumark_scene::NodeKind::StaticMesh,
+        metadata: Vec::new(),
+    });
+}
 /// 用共享渲染服务渲染缩略图到 `output`，返回后端标签。
 ///
 /// 缩略图与 3D 查看器共用 FModel 观感：头灯 + FModel 法线约定。
@@ -179,10 +217,13 @@ fn save_scene_thumbnail(
 ) -> Result<String, String> {
     let mut settings = lumark_render::RenderSettings::snooper_viewer(480, 360);
     settings.supersample = 2;
-    // 详情缩略图保持干净，不画地面网格；光照/背景与查看器一致。
+    // 缩略图与查看器共享天空/雾/地面；相机仍拟合模型包围盒。
     settings.show_grid = false;
+    settings.fit_bounds = Some(lumark_render::render_bounds(scene));
+    let mut scene = scene.clone();
+    add_thumbnail_ground(&mut scene);
     let service = crate::render_service::render_service();
-    let target = service.render_target(scene, &settings)?;
+    let target = service.render_target(&scene, &settings)?;
     let image = image::RgbaImage::from_raw(target.width, target.height, target.rgba)
         .ok_or_else(|| "模型渲染尺寸不匹配".to_string())?;
     if let Some(parent) = output.parent() {
