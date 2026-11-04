@@ -19,6 +19,7 @@ const SHADER: &str = include_str!("shader.wgsl");
 /// 叠加层线段着色器。
 const LINE_SHADER: &str = include_str!("line.wgsl");
 const BACKGROUND_SHADER: &str = include_str!("background.wgsl");
+const SNOOPER_SSAO_SHADER: &str = include_str!("snooper_ssao.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -79,6 +80,9 @@ pub struct GpuRenderer {
     background_layout: wgpu::BindGroupLayout,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
+    ssao_layout: wgpu::BindGroupLayout,
+    ssao_pipeline: wgpu::RenderPipeline,
+    ssao_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
@@ -156,8 +160,14 @@ struct RenderTargets {
     color_view: wgpu::TextureView,
     /// 多重采样颜色视图（`samples > 1` 时存在）。
     msaa_view: Option<wgpu::TextureView>,
+    /// 深度纹理（SSAO 采样）。
+    _depth_texture: wgpu::Texture,
     /// 深度视图。
     depth_view: wgpu::TextureView,
+    /// SSAO 后处理颜色目标。
+    ssao_color: wgpu::Texture,
+    /// SSAO 后处理视图。
+    ssao_view: wgpu::TextureView,
     /// 回读缓冲；行字节数补齐到 256 的倍数。
     readback: wgpu::Buffer,
     /// 回读缓冲的补齐行宽（字节）。
@@ -180,9 +190,22 @@ impl RenderTargets {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: COLOR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let ssao_color = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lumark-ssao-color"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        let ssao_view = ssao_color.create_view(&wgpu::TextureViewDescriptor::default());
         let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
         // MSAA：先渲染到多重采样纹理，再 resolve 到上面的单采样目标。
         let msaa_view = (samples > 1).then(|| {
@@ -205,7 +228,7 @@ impl RenderTargets {
             sample_count: samples,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
@@ -222,7 +245,10 @@ impl RenderTargets {
             color,
             color_view,
             msaa_view,
+            _depth_texture: depth,
             depth_view,
+            ssao_color,
+            ssao_view,
             readback,
             padded_row,
         }
@@ -291,6 +317,9 @@ impl GpuRenderer {
                 background_layout: resources.background_layout,
                 camera_layout: resources.camera_layout,
                 material_layout: resources.material_layout,
+                ssao_layout: resources.ssao_layout,
+                ssao_pipeline: resources.ssao_pipeline,
+                ssao_sampler: resources.ssao_sampler,
                 sampler: resources.sampler,
                 white_view: resources.white_view,
                 flat_normal_view: resources.flat_normal_view,
@@ -323,7 +352,16 @@ impl GpuRenderer {
             return Err(GpuError::new("渲染尺寸必须在 1..=4096 之间"));
         }
         let supersample = settings.supersample.clamp(1, 4);
-        let samples = if settings.msaa_samples >= 4 { 4 } else { 1 };
+        let use_ssao =
+            settings.lighting_mode == LightingMode::Snooper && settings.snooper.ssao.enabled;
+        // SSAO 需要单采样颜色/深度纹理。
+        let samples = if use_ssao {
+            1
+        } else if settings.msaa_samples >= 4 {
+            4
+        } else {
+            1
+        };
         let width = settings.width * supersample;
         let height = settings.height * supersample;
         let bounds = crate::render_bounds(scene);
@@ -471,9 +509,62 @@ impl GpuRenderer {
             }
         }
 
+        if use_ssao {
+            let uniform = ssao_uniform(&camera, width, height);
+            let uniform_buffer = self.create_buffer(
+                "lumark-ssao",
+                (uniform.len() * 4) as u64,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+            self.queue
+                .write_buffer(&uniform_buffer, 0, &f32_bytes(&uniform));
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lumark-ssao"),
+                layout: &self.ssao_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&targets.color_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&targets.depth_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&self.ssao_sampler),
+                    },
+                ],
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lumark-ssao-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.ssao_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.ssao_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &targets.color,
+                texture: if use_ssao {
+                    &targets.ssao_color
+                } else {
+                    &targets.color
+                },
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -785,6 +876,9 @@ struct Resources {
     background_layout: wgpu::BindGroupLayout,
     camera_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
+    ssao_layout: wgpu::BindGroupLayout,
+    ssao_pipeline: wgpu::RenderPipeline,
+    ssao_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
@@ -1194,6 +1288,89 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         [128, 128, 255, 255],
         false,
     );
+    let ssao_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lumark-ssao-layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let ssao_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("lumark-ssao-sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    let ssao_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-ssao-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SNOOPER_SSAO_SHADER)),
+    });
+    let ssao_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lumark-ssao-pipeline-layout"),
+        bind_group_layouts: &[Some(&ssao_layout)],
+        immediate_size: 0,
+    });
+    let ssao_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lumark-ssao-pipeline"),
+        layout: Some(&ssao_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &ssao_shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &ssao_shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: COLOR_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
     Ok(Resources {
         pipeline_single,
         pipeline_double,
@@ -1210,6 +1387,9 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         background_layout,
         camera_layout,
         material_layout,
+        ssao_layout,
+        ssao_pipeline,
+        ssao_sampler,
         sampler,
         white_view,
         flat_normal_view,
@@ -1552,7 +1732,31 @@ fn overlay_line_vertices(scene: &Scene, settings: &RenderSettings) -> (Vec<u8>, 
     (f32_bytes(&values), count)
 }
 
-/// 相机 uniform（224 字节）。
+/// SSAO uniform（24 × f32）。
+fn ssao_uniform(camera: &Camera, width: u32, height: u32) -> Vec<f32> {
+    let mut values = Vec::with_capacity(24);
+    for value in camera.eye {
+        values.push(value);
+    }
+    values.push(0.0);
+    for value in camera.forward {
+        values.push(value);
+    }
+    values.push(0.0);
+    for value in camera.right {
+        values.push(value);
+    }
+    values.push(0.0);
+    for value in camera.up {
+        values.push(value);
+    }
+    values.push(0.0);
+    values.extend_from_slice(&[camera.tan_half_fov, camera.aspect, camera.near, camera.far]);
+    values.extend_from_slice(&[width as f32, height as f32, 10.0, 0.8]);
+    values
+}
+
+/// 相机 uniform（224 字节）。/// 相机 uniform（224 字节）。
 fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
     let mut values = Vec::with_capacity(48);
     for column in &camera.view_projection {
@@ -1907,6 +2111,25 @@ mod tests {
         assert_eq!(output.len(), rgba.len());
         assert_eq!(output[3], 255);
         assert_ne!(output, rgba, "边缘应被混合");
+    }
+    /// SSAO shader 必须通过解析/语义校验，uniform 长度与 WGSL 一致。
+    #[test]
+    fn ssao_shader_and_uniform_are_valid() {
+        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_SSAO_SHADER)
+            .expect("解析 snooper_ssao.wgsl");
+        let mut validator = wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::all(),
+        );
+        validator.validate(&module).expect("校验 snooper_ssao.wgsl");
+        let settings = RenderSettings::snooper_viewer(900, 600);
+        let bounds = lumark_scene::Bounds::new([-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]);
+        let camera = Camera::fit(&bounds, &settings);
+        let values = ssao_uniform(&camera, 900, 600);
+        assert_eq!(values.len(), 24);
+        assert!(values.iter().all(|value| value.is_finite()));
+        assert_eq!(values[20], 900.0);
+        assert_eq!(values[21], 600.0);
     }
     /// snooper_extra 节点必须跳过模型的 section/material 隐藏过滤。
     #[test]
