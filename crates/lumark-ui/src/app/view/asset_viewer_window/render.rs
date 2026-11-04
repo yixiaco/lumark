@@ -389,7 +389,7 @@ fn add_snooper_contact_shadow(scene: &mut Scene) {
 }
 /// 查看器地面：深色大平面，放在网格线下方，避免改变相机取景（相机使用 fit_bounds）。
 fn add_snooper_ground(scene: &mut Scene) {
-    let extent = 200.0;
+    let extent = 5000.0;
     let height = -0.02;
     let positions = [
         [-extent, -extent, height],

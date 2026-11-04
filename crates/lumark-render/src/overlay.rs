@@ -9,7 +9,7 @@ pub(crate) type LineSegment = ([f32; 3], [f32; 3]);
 
 /// 生成地面网格线段（Z=0 平面，间距按场景尺度自适应）。
 pub(crate) fn grid_lines(scene: &Scene) -> Vec<LineSegment> {
-    let bounds = scene.compute_bounds();
+    let bounds = crate::render_bounds(scene);
     let extent = if bounds.is_empty() {
         100.0
     } else {

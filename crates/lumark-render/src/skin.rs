@@ -25,6 +25,13 @@ pub(crate) fn render_bounds(scene: &Scene) -> Bounds {
         if !node.visible {
             continue;
         }
+        if node
+            .metadata
+            .iter()
+            .any(|(key, value)| key == "snooper_extra" && value == "true")
+        {
+            continue;
+        }
         let Some(handle) = node.mesh else {
             continue;
         };
