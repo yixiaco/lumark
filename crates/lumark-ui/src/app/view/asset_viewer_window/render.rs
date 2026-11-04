@@ -263,7 +263,10 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
         ViewerScene::Mesh { lods, materials } => {
             let mesh = current_lod(lods, snapshot.lod_index)?;
             let mut scene = static_scene(&snapshot.name, mesh, materials);
-            add_snooper_ground(&mut scene);
+            if snapshot.snooper_effects {
+                add_snooper_ground(&mut scene);
+                add_snooper_contact_shadow(&mut scene);
+            }
             Some(scene)
         }
         ViewerScene::SkeletalMesh {
@@ -286,13 +289,56 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
                 materials,
                 animation.as_deref(),
             );
-            add_snooper_ground(&mut scene);
+            if snapshot.snooper_effects {
+                add_snooper_ground(&mut scene);
+                add_snooper_contact_shadow(&mut scene);
+            }
             Some(scene)
         }
         ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => None,
     }
 }
 
+/// 接触阴影：带 snooper_extra 标记，跳过模型 section/material 隐藏过滤。
+fn add_snooper_contact_shadow(scene: &mut Scene) {
+    let segments = 32usize;
+    let radius = 30.0;
+    let mut positions = vec![[0.0, 0.0, 0.1]];
+    for index in 0..segments {
+        let angle = index as f32 / segments as f32 * std::f32::consts::TAU;
+        positions.push([angle.cos() * radius, angle.sin() * radius, 0.1]);
+    }
+    let mut indices = Vec::with_capacity(segments * 3);
+    for index in 0..segments {
+        let next = (index + 1) % segments;
+        indices.extend_from_slice(&[0, index as u32 + 1, next as u32 + 1]);
+    }
+    let mut mesh = lumark_scene::MeshData::new("SnooperContactShadow", positions, indices);
+    mesh.normals = vec![[0.0, 0.0, 1.0]; segments + 1];
+    mesh.sections = vec![lumark_scene::MeshSection {
+        material_index: 0,
+        first_index: 0,
+        index_count: (segments * 3) as u32,
+    }];
+    let mesh = scene.add_mesh(mesh);
+    let material = scene.add_material(lumark_scene::MaterialData {
+        name: "SnooperContactShadow".to_string(),
+        base_color: [0.02, 0.02, 0.025, 1.0],
+        roughness: 1.0,
+        two_sided: true,
+        ..lumark_scene::MaterialData::default()
+    });
+    scene.add_node(lumark_scene::SceneNode {
+        name: "SnooperContactShadow".to_string(),
+        parent: None,
+        transform: lumark_scene::Transform::default(),
+        mesh: Some(mesh),
+        materials: vec![Some(material)],
+        visible: true,
+        kind: lumark_scene::NodeKind::StaticMesh,
+        metadata: vec![("snooper_extra".to_string(), "true".to_string())],
+    });
+}
 /// 查看器地面：深色大平面，放在网格线下方，避免改变相机取景（相机使用 fit_bounds）。
 fn add_snooper_ground(scene: &mut Scene) {
     let extent = 200.0;
@@ -331,7 +377,7 @@ fn add_snooper_ground(scene: &mut Scene) {
         materials: vec![Some(material)],
         visible: true,
         kind: lumark_scene::NodeKind::StaticMesh,
-        metadata: Vec::new(),
+        metadata: vec![("snooper_extra".to_string(), "true".to_string())],
     });
 }
 /// 取当前 LOD（越界时回退到首个）。

@@ -82,9 +82,14 @@ pub(crate) fn render(
             continue;
         }
         let ranges = section_ranges(mesh);
+        let snooper_extra = node
+            .metadata
+            .iter()
+            .any(|(key, value)| key == "snooper_extra" && value == "true");
         for (section_index, (first, count, material_index)) in ranges.into_iter().enumerate() {
-            if settings.hidden_material_slots.contains(&material_index)
-                || settings.hidden_sections.contains(&section_index)
+            if !snooper_extra
+                && (settings.hidden_material_slots.contains(&material_index)
+                    || settings.hidden_sections.contains(&section_index))
             {
                 continue;
             }

@@ -762,6 +762,7 @@ fn viewer_shading_grid_and_sections_render() {
     );
     // 3D 查看器默认显示网格；先关掉，便于对比着色与叠加层差异。
     view.show_grid = false;
+    view.snooper_effects = false;
     view.render_preview();
     let bytes = |view: &AssetViewerWindowView| {
         view.image
@@ -977,6 +978,8 @@ fn viewer_applies_resolved_materials() {
             .map(<[u8]>::to_vec)
             .expect("查看器图像")
     };
+    textured.snooper_effects = false;
+    plain.snooper_effects = false;
     textured.render_preview();
     plain.render_preview();
     assert_ne!(
