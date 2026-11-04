@@ -16,6 +16,8 @@ struct Background {
 };
 
 @group(0) @binding(0) var<uniform> background: Background;
+@group(0) @binding(1) var sky_lut: texture_2d<f32>;
+@group(0) @binding(2) var sky_sampler: sampler;
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
@@ -52,12 +54,24 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             + background.right.xyz * ndc.x * background.params.x * background.params.y
             + background.up.xyz * ndc.y * background.params.x
     );
-    let elevation = clamp(direction.z * 0.5 + 0.5, 0.0, 1.0);
-    // 天空观感色（Snooper 大气 LUT 的近似；光照仍使用 background.sky_*）。
-    let horizon = vec3<f32>(0.55, 0.72, 0.92);
-    let zenith = vec3<f32>(0.10, 0.28, 0.65);
-    let sky = mix(horizon, zenith, pow(elevation, 0.65));
-    let sun = pow(max(dot(direction, normalize(background.sun_dir.xyz)), 0.0), 256.0);
-    let color = sky + background.sun_color.rgb * sun * 4.0;
+    // Snooper 使用 OpenGL Y-up；查看器为 Z-up，先转换到天空 LUT 坐标。
+    let gl_direction = normalize(vec3<f32>(direction.x, direction.z, direction.y));
+    let azimuth = atan2(gl_direction.z, gl_direction.x);
+    let elevation = asin(clamp(gl_direction.y, -1.0, 1.0));
+    let row = sign(elevation) * sqrt(abs(elevation) / (0.5 * 3.1415927));
+    let sky_uv = vec2<f32>(azimuth / (2.0 * 3.1415927) + 0.5, row * 0.5 + 0.5);
+    let sky = textureSample(sky_lut, sky_sampler, sky_uv).rgb;
+
+    let sun = normalize(vec3<f32>(
+        background.sun_dir.x,
+        background.sun_dir.z,
+        background.sun_dir.y,
+    ));
+    let mu = dot(gl_direction, sun);
+    let edge = max(fwidth(mu), 1e-7);
+    let disc = smoothstep(cos(0.004675) - edge, cos(0.004675) + edge, mu);
+    let brightest = max(max(sky.r, sky.g), max(sky.b, 1e-4));
+    let tint = sky / brightest;
+    let color = sky + disc * 50.0 * tint * smoothstep(-0.01, 0.01, direction.z);
     return vec4<f32>(pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), 1.0);
 }

@@ -172,7 +172,7 @@ fn resolve_zen_materials(
 
 /// 缩略图地面：与查看器一致，但相机仍按模型包围盒拟合。
 fn add_thumbnail_ground(scene: &mut lumark_scene::Scene) {
-    let extent = 5000.0;
+    let extent = 50000.0;
     let positions = [
         [-extent, -extent, -2.0],
         [extent, -extent, -2.0],

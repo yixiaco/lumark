@@ -915,6 +915,7 @@ fn viewer_pan_changes_render_and_resets() {
         },
     );
     view.show_grid = false;
+    let initial_pitch = view.pitch;
     view.render_preview();
     let bytes = |view: &AssetViewerWindowView| {
         view.image
@@ -928,7 +929,7 @@ fn viewer_pan_changes_render_and_resets() {
     view.render_preview();
     assert_ne!(centered, bytes(&view), "右键平移应改变渲染结果");
     view.yaw = 35.0;
-    view.pitch = 25.0;
+    view.pitch = initial_pitch;
     view.zoom = 1.0;
     view.pan = [0.0, 0.0];
     view.render_preview();

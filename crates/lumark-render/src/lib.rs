@@ -13,6 +13,7 @@ mod gpu;
 mod overlay;
 mod raster;
 mod skin;
+mod sky_lut;
 
 pub use gpu::{GpuError, GpuRenderer};
 

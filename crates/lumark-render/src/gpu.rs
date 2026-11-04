@@ -92,6 +92,8 @@ pub struct GpuRenderer {
     fxaa_pipeline: wgpu::RenderPipeline,
     fxaa_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
+    sky_lut_view: wgpu::TextureView,
+    sky_sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
     /// 纹理 LRU：跨帧复用已上传的 GPU 纹理。
@@ -392,6 +394,8 @@ impl GpuRenderer {
                 fxaa_pipeline: resources.fxaa_pipeline,
                 fxaa_sampler: resources.fxaa_sampler,
                 sampler: resources.sampler,
+                sky_lut_view: resources.sky_lut_view,
+                sky_sampler: resources.sky_sampler,
                 white_view: resources.white_view,
                 flat_normal_view: resources.flat_normal_view,
                 texture_cache: std::sync::Mutex::new(TextureCache::default()),
@@ -582,10 +586,20 @@ impl GpuRenderer {
             let background_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("lumark-background"),
                 layout: &self.background_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: background_buffer.as_entire_binding(),
-                }],
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: background_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&self.sky_lut_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sky_sampler),
+                    },
+                ],
             });
             pass.set_pipeline(if samples > 1 {
                 &self.background_pipeline_4x
@@ -1069,6 +1083,8 @@ struct Resources {
     fxaa_pipeline: wgpu::RenderPipeline,
     fxaa_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
+    sky_lut_view: wgpu::TextureView,
+    sky_sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
 }
@@ -1421,16 +1437,34 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
     });
     let background_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("lumark-background-layout"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
             },
-            count: None,
-        }],
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
     });
     let background_pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1724,6 +1758,50 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         multiview_mask: None,
         cache: None,
     });
+    let (sky_width, sky_height) = crate::sky_lut::size();
+    let sky_pixels = crate::sky_lut::bake();
+    let sky_lut = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lumark-sky-lut"),
+        size: wgpu::Extent3d {
+            width: sky_width,
+            height: sky_height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &sky_lut,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &sky_pixels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(sky_width * 4),
+            rows_per_image: Some(sky_height),
+        },
+        wgpu::Extent3d {
+            width: sky_width,
+            height: sky_height,
+            depth_or_array_layers: 1,
+        },
+    );
+    let sky_lut_view = sky_lut.create_view(&wgpu::TextureViewDescriptor::default());
+    let sky_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("lumark-sky-sampler"),
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
     Ok(Resources {
         pipeline_single,
         pipeline_double,
@@ -1750,6 +1828,8 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         fxaa_pipeline,
         fxaa_sampler,
         sampler,
+        sky_lut_view,
+        sky_sampler,
         white_view,
         flat_normal_view,
     })

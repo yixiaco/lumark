@@ -86,7 +86,7 @@ impl Camera {
         ];
         let up_world = [0.0, 0.0, 1.0];
         let near = (distance * 0.01).max(0.01);
-        let far = (distance + radius * 8.0).max(near + 1.0);
+        let far = (distance + radius * 100.0).max(near + 1.0);
         let view = look_at(eye, center, up_world);
         let aspect = settings.width.max(1) as f32 / settings.height.max(1) as f32;
         let projection = perspective(fov_y, aspect, near, far);

@@ -262,7 +262,7 @@ impl AssetViewerWindowView {
             name,
             scene: Arc::new(scene),
             yaw: 35.0,
-            pitch: 25.0,
+            pitch: 10.0,
             zoom: 1.0,
             pan: [0.0, 0.0],
             image: None,

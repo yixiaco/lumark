@@ -321,6 +321,15 @@ fn encode(color: vec3<f32>, alpha: f32) -> vec4<f32> {
     return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), clamp(alpha, 0.0, 1.0));
 }
 
+// Snooper fog.glsl：两高度间的雾柱积分。
+fn fog_column(a: f32, b: f32, falloff: f32) -> f32 {
+    let below = max(min(b, 0.0) - min(a, 0.0), 0.0);
+    let low = max(a, 0.0);
+    let span = max(b, 0.0) - low;
+    let above = select(span, (1.0 - exp(-falloff * span)) / falloff, falloff * span > 1e-4);
+    return below + exp(-falloff * low) * above;
+}
+
 // 太阳阴影：两级联正交阴影贴图 + 3x3 PCF，未启用时返回全亮。
 fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     if (camera.shadow_params.x < 0.5) {
@@ -421,19 +430,42 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @locatio
         }
         let shadow = shadow_factor(in.world, normal);
         var color = snooper_lighting(base, normal, view, params.x, params.y, params.z, ao, shadow);
-        if (camera.fog_color.w > 0.5) {
-            // UE 场景单位为厘米，Snooper 雾参数按米换算。
-            let distance = length(camera.eye.xyz - in.world) / 100.0;
-            let density = camera.fog_params.x
-                * exp(-camera.fog_params.y * max(in.world.z / 100.0, 0.0));
-            let amount = clamp(
-                1.0 - exp(-density * max(distance - camera.fog_params.w, 0.0)),
-                0.0,
-                camera.fog_params.z,
-            );
-            color = mix(color, camera.fog_color.rgb, amount);
+        let encoded = encode_gamma(color, alpha);
+        if (camera.fog_color.w < 0.5) {
+            return encoded;
         }
-        return encode_gamma(color, alpha);
+        // UE 场景单位为厘米；Snooper 雾在米制下积分。
+        let world = in.world / 100.0;
+        let camera_pos = camera.eye.xyz / 100.0;
+        let ray = world - camera_pos;
+        let range = length(ray);
+        if (range <= 1e-4) {
+            return encoded;
+        }
+        let direction = ray / range;
+        let start = camera.fog_params.w / 100.0;
+        let fog_range = range - start;
+        if (fog_range <= 0.0) {
+            return encoded;
+        }
+        let height = camera_pos.z + direction.z * start;
+        let climb = direction.z * fog_range;
+        let column = select(
+            exp(-camera.fog_params.y * max(height, 0.0)),
+            fog_column(min(height, height + climb), max(height, height + climb), camera.fog_params.y)
+                / max(abs(climb), 1e-3),
+            abs(climb) > 1e-3,
+        );
+        let amount = clamp(
+            1.0 - exp(-camera.fog_params.x * fog_range * column),
+            0.0,
+            camera.fog_params.z,
+        );
+        let fog_color = pow(
+            clamp(camera.fog_color.rgb, vec3<f32>(0.0), vec3<f32>(1.0)),
+            vec3<f32>(1.0 / 2.2),
+        );
+        return vec4<f32>(mix(encoded.rgb, fog_color, amount), encoded.a);
     }
     var color: vec3<f32>;
     if (camera.ambient.z > 0.5) {
