@@ -125,13 +125,32 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let albedo = textureSample(g_albedo, g_sampler, in.uv).rgb;
     let specular = textureSample(g_specular, g_sampler, in.uv);
     let light = normalize(camera.light0_dir.xyz);
+    let view = normalize(camera.eye.xyz - position);
+    let metallic = clamp(specular.y, 0.0, 1.0);
+    let roughness = clamp(specular.z, 0.04, 1.0);
     let ndotl = max(dot(normal, light), 0.0);
+    let ndotv = max(dot(normal, view), 0.001);
+    let half_vector = normalize(light + view);
+    let ndoth = max(dot(normal, half_vector), 0.0);
+    let vdoth = max(dot(view, half_vector), 0.0);
+    let alpha = roughness * roughness;
+    let a2 = alpha * alpha;
+    let denominator = ndoth * ndoth * (a2 - 1.0) + 1.0;
+    let distribution = a2 / max(3.1415927 * denominator * denominator, 1e-5);
+    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    let geometry = (ndotl / (ndotl * (1.0 - k) + k))
+        * (ndotv / (ndotv * (1.0 - k) + k));
+    let f0 = mix(vec3<f32>(0.08 * specular.x), albedo, vec3<f32>(metallic));
+    let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - vdoth, 5.0);
+    let specular_term = distribution * geometry * fresnel / max(4.0 * ndotl * ndotv, 1e-4);
+    let kd = (vec3<f32>(1.0) - fresnel) * (1.0 - metallic);
+    let diffuse = kd * albedo / 3.1415927;
     let sky_mix = clamp(normal.z * 0.5 + 0.5, 0.0, 1.0);
     let sky = mix(camera.sky_lower.rgb, camera.sky_upper.rgb, sky_mix);
     let ambient = sky * albedo * specular.w;
-    let diffuse = albedo * (1.0 - clamp(specular.y, 0.0, 1.0)) / 3.1415927;
     let shadow = shadow_factor(position, normal);
-    let sun = diffuse * camera.light0_color.rgb * ndotl * camera.light0_dir.w * shadow;
+    let sun = (diffuse + specular_term) * camera.light0_color.rgb * ndotl
+        * camera.light0_dir.w * shadow;
     let encoded = pow(max(ambient + sun, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
     return vec4<f32>(apply_fog(encoded, position), 1.0);
 }
