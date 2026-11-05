@@ -212,6 +212,11 @@ impl RenderTargets {
             height,
             depth_or_array_layers: 1,
         };
+        let half_size = wgpu::Extent3d {
+            width: (width / 2).max(1),
+            height: (height / 2).max(1),
+            depth_or_array_layers: 1,
+        };
         let color = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("lumark-color"),
             size,
@@ -238,7 +243,7 @@ impl RenderTargets {
         });
         let ssao_ao = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("lumark-ssao-ao"),
-            size,
+            size: half_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -249,7 +254,7 @@ impl RenderTargets {
         let ssao_ao_view = ssao_ao.create_view(&wgpu::TextureViewDescriptor::default());
         let ssao_blur = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("lumark-ssao-blur"),
-            size,
+            size: half_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -700,7 +705,7 @@ impl GpuRenderer {
         }
 
         if use_ssao {
-            let uniform = ssao_uniform(&camera, width, height);
+            let uniform = ssao_uniform(&camera, (width / 2).max(1), (height / 2).max(1));
             let uniform_buffer = self.create_buffer(
                 "lumark-ssao",
                 (uniform.len() * 4) as u64,
@@ -750,7 +755,7 @@ impl GpuRenderer {
             drop(pass);
             self.draw_ssao_blur(
                 &mut encoder,
-                [1.0 / width as f32, 0.0],
+                [1.0 / (width / 2).max(1) as f32, 0.0],
                 0.0,
                 &targets.ssao_ao_view,
                 &targets.color_view,
@@ -758,7 +763,7 @@ impl GpuRenderer {
             );
             self.draw_ssao_blur(
                 &mut encoder,
-                [0.0, 1.0 / height as f32],
+                [0.0, 1.0 / (height / 2).max(1) as f32],
                 1.0,
                 &targets.ssao_blur_view,
                 &targets.color_view,
