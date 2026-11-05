@@ -105,7 +105,9 @@ pub struct GpuRenderer {
     fxaa_pipeline: wgpu::RenderPipeline,
     fxaa_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
+    sky_lut_texture: wgpu::Texture,
     sky_lut_view: wgpu::TextureView,
+    sky_lut_sun: std::sync::Mutex<Option<[f32; 3]>>,
     sky_sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
     flat_normal_view: wgpu::TextureView,
@@ -507,7 +509,9 @@ impl GpuRenderer {
                 fxaa_pipeline: resources.fxaa_pipeline,
                 fxaa_sampler: resources.fxaa_sampler,
                 sampler: resources.sampler,
+                sky_lut_texture: resources.sky_lut_texture,
                 sky_lut_view: resources.sky_lut_view,
+                sky_lut_sun: std::sync::Mutex::new(None),
                 sky_sampler: resources.sky_sampler,
                 white_view: resources.white_view,
                 flat_normal_view: resources.flat_normal_view,
@@ -545,6 +549,7 @@ impl GpuRenderer {
         let use_fxaa = settings.lighting_mode == LightingMode::Snooper && settings.snooper.fxaa;
         let use_deferred = settings.lighting_mode == LightingMode::Snooper
             && settings.shading == crate::ShadingMode::Lit;
+        self.update_sky_lut_for_settings(settings);
         // SSAO 需要单采样颜色/深度纹理。
         let samples = if use_ssao {
             1
@@ -1240,6 +1245,44 @@ impl GpuRenderer {
         }
     }
 
+    /// 太阳高度变化时重烘大气 LUT，保持天空与光照方向一致。
+    fn update_sky_lut_for_settings(&self, settings: &RenderSettings) {
+        let key = normalize(settings.key_direction);
+        let sun = normalize([key[0], key[2], key[1]]);
+        let Ok(mut current) = self.sky_lut_sun.lock() else {
+            return;
+        };
+        if let Some(previous) = *current {
+            if (previous[0] - sun[0]).abs() < 1e-4
+                && (previous[1] - sun[1]).abs() < 1e-4
+                && (previous[2] - sun[2]).abs() < 1e-4
+            {
+                return;
+            }
+        }
+        let (width, height) = crate::sky_lut::size();
+        let pixels = crate::sky_lut::bake_for_sun(sun);
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.sky_lut_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        *current = Some(sun);
+    }
     /// SSAO H/V 双边模糊；第二遍顺带把 AO 乘回颜色。
     fn draw_ssao_blur(
         &self,
@@ -1547,6 +1590,7 @@ struct Resources {
     fxaa_pipeline: wgpu::RenderPipeline,
     fxaa_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
+    sky_lut_texture: wgpu::Texture,
     sky_lut_view: wgpu::TextureView,
     sky_sampler: wgpu::Sampler,
     white_view: wgpu::TextureView,
@@ -2603,6 +2647,7 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         fxaa_pipeline,
         fxaa_sampler,
         sampler,
+        sky_lut_texture: sky_lut,
         sky_lut_view,
         sky_sampler,
         white_view,

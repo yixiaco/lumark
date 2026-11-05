@@ -114,6 +114,8 @@ pub(super) struct RenderSnapshot {
     pub(super) shading: ShadingMode,
     /// 是否显示地面网格。
     pub(super) show_grid: bool,
+    /// 太阳高度角（度）。
+    pub(super) sun_elevation_degrees: f32,
     /// 是否启用 Snooper 环境效果。
     pub(super) snooper_effects: bool,
     /// 是否显示骨骼线。
@@ -168,6 +170,7 @@ impl AssetViewerWindowView {
             skin_pose: self.skin_pose,
             shading: self.shading,
             show_grid: self.show_grid,
+            sun_elevation_degrees: self.sun_elevation_degrees,
             snooper_effects: self.snooper_effects,
             show_bones: self.show_bones,
             wireframe: self.wireframe,
@@ -429,10 +432,17 @@ fn viewer_settings(snapshot: &RenderSnapshot) -> RenderSettings {
     // FModel 默认不把顶点色乘到基础色；查看器可在工具栏打开。
     settings.vertex_colors = snapshot.vertex_colors;
     settings.show_grid = snapshot.show_grid;
+    let elevation = snapshot.sun_elevation_degrees.to_radians();
+    settings.key_direction = [
+        0.766_044_4 * elevation.cos(),
+        0.642_787_6 * elevation.cos(),
+        elevation.sin(),
+    ];
     if !snapshot.snooper_effects {
         settings.snooper = lumark_render::SnooperEffects::default();
     }
     settings.show_bones = snapshot.show_bones;
+    settings.snooper.shadows.enabled = false; // TEMP
     settings.hidden_sections = snapshot
         .hidden_sections
         .iter()

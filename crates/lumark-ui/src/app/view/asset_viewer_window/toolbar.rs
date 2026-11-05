@@ -178,6 +178,30 @@ impl AssetViewerWindowView {
                         })),
                 )
                 .child(
+                    button("model-sun-down")
+                        .ghost()
+                        .label("太阳-")
+                        .tooltip(tr("降低太阳高度", "Lower sun"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.sun_elevation_degrees =
+                                (this.sun_elevation_degrees - 10.0).max(0.0);
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("model-sun-up")
+                        .ghost()
+                        .label("太阳+")
+                        .tooltip(tr("提高太阳高度", "Raise sun"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.sun_elevation_degrees =
+                                (this.sun_elevation_degrees + 10.0).min(90.0);
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
+                .child(
                     button("model-effects-toggle")
                         .ghost()
                         .selected(self.snooper_effects)
