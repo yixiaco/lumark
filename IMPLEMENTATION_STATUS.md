@@ -1,7 +1,32 @@
 # Lumark 实施状态
 
-> 2026-11-04 查看器 P-7…P-10 轮次：只记录本轮完成项。
+> 2026-11-05 UE5.2（NTR_IDOL）bulk data 修复轮次：只记录本轮完成项。
 > 历史实施记录已归档到 `docs/archive/implementation-status-2026-11-04.md`。
+
+## 2026-11-05 UE5.2 Zen bulk data 映射与外部 bulk
+
+- [x] Zen bulk data 映射门控修正：映射不再只对 `header_version >= 5`（UE5.4+）读取，改为按
+  对象版本 `DATA_RESOURCES`（1009）判定——有版本信息时按 `file_version_ue5`，无版本信息的
+  cooked 包按结构探测（长度是 32 的倍数、整体位于导入公共导出哈希表之前、条目字段合理），
+  探测失败回退为无映射；UE5.4+ 才读 8 字节对齐 pad。修复前该游戏所有包 `bulk_data` 恒为空。
+- [x] 统一 `FByteBulkData` 读取（新增 `package/bulk.rs` + `BulkReader`）：映射索引形式按映射表
+  取长度/偏移/标志，传统内联头形式解析 `ForceInlinePayload`/`LazyLoadable`/`Size64Bit`/`Unused`；
+  **外部载荷在两种形式下都能从 `.ubulk` 切片**（修复“提供了 .ubulk 仍报缺少侧载”）。
+  纹理与 SkeletalMesh 改用同一实现，错误文案区分“未附带侧载数据”。
+- [x] `.ubulk` 解析兜底：目录索引没有独立 `.ubulk` 条目时按包 ID 读取 IoStore BulkData chunk。
+- [x] StaticMesh 外部 bulk：`read_static_mesh_with_bulk` 在 `bInlined=false` 时先读整块几何
+  `FByteBulkData`，再用内存块复用内联缓冲解析；LOD 头部按 UE5.6 / UE5.2–5.4 / UE5.5 三种布局
+  依次尝试。UI 预览、场景加载、导出与 World 引用网格均传入 `.ubulk` 侧载数据。
+- [x] 诊断示例 `inspect_mesh_bulk`（自动选择 StaticMesh 导出）。
+- [x] 测试：`parses_initial_layout_bulk_data_map`、`bulk::tests::*`（内联/外部/传统头回退/
+  `Unused`/越界），实机用例 `tests/ntr_iostore.rs`（`LUMARK_NTR_GAME_ROOT` +
+  `LUMARK_NTR_MAPPINGS` 门控）。
+- [x] NTR_IDOL 实机：`T_Worker_Hair_SSC` 2048×2048 PF_DXT1 12 mip（mip0 2 MiB，外部 bulk）、
+  `1y1` 1200×801 PF_B8G8R8A8（内联 bulk）均解出并写出 PNG：
+  `artifacts/ntr-idol-texture-hair.png`、`artifacts/ntr-idol-texture-1y1.png`。
+- [ ] 已知限制：该游戏自带 `.usmap` 与 cooked 包属性槽位不一致（`StaticMesh`、`SkeletalMeshSocket`、
+  `AnimSequence`、`AnimBoneCompressionSettings` 等报“属性槽位不在映射中”），这些资产的属性与
+  几何预览仍失败；待单独修复。
 
 ## 2026-11-04 查看器交互、FModel 材质与 JSON 属性
 

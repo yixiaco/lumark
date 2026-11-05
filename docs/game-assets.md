@@ -18,24 +18,33 @@
   关闭，主窗口刷新游戏库列表。新增入口和编辑入口都从游戏库列表页进入。
 - **AES 密钥查看**：从 Shipping.exe 提取并通过容器校验的密钥可在游戏设置页点击“查看密钥”，
   用内置文本/十六进制查看器检查；查看器直接读取内存内容，不把密钥写入临时文件。
-- **UE5 Zen 包**：`lumark-unreal` 解析 Zen 摘要、名称表、导入/导出表、导出数据、全局
-  ScriptObjects 脚本对象表和 UE5.4+ bulk data map；已用 BNB 真实包验证类名、导出范围和
-  bulk 条目。UE5.0–5.2 Initial 布局使用 `GraphDataOffset` 作为导出 bundle 表终点，
-  `CookedSerialOffset` 以 `CookedHeaderSize` 为基准回退到实际数据起点；名称表支持
-  `i16::MIN + 码元数` 形式的 UTF-16 名称。NTR_IDOL（UE5.2）的 `SM_CraneRig_Arm`、
-  `M_Fire`、`begin_actor` 和中文路径纹理 `03_H系統/1y1` 已实测解析成功。
+- **UE5 Zen 包**：`lumark-unreal` 解析 Zen 摘要、名称表、导入/导出表、导出数据和全局
+  ScriptObjects 脚本对象表。Zen 头的 bulk data 映射门控按**对象版本**判定：
+  UE5.2 起（`DATA_RESOURCES` = 1009，参考 CUE4Parse `IoPackage.cs`）cooked 包在名称表后
+  带映射，UE5.4 起映射前才多出 8 字节对齐 pad；无版本信息的 cooked 包按结构探测（长度是
+  32 的倍数、整体位于下一张表之前、条目字段合理），探测失败回退为“无映射”。已用 BNB
+  （UE5.6）与 NTR_IDOL（UE5.2）真实包验证类名、导出范围和 bulk 条目。UE5.0–5.2 Initial
+  布局使用 `GraphDataOffset` 作为导出 bundle 表终点，`CookedSerialOffset` 以
+  `CookedHeaderSize` 为基准回退到实际数据起点；名称表支持 `i16::MIN + 码元数` 形式的
+  UTF-16 名称。NTR_IDOL 的 `SM_CraneRig_Arm`、`M_Fire`、`begin_actor` 和中文路径纹理
+  `03_H系統/1y1` 已实测解析成功。
 - **无版本属性**：新增 `.usmap` v1–v4 读取（未压缩/ZStandard/Brotli，Oodle 压缩映射返回
   可读错误）与 unversioned header/属性读取；游戏设置选择映射时会先解析并显示结构与枚举
   数量，解析失败不会保存路径。Zen 资产的详情面板会把可序列化属性追加为字段行（最多 40 项，小型
   struct/数组展开一层，长文本截断到 160 字符），纹理、StaticMesh、SkeletalMesh、Skeleton 缩略图
   和旧式包共用同一只读字段展示。
 - **纹理**：UTexture2D 平台数据、内联/`.ubulk` mip、BC1/BC3/BC4/BC5/BC7 与
-  BGRA8/RGBA8/G8 解码；详情面板后台生成缩略图并支持点击进入图片查看器。
+  BGRA8/RGBA8/G8 解码；详情面板后台生成缩略图并支持点击进入图片查看器。`FByteBulkData`
+  统一由 `package/bulk.rs` 读取：映射索引形式按映射表取长度/偏移/标志，传统形式按内联头
+  解析，外部载荷从容器 `.ubulk`（或在目录索引缺失时按包 ID 取 BulkData chunk）切片。
 - **资产元数据**：Skeleton 参考骨骼树（名称/父索引/参考姿态）、AnimSequence 的时长和
   RateScale、StaticMesh 材质槽/插槽；在详情面板展示。
 - **材质外观渲染**：FF7R 旧式材质/材质实例会在详情面板渲染近似 PBR 材质球：从材质表达式提取矢量/标量参数默认值，读取父材质补齐材质实例参数，按名称识别基础色/法线/金属粗糙度贴图并从同一容器加载解码，CPU 光栅器生成 512×512 材质球（含方向光、高光、法线扰动）。详情面板中的材质球可点击打开**独立的材质查看器**（与模型/骨骼查看器共用交互式窗口）：左键拖拽绕球旋转、缩放/重置，旋转时按世界空间固定光照重绘，静态图片仍由图片查看器打开。FF7R `M_UE4Man_Body`/`M_UE4Man_ChestLogo` 已生成可辨认的皮肤色+法线细节材质球；UE5/IoStore（BNB）材质同样渲染材质球：从 `VectorParameterValues`/`ScalarParameterValues`/`TextureParameterValues` 提取参数，按同目录命名约定定位贴图（`MAT-ChickenA` 验证羽毛贴图+法线细节）；完整 shader 图不复原。
 
 - **StaticMesh 预览**：首个 LOD 的顶点/索引/section 解析，并识别资产声明的 LOD 数量；
+  `bInlined=false` 的 cooked LOD 会先读该 LOD 的整块几何 `FByteBulkData`（容器 `.ubulk`），
+  再从内存块解析顶点/切线/UV/索引（与 FModel `SerializeBuffers(tempAr)` 等价）；LOD 头部按
+  UE5.6 / UE5.2–5.4 / UE5.5 三种布局依次尝试。
   CPU 光栅器生成 3D 缩略图显示在详情面板；独立模型查看器窗口支持左键轨道旋转、右键拖拽
   平移、滚轮缩放和重置；右侧检查器可切换 LOD、按 section/材质槽显示或隐藏几何，并查看
   材质 blend/shading、高光强度、粗糙度区间、AO/自发光与贴图尺寸。材质按 CUE4Parse
@@ -82,6 +91,7 @@
   - `cargo run -p lumark-unreal --example inspect_texture -- <utoc> <key|-> <global.utoc> <entry> <usmap> [ubulk|-] [out.png]`
   - `cargo run -p lumark-unreal --example inspect_skeleton -- <utoc> <key|-> <global.utoc> <entry> <usmap> [export]`
   - `cargo run -p lumark-unreal --example inspect_mesh -- <utoc> <key|-> <global.utoc> <entry> <usmap> [export] [out.png]`
+  - `cargo run -p lumark-unreal --example inspect_mesh_bulk -- <utoc> <key|-> <global.utoc> <entry> <usmap> <ubulk|-> [export|-] [out.png]`（外部 bulk 几何）
 
 ## 支持范围与验证方式
 
@@ -129,6 +139,23 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
 
 ## 实机验证
 
+- **NTR_IDOL（UE5.2.1，IoStore，未加密）**：`pakchunk0-Windows.utoc` 列出 15813 个条目、
+  `pakchunk0-Windows.pak` 1533 条、`.usmap` 解析出 7379 structs/1493 enums。修复 Zen
+  bulk data 映射门控后，包的 `bulk_data` 从恒为 0 变为真实条目（例如
+  `T_Worker_Hair_SSC` 有 12 条、标志 `0x10501`＝`PayloadInSeperateFile|PayloadAtEndOfFile`
+  等），纹理链路实机通过：外部 bulk 的 `T_Worker_Hair_SSC` 解出 2048×2048 PF_DXT1 共 12
+  级 mip（mip0 2 MiB），内联 bulk 的中文路径纹理 `03_H系統/1y1` 解出 1200×801 PF_B8G8R8A8
+  （3.8 MiB），两者均能写出可辨认的 PNG（`artifacts/ntr-idol-texture-hair.png`、
+  `artifacts/ntr-idol-texture-1y1.png`）。验收用例见
+  `crates/lumark-unreal/tests/ntr_iostore.rs`（设置 `LUMARK_NTR_GAME_ROOT` /
+  `LUMARK_NTR_MAPPINGS` 时运行，未设置自动跳过）。
+- **NTR_IDOL 已知限制（映射与包不一致）**：该游戏自带的
+  `Mappings/5.2.1-26001984+++UE5+Release-5.2-NTR_IDOL.usmap` 与 cooked 包的属性槽位对不上，
+  `StaticMesh`（映射 26+10 槽、包头出现 49 个值、slot 67/108）、`SkeletalMeshSocket`（slot 6）、
+  `AnimBoneCompressionSettings`（slot 4）、`AnimSequence`（`PlatformTargetFrameRate` 之后槽位
+  173）等类报“属性槽位不在映射中”或布尔/长度解析错位，导致这些资产的属性与几何预览仍不可用；
+  纹理、材质实例、蓝图等类正常。这是独立于 bulk 数据的映射/属性布局问题，需要与游戏同版本的
+  映射或单独的属性读取修复。
 - **BNB**：扫描到 `TogetherBNB` 项目、IoStore 容器和 AES 密钥；容器可列包，映射自动发现后已完成纹理/StaticMesh/SkeletalMesh/Skeleton/AnimSequence 的字段级验收（结果见上一节）；在游戏目录不含任何 Oodle DLL 的情况下，纯 Rust Oodle 后端再次验证 `SK_Chicken` 与 `T_ChickenA_BaseColor` 可正常解压、解析并渲染。
 - **FINAL FANTASY VII REMAKE**：项目目录 `End`；主程序为 `Binaries/Win64/ff7remake_.exe`（无 `-Win64-Shipping.exe` 命名，已支持最大 exe 回退）；从其提取的 AES 密钥通过 `pakchunk0-WindowsNoEditor.pak` 验证；Oodle 候选位于 `Engine/Binaries/ThirdParty/Oodle/Win64`；该 PAK 可列出 18896 个条目，并已修正旧版 PAK 压缩槽位映射，可提取 `.uasset/.uexp/.ubulk`。其包为 **旧式 unversioned 包**（包 flags `0x80002000` 含 `PKG_UnversionedProperties`，`.uexp` 开头是无版本 header），字段名解析需要专用 `.usmap`。游戏实际为 **UE4.18**（可执行文件内 `++UE4+Release-4.18`）；FModel 手动 UE 版本应设为 4.18，而不是当前配置里的 4.28，否则 FModel 自身也会按错误的版本化布局解析。游戏目录下现已提供 **FF7 Remake 专用映射**（`Mappings.usmap`，9736 structs/1939 enums，含 `End*` 游戏类），映射本身可正常加载。旧式属性读取已能解析 `BlueprintGeneratedClass`、`EndTextResource`、`SimpleConstructionScript` 等资产；关键修正是 FF7R/UE4.18 的旧式 bool 值可能是**任意非零字节**（例如 `0x81` 表示 true），不能只接受 0/1。修正后 `Texture2D` 可读出 `AddressX`、`VirtualTextureStreaming`、`bApplyResidentLODBias`、`CachedCombinedLODBias`、`NeverStream`，`SkeletalMesh` 可读出 `Skeleton`、`MinLOD`、`bUseHighPrecisionTangentBasis`，详情面板会展示这些字段。**纹理基础 mip 无映射启发式预览**保留：通过 `SizeX/SizeY/PackedData/PF_*` 定位原生平台数据并读取 `.ubulk` 基础 mip（512×512 PF_BC5 已验证）。FF7R 旧式 SkeletalMesh 的 LOD0 几何/蒙皮与 AnimSequence 压缩数据均已解析；LOD1+ 与部分材质 native 布局仍按结构特征尽力探测。
 

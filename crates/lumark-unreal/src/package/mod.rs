@@ -321,6 +321,16 @@ impl UnrealPackage {
         mesh::read_static_mesh(self, index, mappings)
     }
 
+    /// 读取 StaticMesh 的首个 LOD，并允许传入容器 `.ubulk` 载荷。
+    pub fn read_static_mesh_with_bulk(
+        &self,
+        index: usize,
+        mappings: &Mappings,
+        ubulk: Option<&[u8]>,
+    ) -> Result<StaticMesh, PackageError> {
+        mesh::read_static_mesh_with_bulk(self, index, mappings, ubulk)
+    }
+
     /// 读取 `.umap` 的 World/Level 摘要。
     pub fn read_world_summary(&self, mappings: &Mappings) -> Result<WorldSummary, PackageError> {
         world::read_world_summary(self, mappings)
@@ -379,6 +389,7 @@ pub fn is_material_class(class_name: &str) -> bool {
 
 mod animation;
 mod asset;
+mod bulk;
 pub mod legacy;
 mod legacy_animation;
 mod legacy_skeleton;
@@ -418,6 +429,7 @@ pub(crate) use material::{
 };
 pub use mesh::{
     MaterialSlot, MeshLod, MeshSection, MeshVertexAttributes, StaticMesh, read_static_mesh,
+    read_static_mesh_with_bulk,
 };
 pub use script_objects::{ScriptObject, ZenScriptObjects};
 pub use skeleton::{

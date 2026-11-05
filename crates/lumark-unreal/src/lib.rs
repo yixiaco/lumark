@@ -53,7 +53,8 @@ pub use package::{
     read_anim_sequence, read_asset_metadata, read_legacy_anim_sequence,
     read_legacy_material_appearance, read_legacy_skeletal_mesh_geometry,
     read_legacy_skeletal_mesh_skeleton, read_legacy_skeletal_mesh_summary, read_legacy_skeleton,
-    read_static_mesh, read_world_summary, read_zen_material_appearance, texture_references,
+    read_static_mesh, read_static_mesh_with_bulk, read_world_summary, read_zen_material_appearance,
+    texture_references,
 };
 pub use properties_json::{legacy_properties_json, properties_to_json, zen_properties_json};
 pub use provider::{

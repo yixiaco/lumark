@@ -5,7 +5,9 @@
 //! 本模块只提取尺寸、像素格式和 mip 原始字节，BCn 解码由上层完成。
 
 use super::mesh::half_to_f32;
-use super::{Mappings, PackageError, UnrealPackage, invalid};
+use super::{
+    Mappings, PackageError, UnrealPackage, bulk::BulkReader, bulk::read_byte_bulk, invalid,
+};
 
 /// 一个纹理 mip。
 #[derive(Debug, Clone)]
@@ -557,17 +559,14 @@ fn read_platform(
     }
     let mut mips = Vec::with_capacity(mip_count as usize);
     for _ in 0..mip_count {
-        let (data, inline_size) = read_bulk(reader, package, ubulk)?;
+        let bulk = read_byte_bulk(reader, &package.info().bulk_data, ubulk, "纹理 mip")?;
         let mip_width = reader.i32()?;
         let mip_height = reader.i32()?;
         let mip_depth = reader.i32()?;
-        let expected = data
-            .as_ref()
-            .map(|bytes| bytes.len())
-            .unwrap_or(inline_size);
-        if data.is_none() && expected > 0 {
+        let (data, size) = (bulk.data, bulk.size);
+        if data.is_none() && size > 0 {
             return Err(PackageError::Unsupported(
-                "纹理 mip 数据位于 .ubulk，但当前没有提供侧载数据".to_string(),
+                "纹理 mip 数据位于容器 bulk（.ubulk），但本次读取未附带侧载数据".to_string(),
             ));
         }
         mips.push(TextureMip {
@@ -582,53 +581,6 @@ fn read_platform(
         height,
         mips,
     })
-}
-
-/// 读取一个 FByteBulkData 头并返回数据。
-///
-/// 返回 `(data, inline_size)`；`data` 为 None 表示需要 `.ubulk` 但尚未提供。
-fn read_bulk(
-    reader: &mut DataReader<'_>,
-    package: &UnrealPackage,
-    ubulk: Option<&[u8]>,
-) -> Result<(Option<Vec<u8>>, usize), PackageError> {
-    let bulk_data = package.info().bulk_data.as_slice();
-    if !bulk_data.is_empty() {
-        let index = reader.i32()?;
-        let entry = bulk_data
-            .get(index as usize)
-            .ok_or_else(|| invalid(format!("纹理 bulk data 索引越界：{index}")))?;
-        let size = entry.serial_size.max(0) as usize;
-        let force_inline = entry.flags & (1 << 6) != 0;
-        if force_inline {
-            let bytes = reader.bytes(size)?.to_vec();
-            return Ok((Some(bytes), size));
-        }
-        if let Some(ubulk) = ubulk {
-            let start = entry.serial_offset.max(0) as usize;
-            let end = start
-                .checked_add(size)
-                .ok_or_else(|| invalid("纹理 bulk data 长度溢出"))?;
-            let bytes = ubulk
-                .get(start..end)
-                .ok_or_else(|| invalid("纹理 bulk data 超出 .ubulk 范围"))?
-                .to_vec();
-            return Ok((Some(bytes), size));
-        }
-        return Ok((None, size));
-    }
-    let flags = reader.u32()?;
-    let element_count = reader.i32()?;
-    let size_on_disk = match reader.u32()? as usize {
-        size if size > 0 => size,
-        _ => element_count.max(0) as usize,
-    };
-    let _offset = reader.i64()?;
-    if flags & (1 << 6) != 0 {
-        let bytes = reader.bytes(size_on_disk)?.to_vec();
-        return Ok((Some(bytes), size_on_disk));
-    }
-    Ok((None, size_on_disk))
 }
 
 /// 导出数据读取器。
@@ -701,6 +653,38 @@ impl<'a> DataReader<'a> {
         let bytes = self.bytes(length as usize)?;
         let bytes = bytes.strip_suffix(&[0]).unwrap_or(bytes);
         Ok(String::from_utf8_lossy(bytes).into_owned())
+    }
+}
+
+impl BulkReader for DataReader<'_> {
+    /// 返回当前读取位置。
+    fn position(&self) -> usize {
+        self.position
+    }
+
+    /// 复位读取位置。
+    fn set_position(&mut self, position: usize) {
+        self.position = position;
+    }
+
+    /// 读取指定长度。
+    fn take(&mut self, length: usize) -> Result<&[u8], PackageError> {
+        self.bytes(length)
+    }
+
+    /// 读取 u32。
+    fn read_u32(&mut self) -> Result<u32, PackageError> {
+        self.u32()
+    }
+
+    /// 读取 i32。
+    fn read_i32(&mut self) -> Result<i32, PackageError> {
+        self.i32()
+    }
+
+    /// 读取 i64。
+    fn read_i64(&mut self) -> Result<i64, PackageError> {
+        self.i64()
     }
 }
 

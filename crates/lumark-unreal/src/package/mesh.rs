@@ -1,10 +1,20 @@
 //! StaticMesh 几何读取（首个 LOD）。
 //!
-//! 当前面向 UE5.6+ cooked Zen 资产：解析 `FPositionVertexBuffer`、切线/法线、
-//! 全部 UV 通道、顶点颜色、索引缓冲和 section；内联顶点数据是 UE5.6/5.8
-//! fixture 的主要布局。无法识别的可选缓冲会跳过并保留几何，不阻断查看器。
+//! 面向 UE5 cooked Zen 资产：解析 `FPositionVertexBuffer`、切线/法线、全部 UV
+//! 通道、顶点颜色、索引缓冲和 section。几何缓冲可能内联在导出数据里，也可能
+//! 打包成一个 `FByteBulkData` 放在容器 `.ubulk` 中，两种形式都会尝试；无法
+//! 识别的可选缓冲会跳过并保留几何，不阻断查看器。
 
-use super::{AssetMetadata, Mappings, PackageError, UnrealPackage, invalid, read_asset_metadata};
+use super::{
+    AssetMetadata, Mappings, PackageError, UnrealPackage, bulk::BulkReader, bulk::read_byte_bulk,
+    invalid, read_asset_metadata,
+};
+
+/// 非内联 LOD 在 bulk 载荷之后还有各缓冲元数据与 `FStaticMeshBuffersSize`。
+///
+/// 依次为 `DepthOnlyNumTriangles+Packed`（8）、顶点/切线/颜色/索引缓冲头
+/// （`4*4 + 2*4 + 2*4 + 5*2*4`）和 `FStaticMeshBuffersSize`（12）。
+const LOD_BULK_TRAILING_BYTES: usize = 8 + 4 * 4 + 2 * 4 + 2 * 4 + 5 * 2 * 4 + 12;
 
 /// 一个 section。
 #[derive(Debug, Clone, Copy)]
@@ -78,10 +88,26 @@ pub struct StaticMesh {
 }
 
 /// 从包中读取指定导出的 StaticMesh（仅首个 LOD）。
+///
+/// 不附带 `.ubulk` 侧载数据；需要解析外部 bulk 几何时使用
+/// [`read_static_mesh_with_bulk`]。
 pub fn read_static_mesh(
     package: &UnrealPackage,
     export_index: usize,
     mappings: &Mappings,
+) -> Result<StaticMesh, PackageError> {
+    read_static_mesh_with_bulk(package, export_index, mappings, None)
+}
+
+/// 从包中读取指定导出的 StaticMesh，并允许传入容器 `.ubulk` 载荷。
+///
+/// UE5 cooked 静态网格的几何缓冲通常整体写入一个 `FByteBulkData` 并放在
+/// `.ubulk` 中；缺少侧载数据时只能解析内联 LOD。
+pub fn read_static_mesh_with_bulk(
+    package: &UnrealPackage,
+    export_index: usize,
+    mappings: &Mappings,
+    ubulk: Option<&[u8]>,
 ) -> Result<StaticMesh, PackageError> {
     let export = package
         .info()
@@ -154,7 +180,7 @@ pub fn read_static_mesh(
         if skip_min_mobile {
             let _ = reader.i32()?;
         }
-        match read_lod_array(&mut reader) {
+        match read_lod_array(package, &mut reader, ubulk) {
             Ok((lods, lod_count)) => {
                 let Some(lod) = lods.first().cloned() else {
                     last_error = Some(invalid("StaticMesh 没有可解析的 LOD"));
@@ -176,14 +202,18 @@ pub fn read_static_mesh(
 }
 
 /// 读取 LOD 数组并解析尽可能多的 LOD。
-fn read_lod_array(reader: &mut MeshReader<'_>) -> Result<(Vec<MeshLod>, usize), PackageError> {
+fn read_lod_array(
+    package: &UnrealPackage,
+    reader: &mut MeshReader<'_>,
+    ubulk: Option<&[u8]>,
+) -> Result<(Vec<MeshLod>, usize), PackageError> {
     let lod_count = reader.count(4, 16)?;
     if lod_count == 0 {
         return Err(invalid("StaticMesh 没有 LOD"));
     }
     let mut lods = Vec::with_capacity(lod_count);
     for index in 0..lod_count {
-        match read_lod(reader, index) {
+        match read_lod(package, reader, index, ubulk) {
             Ok(lod) => lods.push(lod),
             Err(error) => {
                 if lods.is_empty() {
@@ -196,8 +226,61 @@ fn read_lod_array(reader: &mut MeshReader<'_>) -> Result<(Vec<MeshLod>, usize), 
     Ok((lods, lod_count))
 }
 
-/// 读取一个 LOD。
-fn read_lod(reader: &mut MeshReader<'_>, index: usize) -> Result<MeshLod, PackageError> {
+/// LOD 头部的版本差异。
+///
+/// UE5.6 起在 sections 之后多出 `SourceMeshBounds`，UE5.5 起多出
+/// `bHasRayTracingGeometry` 标志；包内不记录对象版本时按候选布局依次尝试。
+#[derive(Debug, Clone, Copy)]
+struct LodLayout {
+    /// 是否带 `SourceMeshBounds`（UE5.6+）。
+    source_bounds: bool,
+    /// 是否带 `bHasRayTracingGeometry`（UE5.5+）。
+    ray_tracing_flag: bool,
+}
+
+/// 候选布局：UE5.6 优先，其次 UE5.2–5.4 与 UE5.5。
+const LOD_LAYOUTS: [LodLayout; 3] = [
+    LodLayout {
+        source_bounds: true,
+        ray_tracing_flag: true,
+    },
+    LodLayout {
+        source_bounds: false,
+        ray_tracing_flag: false,
+    },
+    LodLayout {
+        source_bounds: false,
+        ray_tracing_flag: true,
+    },
+];
+
+/// 读取一个 LOD，按候选布局重试直到某个布局能完整解析。
+fn read_lod(
+    package: &UnrealPackage,
+    reader: &mut MeshReader<'_>,
+    index: usize,
+    ubulk: Option<&[u8]>,
+) -> Result<MeshLod, PackageError> {
+    let start = reader.position;
+    let mut last_error = None;
+    for layout in LOD_LAYOUTS {
+        reader.position = start;
+        match read_lod_with_layout(package, reader, index, ubulk, layout) {
+            Ok(lod) => return Ok(lod),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| invalid(format!("StaticMesh LOD {index} 无法解析"))))
+}
+
+/// 按指定布局读取一个 LOD。
+fn read_lod_with_layout(
+    package: &UnrealPackage,
+    reader: &mut MeshReader<'_>,
+    index: usize,
+    ubulk: Option<&[u8]>,
+    layout: LodLayout,
+) -> Result<MeshLod, PackageError> {
     // FStaticMeshLODResources
     let strip_global = reader.u8()?;
     let strip_class = reader.u8()?;
@@ -220,24 +303,41 @@ fn read_lod(reader: &mut MeshReader<'_>, index: usize) -> Result<MeshLod, Packag
             triangle_count,
         });
     }
-    // UE5.6+ SourceMeshBounds：3 个 double × 2 + double。
-    reader.skip(56)?;
+    if layout.source_bounds {
+        // FBoxSphereBounds（double）：Origin、BoxExtent、SphereRadius 共 56 字节。
+        reader.skip(56)?;
+    }
     let _max_deviation = reader.f32()?;
     let cooked_out = reader.bool32()?;
     let inlined = reader.bool32()?;
     if cooked_out {
         return Err(invalid(format!("StaticMesh LOD {index} 已 cook 掉")));
     }
-    // UE5.5+：bHasRayTracingGeometry（代码按 4 字节跳过）。
-    reader.skip(4)?;
-    if !inlined {
-        return Err(PackageError::Unsupported(
-            "StaticMesh 顶点数据在 bulk data 中，当前只支持内联 LOD".to_string(),
-        ));
+    if layout.ray_tracing_flag {
+        // bHasRayTracingGeometry；后续 RayTracingGeometry 不在本轮范围。
+        reader.skip(4)?;
     }
-    let lod = read_inline_buffers(reader, sections, strip_global, strip_class)?;
-    // FStaticMeshBuffersSize：SerializedBuffersSize/DepthOnlyIBSize/ReversedIBsSize。
-    reader.skip(12)?;
+    if inlined {
+        let lod = read_inline_buffers(reader, sections, strip_global, strip_class)?;
+        // FStaticMeshBuffersSize：SerializedBuffersSize/DepthOnlyIBSize/ReversedIBsSize。
+        reader.skip(12)?;
+        return Ok(lod);
+    }
+    // 非内联：整个 LOD 的几何缓冲作为一个 FByteBulkData 存放在 .ubulk 中。
+    let bulk = read_byte_bulk(reader, &package.info().bulk_data, ubulk, "StaticMesh 顶点")?;
+    let data = bulk.data.ok_or_else(|| {
+        PackageError::Unsupported(
+            "StaticMesh 顶点数据位于容器 bulk（.ubulk），但本次读取未附带侧载数据".to_string(),
+        )
+    })?;
+    let mut blob = MeshReader {
+        data: &data,
+        position: 0,
+    };
+    let lod = read_inline_buffers(&mut blob, sections, strip_global, strip_class)?;
+    // 主数据流中随后是各缓冲元数据与 FStaticMeshBuffersSize；跳过失败只影响
+    // 后续 LOD，已解析的 LOD 仍然可用。
+    let _ = reader.skip(LOD_BULK_TRAILING_BYTES);
     Ok(lod)
 }
 
@@ -731,6 +831,40 @@ impl<'a> MeshReader<'a> {
             return Err(invalid(format!("网格数组数量非法：{count}")));
         }
         Ok(count as usize)
+    }
+}
+
+impl BulkReader for MeshReader<'_> {
+    /// 返回当前读取位置。
+    fn position(&self) -> usize {
+        self.position
+    }
+
+    /// 复位读取位置。
+    fn set_position(&mut self, position: usize) {
+        self.position = position;
+    }
+
+    /// 读取指定长度。
+    fn take(&mut self, length: usize) -> Result<&[u8], PackageError> {
+        self.bytes(length)
+    }
+
+    /// 读取 u32。
+    fn read_u32(&mut self) -> Result<u32, PackageError> {
+        self.u32()
+    }
+
+    /// 读取 i32。
+    fn read_i32(&mut self) -> Result<i32, PackageError> {
+        self.i32()
+    }
+
+    /// 读取 i64。
+    fn read_i64(&mut self) -> Result<i64, PackageError> {
+        Ok(i64::from_le_bytes(
+            self.bytes(8)?.try_into().unwrap_or_default(),
+        ))
     }
 }
 

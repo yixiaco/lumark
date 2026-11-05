@@ -427,8 +427,28 @@ impl GameAssetSource {
         let ubulk = format!("{stem}.ubulk");
         if self.contains(&ubulk) {
             inputs.ubulk = Some(self.read_bytes(&ubulk)?);
+        } else if inputs.ubulk.is_none() {
+            // 目录索引里没有独立 `.ubulk` 条目时，按包 ID 取该包的 BulkData chunk。
+            inputs.ubulk = self.read_bulk_by_path(&path)?;
         }
         Ok(inputs)
+    }
+
+    /// 按资产路径读取同一 IoStore 包的 BulkData chunk。
+    ///
+    /// 部分游戏的 bulk 数据只以包 ID 关联、不在目录索引里单独列出（FModel 也从
+    /// 包侧解析），因此路径侧车缺失时再用包 ID 兜底。
+    fn read_bulk_by_path(&self, path: &str) -> Result<Option<Vec<u8>>, AssetSourceError> {
+        let Container::IoStore(container) = &self.container else {
+            return Ok(None);
+        };
+        let Some(package_id) = container.package_id_for_path(path) else {
+            return Ok(None);
+        };
+        if container.find_package_chunks(package_id, 2).is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(container.read_bulk_by_id(package_id)?))
     }
 
     /// 只解析包头部，识别第一个导出对象的类名与资产种类。

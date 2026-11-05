@@ -19,6 +19,14 @@ const MAX_HEADER_VERSION: u8 = 5;
 const MAX_EXPORT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 /// 导出对象数量上限。
 const MAX_EXPORTS: usize = 100_000;
+/// UE5 对象版本 `DATA_RESOURCES`（1009）：UE5.2 起 Zen 头带 bulk data 映射。
+const DATA_RESOURCES_OBJECT_VERSION: i32 = 1009;
+/// bulk data 映射条目固定序列化长度。
+const BULK_DATA_ENTRY_SIZE: usize = 32;
+/// bulk data 映射条目数量上限。
+const MAX_BULK_MAP_ENTRIES: usize = 1_000_000;
+/// 单条 bulk 数据长度上限，用于拒绝明显损坏的映射。
+const MAX_BULK_ENTRY_BYTES: i64 = 1024 * 1024 * 1024;
 
 /// Zen 包摘要。
 #[derive(Debug, Clone, Copy)]
@@ -84,42 +92,8 @@ fn parse_with_version(
         return Err(invalid("Zen 名称表为空"));
     }
 
-    // UE5.4+ 的名称表后是 bulk data 映射（指向 .ubulk 或内联数据）。
-    let mut bulk_data = Vec::new();
-    if header_version >= 5 {
-        let pad = read_u64(&mut cursor)?;
-        if pad > summary.header_size as u64 {
-            return Err(invalid("Zen bulk data 偏移越界"));
-        }
-        cursor
-            .seek(SeekFrom::Current(pad as i64))
-            .map_err(|_| invalid("Zen bulk data 偏移非法"))?;
-        let map_size = read_i64(&mut cursor)?;
-        if map_size < 0 {
-            return Err(invalid("Zen bulk data 映射长度为负"));
-        }
-        let map_size = map_size as usize;
-        if map_size > summary.header_size as usize || !map_size.is_multiple_of(32) {
-            return Err(invalid("Zen bulk data 映射长度异常"));
-        }
-        let count = map_size / 32;
-        if count > 1_000_000 {
-            return Err(invalid("Zen bulk data 条目过多"));
-        }
-        for _ in 0..count {
-            bulk_data.push(BulkDataEntry {
-                serial_offset: read_i64(&mut cursor)?,
-                duplicate_serial_offset: read_i64(&mut cursor)?,
-                serial_size: read_i64(&mut cursor)?,
-                flags: read_u32(&mut cursor)?,
-                cooked_index: read_bytes(&mut cursor, 1)?[0],
-            });
-            let _padding = read_bytes(&mut cursor, 3)?;
-        }
-        if cursor.position() > u64::from(summary.header_size) {
-            return Err(invalid("Zen bulk data 映射越过包头"));
-        }
-    }
+    // 名称表之后是 bulk data 映射（UE5.2 起，UE5.4 起前面多一段对齐 pad）。
+    let bulk_data = read_bulk_data_map(&mut cursor, header_version, &summary, &versioning)?;
 
     // 表偏移必须单调且位于包头内。
     let mut offsets = [
@@ -348,6 +322,135 @@ fn read_versioning(cursor: &mut Cursor<&[u8]>) -> Result<Versioning, PackageErro
     })
 }
 
+/// 读取名称表之后的 Zen bulk data 映射。
+///
+/// UE5.2 起（对象版本 `DATA_RESOURCES`）cooked 包的 Zen 头在名称表后紧跟 bulk
+/// data 映射，导出数据里的 `FByteBulkData` 只序列化一个映射索引；UE5.4 起映射
+/// 前多出一段对齐 pad。UE5.0/5.1 没有这张表，未携带版本信息的 cooked 包只能
+/// 按结构探测，探测失败时回退为“无映射”。
+fn read_bulk_data_map(
+    cursor: &mut Cursor<&[u8]>,
+    header_version: u8,
+    summary: &Summary,
+    versioning: &Versioning,
+) -> Result<Vec<BulkDataEntry>, PackageError> {
+    let has_versioning = summary.has_versioning_info != 0;
+    if has_versioning && versioning.file_version_ue5 < DATA_RESOURCES_OBJECT_VERSION {
+        return Ok(Vec::new());
+    }
+    // 有版本信息时按对象版本确定；UE5.4+ 头版本同样必然带映射；其余靠探测。
+    let mandatory = has_versioning || header_version >= 5;
+    let map_start = cursor.position();
+    if header_version >= 5 {
+        let pad = read_u64(cursor)?;
+        if pad > u64::from(summary.header_size) {
+            return Err(invalid("Zen bulk data 偏移越界"));
+        }
+        cursor
+            .seek(SeekFrom::Current(pad as i64))
+            .map_err(|_| invalid("Zen bulk data 偏移非法"))?;
+    }
+    let size_position = cursor.position();
+    // 缓冲区剩余不足 8 字节时无法读取映射长度：探测模式回退，强制场景报错。
+    if size_position + 8 > cursor.get_ref().len() as u64 {
+        return fallback_without_map(cursor, map_start, mandatory, "Zen bulk data 映射被截断");
+    }
+    let map_size = read_i64(cursor)?;
+    // 长度必须非负、不超过包头且是条目长度的整数倍。
+    if map_size < 0
+        || map_size as u64 > u64::from(summary.header_size)
+        || !(map_size as usize).is_multiple_of(BULK_DATA_ENTRY_SIZE)
+    {
+        return fallback_without_map(cursor, map_start, mandatory, "Zen bulk data 映射长度异常");
+    }
+    let map_size = map_size as usize;
+    let count = map_size / BULK_DATA_ENTRY_SIZE;
+    if count > MAX_BULK_MAP_ENTRIES {
+        return fallback_without_map(cursor, map_start, mandatory, "Zen bulk data 条目过多");
+    }
+    // 探测模式额外要求映射整体位于下一张表之前，避免把其他表误判成映射。
+    if !mandatory && (count == 0 || size_position + 8 + map_size as u64 > bulk_map_limit(summary)) {
+        return fallback_without_map(cursor, map_start, false, "");
+    }
+    let entries = match read_bulk_entries(cursor, count) {
+        Ok(entries) => entries,
+        Err(error) => {
+            return fallback_without_map(cursor, map_start, mandatory, &error.to_string());
+        }
+    };
+    if cursor.position() > u64::from(summary.header_size) {
+        return fallback_without_map(cursor, map_start, mandatory, "Zen bulk data 映射越过包头");
+    }
+    // 只在探测模式校验条目：强制场景沿用原有行为，避免版本判定的包出现回归。
+    if !mandatory && !bulk_entries_plausible(&entries) {
+        return fallback_without_map(cursor, map_start, false, "");
+    }
+    Ok(entries)
+}
+
+/// 探测失败时回退：强制场景报错，其余回退为“无映射”并复位游标。
+fn fallback_without_map(
+    cursor: &mut Cursor<&[u8]>,
+    position: u64,
+    mandatory: bool,
+    message: &str,
+) -> Result<Vec<BulkDataEntry>, PackageError> {
+    if mandatory {
+        return Err(invalid(message));
+    }
+    cursor
+        .seek(SeekFrom::Start(position))
+        .map_err(|_| invalid("Zen bulk data 复位失败"))?;
+    Ok(Vec::new())
+}
+
+/// bulk data 映射必须位于下一张表（导入公共导出哈希表）之前。
+fn bulk_map_limit(summary: &Summary) -> u64 {
+    if summary.imported_public_export_hashes_offset >= 0 {
+        summary.imported_public_export_hashes_offset as u64
+    } else {
+        u64::from(summary.header_size)
+    }
+}
+
+/// 读取 bulk data 映射条目。
+fn read_bulk_entries(
+    cursor: &mut Cursor<&[u8]>,
+    count: usize,
+) -> Result<Vec<BulkDataEntry>, PackageError> {
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        entries.push(BulkDataEntry {
+            serial_offset: read_i64(cursor)?,
+            duplicate_serial_offset: read_i64(cursor)?,
+            serial_size: read_i64(cursor)?,
+            flags: read_u32(cursor)?,
+            cooked_index: read_bytes(cursor, 1)?[0],
+        });
+        let _padding = read_bytes(cursor, 3)?;
+    }
+    Ok(entries)
+}
+
+/// 探测模式下校验映射条目是否像真实数据：至少一条有效载荷，且长度/偏移合理。
+fn bulk_entries_plausible(entries: &[BulkDataEntry]) -> bool {
+    let mut valid = 0usize;
+    for entry in entries {
+        if entry.serial_size == 0 {
+            continue;
+        }
+        if entry.serial_size < 0
+            || entry.serial_size > MAX_BULK_ENTRY_BYTES
+            || entry.serial_offset < 0
+            || entry.cooked_index > 8
+        {
+            return false;
+        }
+        valid += 1;
+    }
+    valid > 0
+}
+
 /// 读取 `[start, end)` 区间的 u64 表（用于 ImportMap/公共导出哈希）。
 fn read_u64_table(data: &[u8], start: i32, end: i32) -> Result<Vec<u64>, PackageError> {
     if start < 0 || end < start {
@@ -430,7 +533,10 @@ mod tests {
 
     /// 构造一个最小 Initial 布局包：44 字节摘要、GraphData 表收尾 bundle 表、
     /// 一个导出和 4 字节导出数据。
-    fn initial_layout_package() -> Vec<u8> {
+    ///
+    /// `bulk_map` 为真时在名称表后追加一条指向 `.ubulk` 的 bulk data 映射条目，
+    /// 模拟 UE5.2（对象版本 `DATA_RESOURCES`）的 cooked 布局。
+    fn initial_layout_package_with(bulk_map: bool) -> Vec<u8> {
         const NAMES: [&str; 2] = ["TestPackage", "TestObject"];
         let mut data = vec![0u8; 44];
         data[8..12].copy_from_slice(&0u32.to_le_bytes()); // 包名索引 0
@@ -445,6 +551,16 @@ mod tests {
         data.extend_from_slice(&(NAMES[1].len() as i16).to_be_bytes());
         data.extend_from_slice(NAMES[0].as_bytes());
         data.extend_from_slice(NAMES[1].as_bytes());
+        if bulk_map {
+            // 一条外部 bulk 条目：SerialOffset 64、SerialSize 16、载荷在 .ubulk。
+            data.extend_from_slice(&32i64.to_le_bytes());
+            data.extend_from_slice(&64i64.to_le_bytes());
+            data.extend_from_slice(&0i64.to_le_bytes());
+            data.extend_from_slice(&16i64.to_le_bytes());
+            data.extend_from_slice(&0x1_0501u32.to_le_bytes());
+            data.push(0);
+            data.extend_from_slice(&[0u8; 3]);
+        }
         let import_map_offset = data.len() as i32;
 
         // 一个导出记录：数据偏移稍后按 CookedHeaderSize 回填、长度 4、
@@ -490,16 +606,31 @@ mod tests {
     /// Initial 布局的 bundle 表止于 GraphDataOffset，而不是 bundle 表自身。
     #[test]
     fn parses_initial_layout_with_graph_data_bundle_end() {
-        let data = initial_layout_package();
+        let data = initial_layout_package_with(false);
         let package = parse_package(data.clone(), None, Some(2)).expect("Initial 布局应解析成功");
         assert_eq!(package.info().header_version, 2);
         assert_eq!(package.info().package_name, "TestPackage");
         assert_eq!(package.info().exports.len(), 1);
         assert_eq!(package.info().exports[0].name, "TestObject");
         assert_eq!(package.export_data(0), Some([0xAA; 4].as_slice()));
+        // 没有 bulk data 映射的包里映射为空。
+        assert!(package.info().bulk_data.is_empty());
 
         let detected = parse_package(data, None, None).expect("自动版本探测应成功");
         assert_eq!(detected.info().header_version, 2);
+    }
+
+    /// UE5.2 的 Initial 布局在名称表后带 bulk data 映射（UE5.4 才有对齐 pad）。
+    #[test]
+    fn parses_initial_layout_bulk_data_map() {
+        let data = initial_layout_package_with(true);
+        let package = parse_package(data, None, Some(2)).expect("带 bulk 映射的包应解析成功");
+        let bulk = &package.info().bulk_data;
+        assert_eq!(bulk.len(), 1);
+        assert_eq!(bulk[0].serial_offset, 64);
+        assert_eq!(bulk[0].serial_size, 16);
+        assert_eq!(bulk[0].flags, 0x1_0501);
+        assert_eq!(bulk[0].cooked_index, 0);
     }
 
     /// 头版本和偏移校验拒绝明显损坏的输入。

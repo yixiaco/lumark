@@ -691,7 +691,8 @@ fn load_ue_asset_from_package(
             return UePreviewResult::Unavailable("包中没有可展示的资产".to_string());
         };
         if export.class_name == "StaticMesh"
-            && let Ok(mesh) = package.read_static_mesh(primary, &mappings)
+            && let Ok(mesh) =
+                package.read_static_mesh_with_bulk(primary, &mappings, ubulk.as_deref())
         {
             // `StaticMaterials[*].MaterialInterface` 的对象引用：Zen 静态网格的
             // 槽名常是占位文本，只有精确引用才能解析到真实材质与贴图。

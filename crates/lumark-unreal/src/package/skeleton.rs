@@ -5,7 +5,9 @@
 //! `FReal` 为 f64；当前模块面向 UE5 Zen 资产。
 
 use super::mesh::{MeshLod, MeshSection};
-use super::{Mappings, PackageError, UnrealPackage, invalid};
+use super::{
+    Mappings, PackageError, UnrealPackage, bulk::BulkReader, bulk::read_byte_bulk, invalid,
+};
 
 /// 一根参考骨骼。
 #[derive(Debug, Clone)]
@@ -363,8 +365,9 @@ fn read_streamed_geometry(
             return Ok(mesh);
         }
         reader.position = start;
-        let data = read_skeletal_bulk(reader, package, ubulk)?
-            .ok_or_else(|| invalid("SkeletalMesh 流式数据位于 .ubulk，但未提供侧载数据"))?;
+        let data = read_skeletal_bulk(reader, package, ubulk)?.ok_or_else(|| {
+            invalid("SkeletalMesh 流式数据位于容器 bulk（.ubulk），但未提供侧载数据")
+        })?;
         return parse_streamed_lod(&data);
     }
     if let Ok(Some(data)) = read_skeletal_bulk(reader, package, ubulk)
@@ -583,52 +586,19 @@ fn read_bulk_array_u32(reader: &mut BoneReader<'_>) -> Result<Vec<u32>, PackageE
         .collect())
 }
 
-/// 读取 SkeletalMesh 的 FByteBulkData 并返回流式数据字节。
+/// 读取 SkeletalMesh 的 `FByteBulkData` 并返回流式数据字节。
 fn read_skeletal_bulk(
     reader: &mut BoneReader<'_>,
     package: &UnrealPackage,
     ubulk: Option<&[u8]>,
 ) -> Result<Option<Vec<u8>>, PackageError> {
-    let bulk_data = package.info().bulk_data.as_slice();
-    if !bulk_data.is_empty() {
-        let index = reader.i32()?;
-        let entry = bulk_data
-            .get(index as usize)
-            .ok_or_else(|| invalid(format!("SkeletalMesh bulk data 索引越界：{index}")))?;
-        let size = entry.serial_size.max(0) as usize;
-        let force_inline = entry.flags & (1 << 6) != 0;
-        if force_inline {
-            return Ok(Some(reader.bytes(size)?.to_vec()));
-        }
-        if let Some(ubulk) = ubulk {
-            let start = entry.serial_offset.max(0) as usize;
-            let end = start
-                .checked_add(size)
-                .ok_or_else(|| invalid("SkeletalMesh bulk data 长度溢出"))?;
-            let bytes = ubulk
-                .get(start..end)
-                .ok_or_else(|| invalid("SkeletalMesh bulk data 超出 .ubulk 范围"))?;
-            return Ok(Some(bytes.to_vec()));
-        }
-        return Ok(None);
-    }
-    // 没有 bulk map 时按传统 FByteBulkData 头跳过。
-    let flags = reader.u32()?;
-    let element_count = reader.i32()?;
-    let size = reader.u32()? as usize;
-    let _ = reader.i64()?;
-    if flags & (1 << 6) != 0 {
-        return Ok(Some(
-            reader
-                .bytes(if size > 0 {
-                    size
-                } else {
-                    element_count as usize
-                })?
-                .to_vec(),
-        ));
-    }
-    Ok(None)
+    Ok(read_byte_bulk(
+        reader,
+        &package.info().bulk_data,
+        ubulk,
+        "SkeletalMesh 流式",
+    )?
+    .data)
 }
 
 /// 从 SkeletalMesh 中读取参考骨架（不含 LOD/材质数量）。
@@ -774,6 +744,38 @@ impl<'a> BoneReader<'a> {
         } else {
             Ok(format!("{base}_{}", number - 1))
         }
+    }
+}
+
+impl BulkReader for BoneReader<'_> {
+    /// 返回当前读取位置。
+    fn position(&self) -> usize {
+        self.position
+    }
+
+    /// 复位读取位置。
+    fn set_position(&mut self, position: usize) {
+        self.position = position;
+    }
+
+    /// 读取指定长度。
+    fn take(&mut self, length: usize) -> Result<&[u8], PackageError> {
+        self.bytes(length)
+    }
+
+    /// 读取 u32。
+    fn read_u32(&mut self) -> Result<u32, PackageError> {
+        self.u32()
+    }
+
+    /// 读取 i32。
+    fn read_i32(&mut self) -> Result<i32, PackageError> {
+        self.i32()
+    }
+
+    /// 读取 i64。
+    fn read_i64(&mut self) -> Result<i64, PackageError> {
+        self.i64()
     }
 }
 

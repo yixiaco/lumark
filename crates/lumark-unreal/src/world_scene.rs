@@ -91,7 +91,7 @@ pub fn load_world_scene(
     scene.source = world_path.to_string();
     scene.up_axis = lumark_scene::Axis::Z;
     scene.unit_scale = UE_UNIT_SCALE;
-    let mut package_cache: HashMap<u64, UnrealPackage> = HashMap::new();
+    let mut package_cache: HashMap<u64, (UnrealPackage, Option<Vec<u8>>)> = HashMap::new();
     let mut mesh_count = 0usize;
     for actor in summary.actors.iter().take(options.max_actors) {
         if !is_static_mesh_actor(&actor.class_name) {
@@ -202,7 +202,7 @@ fn actor_instance(
     actor_index: usize,
     imported_ids: &[u64],
     mappings: &Mappings,
-    package_cache: &mut HashMap<u64, UnrealPackage>,
+    package_cache: &mut HashMap<u64, (UnrealPackage, Option<Vec<u8>>)>,
 ) -> Result<Option<WorldMeshInstance>, PackageError> {
     let actor_class = world
         .info()
@@ -223,12 +223,12 @@ fn actor_instance(
     let (target_package, target_hash) =
         resolve_package_import(world.info(), imported_ids, mesh_import)?;
     if let std::collections::hash_map::Entry::Vacant(entry) = package_cache.entry(target_package) {
-        let (uasset, _ubulk) = source.read_package_by_id(target_package).map_err(|error| {
+        let (uasset, ubulk) = source.read_package_by_id(target_package).map_err(|error| {
             PackageError::Unsupported(format!("读取包 0x{target_package:016X} 失败：{error}"))
         })?;
-        entry.insert(parse_package(uasset, source.scripts(), None)?);
+        entry.insert((parse_package(uasset, source.scripts(), None)?, ubulk));
     }
-    let target = package_cache
+    let (target, target_bulk) = package_cache
         .get(&target_package)
         .ok_or_else(|| PackageError::Unsupported("导入包缓存缺失".to_string()))?;
     let export_index = find_export_by_public_hash(target.info().exports.as_slice(), target_hash)
@@ -244,7 +244,8 @@ fn actor_instance(
             export.name, export.class_name
         )));
     }
-    let static_mesh = target.read_static_mesh(export_index, mappings)?;
+    let static_mesh =
+        target.read_static_mesh_with_bulk(export_index, mappings, target_bulk.as_deref())?;
     Ok(Some(WorldMeshInstance {
         name: static_mesh.name,
         mesh: static_mesh.lod,

@@ -41,7 +41,7 @@ pub fn build_mesh_export(
         export.kind == AssetKind::StaticMesh && export.class_name == "StaticMesh"
     }) {
         let static_mesh = package
-            .read_static_mesh(index, mappings)
+            .read_static_mesh_with_bulk(index, mappings, inputs.ubulk.as_deref())
             .map_err(|error| format!("读取 StaticMesh 失败：{error}"))?;
         let mut mesh = mesh_from_lod(
             &static_mesh.name,

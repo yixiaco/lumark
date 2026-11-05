@@ -223,7 +223,7 @@ pub fn load_scene(
         export.kind == AssetKind::StaticMesh && export.class_name == "StaticMesh"
     }) {
         let mut mesh = package
-            .read_static_mesh(index, mappings)
+            .read_static_mesh_with_bulk(index, mappings, inputs.ubulk.as_deref())
             .map_err(|error| format!("读取 StaticMesh 失败：{error}"))?;
         let lod_count = mesh.lods.len().max(1);
         let lod_used = select_lod(lod_count, request.lod);
