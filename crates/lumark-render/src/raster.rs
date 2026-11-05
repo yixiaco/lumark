@@ -748,7 +748,11 @@ fn shade(
                     surface.world[1] / 100.0,
                     surface.world[2] / 100.0,
                 ];
-                let eye = [camera.eye[0] / 100.0, camera.eye[1] / 100.0, camera.eye[2] / 100.0];
+                let eye = [
+                    camera.eye[0] / 100.0,
+                    camera.eye[1] / 100.0,
+                    camera.eye[2] / 100.0,
+                ];
                 let ray = sub(world, eye);
                 let range = dot(ray, ray).sqrt();
                 if range > 1e-4 {
@@ -769,14 +773,15 @@ fn shade(
                         };
                         let amount = (1.0
                             - (-settings.snooper.fog.density * fog_range * column).exp())
-                            .clamp(0.0, settings.snooper.fog.max_opacity);
+                        .clamp(0.0, settings.snooper.fog.max_opacity);
                         for (channel, value) in color.iter_mut().enumerate() {
-                            *value = *value
-                                + (settings.snooper.fog.color[channel] - *value) * amount;
+                            *value =
+                                *value + (settings.snooper.fog.color[channel] - *value) * amount;
                         }
                     }
                 }
-            }            color
+            }
+            color
         }
         // FModel 头灯：AO 只乘基础色，自发光在头灯前叠加。
         LightingMode::Headlight => {
