@@ -27,6 +27,8 @@ const SNOOPER_GBUFFER_SHADER: &str = include_str!("snooper_gbuffer.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// G-buffer 颜色格式。
+const GBUFFER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// 深度格式。
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4 + joints4 + weights4。
@@ -88,6 +90,7 @@ pub struct GpuRenderer {
     ssao_pipeline: wgpu::RenderPipeline,
     ssao_blur_layout: wgpu::BindGroupLayout,
     ssao_blur_pipeline: wgpu::RenderPipeline,
+    gbuffer_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -178,6 +181,17 @@ struct RenderTargets {
     _depth_texture: wgpu::Texture,
     /// 深度视图。
     depth_view: wgpu::TextureView,
+    /// G-buffer：位置/法线/基础色/高光。
+    _gbuffer_position: wgpu::Texture,
+    gbuffer_position_view: wgpu::TextureView,
+    _gbuffer_normal: wgpu::Texture,
+    gbuffer_normal_view: wgpu::TextureView,
+    _gbuffer_albedo: wgpu::Texture,
+    gbuffer_albedo_view: wgpu::TextureView,
+    _gbuffer_specular: wgpu::Texture,
+    gbuffer_specular_view: wgpu::TextureView,
+    _gbuffer_depth: wgpu::Texture,
+    gbuffer_depth_view: wgpu::TextureView,
     /// SSAO 原始 AO（R=ao,G=depth,B/A=normal.xy）。
     _ssao_ao: wgpu::Texture,
     ssao_ao_view: wgpu::TextureView,
@@ -242,6 +256,36 @@ impl RenderTargets {
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        let create_gbuffer = |label: &str| {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: GBUFFER_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            (texture, view)
+        };
+        let (gbuffer_position, gbuffer_position_view) = create_gbuffer("lumark-gbuffer-position");
+        let (gbuffer_normal, gbuffer_normal_view) = create_gbuffer("lumark-gbuffer-normal");
+        let (gbuffer_albedo, gbuffer_albedo_view) = create_gbuffer("lumark-gbuffer-albedo");
+        let (gbuffer_specular, gbuffer_specular_view) = create_gbuffer("lumark-gbuffer-specular");
+        let gbuffer_depth = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lumark-gbuffer-depth"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let gbuffer_depth_view = gbuffer_depth.create_view(&wgpu::TextureViewDescriptor::default());
         let ssao_ao = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("lumark-ssao-ao"),
             size: half_size,
@@ -351,6 +395,16 @@ impl RenderTargets {
             msaa_view,
             _depth_texture: depth,
             depth_view,
+            _gbuffer_position: gbuffer_position,
+            gbuffer_position_view,
+            _gbuffer_normal: gbuffer_normal,
+            gbuffer_normal_view,
+            _gbuffer_albedo: gbuffer_albedo,
+            gbuffer_albedo_view,
+            _gbuffer_specular: gbuffer_specular,
+            gbuffer_specular_view,
+            _gbuffer_depth: gbuffer_depth,
+            gbuffer_depth_view,
             _ssao_ao: ssao_ao,
             ssao_ao_view,
             _ssao_blur: ssao_blur,
@@ -434,6 +488,7 @@ impl GpuRenderer {
                 ssao_pipeline: resources.ssao_pipeline,
                 ssao_blur_layout: resources.ssao_blur_layout,
                 ssao_blur_pipeline: resources.ssao_blur_pipeline,
+                gbuffer_pipeline: resources.gbuffer_pipeline,
                 ssao_sampler: resources.ssao_sampler,
                 shadow_camera_layout: resources.shadow_camera_layout,
                 shadow_pipeline: resources.shadow_pipeline,
@@ -583,6 +638,67 @@ impl GpuRenderer {
                         &self.shadow_pipeline,
                     );
                 }
+            }
+        }
+        if settings.lighting_mode == LightingMode::Snooper {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lumark-gbuffer-pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_position_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_normal_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_albedo_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_specular_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.gbuffer_depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            pass.set_bind_group(0, &camera_bind_group, &[]);
+            let fallback_material = MaterialData::default();
+            for batch in &batches {
+                let material = batch.material(scene, &fallback_material);
+                if material.translucent {
+                    continue;
+                }
+                self.draw_batch(&mut pass, settings, batch, material, &self.gbuffer_pipeline);
             }
         }
         {
@@ -1199,6 +1315,7 @@ struct Resources {
     ssao_pipeline: wgpu::RenderPipeline,
     ssao_blur_layout: wgpu::BindGroupLayout,
     ssao_blur_pipeline: wgpu::RenderPipeline,
+    gbuffer_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -2002,6 +2119,79 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         multiview_mask: None,
         cache: None,
     });
+    let gbuffer_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-gbuffer-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SNOOPER_GBUFFER_SHADER)),
+    });
+    let gbuffer_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lumark-gbuffer-pipeline-layout"),
+        bind_group_layouts: &[Some(&camera_layout), Some(&material_layout)],
+        immediate_size: 0,
+    });
+    let gbuffer_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lumark-gbuffer-pipeline"),
+        layout: Some(&gbuffer_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &gbuffer_shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: (VERTEX_FLOATS * 4) as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &vertex_attributes,
+                }),
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: 64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &instance_attributes,
+                }),
+            ],
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &gbuffer_shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
     Ok(Resources {
         pipeline_single,
         pipeline_double,
@@ -2022,6 +2212,7 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         ssao_pipeline,
         ssao_blur_layout,
         ssao_blur_pipeline,
+        gbuffer_pipeline,
         ssao_sampler,
         shadow_camera_layout,
         shadow_pipeline,
