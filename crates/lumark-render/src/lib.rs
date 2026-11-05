@@ -566,8 +566,8 @@ impl RenderSettings {
             background: [0.12, 0.24, 0.42],
             yaw_degrees: 35.0,
             pitch_degrees: 25.0,
-            // Snooper 默认 SunActor 方向（UE Z-up，指向太阳）。
-            key_direction: [0.766_044_4, 0.642_787_6, 0.0],
+            // Snooper 默认 SunActor 在地平线，会呈现永久日落；查看器改为日照角度。
+            key_direction: [0.5, 0.35, 0.79],
             key_color: environment.sun_color,
             key_intensity: resolved.sun_intensity,
             sky_upper_color: resolved.sky_upper_color,

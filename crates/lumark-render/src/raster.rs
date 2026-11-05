@@ -76,7 +76,7 @@ pub(crate) fn render(
                     }
                 }
                 // 全屏 grid：与 GPU 延迟路径一致，直接对背景像素做地面求交。
-                if direction[2] < -1e-6 {
+                if settings.show_grid && direction[2] < -1e-6 {
                     let t = -camera.eye[2] / direction[2];
                     if t > 0.0 {
                         let hit = [
