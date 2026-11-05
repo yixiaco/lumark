@@ -74,3 +74,9 @@
 - 查看器默认 1.5×（1350×900），工具栏可切 1.0×/1.5×/2.0×；效果开关、预览缓存版本、缩略图背景一致。
 - P0 质量切换/全隐藏 section/预览缓存回归测试保留。
 - `lumark-render --lib` 59 passed；viewer 定向 26 passed；preview 11 passed；BNB NanaF6_2 实机通过。
+## 2026-11-05 严格对齐 Snooper 验收
+
+- 按 Snooper 源码移植：`atmosphere.glsl` 大气 LUT、`fog.glsl` 高度雾、`fxaa.frag` FXAA、`ssao.frag` 半分辨率 SSAO + 双边模糊、`SunCascades.cs` 4 级联阴影与 `scene_lighting.glsl` 阴影采样。
+- CPU 回退：大气 LUT、SSAO、屏幕空间阴影、高度雾、FXAA。
+- 缩略图：天空/地面/接触阴影/雾/FXAA 与查看器一致；查看器默认 1.5× 分辨率。
+- 验证：`lumark-render --lib` 62 passed；viewer 26 passed；preview 11 passed；BNB NanaF6_2 实机截图。

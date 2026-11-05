@@ -8,10 +8,10 @@
 - [x] S-3 级联阴影（按 Snooper SunCascades 的 4 级联球拟合 + 3×3 PCF）
 - [x] S-4 SSAO（半分辨率 AO + H 模糊 + V 上采样合成）
 - [x] S-5 天空盒与雾（Snooper atmosphere.glsl LUT + 太阳盘 + fog.glsl 高度柱积分）
-- [x] S-6 无限地面/网格（5000 单位地面 + 模型包围盒网格）
+- [x] S-6 无限地面/网格（50000 单位地面 + 模型包围盒网格）
 - [x] S-7 半透明/FXAA/性能（GPU 最终 FXAA pass）
-- [x] S-8 预览/UI/CPU（大气 LUT、SSAO、FXAA、雾 CPU 回退；级联阴影仍为 GPU 专有）
-- [x] S-9 验收（59 render + 26 viewer + 11 preview 测试；BNB 实机截图）
+- [x] S-8 预览/UI/CPU（大气 LUT、SSAO、FXAA、雾与屏幕空间阴影 CPU 回退）
+- [x] S-9 验收（62 render + 26 viewer + 11 preview 测试；BNB 实机截图）
 
 ## 默认环境
 
