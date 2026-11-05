@@ -203,6 +203,12 @@ pub struct PackageInfo {
     pub file_version_ue5: i32,
     /// 探测到的 Zen 容器头版本。
     pub header_version: u8,
+    /// Zen 包头实际长度（导出数据紧跟在它之后）。
+    pub header_size: u32,
+    /// cooked 包头长度（`CookedSerialOffset` 的基准）。
+    pub cooked_header_size: u32,
+    /// 包 flags（`EPackageFlags`，含 `PKG_UnversionedProperties` 等）。
+    pub package_flags: u32,
     /// 名称表。
     pub names: Vec<String>,
     /// Zen ImportMap（`FPackageObjectIndex` 原始 u64，按导入索引排列）。

@@ -30,9 +30,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let package = parse_package(data, Some(&scripts), None)?;
     let info = package.info();
     println!(
-        "package: {} header_version={} ue4={} ue5={} exports={} bulk={}",
+        "package: {} header_version={} header_size={} cooked_header_size={} flags=0x{:08X} ue4={} ue5={} exports={} bulk={}",
         info.package_name,
         info.header_version,
+        info.header_size,
+        info.cooked_header_size,
+        info.package_flags,
         info.file_version_ue4,
         info.file_version_ue5,
         info.exports.len(),

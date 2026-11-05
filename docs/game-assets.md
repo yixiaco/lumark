@@ -24,10 +24,12 @@
   带映射，UE5.4 起映射前才多出 8 字节对齐 pad；无版本信息的 cooked 包按结构探测（长度是
   32 的倍数、整体位于下一张表之前、条目字段合理），探测失败回退为“无映射”。已用 BNB
   （UE5.6）与 NTR_IDOL（UE5.2）真实包验证类名、导出范围和 bulk 条目。UE5.0–5.2 Initial
-  布局使用 `GraphDataOffset` 作为导出 bundle 表终点，`CookedSerialOffset` 以
-  `CookedHeaderSize` 为基准回退到实际数据起点；名称表支持 `i16::MIN + 码元数` 形式的
-  UTF-16 名称。NTR_IDOL 的 `SM_CraneRig_Arm`、`M_Fire`、`begin_actor` 和中文路径纹理
-  `03_H系統/1y1` 已实测解析成功。
+  布局在 `GraphDataOffset` 处存放 `FExportBundleHeader`、在 `ExportBundleEntriesOffset` 处存放
+  `FExportBundleEntry`，**导出数据按 bundle 的 `Serialize` 顺序从 `HeaderSize` 起紧凑排列**，
+  `CookedSerialOffset` 只是 cook 时的虚拟偏移；能解析出 bundle 头时按顺序累加（与 CUE4Parse
+  `IoPackage.PopulateExports` 一致），否则回退到以 `CookedHeaderSize` 为基准的换算。名称表
+  支持 `i16::MIN + 码元数` 形式的 UTF-16 名称。NTR_IDOL 的 `SM_CraneRig_Arm`、`M_Fire`、
+  `begin_actor`、中文路径纹理 `03_H系統/1y1` 与 `NPC_Event_002_CG01` 已实测解析成功。
 - **无版本属性**：新增 `.usmap` v1–v4 读取（未压缩/ZStandard/Brotli，Oodle 压缩映射返回
   可读错误）与 unversioned header/属性读取；游戏设置选择映射时会先解析并显示结构与枚举
   数量，解析失败不会保存路径。Zen 资产的详情面板会把可序列化属性追加为字段行（最多 40 项，小型
@@ -140,22 +142,23 @@ BNB 的映射文件已由用户提供，位于游戏根目录下的构建目录
 ## 实机验证
 
 - **NTR_IDOL（UE5.2.1，IoStore，未加密）**：`pakchunk0-Windows.utoc` 列出 15813 个条目、
-  `pakchunk0-Windows.pak` 1533 条、`.usmap` 解析出 7379 structs/1493 enums。修复 Zen
-  bulk data 映射门控后，包的 `bulk_data` 从恒为 0 变为真实条目（例如
-  `T_Worker_Hair_SSC` 有 12 条、标志 `0x10501`＝`PayloadInSeperateFile|PayloadAtEndOfFile`
-  等），纹理链路实机通过：外部 bulk 的 `T_Worker_Hair_SSC` 解出 2048×2048 PF_DXT1 共 12
-  级 mip（mip0 2 MiB），内联 bulk 的中文路径纹理 `03_H系統/1y1` 解出 1200×801 PF_B8G8R8A8
-  （3.8 MiB），两者均能写出可辨认的 PNG（`artifacts/ntr-idol-texture-hair.png`、
-  `artifacts/ntr-idol-texture-1y1.png`）。验收用例见
+  `pakchunk0-Windows.pak` 1533 条、`.usmap` 解析出 7379 structs/1493 enums。两处修复实机通过：
+  1. Zen bulk data 映射门控按对象版本后，包的 `bulk_data` 从恒为 0 变为真实条目（例如
+     `T_Worker_Hair_SSC` 有 12 条、标志 `0x10501`＝`PayloadInSeperateFile|PayloadAtEndOfFile`）；
+     外部 bulk 纹理解出 2048×2048 PF_DXT1 共 12 级 mip（mip0 2 MiB），内联 bulk 的中文路径
+     纹理 `03_H系統/1y1` 解出 1200×801 PF_B8G8R8A8（3.8 MiB）。
+  2. 导出数据改按 bundle 的 `Serialize` 顺序定位后，StaticMesh 属性（`StaticMaterials`
+     `M_Frame`、`LightmapUVDensity`、`ExtendedBounds`）与几何均正常：`SM_PillarFrame` 读出
+     668 顶点/620 三角形，用户反馈的 `NPC_Event_002_CG01` 读出 57744 顶点/79724 三角形/2
+     section；`AnimSequence`（`PlatformTargetFrameRate` 60/1、`SequenceLength` 2.98s）、
+     `AnimBoneCompressionSettings` 等此前报“属性槽位不在映射中”的类随之恢复。
+  产物：`artifacts/ntr-idol-texture-hair.png`、`artifacts/ntr-idol-texture-1y1.png`、
+  `artifacts/ntr-idol-mesh-pillar.png`、`artifacts/ntr-idol-mesh-npc.png`。验收用例见
   `crates/lumark-unreal/tests/ntr_iostore.rs`（设置 `LUMARK_NTR_GAME_ROOT` /
   `LUMARK_NTR_MAPPINGS` 时运行，未设置自动跳过）。
-- **NTR_IDOL 已知限制（映射与包不一致）**：该游戏自带的
-  `Mappings/5.2.1-26001984+++UE5+Release-5.2-NTR_IDOL.usmap` 与 cooked 包的属性槽位对不上，
-  `StaticMesh`（映射 26+10 槽、包头出现 49 个值、slot 67/108）、`SkeletalMeshSocket`（slot 6）、
-  `AnimBoneCompressionSettings`（slot 4）、`AnimSequence`（`PlatformTargetFrameRate` 之后槽位
-  173）等类报“属性槽位不在映射中”或布尔/长度解析错位，导致这些资产的属性与几何预览仍不可用；
-  纹理、材质实例、蓝图等类正常。这是独立于 bulk 数据的映射/属性布局问题，需要与游戏同版本的
-  映射或单独的属性读取修复。
+- **NTR_IDOL 已知限制（物理结构）**：`BodySetup.AggGeom` 的 `FKConvexElem`/`KAggregateGeom`
+  内嵌布局尚未支持，含凸包碰撞体的包在读取 `BodySetup` 属性时会报错（StaticMesh/SkeletalMesh
+  的预览不依赖该导出，纹理、材质、模型、动画预览均正常）。
 - **BNB**：扫描到 `TogetherBNB` 项目、IoStore 容器和 AES 密钥；容器可列包，映射自动发现后已完成纹理/StaticMesh/SkeletalMesh/Skeleton/AnimSequence 的字段级验收（结果见上一节）；在游戏目录不含任何 Oodle DLL 的情况下，纯 Rust Oodle 后端再次验证 `SK_Chicken` 与 `T_ChickenA_BaseColor` 可正常解压、解析并渲染。
 - **FINAL FANTASY VII REMAKE**：项目目录 `End`；主程序为 `Binaries/Win64/ff7remake_.exe`（无 `-Win64-Shipping.exe` 命名，已支持最大 exe 回退）；从其提取的 AES 密钥通过 `pakchunk0-WindowsNoEditor.pak` 验证；Oodle 候选位于 `Engine/Binaries/ThirdParty/Oodle/Win64`；该 PAK 可列出 18896 个条目，并已修正旧版 PAK 压缩槽位映射，可提取 `.uasset/.uexp/.ubulk`。其包为 **旧式 unversioned 包**（包 flags `0x80002000` 含 `PKG_UnversionedProperties`，`.uexp` 开头是无版本 header），字段名解析需要专用 `.usmap`。游戏实际为 **UE4.18**（可执行文件内 `++UE4+Release-4.18`）；FModel 手动 UE 版本应设为 4.18，而不是当前配置里的 4.28，否则 FModel 自身也会按错误的版本化布局解析。游戏目录下现已提供 **FF7 Remake 专用映射**（`Mappings.usmap`，9736 structs/1939 enums，含 `End*` 游戏类），映射本身可正常加载。旧式属性读取已能解析 `BlueprintGeneratedClass`、`EndTextResource`、`SimpleConstructionScript` 等资产；关键修正是 FF7R/UE4.18 的旧式 bool 值可能是**任意非零字节**（例如 `0x81` 表示 true），不能只接受 0/1。修正后 `Texture2D` 可读出 `AddressX`、`VirtualTextureStreaming`、`bApplyResidentLODBias`、`CachedCombinedLODBias`、`NeverStream`，`SkeletalMesh` 可读出 `Skeleton`、`MinLOD`、`bUseHighPrecisionTangentBasis`，详情面板会展示这些字段。**纹理基础 mip 无映射启发式预览**保留：通过 `SizeX/SizeY/PackedData/PF_*` 定位原生平台数据并读取 `.ubulk` 基础 mip（512×512 PF_BC5 已验证）。FF7R 旧式 SkeletalMesh 的 LOD0 几何/蒙皮与 AnimSequence 压缩数据均已解析；LOD1+ 与部分材质 native 布局仍按结构特征尽力探测。
 

@@ -119,3 +119,52 @@ fn textures_resolve_inline_and_external_bulk() {
     assert_eq!(texture.width, 1200);
     assert_eq!(texture.mips[0].data.len(), 3_844_800);
 }
+
+/// UE5.2 包的导出数据按 bundle 顺序排列，StaticMesh 属性与外部 bulk 几何都要能读出。
+#[test]
+fn static_mesh_uses_bundle_order_and_external_bulk() {
+    let Some((game, mapping_path, mappings)) = local_game() else {
+        return;
+    };
+    let Some((container_path, global)) = main_container(&game) else {
+        return;
+    };
+    let key = extract_key_for_game(&game, None, |_, _, _| {}).key;
+    let mut source = lumark_unreal::GameAssetSource::open(
+        &container_path,
+        lumark_unreal::GameAssetOptions {
+            key: key.as_ref().map(|key| key.as_str()),
+            global: Some(global),
+            mappings: Some(mapping_path),
+            ..Default::default()
+        },
+    )
+    .expect("打开资产来源");
+
+    let mesh_path = "NTR_IDOL/Content/StarterContent/Props/SM_PillarFrame.uasset";
+    let inputs = source.read_package(mesh_path).expect("读取网格包");
+    let package = parse_package(inputs.uasset, source.scripts(), None).expect("解析网格包");
+    let export_index = package
+        .info()
+        .exports
+        .iter()
+        .position(|export| export.class_name == "StaticMesh")
+        .expect("包内应有 StaticMesh 导出");
+    // 属性流（含 `StaticMaterials`）与几何都依赖正确的导出数据偏移。
+    let properties = package
+        .read_export_properties(export_index, &mappings)
+        .expect("读取 StaticMesh 属性");
+    assert!(
+        properties
+            .properties
+            .iter()
+            .any(|(name, _)| name == "StaticMaterials"),
+        "应读出 StaticMaterials"
+    );
+    let mesh = package
+        .read_static_mesh_with_bulk(export_index, &mappings, inputs.ubulk.as_deref())
+        .expect("解析 StaticMesh 几何");
+    assert!(!mesh.lod.positions.is_empty());
+    assert!(mesh.lod.triangle_count() > 0);
+    assert!(!mesh.lod.sections.is_empty());
+}

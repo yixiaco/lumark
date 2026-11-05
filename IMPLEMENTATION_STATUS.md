@@ -18,15 +18,25 @@
   `FByteBulkData`，再用内存块复用内联缓冲解析；LOD 头部按 UE5.6 / UE5.2–5.4 / UE5.5 三种布局
   依次尝试。UI 预览、场景加载、导出与 World 引用网格均传入 `.ubulk` 侧载数据。
 - [x] 诊断示例 `inspect_mesh_bulk`（自动选择 StaticMesh 导出）。
-- [x] 测试：`parses_initial_layout_bulk_data_map`、`bulk::tests::*`（内联/外部/传统头回退/
-  `Unused`/越界），实机用例 `tests/ntr_iostore.rs`（`LUMARK_NTR_GAME_ROOT` +
-  `LUMARK_NTR_MAPPINGS` 门控）。
+- [x] **UE5.0–5.2 导出数据顺序修正**：Zen 头 `GraphDataOffset` 处是 `FExportBundleHeader`
+  （16 字节）、`ExportBundleEntriesOffset` 处是 `FExportBundleEntry`（8 字节），导出数据按
+  bundle 的 `Serialize` 顺序从 `HeaderSize` 起紧凑排列，`CookedSerialOffset` 只是 cook 时的
+  虚拟偏移。新增 `bundle_data_offsets`：自洽时按 bundle 顺序定位，失败回退旧换算；与
+  CUE4Parse `IoPackage.PopulateExports`（5.0–5.2 分支）一致。修复前多导出包（BodySetup/
+  NavCollision/StaticMesh）按索引顺序取值，StaticMesh 落在几何中间，属性与几何全部读错。
+- [x] `PerPlatformFrameRate`（`bCooked` + `FFrameRate`）属性读取，修复 `AnimSequence` 的
+  `PlatformTargetFrameRate` 解析。
+- [x] `PackageInfo` 增加 `header_size` / `cooked_header_size` / `package_flags` 供诊断。
+- [x] 测试：`parses_initial_layout_bulk_data_map`、`lays_out_export_data_in_bundle_order`、
+  `bulk::tests::*`（内联/外部/传统头回退/`Unused`/越界），实机用例 `tests/ntr_iostore.rs`
+  （`LUMARK_NTR_GAME_ROOT` + `LUMARK_NTR_MAPPINGS` 门控，含纹理与 StaticMesh 两条链路）。
 - [x] NTR_IDOL 实机：`T_Worker_Hair_SSC` 2048×2048 PF_DXT1 12 mip（mip0 2 MiB，外部 bulk）、
-  `1y1` 1200×801 PF_B8G8R8A8（内联 bulk）均解出并写出 PNG：
-  `artifacts/ntr-idol-texture-hair.png`、`artifacts/ntr-idol-texture-1y1.png`。
-- [ ] 已知限制：该游戏自带 `.usmap` 与 cooked 包属性槽位不一致（`StaticMesh`、`SkeletalMeshSocket`、
-  `AnimSequence`、`AnimBoneCompressionSettings` 等报“属性槽位不在映射中”），这些资产的属性与
-  几何预览仍失败；待单独修复。
+  `1y1` 1200×801 PF_B8G8R8A8（内联 bulk）、`SM_PillarFrame` 668 顶点/620 三角形、
+  `NPC_Event_002_CG01` 57744 顶点/79724 三角形/2 section 均解出并写出 PNG：
+  `artifacts/ntr-idol-texture-hair.png`、`artifacts/ntr-idol-texture-1y1.png`、
+  `artifacts/ntr-idol-mesh-pillar.png`、`artifacts/ntr-idol-mesh-npc.png`。
+- [ ] 已知限制：`BodySetup.AggGeom` 的 `FKConvexElem`/`KAggregateGeom` 内嵌布局未支持，
+  含凸包碰撞体的包读取 `BodySetup` 属性会报错（不影响模型/纹理/材质预览）。
 
 ## 2026-11-04 查看器交互、FModel 材质与 JSON 属性
 

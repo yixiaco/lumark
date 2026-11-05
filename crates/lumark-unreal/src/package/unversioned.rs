@@ -513,6 +513,22 @@ impl<'a> PropertyReader<'a> {
                 }
                 Ok(PropValue::Bool(default))
             }
+            // `FFrameRate`：Numerator/Denominator 两个 int32；非 cooked 时带覆盖表。
+            "PerPlatformFrameRate" => {
+                let cooked = self.bool32()?;
+                let numerator = self.i32()?;
+                let denominator = self.i32()?;
+                if !cooked {
+                    self.skip_platform_map(8)?;
+                }
+                Ok(PropValue::Struct(vec![
+                    ("Numerator".to_string(), PropValue::Int(numerator as i64)),
+                    (
+                        "Denominator".to_string(),
+                        PropValue::Int(denominator as i64),
+                    ),
+                ]))
+            }
             "Vector" => {
                 let read = |reader: &mut Self| {
                     if reader.wide_scalars {

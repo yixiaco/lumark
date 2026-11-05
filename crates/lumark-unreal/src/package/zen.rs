@@ -34,6 +34,7 @@ struct Summary {
     has_versioning_info: u32,
     header_size: u32,
     name: MappedName,
+    package_flags: u32,
     cooked_header_size: u32,
     imported_public_export_hashes_offset: i32,
     import_map_offset: i32,
@@ -193,9 +194,21 @@ fn parse_with_version(
     }
 
     let package_name = names.get(summary.name)?;
-    // UE 的 `CookedSerialOffset` 以 `CookedHeaderSize` 为基准，而实际导出数据
-    // 紧跟在 `HeaderSize` 之后。Initial 布局两者不相等，必须按差值回退；
-    // 新布局（依赖 bundle）保持原来的 `HeaderSize + offset` 计算。
+    // UE5.0–5.2（Initial 布局）的 cooked 包按**导出 bundle 顺序**紧凑存放导出数据，
+    // `CookedSerialOffset` 只是 cook 时的虚拟偏移；无法解析 bundle 头时才回退到
+    // 以 `CookedHeaderSize` 为基准的换算。新布局（依赖 bundle）直接使用
+    // `HeaderSize + offset`。
+    let bundle_offsets = if header_version < 3 {
+        let export_sizes = raw_exports
+            .iter()
+            .map(|(_, size, ..)| usize::try_from(*size).ok())
+            .collect::<Option<Vec<_>>>();
+        export_sizes.and_then(|sizes| {
+            bundle_data_offsets(data, &summary, exports_count, bundle_entries_count, &sizes)
+        })
+    } else {
+        None
+    };
     let export_data_base = if header_version < 3 {
         i64::from(summary.header_size) - i64::from(summary.cooked_header_size)
     } else {
@@ -206,11 +219,16 @@ fn parse_with_version(
     for (index, (offset, size, object_name, outer_index, class_index, public_export_hash)) in
         raw_exports.iter().enumerate()
     {
-        let start_i64 = export_data_base + *offset as i64;
-        if start_i64 < 0 {
-            return Err(invalid("Zen 导出数据偏移为负"));
-        }
-        let start = start_i64 as usize;
+        let start = match &bundle_offsets {
+            Some(offsets) => offsets[index],
+            None => {
+                let start_i64 = export_data_base + *offset as i64;
+                if start_i64 < 0 {
+                    return Err(invalid("Zen 导出数据偏移为负"));
+                }
+                start_i64 as usize
+            }
+        };
         let end = start
             .checked_add(*size as usize)
             .ok_or_else(|| invalid("Zen 导出数据范围溢出"))?;
@@ -255,6 +273,9 @@ fn parse_with_version(
             file_version_ue4: versioning.file_version_ue4,
             file_version_ue5: versioning.file_version_ue5,
             header_version,
+            header_size: summary.header_size,
+            cooked_header_size: summary.cooked_header_size,
+            package_flags: summary.package_flags,
             names: names.names().to_vec(),
             import_map,
             imported_public_export_hashes,
@@ -270,7 +291,7 @@ fn read_summary(cursor: &mut Cursor<&[u8]>, header_version: u8) -> Result<Summar
     let has_versioning_info = read_u32(cursor)?;
     let header_size = read_u32(cursor)?;
     let name = NameMap::read_name(cursor)?;
-    let _ = read_u32(cursor)?; // package_flags
+    let package_flags = read_u32(cursor)?;
     let cooked_header_size = read_u32(cursor)?;
     let imported_public_export_hashes_offset = read_i32(cursor)?;
     let import_map_offset = read_i32(cursor)?;
@@ -291,6 +312,7 @@ fn read_summary(cursor: &mut Cursor<&[u8]>, header_version: u8) -> Result<Summar
         has_versioning_info,
         header_size,
         name,
+        package_flags,
         cooked_header_size,
         imported_public_export_hashes_offset,
         import_map_offset,
@@ -449,6 +471,88 @@ fn bulk_entries_plausible(entries: &[BulkDataEntry]) -> bool {
         valid += 1;
     }
     valid > 0
+}
+
+/// 按导出 bundle 顺序计算每个导出数据在包内的实际偏移。
+///
+/// UE5.0–5.2 的 Zen 头在 `GraphDataOffset` 处存放 `FExportBundleHeader`
+/// （`u64 SerialOffset` + `u32 FirstEntryIndex` + `u32 EntryCount`），在
+/// `ExportBundleEntriesOffset` 处存放 `FExportBundleEntry`（8 字节：本地导出
+/// 索引 + 命令类型）。导出数据按 bundle 顺序从 `HeaderSize` 起紧凑排列，
+/// `Serialize` 命令决定顺序，长度取导出表的 `CookedSerialSize`。
+///
+/// 结构不自洽时返回 `None`，调用方回退到 `CookedSerialOffset` 换算。
+fn bundle_data_offsets(
+    data: &[u8],
+    summary: &Summary,
+    exports_count: usize,
+    entries_count: usize,
+    export_sizes: &[usize],
+) -> Option<Vec<usize>> {
+    if summary.graph_data_offset < 0 || summary.export_bundle_entries_offset < 0 {
+        return None;
+    }
+    let header_size = summary.header_size as usize;
+    let graph = summary.graph_data_offset as usize;
+    let entries_start = summary.export_bundle_entries_offset as usize;
+    if graph < entries_start || graph + 16 > header_size {
+        return None;
+    }
+    let read_u32_at = |position: usize| -> Option<u32> {
+        let bytes: [u8; 4] = data.get(position..position + 4)?.try_into().ok()?;
+        Some(u32::from_le_bytes(bytes))
+    };
+    // bundle 头依次覆盖全部 bundle 条目，`FirstEntryIndex` 必须连续。
+    let mut headers = Vec::new();
+    let mut total = 0usize;
+    let mut position = graph;
+    loop {
+        if position + 16 > header_size || headers.len() > 256 {
+            return None;
+        }
+        let first_entry = read_u32_at(position + 8)? as usize;
+        let entry_count = read_u32_at(position + 12)? as usize;
+        if first_entry != total || entry_count == 0 || total + entry_count > entries_count {
+            return None;
+        }
+        headers.push((first_entry, entry_count));
+        total += entry_count;
+        position += 16;
+        if total == entries_count {
+            break;
+        }
+    }
+    if entries_start + entries_count * 8 > data.len() {
+        return None;
+    }
+    let mut offsets = vec![usize::MAX; exports_count];
+    let mut current = header_size;
+    for (first_entry, entry_count) in headers {
+        for entry_index in first_entry..first_entry + entry_count {
+            let base = entries_start + entry_index * 8;
+            let local = read_u32_at(base)? as usize;
+            let command = read_u32_at(base + 4)?;
+            if local >= exports_count || command > 1 {
+                return None;
+            }
+            if command == 0 {
+                continue;
+            }
+            // 每个导出只允许序列化一次。
+            if offsets[local] != usize::MAX {
+                return None;
+            }
+            offsets[local] = current;
+            current = current.checked_add(*export_sizes.get(local)?)?;
+            if current > data.len() {
+                return None;
+            }
+        }
+    }
+    if offsets.contains(&usize::MAX) {
+        return None;
+    }
+    Some(offsets)
 }
 
 /// 读取 `[start, end)` 区间的 u64 表（用于 ImportMap/公共导出哈希）。
@@ -631,6 +735,79 @@ mod tests {
         assert_eq!(bulk[0].serial_size, 16);
         assert_eq!(bulk[0].flags, 0x1_0501);
         assert_eq!(bulk[0].cooked_index, 0);
+    }
+
+    /// UE5.0–5.2 的导出数据按 bundle 顺序存放：`Serialize` 顺序可以与导出索引相反。
+    ///
+    /// 构造一个两导出的包：bundle 条目先序列化导出 1、再序列化导出 0，
+    /// 而导出表里的虚拟 `CookedSerialOffset` 仍按索引顺序排列。
+    fn bundle_order_package() -> Vec<u8> {
+        const NAMES: [&str; 3] = ["TestPackage", "ExportA", "ExportB"];
+        let mut data = vec![0u8; 44];
+        data[8..12].copy_from_slice(&0u32.to_le_bytes()); // 包名索引 0
+        data.extend_from_slice(&(NAMES.len() as u32).to_le_bytes());
+        data.extend_from_slice(&21u32.to_le_bytes());
+        data.extend_from_slice(&0xC164_0000u64.to_le_bytes());
+        // 名称哈希表长度是 count + 1。
+        data.extend_from_slice(&[0u8; 24]);
+        for name in NAMES {
+            data.extend_from_slice(&(name.len() as i16).to_be_bytes());
+        }
+        for name in NAMES {
+            data.extend_from_slice(name.as_bytes());
+        }
+        let export_map_offset = data.len() as i32;
+        // 两个导出：对象名索引 1/2、长度 4、虚拟偏移按索引顺序。
+        for (object_index, virtual_offset) in [(1u32, 0u64), (2u32, 4u64)] {
+            data.extend_from_slice(&virtual_offset.to_le_bytes());
+            data.extend_from_slice(&4u64.to_le_bytes());
+            data.extend_from_slice(&object_index.to_le_bytes());
+            data.extend_from_slice(&0u32.to_le_bytes());
+            data.extend_from_slice(&(3u64 << 62).to_le_bytes()); // OuterIndex = None
+            data.extend_from_slice(&(3u64 << 62).to_le_bytes()); // ClassIndex = None
+            data.extend_from_slice(&0u64.to_le_bytes());
+            data.extend_from_slice(&0u64.to_le_bytes());
+            data.extend_from_slice(&0u64.to_le_bytes());
+            data.extend_from_slice(&0u32.to_le_bytes());
+            data.extend_from_slice(&[0u8; 4]);
+        }
+        let export_bundle_entries_offset = data.len() as i32;
+        // Serialize(1)、Create(1)、Serialize(0)、Create(0)：导出 1 的数据在前。
+        for (local, command) in [(1u32, 1u32), (1, 0), (0, 1), (0, 0)] {
+            data.extend_from_slice(&local.to_le_bytes());
+            data.extend_from_slice(&command.to_le_bytes());
+        }
+        let graph_data_offset = data.len() as i32;
+        // 一个 bundle 头：SerialOffset 0、FirstEntryIndex 0、EntryCount 4。
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&4u32.to_le_bytes());
+        let header_size = data.len() as i32;
+        data.extend_from_slice(&[0xBB; 4]); // 导出 1 的载荷
+        data.extend_from_slice(&[0xAA; 4]); // 导出 0 的载荷
+
+        let cooked_header_size = header_size + 13;
+        data[4..8].copy_from_slice(&(header_size as u32).to_le_bytes());
+        data[20..24].copy_from_slice(&(cooked_header_size as u32).to_le_bytes());
+        data[24..28].copy_from_slice(&export_map_offset.to_le_bytes()); // 公共导出哈希表为空
+        data[28..32].copy_from_slice(&export_map_offset.to_le_bytes()); // ImportMap 为空
+        data[32..36].copy_from_slice(&export_map_offset.to_le_bytes());
+        data[36..40].copy_from_slice(&export_bundle_entries_offset.to_le_bytes());
+        data[40..44].copy_from_slice(&graph_data_offset.to_le_bytes());
+        data
+    }
+
+    /// 导出数据按 bundle 的 `Serialize` 顺序定位，而不是按 `CookedSerialOffset`。
+    #[test]
+    fn lays_out_export_data_in_bundle_order() {
+        let package =
+            parse_package(bundle_order_package(), None, Some(2)).expect("bundle 顺序包应解析成功");
+        let info = package.info();
+        assert_eq!(info.exports.len(), 2);
+        assert_eq!(info.exports[0].name, "ExportA");
+        assert_eq!(info.exports[1].name, "ExportB");
+        assert_eq!(package.export_data(0), Some([0xAA; 4].as_slice()));
+        assert_eq!(package.export_data(1), Some([0xBB; 4].as_slice()));
     }
 
     /// 头版本和偏移校验拒绝明显损坏的输入。
