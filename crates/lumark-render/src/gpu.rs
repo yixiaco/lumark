@@ -22,6 +22,7 @@ const BACKGROUND_SHADER: &str = include_str!("background.wgsl");
 const SNOOPER_SSAO_SHADER: &str = include_str!("snooper_ssao.wgsl");
 const SNOOPER_SHADOW_SHADER: &str = include_str!("snooper_shadow.wgsl");
 const SNOOPER_FXAA_SHADER: &str = include_str!("snooper_fxaa.wgsl");
+const SNOOPER_SSAO_BLUR_SHADER: &str = include_str!("snooper_ssao_blur.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -84,6 +85,8 @@ pub struct GpuRenderer {
     material_layout: wgpu::BindGroupLayout,
     ssao_layout: wgpu::BindGroupLayout,
     ssao_pipeline: wgpu::RenderPipeline,
+    ssao_blur_layout: wgpu::BindGroupLayout,
+    ssao_blur_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -174,6 +177,12 @@ struct RenderTargets {
     _depth_texture: wgpu::Texture,
     /// 深度视图。
     depth_view: wgpu::TextureView,
+    /// SSAO 原始 AO（R=ao,G=depth,B/A=normal.xy）。
+    _ssao_ao: wgpu::Texture,
+    ssao_ao_view: wgpu::TextureView,
+    /// SSAO H 模糊。
+    _ssao_blur: wgpu::Texture,
+    ssao_blur_view: wgpu::TextureView,
     /// SSAO 后处理颜色目标。
     ssao_color: wgpu::Texture,
     /// SSAO 后处理视图。
@@ -227,6 +236,28 @@ impl RenderTargets {
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        let ssao_ao = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lumark-ssao-ao"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let ssao_ao_view = ssao_ao.create_view(&wgpu::TextureViewDescriptor::default());
+        let ssao_blur = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lumark-ssao-blur"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let ssao_blur_view = ssao_blur.create_view(&wgpu::TextureViewDescriptor::default());
         let ssao_view = ssao_color.create_view(&wgpu::TextureViewDescriptor::default());
         let fxaa_color = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("lumark-fxaa-color"),
@@ -314,6 +345,10 @@ impl RenderTargets {
             msaa_view,
             _depth_texture: depth,
             depth_view,
+            _ssao_ao: ssao_ao,
+            ssao_ao_view,
+            _ssao_blur: ssao_blur,
+            ssao_blur_view,
             ssao_color,
             ssao_view,
             fxaa_color,
@@ -391,6 +426,8 @@ impl GpuRenderer {
                 material_layout: resources.material_layout,
                 ssao_layout: resources.ssao_layout,
                 ssao_pipeline: resources.ssao_pipeline,
+                ssao_blur_layout: resources.ssao_blur_layout,
+                ssao_blur_pipeline: resources.ssao_blur_pipeline,
                 ssao_sampler: resources.ssao_sampler,
                 shadow_camera_layout: resources.shadow_camera_layout,
                 shadow_pipeline: resources.shadow_pipeline,
@@ -696,7 +733,7 @@ impl GpuRenderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("lumark-ssao-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.ssao_view,
+                    view: &targets.ssao_ao_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -710,6 +747,23 @@ impl GpuRenderer {
             pass.set_pipeline(&self.ssao_pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
+            drop(pass);
+            self.draw_ssao_blur(
+                &mut encoder,
+                [1.0 / width as f32, 0.0],
+                0.0,
+                &targets.ssao_ao_view,
+                &targets.color_view,
+                &targets.ssao_blur_view,
+            );
+            self.draw_ssao_blur(
+                &mut encoder,
+                [0.0, 1.0 / height as f32],
+                1.0,
+                &targets.ssao_blur_view,
+                &targets.color_view,
+                &targets.ssao_view,
+            );
         }
         if use_fxaa {
             let source_view = if use_ssao {
@@ -845,6 +899,63 @@ impl GpuRenderer {
         }
     }
 
+    /// SSAO H/V 双边模糊；第二遍顺带把 AO 乘回颜色。
+    fn draw_ssao_blur(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        direction: [f32; 2],
+        mode: f32,
+        input: &wgpu::TextureView,
+        color: &wgpu::TextureView,
+        output: &wgpu::TextureView,
+    ) {
+        let uniform = [direction[0], direction[1], mode, 0.0];
+        let buffer = self.create_buffer(
+            "lumark-ssao-blur",
+            (uniform.len() * 4) as u64,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        self.queue.write_buffer(&buffer, 0, &f32_bytes(&uniform));
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lumark-ssao-blur"),
+            layout: &self.ssao_blur_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(input),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(color),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.ssao_sampler),
+                },
+            ],
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("lumark-ssao-blur-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+        pass.set_pipeline(&self.ssao_blur_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.draw(0..3, 0..1);
+    }
     /// 为一个批次创建顶点/材质/蒙皮缓冲并提交绘制。
     fn draw_batch(
         &self,
@@ -1080,6 +1191,8 @@ struct Resources {
     material_layout: wgpu::BindGroupLayout,
     ssao_layout: wgpu::BindGroupLayout,
     ssao_pipeline: wgpu::RenderPipeline,
+    ssao_blur_layout: wgpu::BindGroupLayout,
+    ssao_blur_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -1807,6 +1920,82 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    let ssao_blur_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lumark-ssao-blur-layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let ssao_blur_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-ssao-blur-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SNOOPER_SSAO_BLUR_SHADER)),
+    });
+    let ssao_blur_pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("lumark-ssao-blur-pipeline-layout"),
+            bind_group_layouts: &[Some(&ssao_blur_layout)],
+            immediate_size: 0,
+        });
+    let ssao_blur_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lumark-ssao-blur-pipeline"),
+        layout: Some(&ssao_blur_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &ssao_blur_shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &ssao_blur_shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: COLOR_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
     Ok(Resources {
         pipeline_single,
         pipeline_double,
@@ -1825,6 +2014,8 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         material_layout,
         ssao_layout,
         ssao_pipeline,
+        ssao_blur_layout,
+        ssao_blur_pipeline,
         ssao_sampler,
         shadow_camera_layout,
         shadow_pipeline,
@@ -2212,12 +2403,7 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
         camera.eye[2],
         if settings.vertex_colors { 1.0 } else { 0.0 },
     ]);
-    values.extend_from_slice(&[
-        camera.forward[0],
-        camera.forward[1],
-        camera.forward[2],
-        0.0,
-    ]);
+    values.extend_from_slice(&[camera.forward[0], camera.forward[1], camera.forward[2], 0.0]);
     let key = normalize(settings.key_direction);
     values.extend_from_slice(&[key[0], key[1], key[2], settings.key_intensity]);
     values.extend_from_slice(&[
@@ -2610,6 +2796,19 @@ mod tests {
         validator
             .validate(&module)
             .expect("校验 snooper_shadow.wgsl");
+    }
+    /// SSAO blur shader 必须通过解析/语义校验。
+    #[test]
+    fn ssao_blur_shader_parses_and_validates() {
+        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_SSAO_BLUR_SHADER)
+            .expect("解析 snooper_ssao_blur.wgsl");
+        let mut validator = wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::all(),
+        );
+        validator
+            .validate(&module)
+            .expect("校验 snooper_ssao_blur.wgsl");
     }
     /// SSAO shader 必须通过解析/语义校验，uniform 长度与 WGSL 一致。
     #[test]

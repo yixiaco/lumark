@@ -6,7 +6,7 @@
 - [x] S-1 Snooper 默认环境、设置结构与共享预设
 - [x] S-2 GPU 前向光照 + 深度/颜色后处理（替代 G-buffer）
 - [x] S-3 级联阴影（按 Snooper SunCascades 的 4 级联球拟合 + 3×3 PCF）
-- [x] S-4 SSAO（按 Snooper ssao.frag 的 horizon search，深度重建）
+- [x] S-4 SSAO（horizon search + H/V 双边模糊 + AO 合成）
 - [x] S-5 天空盒与雾（Snooper atmosphere.glsl LUT + 太阳盘 + fog.glsl 高度柱积分）
 - [x] S-6 无限地面/网格（5000 单位地面 + 模型包围盒网格）
 - [x] S-7 半透明/FXAA/性能（GPU 最终 FXAA pass）

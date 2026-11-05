@@ -64,14 +64,13 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let dimensions = vec2<i32>(textureDimensions(depth_texture));
     let coord = vec2<i32>(in.uv * vec2<f32>(dimensions));
     let depth = depth_at(coord, dimensions);
-    let base = textureSample(color_texture, color_sampler, in.uv);
     if (depth >= 1.0) {
-        return base;
+        return vec4<f32>(1.0, 0.0, 0.0, 0.0);
     }
     let world = world_from_depth(in.uv, depth);
     let view_depth = max(dot(world - ssao.eye.xyz, ssao.forward.xyz), 0.0);
     if (view_depth <= 0.0 || view_depth >= ssao.screen.w) {
-        return base;
+        return vec4<f32>(1.0, 0.0, 0.0, 0.0);
     }
     var normal = normalize(cross(dpdx(world), dpdy(world)));
     let view = normalize(ssao.eye.xyz - world);
@@ -126,5 +125,5 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var ao = mix(0.05, 1.0, visibility);
     ao = mix(1.0, ao, 1.0 - smoothstep(ssao.screen.w * 0.7, ssao.screen.w, view_depth));
     // 前向管线没有单独的 ambient 通道，按 Snooper AO 强度折半近似。
-    return vec4<f32>(base.rgb * mix(1.0, ao, 0.45), base.a);
+    return vec4<f32>(ao, view_depth, normal.xy);
 }
