@@ -114,6 +114,8 @@ pub(super) struct RenderSnapshot {
     pub(super) shading: ShadingMode,
     /// 是否显示地面网格。
     pub(super) show_grid: bool,
+    /// 是否显示可选地面平台。
+    pub(super) show_platform: bool,
     /// 是否启用 Snooper 环境效果。
     pub(super) snooper_effects: bool,
     /// 是否显示骨骼线。
@@ -168,6 +170,7 @@ impl AssetViewerWindowView {
             skin_pose: self.skin_pose,
             shading: self.shading,
             show_grid: self.show_grid,
+            show_platform: self.show_platform,
             snooper_effects: self.snooper_effects,
             show_bones: self.show_bones,
             wireframe: self.wireframe,
@@ -295,7 +298,10 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
     match &*snapshot.scene {
         ViewerScene::Mesh { lods, materials } => {
             let mesh = current_lod(lods, snapshot.lod_index)?;
-            let scene = static_scene(&snapshot.name, mesh, materials);
+            let mut scene = static_scene(&snapshot.name, mesh, materials);
+            if snapshot.snooper_effects && snapshot.show_platform {
+                add_platform(&mut scene);
+            }
             Some(scene)
         }
         ViewerScene::SkeletalMesh {
@@ -310,7 +316,7 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
                 .get(snapshot.lod_index)
                 .and_then(Option::as_ref)
                 .or_else(|| skins.first().and_then(Option::as_ref));
-            let scene = skeletal_scene(
+            let mut scene = skeletal_scene(
                 snapshot,
                 mesh,
                 skeleton,
@@ -318,10 +324,54 @@ fn build_scene(snapshot: &RenderSnapshot) -> Option<Scene> {
                 materials,
                 animation.as_deref(),
             );
+            if snapshot.snooper_effects && snapshot.show_platform {
+                add_platform(&mut scene);
+            }
             Some(scene)
         }
         ViewerScene::Skeleton(_) | ViewerScene::Material { .. } => None,
     }
+}
+
+/// 可选地面平台：只有按钮打开时才加入，模型本身没有地面就不自动出现。
+fn add_platform(scene: &mut Scene) {
+    let extent = 50000.0;
+    let height = -1.0;
+    let positions = [
+        [-extent, -extent, height],
+        [extent, -extent, height],
+        [extent, extent, height],
+        [-extent, extent, height],
+    ];
+    let mut mesh = lumark_scene::MeshData::new(
+        "SnooperPlatform",
+        positions.to_vec(),
+        vec![0, 1, 2, 0, 2, 3],
+    );
+    mesh.normals = vec![[0.0, 0.0, 1.0]; 4];
+    mesh.sections = vec![lumark_scene::MeshSection {
+        material_index: 0,
+        first_index: 0,
+        index_count: 6,
+    }];
+    let mesh = scene.add_mesh(mesh);
+    let material = scene.add_material(lumark_scene::MaterialData {
+        name: "SnooperPlatform".to_string(),
+        base_color: [0.12, 0.13, 0.15, 1.0],
+        roughness: 0.9,
+        two_sided: true,
+        ..lumark_scene::MaterialData::default()
+    });
+    scene.add_node(lumark_scene::SceneNode {
+        name: "SnooperPlatform".to_string(),
+        parent: None,
+        transform: lumark_scene::Transform::default(),
+        mesh: Some(mesh),
+        materials: vec![Some(material)],
+        visible: true,
+        kind: lumark_scene::NodeKind::StaticMesh,
+        metadata: Vec::new(),
+    });
 }
 
 /// 取当前 LOD（越界时回退到首个）。

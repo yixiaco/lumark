@@ -178,6 +178,21 @@ impl AssetViewerWindowView {
                         })),
                 )
                 .child(
+                    button("model-platform-toggle")
+                        .ghost()
+                        .selected(self.show_platform)
+                        .label(tr("平台", "Platform"))
+                        .tooltip(tr(
+                            "显示/隐藏可选地面平台",
+                            "Toggle optional ground platform",
+                        ))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_platform = !this.show_platform;
+                            this.request_preview(cx);
+                            cx.notify();
+                        })),
+                )
+                .child(
                     button("model-effects-toggle")
                         .ghost()
                         .selected(self.snooper_effects)
