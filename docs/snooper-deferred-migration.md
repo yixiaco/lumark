@@ -10,7 +10,7 @@
 
 - 延迟光照 pass：G-buffer → PBR + 4 级联阴影 + 高度雾；天空由现有背景 LUT pass 保留。
 - 半透明前向叠加与 overlay：已接入延迟后的 color Load + G-buffer 深度。
-- 全屏 grid：仍待替换几何地面 + overlay 网格。
+- 全屏 grid：射线求交写 G-buffer，替换延迟路径中的几何地面与 overlay 网格。
 - 半透明前向叠加与 combine。
 - 切换 Snooper 默认路径，旧前向保留回退。
 

@@ -25,6 +25,7 @@ const SNOOPER_FXAA_SHADER: &str = include_str!("snooper_fxaa.wgsl");
 const SNOOPER_SSAO_BLUR_SHADER: &str = include_str!("snooper_ssao_blur.wgsl");
 const SNOOPER_GBUFFER_SHADER: &str = include_str!("snooper_gbuffer.wgsl");
 const SNOOPER_DEFERRED_SHADER: &str = include_str!("snooper_deferred.wgsl");
+const SNOOPER_GRID_SHADER: &str = include_str!("snooper_grid.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -94,6 +95,8 @@ pub struct GpuRenderer {
     gbuffer_pipeline: wgpu::RenderPipeline,
     deferred_layout: wgpu::BindGroupLayout,
     deferred_pipeline: wgpu::RenderPipeline,
+    grid_layout: wgpu::BindGroupLayout,
+    grid_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -494,6 +497,8 @@ impl GpuRenderer {
                 gbuffer_pipeline: resources.gbuffer_pipeline,
                 deferred_layout: resources.deferred_layout,
                 deferred_pipeline: resources.deferred_pipeline,
+                grid_layout: resources.grid_layout,
+                grid_pipeline: resources.grid_pipeline,
                 ssao_sampler: resources.ssao_sampler,
                 shadow_camera_layout: resources.shadow_camera_layout,
                 shadow_pipeline: resources.shadow_pipeline,
@@ -702,7 +707,7 @@ impl GpuRenderer {
             let fallback_material = MaterialData::default();
             for batch in &batches {
                 let material = batch.material(scene, &fallback_material);
-                if material.translucent {
+                if material.translucent || material.name == "SnooperGround" {
                     continue;
                 }
                 self.draw_batch(&mut pass, settings, batch, material, &self.gbuffer_pipeline);
@@ -828,6 +833,93 @@ impl GpuRenderer {
             }
         }
 
+        if use_deferred && settings.show_grid {
+            let mut values = Vec::with_capacity(56);
+            for column in &camera.view_projection {
+                values.extend_from_slice(column);
+            }
+            values.extend_from_slice(&camera.eye);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&camera.right);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&camera.up);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&camera.forward);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&[camera.tan_half_fov, camera.aspect, 20.0, 100.0]);
+            values.extend_from_slice(&[0.12, 0.13, 0.15, 1.0]);
+            values.extend_from_slice(&[0.15, 0.16, 0.18, 1.0]);
+            values.extend_from_slice(&[0.28, 0.30, 0.33, 0.35]);
+            values.extend_from_slice(&[0.45, 0.48, 0.52, 0.5]);
+            values.extend_from_slice(&[camera.near, camera.far, 0.0, 0.0]);
+            let uniform = self.create_buffer(
+                "lumark-grid",
+                (values.len() * 4) as u64,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+            self.queue.write_buffer(&uniform, 0, &f32_bytes(&values));
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lumark-grid"),
+                layout: &self.grid_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                }],
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lumark-grid-pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_position_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_normal_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_albedo_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_specular_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.gbuffer_depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.grid_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         if use_deferred {
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("lumark-deferred"),
@@ -928,7 +1020,9 @@ impl GpuRenderer {
                 let pipeline = self.select_material_pipeline(1, material.two_sided, true);
                 self.draw_batch(&mut pass, settings, batch, material, pipeline);
             }
-            let (line_data, line_count) = overlay_line_vertices(scene, settings);
+            let mut overlay_settings = settings.clone();
+            overlay_settings.show_grid = false;
+            let (line_data, line_count) = overlay_line_vertices(scene, &overlay_settings);
             if line_count > 0 {
                 let line_buffer = self.create_buffer(
                     "lumark-lines",
@@ -1443,6 +1537,8 @@ struct Resources {
     gbuffer_pipeline: wgpu::RenderPipeline,
     deferred_layout: wgpu::BindGroupLayout,
     deferred_pipeline: wgpu::RenderPipeline,
+    grid_layout: wgpu::BindGroupLayout,
+    grid_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -2404,6 +2500,76 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         multiview_mask: None,
         cache: None,
     });
+    let grid_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lumark-grid-layout"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let grid_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-grid-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SNOOPER_GRID_SHADER)),
+    });
+    let grid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lumark-grid-pipeline-layout"),
+        bind_group_layouts: &[Some(&grid_layout)],
+        immediate_size: 0,
+    });
+    let grid_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lumark-grid-pipeline"),
+        layout: Some(&grid_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &grid_shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &grid_shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: GBUFFER_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
     Ok(Resources {
         pipeline_single,
         pipeline_double,
@@ -2427,6 +2593,8 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         gbuffer_pipeline,
         deferred_layout,
         deferred_pipeline,
+        grid_layout,
+        grid_pipeline,
         ssao_sampler,
         shadow_camera_layout,
         shadow_pipeline,
