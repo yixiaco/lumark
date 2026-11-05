@@ -153,8 +153,7 @@ pub(crate) fn baked() -> &'static [u8] {
 
 /// 烘焙天空 LUT，返回 RGBA8 像素（已曝光）。
 pub(crate) fn bake() -> Vec<u8> {
-    // 与查看器日照方向一致；Snooper 原始默认太阳在地平线，会烘焙成永久日落。
-    let sun = normalize([0.5, 0.79, 0.35]);
+    let sun = normalize([0.766_044_4, 0.0, 0.642_787_6]);
     let origin = [0.0, PLANET_RADIUS + ALTITUDE, 0.0];
     let atmosphere_radius = PLANET_RADIUS + ATMOSPHERE_HEIGHT;
     let mut pixels = Vec::with_capacity((LUT_WIDTH * LUT_HEIGHT * 4) as usize);

@@ -92,8 +92,7 @@ fn fs_main(in: VertexOut) -> GbufferOut {
     albedo = mix(albedo, grid.line_major.rgb, major_line * grid.line_major.w);
 
     var out: GbufferOut;
-    // w=1 标记编辑器网格，延迟光照不对它接收角色投影。
-    out.position = vec4<f32>(world, 1.0);
+    out.position = vec4<f32>(world, 0.0);
     out.normal = vec4<f32>(0.0, 0.0, 1.0, 0.0);
     out.albedo = vec4<f32>(albedo, fade);
     out.specular = vec4<f32>(0.5, 0.0, 0.9, 1.0);
