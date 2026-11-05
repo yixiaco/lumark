@@ -6,7 +6,21 @@
 - G-buffer 目标：4×Rgba16Float + 独立深度。
 - G-buffer 不透明预通道：Snooper 模式先写 G-buffer，BNB 实机验证无 wgpu 错误。
 
-## 进行中
+## 已完成
+
+- G-buffer → 延迟 PBR/级联阴影/雾/天空。
+- 全屏 grid 写 G-buffer。
+- 半透明/接触阴影/骨骼 overlay 在延迟后合成。
+- GPU FXAA 最终 pass。
+- CPU 回退：大气 LUT、全屏 grid、SSAO、屏幕阴影、雾、FXAA。
+- 缩略图走同一 GPU 延迟路径。
+
+## 后续可选
+
+- 软件 CPU 延迟 G-buffer 以做到逐像素一致。
+- 缩略图分辨率跟随查看器。
+
+## 原有计划
 
 - 延迟光照 pass：G-buffer → PBR + 4 级联阴影 + 高度雾；天空由现有背景 LUT pass 保留。
 - 半透明前向叠加与 overlay：已接入延迟后的 color Load + G-buffer 深度。
