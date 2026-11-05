@@ -743,18 +743,40 @@ fn shade(
                 base, normal, view, specular, metallic, roughness, ao, settings,
             );
             if settings.snooper.fog.enabled {
-                let distance = distance3(surface.world, camera.eye) / 100.0;
-                let density = settings.snooper.fog.density
-                    * (-settings.snooper.fog.height_falloff * (surface.world[2] / 100.0).max(0.0))
-                        .exp();
-                let amount = (1.0
-                    - (-density * (distance - settings.snooper.fog.start_distance).max(0.0)).exp())
-                .clamp(0.0, settings.snooper.fog.max_opacity);
-                for (channel, value) in color.iter_mut().enumerate() {
-                    *value = *value + (settings.snooper.fog.color[channel] - *value) * amount;
+                let world = [
+                    surface.world[0] / 100.0,
+                    surface.world[1] / 100.0,
+                    surface.world[2] / 100.0,
+                ];
+                let eye = [camera.eye[0] / 100.0, camera.eye[1] / 100.0, camera.eye[2] / 100.0];
+                let ray = sub(world, eye);
+                let range = dot(ray, ray).sqrt();
+                if range > 1e-4 {
+                    let direction = [ray[0] / range, ray[1] / range, ray[2] / range];
+                    let start = settings.snooper.fog.start_distance / 100.0;
+                    let fog_range = range - start;
+                    if fog_range > 0.0 {
+                        let height = eye[2] + direction[2] * start;
+                        let climb = direction[2] * fog_range;
+                        let column = if climb.abs() > 1e-3 {
+                            fog_column(
+                                height.min(height + climb),
+                                height.max(height + climb),
+                                settings.snooper.fog.height_falloff,
+                            ) / climb.abs()
+                        } else {
+                            (-settings.snooper.fog.height_falloff * height.max(0.0)).exp()
+                        };
+                        let amount = (1.0
+                            - (-settings.snooper.fog.density * fog_range * column).exp())
+                            .clamp(0.0, settings.snooper.fog.max_opacity);
+                        for (channel, value) in color.iter_mut().enumerate() {
+                            *value = *value
+                                + (settings.snooper.fog.color[channel] - *value) * amount;
+                        }
+                    }
                 }
-            }
-            color
+            }            color
         }
         // FModel 头灯：AO 只乘基础色，自发光在头灯前叠加。
         LightingMode::Headlight => {
@@ -1095,7 +1117,20 @@ fn srgb_to_linear(value: f32) -> f32 {
     }
 }
 
+/// Snooper `FogColumn`：两高度之间的指数雾柱。
+fn fog_column(a: f32, b: f32, falloff: f32) -> f32 {
+    let below = (b.min(0.0) - a.min(0.0)).max(0.0);
+    let low = a.max(0.0);
+    let span = b.max(0.0) - low;
+    let above = if falloff * span > 1e-4 {
+        (1.0 - (-falloff * span).exp()) / falloff
+    } else {
+        span
+    };
+    below + (-falloff * low).exp() * above
+}
 /// 两点距离。
+#[allow(dead_code)]
 fn distance3(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d = sub(a, b);
     dot(d, d).sqrt()
