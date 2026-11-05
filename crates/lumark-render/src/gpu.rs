@@ -285,7 +285,7 @@ impl RenderTargets {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let gbuffer_depth_view = gbuffer_depth.create_view(&wgpu::TextureViewDescriptor::default());
@@ -866,7 +866,7 @@ impl GpuRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -965,7 +965,11 @@ impl GpuRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&targets.depth_view),
+                        resource: wgpu::BindingResource::TextureView(if use_deferred {
+                            &targets.gbuffer_depth_view
+                        } else {
+                            &targets.depth_view
+                        }),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
