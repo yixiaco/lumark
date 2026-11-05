@@ -23,6 +23,7 @@ const SNOOPER_SSAO_SHADER: &str = include_str!("snooper_ssao.wgsl");
 const SNOOPER_SHADOW_SHADER: &str = include_str!("snooper_shadow.wgsl");
 const SNOOPER_FXAA_SHADER: &str = include_str!("snooper_fxaa.wgsl");
 const SNOOPER_SSAO_BLUR_SHADER: &str = include_str!("snooper_ssao_blur.wgsl");
+const SNOOPER_GBUFFER_SHADER: &str = include_str!("snooper_gbuffer.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -2824,6 +2825,20 @@ mod tests {
         assert!((value(52) - settings.snooper.fog.color[0]).abs() < 1e-6);
         assert!((value(56) - settings.snooper.fog.density).abs() < 1e-6);
     }
+    /// G-buffer shader 必须通过解析/语义校验。
+    #[test]
+    fn gbuffer_shader_parses_and_validates() {
+        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_GBUFFER_SHADER)
+            .expect("解析 snooper_gbuffer.wgsl");
+        let mut validator = wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::all(),
+        );
+        validator
+            .validate(&module)
+            .expect("校验 snooper_gbuffer.wgsl");
+    }
+
     /// 背景/天空 WGSL 也需要通过解析与语义校验。
     #[test]
     fn background_wgsl_shader_parses_and_validates() {
