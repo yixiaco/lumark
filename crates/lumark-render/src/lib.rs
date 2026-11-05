@@ -701,11 +701,14 @@ pub fn render_scene(scene: &Scene, settings: &RenderSettings) -> Result<RenderTa
     let bounds = render_bounds(scene);
     let camera = camera::Camera::fit(&bounds, settings);
     let rgba = raster::render(scene, settings, &camera, width, height);
-    let rgba = if supersample > 1 {
+    let mut rgba = if supersample > 1 {
         downsample(&rgba, width, height, settings.width, settings.height)
     } else {
         rgba
     };
+    if settings.lighting_mode == LightingMode::Snooper && settings.snooper.fxaa {
+        rgba = gpu::fxaa(&rgba, settings.width, settings.height);
+    }
     Ok(RenderTarget {
         width: settings.width,
         height: settings.height,

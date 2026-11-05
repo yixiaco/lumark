@@ -145,6 +145,12 @@ fn atmosphere(
     color
 }
 
+/// 全局缓存的天空 LUT（CPU/GPU 共用）。
+pub(crate) fn baked() -> &'static [u8] {
+    static CACHE: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(bake)
+}
+
 /// 烘焙天空 LUT，返回 RGBA8 像素（已曝光）。
 pub(crate) fn bake() -> Vec<u8> {
     let sun = normalize([0.766_044_4, 0.0, 0.642_787_6]);

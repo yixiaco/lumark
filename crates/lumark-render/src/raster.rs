@@ -28,18 +28,66 @@ pub(crate) fn render(
         depth: vec![f32::INFINITY; pixel_count],
         translucent: Vec::new(),
     };
-    // 背景：自上而下略微变亮的渐变。
+    // 背景：Snooper 使用烘焙大气 LUT，其余模式保留渐变。
     let background = settings.background;
-    for y in 0..height {
-        let ratio = 1.0 - y as f32 / height.max(1) as f32;
-        let color = [
-            background[0] * (0.75 + 0.5 * ratio),
-            background[1] * (0.75 + 0.5 * ratio),
-            background[2] * (0.75 + 0.5 * ratio),
-        ];
-        let start = y as usize * width as usize;
-        for pixel in frame.color[start..start + width as usize].iter_mut() {
-            *pixel = color;
+    if settings.lighting_mode == LightingMode::Snooper && settings.snooper.sky.enabled {
+        let (lut_width, lut_height) = crate::sky_lut::size();
+        let lut = crate::sky_lut::baked();
+        let sun = normalize(settings.key_direction);
+        let sun_gl = normalize([sun[0], sun[2], sun[1]]);
+        for y in 0..height {
+            let ndc_y = 1.0 - 2.0 * (y as f32 + 0.5) / height.max(1) as f32;
+            for x in 0..width {
+                let ndc_x = 2.0 * (x as f32 + 0.5) / width.max(1) as f32 - 1.0;
+                let direction = normalize([
+                    camera.forward[0]
+                        + camera.right[0] * ndc_x * camera.tan_half_fov * camera.aspect
+                        + camera.up[0] * ndc_y * camera.tan_half_fov,
+                    camera.forward[1]
+                        + camera.right[1] * ndc_x * camera.tan_half_fov * camera.aspect
+                        + camera.up[1] * ndc_y * camera.tan_half_fov,
+                    camera.forward[2]
+                        + camera.right[2] * ndc_x * camera.tan_half_fov * camera.aspect
+                        + camera.up[2] * ndc_y * camera.tan_half_fov,
+                ]);
+                let gl = normalize([direction[0], direction[2], direction[1]]);
+                let azimuth = gl[2].atan2(gl[0]);
+                let elevation = gl[1].clamp(-1.0, 1.0).asin();
+                let row = elevation.signum() * (elevation.abs() / (0.5 * std::f32::consts::PI)).sqrt();
+                let u = (azimuth / (2.0 * std::f32::consts::PI) + 0.5).rem_euclid(1.0);
+                let v = (row * 0.5 + 0.5).clamp(0.0, 1.0);
+                let lx = ((u * lut_width as f32) as usize).min(lut_width as usize - 1);
+                let ly = ((v * lut_height as f32) as usize).min(lut_height as usize - 1);
+                let offset = (ly * lut_width as usize + lx) * 4;
+                let mut color = [
+                    lut[offset] as f32 / 255.0,
+                    lut[offset + 1] as f32 / 255.0,
+                    lut[offset + 2] as f32 / 255.0,
+                ];
+                let mu = direction[0] * sun_gl[0] + direction[1] * sun_gl[1] + direction[2] * sun_gl[2];
+                let disc = ((mu - 0.999_989) / 2.0e-5).clamp(0.0, 1.0);
+                if disc > 0.0 {
+                    let brightest = color[0].max(color[1]).max(color[2]).max(1e-4);
+                    let horizon = ((direction[2] + 0.01) / 0.02).clamp(0.0, 1.0);
+                    for channel in 0..3 {
+                        color[channel] += disc * 50.0 * (color[channel] / brightest) * horizon;
+                    }
+                }
+                frame.color[y as usize * width as usize + x as usize] = color;
+            }
+        }
+    } else {
+        for y in 0..height {
+            let ratio = 1.0 - y as f32 / height.max(1) as f32;
+            let color = [
+                background[0] * (0.75 + 0.5 * ratio),
+                background[1] * (0.75 + 0.5 * ratio),
+                background[2] * (0.75 + 0.5 * ratio),
+            ];
+            let start = y as usize * width as usize;
+            for pixel in frame.color[start..start + width as usize].iter_mut() {
+                *pixel = color;
+            }
         }
     }
 
@@ -115,10 +163,103 @@ pub(crate) fn render(
         }
     }
     frame.resolve_translucent();
+    apply_cpu_ssao(&mut frame, settings, camera);
     draw_overlays(scene, settings, camera, &mut frame);
     frame.to_rgba8(settings.lighting_mode == LightingMode::Snooper)
 }
 
+/// CPU 回退的屏幕空间 AO：由深度重建世界位置，按 Snooper horizon search 简化。
+fn apply_cpu_ssao(frame: &mut Frame, settings: &RenderSettings, camera: &Camera) {
+    if settings.lighting_mode != LightingMode::Snooper || !settings.snooper.ssao.enabled {
+        return;
+    }
+    let width = frame.width as i32;
+    let height = frame.height as i32;
+    let make_world = |x: i32, y: i32, depth: f32| -> [f32; 3] {
+        let uv_x = (x as f32 + 0.5) / frame.width.max(1) as f32;
+        let uv_y = (y as f32 + 0.5) / frame.height.max(1) as f32;
+        let ndc_x = uv_x * 2.0 - 1.0;
+        let ndc_y = 1.0 - uv_y * 2.0;
+        let ray = normalize([
+            camera.forward[0]
+                + camera.right[0] * ndc_x * camera.tan_half_fov * camera.aspect
+                + camera.up[0] * ndc_y * camera.tan_half_fov,
+            camera.forward[1]
+                + camera.right[1] * ndc_x * camera.tan_half_fov * camera.aspect
+                + camera.up[1] * ndc_y * camera.tan_half_fov,
+            camera.forward[2]
+                + camera.right[2] * ndc_x * camera.tan_half_fov * camera.aspect
+                + camera.up[2] * ndc_y * camera.tan_half_fov,
+        ]);
+        let view_z = camera.near * camera.far
+            / (camera.far - depth * (camera.far - camera.near)).max(1e-5);
+        let along = dot(ray, camera.forward).max(1e-5);
+        [
+            camera.eye[0] + ray[0] * view_z / along,
+            camera.eye[1] + ray[1] * view_z / along,
+            camera.eye[2] + ray[2] * view_z / along,
+        ]
+    };
+    let offsets = [
+        [4, 0],
+        [-4, 0],
+        [0, 4],
+        [0, -4],
+        [3, 3],
+        [-3, 3],
+        [3, -3],
+        [-3, -3],
+    ];
+    let radius = 100.0;
+    let max_distance = 8000.0;
+    let radius_sq = radius * radius;
+    let width_usize = frame.width as usize;
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            let offset = y as usize * width_usize + x as usize;
+            let depth = frame.depth[offset];
+            if !(0.0..1.0).contains(&depth) {
+                continue;
+            }
+            let world = make_world(x, y, depth);
+            let view_depth = dot(sub(world, camera.eye), camera.forward);
+            if view_depth <= 0.0 || view_depth >= max_distance {
+                continue;
+            }
+            let right = sub(make_world(x + 1, y, frame.depth[offset + 1]), world);
+            let down = sub(
+                make_world(x, y + 1, frame.depth[offset + width_usize]),
+                world,
+            );
+            let mut normal = normalize(cross(right, down));
+            if dot(normal, sub(camera.eye, world)) < 0.0 {
+                normal = [-normal[0], -normal[1], -normal[2]];
+            }
+            let mut occlusion: f32 = 0.0;
+            for [dx, dy] in offsets {
+                let sx = (x + dx).clamp(0, width - 1);
+                let sy = (y + dy).clamp(0, height - 1);
+                let sample_depth = frame.depth[sy as usize * width_usize + sx as usize];
+                if !(0.0..1.0).contains(&sample_depth) || sample_depth >= depth {
+                    continue;
+                }
+                let sample_world = make_world(sx, sy, sample_depth);
+                let horizon = sub(sample_world, world);
+                let horizon_sq = dot(horizon, horizon);
+                if horizon_sq <= 1e-6 || horizon_sq > radius_sq {
+                    continue;
+                }
+                let contribution = dot(normalize(horizon), normal).max(0.0)
+                    * (1.0 - horizon_sq / radius_sq);
+                occlusion = occlusion.max(contribution);
+            }
+            let ao: f32 = (1.0 - occlusion * 0.45).clamp(0.35, 1.0);
+            for channel in 0..3 {
+                frame.color[offset][channel] *= ao;
+            }
+        }
+    }
+}
 /// 绘制地面网格与骨骼线段（带深度测试）。
 fn draw_overlays(scene: &Scene, settings: &RenderSettings, camera: &Camera, frame: &mut Frame) {
     let mut segments: Vec<overlay::LineSegment> = Vec::new();

@@ -10,7 +10,7 @@
 - [x] S-5 天空盒与雾（Snooper atmosphere.glsl LUT + 太阳盘 + fog.glsl 高度柱积分）
 - [x] S-6 无限地面/网格（5000 单位地面 + 模型包围盒网格）
 - [x] S-7 半透明/FXAA/性能（GPU 最终 FXAA pass）
-- [x] S-8 预览/UI（效果/分辨率开关，缩略图共用 Snooper 预设）
+- [x] S-8 预览/UI/CPU（大气 LUT、SSAO、FXAA、雾 CPU 回退；级联阴影仍为 GPU 专有）
 - [x] S-9 验收（59 render + 26 viewer + 11 preview 测试；BNB 实机截图）
 
 ## 默认环境

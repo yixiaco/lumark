@@ -2583,8 +2583,7 @@ fn clear_color(background: [f32; 3], gamma_only: bool) -> wgpu::Color {
 }
 
 /// Snooper 模式 FXAA-lite：沿高对比边方向做一次受限邻域混合。
-#[allow(dead_code)]
-fn fxaa(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+pub(crate) fn fxaa(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
     if width < 3 || height < 3 || rgba.len() < (width * height * 4) as usize {
         return rgba.to_vec();
     }
