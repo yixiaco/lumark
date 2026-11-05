@@ -117,10 +117,12 @@ fn apply_fog(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
 }
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    let position = textureSample(g_position, g_sampler, in.uv).xyz;
+    let gbuffer_position = textureSample(g_position, g_sampler, in.uv);
+    let position = gbuffer_position.xyz;
     if (dot(position, position) < 1e-4) {
         discard;
     }
+    let is_editor_grid = gbuffer_position.w > 0.5;
     let normal = normalize(textureSample(g_normal, g_sampler, in.uv).xyz);
     let albedo = textureSample(g_albedo, g_sampler, in.uv).rgb;
     let specular = textureSample(g_specular, g_sampler, in.uv);
@@ -148,7 +150,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let sky_mix = clamp(normal.z * 0.5 + 0.5, 0.0, 1.0);
     let sky = mix(camera.sky_lower.rgb, camera.sky_upper.rgb, sky_mix);
     let ambient = sky * albedo * specular.w;
-    let shadow = shadow_factor(position, normal);
+    let shadow = select(shadow_factor(position, normal), 1.0, is_editor_grid);
     let sun = (diffuse + specular_term) * camera.light0_color.rgb * ndotl
         * camera.light0_dir.w * shadow;
     let encoded = pow(max(ambient + sun, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
