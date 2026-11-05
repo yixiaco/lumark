@@ -28,6 +28,7 @@ struct Camera {
     shadow_view_proj_3: mat4x4<f32>,
     shadow_params: vec4<f32>,
     shadow_splits: vec4<f32>,
+    shadow_cascade_params: array<vec4<f32>, 4>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -334,9 +335,63 @@ fn fog_column(a: f32, b: f32, falloff: f32) -> f32 {
 }
 
 // 太阳阴影：两级联正交阴影贴图 + 3x3 PCF，未启用时返回全亮。
+fn shadow_matrix(layer: i32) -> mat4x4<f32> {
+    if (layer == 0) {
+        return camera.shadow_view_proj_0;
+    }
+    if (layer == 1) {
+        return camera.shadow_view_proj_1;
+    }
+    if (layer == 2) {
+        return camera.shadow_view_proj_2;
+    }
+    return camera.shadow_view_proj_3;
+}
+
+fn sample_shadow_cascade(
+    layer: i32,
+    world: vec3<f32>,
+    normal: vec3<f32>,
+    n_dot_l: f32,
+) -> f32 {
+    let params = camera.shadow_cascade_params[layer];
+    let sin_theta = sqrt(max(0.0, 1.0 - n_dot_l * n_dot_l));
+    let kernel_world = params.x * (camera.shadow_params.z * 2.0 + 1.0);
+    let position = world + normal * (kernel_world * sin_theta * camera.shadow_params.w);
+    let clip = shadow_matrix(layer) * vec4<f32>(position, 1.0);
+    if (clip.w <= 0.0) {
+        return 1.0;
+    }
+    let ndc = clip.xyz / clip.w;
+    if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0 || ndc.z >= 1.0) {
+        return 1.0;
+    }
+    let tan_theta = min(sin_theta / max(n_dot_l, 1e-3), 8.0);
+    let reference = ndc.z - params.x * tan_theta * params.y;
+    let texel_step = camera.shadow_params.z / max(camera.shadow_params.y, 1.0);
+    var lit = 0.0;
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            lit = lit + textureSampleCompare(
+                shadow_texture,
+                shadow_sampler,
+                ndc.xy * 0.5 + vec2<f32>(0.5) + vec2<f32>(f32(x), f32(y)) * texel_step,
+                layer,
+                reference,
+            );
+        }
+    }
+    return lit / 9.0;
+}
+
 fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     if (camera.shadow_params.x < 0.5) {
         return 1.0;
+    }
+    let light = normalize(camera.light0_dir.xyz);
+    let n_dot_l = max(dot(normal, light), 0.0);
+    if (n_dot_l <= 0.0) {
+        return 0.0;
     }
     let view_depth = dot(world - camera.eye.xyz, camera.forward.xyz);
     var layer = -1;
@@ -352,43 +407,18 @@ fn shadow_factor(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     if (layer < 0) {
         return 0.0;
     }
-
-    var view_projection: mat4x4<f32>;
-    if (layer == 0) {
-        view_projection = camera.shadow_view_proj_0;
-    } else if (layer == 1) {
-        view_projection = camera.shadow_view_proj_1;
-    } else if (layer == 2) {
-        view_projection = camera.shadow_view_proj_2;
-    } else {
-        view_projection = camera.shadow_view_proj_3;
-    }
-
-    let position = world + normal * max(camera.shadow_params.w, 0.5);
-    let clip = view_projection * vec4<f32>(position, 1.0);
-    if (clip.w <= 0.0) {
-        return 1.0;
-    }
-    let ndc = clip.xyz / clip.w;
-    if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0 || ndc.z >= 1.0) {
-        return 1.0;
-    }
-    let uv = ndc.xy * 0.5 + vec2<f32>(0.5);
-    let reference = ndc.z - 0.0015;
-    let texel = 1.0 / max(camera.shadow_params.y, 1.0);
-    var lit = 0.0;
-    for (var y = -1; y <= 1; y = y + 1) {
-        for (var x = -1; x <= 1; x = x + 1) {
-            lit = lit + textureSampleCompare(
-                shadow_texture,
-                shadow_sampler,
-                uv + vec2<f32>(f32(x), f32(y)) * texel,
-                layer,
-                reference,
-            );
+    var shadow = sample_shadow_cascade(layer, world, normal, n_dot_l);
+    if (layer < 3) {
+        let split_far = camera.shadow_cascade_params[layer].z;
+        let split_near = camera.shadow_cascade_params[layer].w;
+        let band_start = mix(split_far, split_near, 0.1);
+        let blend = clamp((view_depth - band_start) / max(split_far - band_start, 1e-4), 0.0, 1.0);
+        if (blend > 0.0) {
+            let next = sample_shadow_cascade(layer + 1, world, normal, n_dot_l);
+            shadow = mix(shadow, next, blend);
         }
     }
-    return lit / 9.0;
+    return shadow;
 }
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {

@@ -30,7 +30,7 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// 每个顶点的 f32 数量：position3 + normal3 + uv2 + color4 + tangent4 + joints4 + weights4。
 const VERTEX_FLOATS: usize = 24;
 /// 相机 uniform 大小（字节）。
-const CAMERA_UNIFORM_SIZE: u64 = 528;
+const CAMERA_UNIFORM_SIZE: u64 = 592;
 /// 材质 uniform 大小（字节）。
 const MATERIAL_UNIFORM_SIZE: u64 = 112;
 
@@ -2288,7 +2288,15 @@ fn camera_uniform(camera: &Camera, settings: &RenderSettings) -> Vec<u8> {
         settings.snooper.shadows.softness,
         settings.snooper.shadows.normal_offset,
     ]);
-    values.extend_from_slice(&[camera.shadow_splits[0], camera.shadow_splits[1], 0.0, 0.0]);
+    values.extend_from_slice(&[
+        camera.shadow_splits[0],
+        camera.shadow_splits[1],
+        camera.shadow_splits[2],
+        camera.shadow_splits[3],
+    ]);
+    for params in &camera.shadow_cascade_params {
+        values.extend_from_slice(params);
+    }
     f32_bytes(&values)
 }
 

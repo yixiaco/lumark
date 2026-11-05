@@ -23,6 +23,7 @@ pub(crate) struct Camera {
     pub far: f32,
     pub shadow_view_projections: [Mat4; 4],
     pub shadow_splits: [f32; 4],
+    pub shadow_cascade_params: [[f32; 4]; 4],
 }
 
 impl Camera {
@@ -112,6 +113,7 @@ impl Camera {
             far,
             shadow_view_projections: cascades.projections,
             shadow_splits: cascades.splits,
+            shadow_cascade_params: cascades.params,
         }
     }
 
@@ -172,6 +174,7 @@ pub(crate) fn shadow_view_projection_scaled(
 struct ShadowCascades {
     projections: [Mat4; 4],
     splits: [f32; 4],
+    params: [[f32; 4]; 4],
 }
 
 /// 按 Snooper `SunCascades` 的球拟合/texel 对齐构造 4 级联。
@@ -202,6 +205,7 @@ fn build_shadow_cascades(
     let k2 = tan_half_fov * tan_half_fov * (1.0 + aspect * aspect);
     let mut projections = [[[0.0; 4]; 4]; 4];
     let mut splits = [0.0; 4];
+    let mut params = [[0.0; 4]; 4];
     for index in 0..4 {
         let p = (index + 1) as f32 / 4.0;
         let near_i = if index == 0 { near } else { splits[index - 1] };
@@ -246,10 +250,12 @@ fn build_shadow_cascades(
         let view = look_at(light_eye, center, up_world);
         let projection = orthographic(-radius, radius, -radius, radius, 0.0, depth_range);
         projections[index] = multiply(&projection, &view);
+        params[index] = [texel, 1.0 / depth_range, split, near_i];
     }
     ShadowCascades {
         projections,
         splits,
+        params,
     }
 }
 /// 正交投影，深度映射到 0..1（wgpu）。
