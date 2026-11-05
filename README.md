@@ -1,60 +1,37 @@
 # Lumark
 
-Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit) 构建的 Windows 优先桌面压缩管理器。当前实现以可运行的文件浏览、ZIP/7Z/TAR 压缩解压、归档原子编辑和加密密码库为第一条完整链路。
+Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit) 构建的 Windows 优先桌面压缩管理器。
 
-## 本轮新增
+## 功能介绍
 
-- **内置查看器与 PE 归档**：文本按内容显示文本或十六进制；exe/dll 等 PE 文件默认作为只读归档打开，按节和资源目录浏览，`.rsrc` 下的图标资源重建为 `.ico`，可解压任意节/资源并用内置查看器或图片查看器打开，右键菜单仍保留显式“运行”。大文本使用 mmap + 虚拟行列表，不再按 4 MB 拒绝；图片查看器支持适应窗口、100%、缩放、滚动平移、GIF/WebP 动画和 SVG。归档条目和普通文件都走同一路由，ZIP/ZIPX/7Z 条目可直接保存回原归档。
-- **格式**：ZIPX（`.zipx`，ZIP 容器，独立格式选项）、Snappy Framed（`.sz`/`.snappy`；Raw/Hadoop 流会明确提示只支持 Framed）、BZip3（`.bz3`，按预设使用 4/16/64 MiB 块）、RAR5 列表（RAR4/RAR5 签名区分，只读，方法列显示 RAR5）。
-- **新增容器与 PAK**：ASAR 支持流式创建（SHA-256 + 4 MiB 分块 integrity）和读取，创建不会整包读入内存；APK/JAR 作为 ZIP 容器、PAX 作为带 pax 扩展头的 TAR 容器支持读写；`.pak` 按二进制头区分 Quake PACK、Chromium 数据包和 Unreal Engine 4/5 PAK（版本 1–11、编码索引、AES-256、Zlib/Gzip/LZ4/Zstd），Oodle 压缩默认由内置纯 Rust 解码器处理，可选 DLL 回退。
-- **文件表框选**：明细列表和平铺视图都支持按住鼠标拖出选框多选，Ctrl/Shift 可追加或扩展，拖到边缘自动滚动；空白处点击清空选择。
-- **拖拽语义**：拖出条目时用 Windows 原生拖拽手势选择目标，松开后由 Lumark 自己把选中条目解压到桌面或资源管理器当前文件夹，并显示独立进度窗口；目标已有同名文件时弹出“覆盖/跳过/重命名/取消”，拖回同一归档或原路径会忽略；拖入路径栏在松开时解压到目标文件夹，不再提前生成临时文件。
-- **修复压缩包**：ZIP/ZIPX/APK/JAR 可扫描本地文件头并重建中央目录，保留压缩方法、加密数据和 CRC，输出 `<名称>.repaired.<扩展名>` 新文件，原归档不会被修改；无法确定边界的条目会跳过并在结果中报告。
-- **系统集成**：压缩、解压、测试、编辑、伪装、还原任务运行期间通过 Windows `SetThreadExecutionState` 阻止系统睡眠，任务结束/失败/取消后恢复；不阻止显示器关闭。
-- **嵌套压缩包**：归档内的 `.zip/.zipx/.7z/.rar/.tar.gz/.sz/.bz3` 等条目默认在新 Lumark 窗口中打开；子窗口独占临时目录，关闭窗口时清理，支持多层嵌套。
-- **主题与 UI**：`app/theme.rs` 改用官方 `ThemeColor` 调色板 + `Theme::update`，只覆盖强调色字段；新增界面从 `cx.theme()` 取色。移除了视图层裸 `hsla`、按钮指针手、自绘进度条、空状态和标题栏徽标的旧实现；统一官方 `Progress`、`Empty`、`Tag`。删除、可执行文件确认、清除密码库、删除密码、新建文件夹、重命名、保存密码、删除主密码、解锁密码库、额外候选确认、加密密码库导入/导出、归档添加模式选择、归档密码输入、自动尝试进度和临时解压进度均已迁移到官方 `Dialog`/`AlertDialog`；`chrome.rs` 不再保留自绘模态遮罩。
-- BZip3 使用 LGPL-3.0-only AND Apache-2.0 的纯 Rust `bzip3-rs`；合规与重链接说明见 [`docs/lgpl-compliance.md`](docs/lgpl-compliance.md)，发布物附带 `licenses/LGPL-3.0-only.txt`。
-- **发布构建与安全警告**：新增 `tools/build_release.ps1`、管理员权限 Inno 安装器和 GitHub Actions 工作流；排查并修复沙箱给工作区写入 Low 完整性标签导致的“打开文件 - 安全警告”，发布脚本会对 MOTW 和 Low 完整性做产物级检查与修复。
-- **游戏资产（Windows）**：主界面新增【游戏资产】入口，扫描游戏目录和 UE 版本，从 `*-Win64-Shipping.exe` 提取 AES 密钥（DPAPI 保存），支持手动密钥、Oodle 后端与 `.usmap` 配置；IoStore `.utoc/.ucas` 与 PAK 容器沿用现有文件夹/文件表浏览，容器内隐藏 `.uexp/.ubulk/.uptnl`。详情面板可预览 UE 纹理缩略图、StaticMesh 3D 缩略图、Skeleton 骨骼线条图和 AnimSequence 元数据/只读时间轴；StaticMesh、SkeletalMesh 和 Skeleton 可打开独立查看器窗口，左键轨道旋转、右键拖拽平移、滚轮缩放、`F`/重置视角；查看器检查器按“概要 / 材质 / 骨骼”展示材质参数、贴图与 section 可见性，并可打开只读 JSON 属性窗口。无版本属性需要用户提供的 `.usmap` 映射。
-
-## 当前功能
-
-- 参考经典归档器的界面布局：官方 TitleBar/Toolbar/StatusBar 框架、工作区切换、路径与搜索导航行、常用位置和目录树合并的文件夹侧栏、底部详细信息检查器；宽窗口显示品牌标语，窄窗口自动收缩搜索框和模式标签。
-- 界面优先使用 gpui-kit 官方组件：动作带使用官方 Toolbar，状态栏使用官方 StatusBar，动作带和标题栏导航使用官方 Button 变体，格式、压缩方法、字典、单词、固实块、线程和时间筛选统一使用官方 Select 下拉框，文件右键菜单使用官方 ContextMenu/PopupMenu，文件表使用官方 Scrollbar，经典压缩窗口使用官方 Tabs、GroupBox、Radio 和 Checkbox，注释使用官方多行 Textarea。
-- 按钮默认使用官方标准尺寸；只有标题栏、状态栏、表格行、进度确认等明确需要紧凑布局的区域使用 `small`/`xsmall`，新增普通操作按钮不再缩小。
-- 设置使用独立选项卡窗口，参考经典归档器分为综合、外观、压缩、文件关联、密码库和关于；主题以官方 `ThemeColor` 基线整体应用，只覆盖强调色字段，由 `Theme::update` 同步 token、Base 投影和所有窗口；设置页通过官方 ColorPicker 自定义强调色并持久化。
-- 独立压缩窗口：轻巧模式为 600×330 的紧凑表单，经典模式为 600×390 的六选项卡布局；窗口独立于主界面，不置顶，轻巧/经典切换时保留全部已填参数。多文件或文件夹源会隐藏 GZ/BZ2/XZ/ZST/Brotli/LZ4/Snappy/BZip3 等单文件流格式；若默认格式是其中之一，有 TAR 变体的自动切换，Snappy/BZip3 回退 ZIP。
-- 独立任务进度窗口：压缩、解压和测试任务启动后自动弹出，显示目标路径、当前文件进度、总进度、已用/剩余时间、总大小、已压缩、压缩后、压缩率、文件数、处理速度和暂停、继续、取消、后台；取消需要二次确认，确认后立即停止并清理临时文件，关闭窗口不中断任务。
 - 压缩后端使用 zlib-ng 和新版 ZIP/7Z 编码器，ZIP 按 1 MiB 分块读写并按块检查取消；7Z 多线程 LZMA2 默认按 16 MiB 编码块完成量报告真实进度（字典更大时随库钳制），两次块事件之间按最近速度平滑显示并在块完成时校正；单线程/其他算法按已写入编码器的字节更新，加密归档保留读取进度，7Z 解压按 256 KiB 分块、100 毫秒节流上报单文件内部进度。
-- 标题栏工作区按钮和模态遮罩使用阻塞命中区域，右上角密码库/设置按钮不再被拖拽区域吞掉，压缩/解压设置对话框也不会把鼠标事件穿透到下层文件表。
-- IconPark 官方 SVG 图标已本地打包并按主题着色，运行时不依赖网络；来源与许可保存在 `crates/lumark-ui-shared/assets/icons/iconpark/`。
 - ZIP、7Z、LZH、TAR、TAR.GZ/BZ2/XZ/ZST/BR/LZ4/LZ/LZMA；GZ、BZ2、XZ、ZSTD、Brotli、LZ4、Snappy、BZip3；ZIP/7Z AES 密码、可选的 ZipCrypto 兼容写入和 7Z 固实压缩；ZIPX/旧 ZIP 的 Deflate64、Shrink、Reduce、Implode 只读解压。LZH 创建底层支持 lh0、lh4–lh7，界面预设使用 lh4/lh5/lh7；lh0 条目已分块流式写入，lh4/lh5/lh7 仍需要整块输入，超过 512 MiB 会提前拒绝。
 - ZPAQ 读写（内嵌 libzpaq/JIDAC 引擎）：创建标准归档、AES-256 密码、列表、完整测试、预算解压、分卷和密码库联动；压缩级别 1–5 可选，轻巧模式的“体积小”对应 5 级，默认保留源文件原始时间，≥32 MiB 的单文件批次交给可杀死的隐藏工作进程执行，压缩中可直接取消；解压和完整测试也通过该工作进程执行，任务取消时终止子进程并清理暂存区；普通小文件批次按 32 MiB / 64 文件分批上报进度。创建时会跳过符号链接和 Windows 目录联接，避免归档条目与源计划不一致；输出同名旧压缩包在任务成功后原子替换。PAQ8/LPAQ 系列暂无许可兼容的成熟后端，不在支持范围。
 - RAR 只读列表、密码验证、解压和完整性测试（UnRAR 后端，保留许可声明）；Unix `.Z`、AES `.enc`、ALZ（Store/Deflate/ALZ 改造 Bzip2，支持 ZipCrypto 和 `.a00` 分卷）只读解压。
 - ISO/UDF、CAB、ARJ、ACE、ARC/PAK、Quake/Chromium/Unreal PAK、CPIO、WIM（第一映像，XPRESS/LZX/LZMS，支持 SWM 分卷）、DEB、XAR/PKG、RPM、MSI、CHM、SquashFS、NSIS、DMG、EGG、ISZ、IMG/BIN、UU/XXE、LZ/LZMA、TAR.Z、ZOO、HA、HYP、SQ、SQZ、UC2、ICE、PACKICE 等 40+ 只读格式适配；WIM 支持 LZX 压缩创建。
 - ZIP/7Z 归档内浏览、选择性解压、删除/重命名/添加文件，7Z 重命名和整块删除直接复用原始压缩块，无法复用时才全量重建，最后原子替换；把文件或文件夹拖入归档时可选择“替换同名文件”“只更新较新的文件”“仅刷新已有条目”或“同步文件夹内容”，同步会删除归档中磁盘已不存在的条目，结果消息会给出跳过和删除数量；可选 `.lumark.bak`。
 - `.001` 原始分卷创建、列表和解压；失败时保留旧卷并清理半成品。
-- 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、记录时间、独立编辑窗口、掩码与 10 秒显示、Windows DPAPI（计算机绑定）、可选主密码、Windows 会话锁定时自动锁定、加密导入导出和明文 CSV 导出；导出位置通过文件夹选择器指定，锁定时需先解锁，操作结果通过官方 Notification 提示；独立设置窗口可查看密码库位置并迁移到自定义文件夹。
-- 打开加密压缩包时显示独立密码输入窗口，支持显示密码、自动匹配密码库记录和跳转密码管理；自动匹配失败后可直接勾选“保存到密码库”，密码校验通过才写入记录。
-- 文件平铺视图按大图标加名称排列，优先使用 Windows Shell 文件类型图标，读取失败时回退 IconPark；文件表列宽可拖动表头分隔线逐列调整，松手后持久化，设置页保留三档预设和“重置列宽”。
+- 压缩源为多个文件或文件夹时自动改用支持多文件的格式：GZ/BZ2/XZ/ZST/Brotli/LZ4/Snappy/BZip3 等单文件流格式有 TAR 变体时切换为对应 TAR，Snappy/BZip3 回退 ZIP。
+- 密码管理：添加/编辑/删除即时写入、名称/备注/匹配规则、记录时间、掩码与 10 秒显示、Windows DPAPI（计算机绑定）、可选主密码、Windows 会话锁定时自动锁定、加密导入导出和明文 CSV 导出；导出位置通过文件夹选择器指定，锁定时需先解锁，操作结果通过通知提示；密码库位置可查看并迁移到自定义文件夹。
+- 打开加密压缩包时提示输入密码，支持显示密码、自动匹配密码库记录和跳转密码管理；自动匹配失败后可直接勾选“保存到密码库”，密码校验通过才写入记录。
 - 支持把归档内文件直接拖到资源管理器解压，或用 Ctrl+C 复制文件后粘贴；临时文件按归档窗口隔离，关闭窗口后清理。
-- 解压加密 ZIP/7Z/RAR 时从密码库生成候选密码并在后台逐个验证；主密码锁定时提供解锁入口，校验较慢时可从进度卡片或状态栏停止并改为手动输入。
-- 后台任务：固定工作线程池按提交顺序排队执行归档加载、压缩、解压、测试、编辑和记录密码验证，排队中的任务可直接取消；支持进度、暂停/继续、取消、状态栏和独立进度窗口，任务中心同时显示运行中/排队中/已完成数量和跨任务合并进度。
+- 解压加密 ZIP/7Z/RAR 时从密码库生成候选密码并在后台逐个验证；主密码锁定时提供解锁入口，校验较慢时可停止自动尝试并改为手动输入。
+- 后台任务：固定工作线程池按提交顺序排队执行归档加载、压缩、解压、测试、编辑和记录密码验证，排队中的任务可直接取消；支持进度、暂停/继续、取消，任务中心同时显示运行中/排队中/已完成数量和跨任务合并进度。
 - 压缩后可测试归档并在成功时删除源文件。
-- 压缩完成邮件通知：设置窗口“通知”页配置 SMTP 主机、端口、1–300 秒超时、账号、DPAPI 加密密码/XOAUTH2 访问令牌/客户端密钥/刷新令牌、发件人和收件人，支持隐式 TLS/STARTTLS/无 TLS 及测试发送；瞬时网络/4xx 错误最多退避重试 3 次，保留最近 8 条发送结果，并把失败通知持久化到待重试队列；配置刷新令牌后通过 `reqwest` 从令牌端点自动获取访问令牌。
-- 自解压 EXE：压缩窗口可勾选“自解压 EXE”（ZIP 或 7Z 单卷载荷，可带密码），生成的可执行文件内置 `lumark-sfx` 运行时；双击后打开参考 360 压缩布局的原生 Win32 设置窗口（左侧品牌栏、说明文字、目标目录/浏览、密码、解压/取消），解压时显示原生进度窗口（已用/剩余时间、总长度、速率、已处理、文件数、当前文件、进度条、后台/取消），取消会停止后台解压；也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数，静默模式不初始化界面且失败返回非零退出码；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。运行时刻意使用原生 Win32 控件而非 GPUI/DirectX：新 GPUI stub 会被 360 的 QVM 启发式误报，原生 stub 已由用户实测不触发。
-- 伪装压缩（全格式）：压缩窗口可勾选“伪装为媒体文件”，把 ZIP、7Z、LZH、ZPAQ、TAR 系列、GZ/BZ2/XZ/ZST/Brotli/LZ4 的输出包装成可正常播放/查看的 MP4/JPG 外观；ZIP、7Z、LZH、TAR 系列和单文件流边生成边写入伪装容器，不再额外保留完整内层文件；内层归档格式保持不变，载荷按 128 KiB 分块用 BLAKE3 密钥流混淆，尾部 512 字节记录载荷偏移/长度、原文件名、混淆盐和载荷类型。内置视频/图片面具，也可选择自定义媒体文件；伪装不提供加密。
-- 一键打开与一键还原：Lumark 文件表双击伪装归档、或资源管理器“用 Lumark 打开”，直接浏览/选择性解压/测试内层归档；ZIP/7Z/TAR 系列/单文件流/LZH 使用读取视图不复制载荷，ZPAQ/RAR/ALZ/传统只读格式物化到临时目录并做进程内缓存。右键“还原伪装文件”或资源管理器“Lumark 一键还原”把真身写回伪装文件旁，同名文件自动追加序号；伪装 ZIP/7Z 还支持原地重命名、删除和添加，自动复用原面具重新包装。
+- 压缩完成邮件通知：可配置 SMTP 主机、端口、1–300 秒超时、账号、DPAPI 加密密码/XOAUTH2 访问令牌/客户端密钥/刷新令牌、发件人和收件人，支持隐式 TLS/STARTTLS/无 TLS 及测试发送；瞬时网络/4xx 错误最多退避重试 3 次，保留最近 8 条发送结果，并把失败通知持久化到待重试队列；配置刷新令牌后通过 `reqwest` 从令牌端点自动获取访问令牌。
+- 自解压 EXE：压缩时可勾选“自解压 EXE”（ZIP 或 7Z 单卷载荷，可带密码），生成的可执行文件内置 `lumark-sfx` 运行时；双击后可选择目标目录（支持浏览）、按需输入密码并执行解压，解压过程显示进度并可取消；也支持 `/S`、`/D=`、`/P=`、`/Y` 静默参数，静默模式不初始化界面且失败返回非零退出码；密码也可通过 `LUMARK_SFX_PASSWORD` 环境变量提供，避免出现在命令行历史中；可选择 `.ico` 自定义图标，成功后打开资源管理器，模块随安装脚本分发；运行时界面按 Windows 显示语言切换中英文，也可用 `LUMARK_LANG=en` 或命令行 `/LANG=en` 覆盖。
+- 伪装压缩（全格式）：压缩时可勾选“伪装为媒体文件”，把 ZIP、7Z、LZH、ZPAQ、TAR 系列、GZ/BZ2/XZ/ZST/Brotli/LZ4 的输出包装成可正常播放/查看的 MP4/JPG 外观；ZIP、7Z、LZH、TAR 系列和单文件流边生成边写入伪装容器，不再额外保留完整内层文件；内层归档格式保持不变，载荷按 128 KiB 分块用 BLAKE3 密钥流混淆，尾部 512 字节记录载荷偏移/长度、原文件名、混淆盐和载荷类型。内置视频/图片面具，也可选择自定义媒体文件；伪装不提供加密。
+- 一键打开与一键还原：双击伪装归档、或资源管理器“用 Lumark 打开”，直接浏览/选择性解压/测试内层归档；ZIP/7Z/TAR 系列/单文件流/LZH 使用读取视图不复制载荷，ZPAQ/RAR/ALZ/传统只读格式物化到临时目录并做进程内缓存。右键“还原伪装文件”或资源管理器“Lumark 一键还原”把真身写回伪装文件旁，同名文件自动追加序号；伪装 ZIP/7Z 还支持原地重命名、删除和添加，自动复用原面具重新包装。
 - 任意文件伪装：文件或归档右键“伪装为媒体文件…”打开独立伪装窗口，资源管理器右键菜单也提供“伪装为媒体文件…”入口；可选择输出目录、面具和“伪装后删除源文件”；已有 ZIP/7Z 等归档伪装后仍可直接浏览，普通文件伪装只能还原。
-- 设置的“压缩”页可配置新压缩默认启用伪装、默认面具类型和自定义面具文件；`.mp4`/`.jpg` 只注册 `OpenWithProgids` 作为“打开方式”候选，不修改系统默认关联。
+- 可配置新压缩默认启用伪装、默认面具类型和自定义面具文件；`.mp4`/`.jpg` 只注册 `OpenWithProgids` 作为“打开方式”候选，不修改系统默认关联。
 - 解压资源预算：默认单次解压总量 128 GiB、条目 100 万，超出时中止并删除半成品；ZIP/7Z/TAR 在写文件前检查，单文件流、加密容器和容器复制按剩余预算分块中止；RAR、ALZ 和传统只读格式按条目声明大小做预算检查，ALZ 的写入器还会按剩余预算兜底。
-- 压缩后关机：压缩窗口可勾选“完成后关闭计算机”，压缩、测试和删除源文件都成功后由系统 `shutdown.exe` 安排 60 秒倒计时关机，期间可用 `shutdown /a` 取消；失败或取消的任务不会关机。
-- CPU 占用：压缩窗口可勾选“降低压缩优先级”，任务运行期间进程以普通以下优先级调度，全部低优先级任务结束后恢复；压缩线程数仍可在算法页单独限制。
+- 压缩后关机：压缩时可勾选“完成后关闭计算机”，压缩、测试和删除源文件都成功后由系统 `shutdown.exe` 安排 60 秒倒计时关机，期间可用 `shutdown /a` 取消；失败或取消的任务不会关机。
+- CPU 占用：压缩时可勾选“降低压缩优先级”，任务运行期间进程以普通以下优先级调度，全部低优先级任务结束后恢复；压缩线程数仍可单独限制。
 - Windows 当前用户文件关联：可勾选 ZIP、ZIPX、7Z、RAR、XAR/PKG、RPM、MSI、CHM、SquashFS、DMG、EGG、Snappy、BZip3、ASAR、PAK、APK、JAR、PAX 等 42 种压缩格式，注册后直接打开 Lumark 的 Windows 默认应用页，由系统确认默认值；同时提供经典右键菜单、Send To、回收站删除和安装/卸载脚本。
-- ISO 虚拟光驱：Lumark 文件列表和资源管理器右键菜单都提供“加载至虚拟光驱/卸载虚拟光驱”；挂载成功后自动打开盘符，使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`。客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。资源管理器菜单位于 `HKCU\Software\Classes\SystemFileAssociations\.iso\shell`，升级后需要重新运行安装脚本或 `Lumark.exe --register-shell`。
+- ISO 虚拟光驱：Lumark 文件列表和资源管理器右键菜单都提供“加载至虚拟光驱/卸载虚拟光驱”；挂载成功后自动打开盘符，使用 Windows 8+ 自带的 `Mount-DiskImage`/`Dismount-DiskImage`。客户端普通用户通常无需管理员，Server 或收紧的安全策略可能要求管理员。
 - 单实例多窗口：首个进程创建命名管道和互斥体，后续进程优先通过命名管道转发参数（失败回退请求目录）；每个文件生成独立窗口，窗口之间共享设置和密码库、各自保留浏览状态，关闭全部窗口后退出进程。
-- 内置查看器：文本/十六进制按内容自动选择，支持编辑器保存和归档条目写回；exe/dll 等 PE 文件默认作为只读归档浏览，按节和 `.rsrc` 资源目录展开，图标资源重建为 `.ico`，可解压节/资源并用内置查看器或图片查看器打开，右键“运行”才交给系统执行；图片查看器支持 PNG/JPEG/GIF/WebP/SVG/BMP/TIFF/ICO 等常见格式（实际解码能力取决于 GPUI `Img` 与 image 特性），支持适应窗口、100%、缩放和滚动平移。归档条目先解压到临时目录再打开，临时文件沿用现有查看器生命周期。
-- 游戏资产：Windows 主界面提供游戏库、游戏目录扫描、AES 密钥提取/手动校验、Oodle 后端与 `.usmap` 配置；可同时打开多个游戏，侧栏标签切换，每个游戏保留独立浏览位置和历史，打开列表在重启后自动恢复；IoStore/PAK 只读浏览复用现有文件表，支持 UTexture2D（BC1/BC3/BC4/BC5/BC7/BGRA8/RGBA8/G8）、StaticMesh/SkeletalMesh 多 LOD 与查看器切换（含逐 LOD 蒙皮权重、LBS 蒙皮变换、动画播放/暂停、section/材质切换）、Skeleton 参考骨骼（含 FF7R 内嵌骨架探测）、AnimSequence 元数据/PerTrack 解码与时间轴、Zen/FF7R 只读字段行。查看器支持左键旋转、右键平移、滚轮缩放（拖动时 0.75× 交互帧，静止后补全分辨率）；详情缩略图与查看器共用同一 Snooper 光照/背景预设；检查器可查看/切换 section 可见性、材质 blend/shading、高光强度、粗糙度区间、AO/自发光与贴图尺寸；材质按 CUE4Parse `CMaterialParams2` 与 Snooper `scene_lighting` 对齐（太阳 + 天空环境光、R/G/B=高光/金属/粗糙、F0 高光基值、gamma-only 输出，并保留 FModel spec/AO/Skin Boost 头灯兼容），默认隐藏无贴图/半透明 section；工具栏“属性 JSON”打开导出表 + 属性树的只读 JSON 窗口。仅 Windows 展示入口；无版本属性需要映射文件，BNB 映射已随游戏目录提供并自动发现，纹理/模型/骨骼/动画已实机验收。使用说明与实现边界见 [`docs/game-assets.md`](docs/game-assets.md)。
+- 内置查看器：文本/十六进制按内容自动选择，支持编辑器保存和归档条目写回；exe/dll 等 PE 文件默认作为只读归档浏览，按节和 `.rsrc` 资源目录展开，图标资源重建为 `.ico`，可解压节/资源并用内置查看器或图片查看器打开，右键“运行”才交给系统执行；图片查看器支持 PNG/JPEG/GIF/WebP/SVG/BMP/TIFF/ICO 等常见格式，支持适应窗口、100%、缩放和滚动平移。归档条目先解压到临时目录再打开，临时文件沿用现有查看器生命周期。
+- 游戏资产：Windows 上提供游戏库、游戏目录扫描、AES 密钥提取/手动校验、Oodle 后端与 `.usmap` 配置；可同时打开多个游戏并各自保留独立浏览位置和历史，打开列表在重启后自动恢复；IoStore/PAK 只读浏览复用现有文件表，支持 UTexture2D（BC1/BC3/BC4/BC5/BC7/BGRA8/RGBA8/G8）、StaticMesh/SkeletalMesh 多 LOD 与查看器切换（含逐 LOD 蒙皮权重、LBS 蒙皮变换、动画播放/暂停、section/材质切换）、Skeleton 参考骨骼、AnimSequence 元数据/PerTrack 解码与时间轴、Zen/FF7R 只读字段行。查看器支持左键旋转、右键平移、滚轮缩放；详情缩略图与查看器共用同一 Snooper 光照/背景预设；检查器可查看/切换 section 可见性、材质 blend/shading、高光强度、粗糙度区间、AO/自发光与贴图尺寸，默认隐藏无贴图/半透明 section；可打开导出表 + 属性树的只读 JSON 视图。
 - 密码库 XChaCha20-Poly1305、Argon2id、原子写入、损坏 `.bak` 恢复、外部修改锁定和密码零化。
 
 ### 格式支持矩阵
@@ -64,368 +41,55 @@ Lumark 是一个使用 Rust + [gpui-kit](https://github.com/longbridge/gpui-kit)
 - **伪装**：所有可写格式都能输出为媒体外观并直接浏览/解压/测试/还原；只读归档可通过“伪装为媒体文件…”包装，打开时物化到临时目录后复用现有读取逻辑；原始文件载荷只能还原，不能浏览。
 - **格式支持范围**：PAQ8/LPAQ 按许可与兼容性评估不纳入；MSI 提供内嵌及同目录外部 CAB 读取与目录层级还原；WIM 的 LZMS/SWM 写入、RAR/CAB/ISO/UDF/ALZ 创建、ZIP Deflate64 等旧方法与 `.tar.Z` 写入不在当前格式矩阵内。
 
-## 运行
+## 命令
+
+### 启动
 
 ```powershell
 cargo run -p lumark-app
 ```
 
-要求 Rust stable（当前环境为 1.99，工作区 MSRV 为 1.96），Windows x64/x86，MSVC 工具链。首次构建会下载 GPUI Kit 及其依赖；构建 x86 发布产物前需要先执行 `rustup target add i686-pc-windows-msvc`。
-
-生成安装包或自解压功能需要同时构建运行时模块。自解压运行时使用原生 Win32 UI 的常规 release 构建，产物位于 `target\release\lumark-sfx.exe`：
+### 构建
 
 ```powershell
 cargo build --release --locked -p lumark-app
 cargo build --release --locked -p lumark-sfx
 ```
 
-`lumark-sfx` 不再依赖 GPUI/DirectX，避免 360 QVM 把带图形运行时的自解压 stub 判为木马；设置/进度窗口由原生 Win32 控件和 GDI 绘制，stub 约 1.6 MiB。主程序仍使用 gpui-kit，只有自解压运行时保持原生。
-
-Windows 构建脚本会把构建期 `TEMP`/`TMP` 指向仓库 `target`，规避 `lib.exe`/`link.exe` 在系统临时目录创建 `lnk*.tmp` 时被安全软件拦截的 `LNK1104`。
-
-### 一键发布构建
-
-推荐用 `tools/build_release.ps1` 完成构建、信任检查、签名、安装器和校验文件。`-Arch` 支持 `x64`（默认）和 `x86`；x64 与 x86 各跑一次，产物会汇总到同一个 `dist`：
+### 发布构建与签名
 
 ```powershell
 ./tools/build_release.ps1 -Version 0.1.0 -Arch x64
-# 首次构建 x86 前安装目标：rustup target add i686-pc-windows-msvc
+# 首次构建 x86 前安装目标
+rustup target add i686-pc-windows-msvc
 ./tools/build_release.ps1 -Version 0.1.0 -Arch x86
 ./tools/build_release.ps1 -Version 0.1.0 -Arch x64 -UseDevCert
-# 可选：随安装器/便携包分发已授权的 Oodle DLL
 ./tools/build_release.ps1 -Version 0.1.0 -OodleDll .\oo2core_9_win64.dll
-```
-
-首次使用开发证书先运行 `./installer/self-sign.ps1`（当前用户级，不需要管理员）。脚本会：
-
-- 按 `-Arch` 编译 `lumark-app`（release）和原生 Win32 `lumark-sfx`（release，不链接 GPUI/DirectX）；x64 使用默认 `target\release`，x86 使用 `--target i686-pc-windows-msvc`；
-- 清除 MOTW；检测并恢复工作区根目录、`target`、架构对应的 `release`/`debug`、`dist`、`target\dist-stage` 的 Low 完整性（见“打开文件 - 安全警告”章节）；
-- 按需用 `-UseDevCert`、`-SignThumbprint` 或 `-SignPfxPath` 签名；
-- 把二进制和许可文本暂存到 `target\dist-stage\<架构>`（不再放进 `dist`），调用 `installer/pack-installer.ps1` 生成 `dist\Lumark-Setup-<版本>-<架构>.exe`；
-- 生成 `dist\Lumark-<版本>-windows-<架构>-portable.zip`，并按 `dist` 中实际存在的本版本产物刷新 `dist\SHA256SUMS.txt`。
-
-`dist` 只保留可分发的最终文件：安装包、便携包和校验文件。`windows\`、`Lumark.exe`、`lumark-sfx.exe` 等内部文件只存在于 `target\dist-stage\<架构>`，不会再进入 CI artifact 或 GitHub Release。
-
-需要单独控制打包时仍可直接调用 Inno 脚本；它只负责暂存、编译和签名，不清理 release 产物的 MOTW/完整性标签：
-
-```powershell
 ./installer/pack-installer.ps1 -Version 0.1.0 -Arch x64
 ./installer/pack-installer.ps1 -Version 0.1.0 -Arch x86
-```
-
-Windows 分发按 [GPUI Kit 官方打包文档](https://gpui-kit.com/zh-CN/docs/packaging/) 使用 Inno Setup。仓库已内置 Inno Setup 6.7.3 命令行编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装；不要删除该目录。`build_release.ps1` 会签名 `target\release` 和安装器，直接调用 `pack-installer.ps1` 时只签名暂存二进制和最终安装器：
-
-```powershell
-./tools/build_release.ps1 -Version 0.1.0 -Arch x64 -SignThumbprint <SHA1指纹>
-./tools/build_release.ps1 -Version 0.1.0 -Arch x86 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
 ./installer/pack-installer.ps1 -Version 0.1.0 -Arch x64 -SignThumbprint <SHA1指纹>
 ./installer/pack-installer.ps1 -Version 0.1.0 -Arch x86 -SignPfxPath .\codesign.pfx -SignPfxPassword <密码>
-```
-
-开发阶段可创建当前用户级自签名证书，不需要管理员权限。脚本会把证书加入当前用户的根和受信任发布者存储，并输出指纹；之后用 `-UseDevCert` 自动选中：
-
-```powershell
 ./installer/self-sign.ps1
-./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
-```
-
-自签名只对本机或已手动信任 `dist\dev-cert\Lumark-Dev.cer` 的机器有效；其它机器仍可能显示未知发布者，SmartScreen 信誉也不能靠自签名获得。正式分发应使用受信任 CA 的 Authenticode 证书。签名不会授予管理员权限；当前安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限。x64 安装包默认安装到 `C:\Program Files\Lumark`，x86 安装包在 64 位系统上默认安装到 `C:\Program Files (x86)\Lumark`（32 位系统上仍是 `C:\Program Files\Lumark`）。
-
-也可以单独校验已有签名：
-
-```powershell
 ./installer/sign.ps1 -VerifyOnly
 ```
 
-## 测试
+### 测试
 
 ```powershell
 cargo test --workspace
-```
-
-低内存环境建议使用：
-
-```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/test_workspace.ps1
-# 等价于 cargo test-safe：-j 2 --test-threads=1，输出流式写入 target/test-workspace.log
-```
-
-仓库默认 `build.jobs = 4`，并把开发/测试配置的第三方依赖调试信息降到 0；
-长构建不要用 `Select-Object -Last` 包裹 cargo 输出，它会缓存全部输出行。
-
-完整验收矩阵、实机证据与支持范围见 [`docs/acceptance.md`](docs/acceptance.md)。
-
-提交前额外运行：
-
-```powershell
 powershell -NoProfile -File tools/check_file_sizes.ps1
 ```
 
-DPAPI 测试需要普通用户密钥存储；托盘图标测试需要可创建 Shell 通知图标的交互式桌面会话，受限会话可能返回“拒绝访问”。
-
-归档解析另有确定性变异测试：对 ZIP/7Z/TAR/GZIP 和 NSIS/SquashFS/DMG 做多轮单字节篡改与截断，确保列表、测试、解压只返回错误而不 panic。
-
-持续模糊测试：`cargo +nightly fuzz run archive_list`（需要 nightly 和 cargo-fuzz；目标位于 `fuzz/`）。
-
-10 万项目录基准：`cargo run -p lumark-browser --release --example bench_100k`，当前实测加载约 167 ms、搜索约 75 ms。
-
-归档闭环基准：`cargo run -p lumark-archive --release --example bench_archive`，32 MiB 源下 ZIP 创建约 94 ms、7Z 约 3.5 s、TAR.GZ 约 133 ms；列表、解压和测试耗时同时输出。
-
-测试覆盖：
-
-- ZIP/7Z/TAR 系列/流式格式往返、AES 密码、固实压缩、原子编辑、分卷和路径穿越拒绝。
-- 密码库 XChaCha20-Poly1305、Argon2id、DPAPI、导出导入、主密码、自动锁定、损坏恢复和密码匹配。
-- 任务队列压缩/解压/测试和后台记录密码验证。
-- 工作池排队顺序、排队任务取消和跨任务进度聚合。
-- 归档更新模式（只更新较新文件、仅刷新已有条目、同步文件夹并删除多余条目）和 ZIP 条目时间戳的本地时区解释。
-- 自解压包拼接与运行时解析：生成端校验页脚，运行时模块读取数据段并拒绝路径穿越条目。
-- 解压资源预算拦截 ZIP、7Z 和流式压缩炸弹，超限时清理半成品。
-- 压缩后关机参数（倒计时下限、原因文本）和任务成功/失败/取消时的关机计划清理。
-- 进程优先级开关的读写往返和多任务并存时的恢复时机。
-- 密码库候选密码自动解压加密 ZIP/7Z/RAR。
-- 全格式伪装矩阵（ZIP/7Z/LZH/ZPAQ/TAR 系列/单文件流）的创建、浏览、解压、测试与还原；任意文件伪装、已有归档伪装、只读格式物化打开、尾部损坏、取消和同名还原。
-- 多选、范围选择、历史导航和高级搜索过滤。
-- `gpui-kit::test` 真实窗口测试覆盖虚拟文件行、平铺视图切换、密码校验弹窗与归档更新模式确认框。
-- 真实 Windows 窗口已完成宽窗口、最小窗口、轻巧/经典压缩窗口、独立解压窗口、任务中心、独立进度窗口、密码库、独立密码编辑窗口、主密码窗口、独立设置窗口与文件关联的视觉验收，截图位于 `artifacts/`。
-
-## 界面结构
-
-`app.rs` 只保留应用状态、启动参数和生命周期，其余职责按功能拆分：
-
-| 文件 | 职责 |
-|---|---|
-| `app/actions/files.rs` | 导航、选择、搜索、目录树和文件操作；进度辅助在 `app/actions/files/util.rs` |
-| `app/actions/archive.rs` | 归档打开、压缩、解压、测试、输出目录选择和密码验证流程；按 `open/compress/extract/password/test/util` 拆分 |
-| `app/actions/disguise.rs` | 伪装窗口、批量伪装、一键还原和 Shell 错误提示 |
-| `app/actions/passwords.rs` | 密码即时写入、解锁、主密码和导入导出 |
-| `app/actions/settings.rs` | 主题、默认压缩参数、密码库位置、文件关联和 Shell 集成 |
-| `app/actions/tasks.rs` | 任务记录、事件桥、Shell 压缩批次、后台宿主托盘和任务中心数据维护 |
-| `app/view/chrome.rs` | 标题栏、动作带、导航行、文件夹侧栏、状态栏和模态层；按布局区域拆分为子模块 |
-| `app/view/browser.rs` | 全宽文件表、搜索结果条和侧栏详细信息检查器；列、行、平铺、菜单、详情和拖放分文件 |
-| `app/view/pages.rs` | 页面模块入口，只保留子模块声明 |
-| `app/view/pages/passwords.rs` | 密码库页面组合 |
-| `app/view/pages/password_list.rs` | 记录列表、搜索、锁定面板和记录行 |
-| `app/view/pages/password_details.rs` | 记录详情和主密码卡片 |
-| `app/view/pages/password_security.rs` | 自动解压与安全操作卡片 |
-| `app/view/pages/tasks.rs` | 任务中心页面、任务行和状态样式 |
-| `app/view/pages/shared.rs` | 跨页面复用的统计卡片 |
-| `app/view/settings_window.rs` | 独立设置窗口、选项卡框架和窗口生命周期 |
-| `app/view/settings_window_pages.rs` | 综合、外观和关于选项卡 |
-| `app/view/settings_window_tabs.rs` | 压缩、文件关联和密码库选项卡 |
-| `app/view/password_windows.rs` | 独立密码编辑窗口和主密码设置窗口 |
-| `app/view/compress_window.rs` | 独立压缩窗口、轻巧/经典排版、官方 Select 算法与时间选项、伪装选项卡；按表单、布局、分卷、标签和选项卡拆分 |
-| `app/view/disguise_window.rs` | 独立伪装窗口、输出目录、面具选择和删除源文件选项 |
-| `app/view/extract_window.rs` | 独立解压窗口、目标目录、密码显示/隐藏和仅解压选中条目 |
-| `app/view/dialogs.rs` | 确认对话框、密码提示和导入导出表单；按归档密码、归档编辑、文件编辑、密码库和临时解压拆分 |
-| `app/view/windows.rs` | 独立任务进度窗口、任务控制和进度指标 |
-| `app/view/components.rs` | IconPark 图标、渐变横幅、经典分组框、单复选控件和通用按钮 |
-| `app/util.rs` | 路径、大小、日期、格式和界面格式化辅助函数 |
-| `app/theme.rs` | 主题模式、强调色派生和全局主题 token |
-| `app/startup.rs` | 启动模式和单实例路径解析 |
-| `app/stores.rs` | 多窗口共享的设置和密码库存储 |
-| `app/tests.rs` | 启动参数测试入口；真实窗口 UI 测试按浏览器、压缩、密码、任务和查看器拆分到 `app/tests/` |
-
-![Lumark 主界面](artifacts/ui-main-final.png)
-
-![文件夹大小按需计算](artifacts/ui-folder-size.png)
-
-![窄窗口布局](artifacts/ui-narrow.png)
-
-![高级搜索匹配菜单](artifacts/ui-search-menu.png)
-
-![轻巧压缩窗口](artifacts/ui-compress-light.png)
-
-![经典压缩窗口](artifacts/ui-compress-dialog.png)
-
-![官方 Select 下拉菜单](artifacts/ui-compress-select.png)
-
-![文件右键菜单](artifacts/ui-context-menu.png)
-
-![删除确认](artifacts/ui-delete-confirm.png)
-
-![删除密码记录](artifacts/ui-delete-password.png)
-
-![独立解压窗口](artifacts/ui-extract-window.png)
-
-![任务中心](artifacts/ui-task-center.png)
-
-![任务进度窗口](artifacts/ui-progress-window.png)
-
-![取消任务二次确认](artifacts/ui-progress-cancel.png)
-
-![密码管理](artifacts/ui-passwords-final.png)
-
-![独立密码编辑窗口](artifacts/ui-password-editor.png)
-
-![主密码设置窗口](artifacts/ui-master-window.png)
-
-![密码库位置设置](artifacts/ui-vault-location.png)
-
-![更改密码库位置对话框](artifacts/ui-vault-location-modal.png)
-
-![独立设置窗口](artifacts/ui-settings-window.png)
-
-![设置与主题色选择](artifacts/ui-theme-color.png)
-
-![文件关联与 Windows 集成](artifacts/ui-file-association.png)
-
-## 工作区
-
-| Crate | 职责 |
-|---|---|
-| `lumark-archive` | 格式模型与检测、归档读写、路径安全、选择性解压 |
-| `lumark-vault` | 加密密码库、DPAPI、主密码、密码匹配 |
-| `lumark-tasks` | 后台任务、进度、暂停和取消 |
-| `lumark-mail` | SMTP 邮件通知发送器 |
-| `lumark-browser` | 文件系统与归档浏览、多选、搜索 |
-| `lumark-settings` | 非敏感设置持久化 |
-| `lumark-ui` | 基于 GPUI Kit 的桌面界面 |
-| `lumark-ui-shared` | 主程序共用的主题、i18n、IconPark/品牌资源、通用控件和进度面板 |
-| `lumark-sfx` | 自解压运行时模块：解析页脚、按需解压并拒绝不安全路径；设置/进度窗口为原生 Win32 控件 |
-| `lumark-app` | 应用入口 |
-| `lumark-platform-windows` | 回收站、经典 Shell 菜单、单实例和 Windows 平台适配 |
-
-## 设计取舍
-
-- 模块按职责拆分：单文件超过 3000 行触发提醒、超过 10000 行才失败；`service.rs` 拆为探测、列表、解压、创建、伪装、传统格式、工具、进度和分卷模块；压缩窗口、文件表、标题栏、弹窗、归档动作、应用测试和 roundtrip 测试同样按功能拆分。`tools/check_file_sizes.ps1` 在验证阶段输出超长文件提醒并拦截超过硬上限的文件，避免功能继续无边界堆回单个文件。
-
-- 密码库默认由与当前计算机绑定的 Windows DPAPI 保护；设置主密码后改用 Argon2id + XChaCha20-Poly1305，并移除 DPAPI 包裹。主密码无法找回。
-- 密码列表默认掩码，单条显示 10 秒；复制后 30 秒只在剪贴板内容仍匹配时清空。
-- 当前原生读写格式为 ZIP、7Z、LZH、ZPAQ、TAR 系列（含 BR/LZ4/LZ/LZMA 和 PAX）、常用单文件流、Brotli/LZ4、ASAR、APK、JAR；Unreal/Quake/Chromium PAK 和其余 40+ 扩展名已纳入格式识别和界面类型判断，具体只读解码仍按 `IMPLEMENTATION_STATUS.md` 推进。
-- ALZ 使用 MIT 的 `unalz` 库做只读解压，支持 Store、Deflate、ALZ 改造 Bzip2、ZipCrypto 和 `.a00` 分卷；ALZ 路径接口是 UTF-8 字符串，非 UTF-8 路径会明确报错，`.egg` 属于另一种格式，不在支持范围。
-- ZOO/HA/HYP/SQ/SQZ/UC2/ICE/PACKICE/TAR.Z 通过现有 `unarc-rs` 统一读取接口接入；这些格式按整条目缓冲读取，因此没有条目内逐块进度和中途取消，预算以“读取前声明大小 + 读取后实际长度”双重检查为准，不把它们描述为对大归档零风险。
-- ZIP 旧方法（Deflate64/Shrink/Reduce/Implode）只读：启用 `zip` 的 `deflate64` 与 `legacy-zip` 特性，不提供这些方法的写入入口。
-- ZPAQ 使用本地 fork 的 `zpaq_rs` 内嵌 libzpaq/JIDAC 参考实现：普通压缩写入标准 JIDAC 格式，条目大小和时间可被官方 zpaq 读取；新增的 `ArchiveWriter` 可把无密码或 AES-CTR 加密归档逐条目写入任意流，伪装创建因此不再落完整内层文件。解压先落到输出目录内的暂存区，再按覆盖策略移动，确保跳过/重命名和资源预算可用。引擎调用是阻塞的，因此普通压缩按 32 MiB / 64 文件分批提供进度和取消点，解压解码阶段没有逐文件进度；PAQ8/LPAQ 没有许可兼容的成熟 crate（paq8px 为 GPL-2 且归档跨版本不兼容），不纳入支持列表。
-- 自解压包使用自有运行时模块，ZIP/7Z 载荷、密码可选、按单卷设计；解压路径的包含性、符号链接和覆盖行为复用归档层的安全校验，不自研第二套路径检查。自定义图标通过 Win32 资源 API 在追加载荷前替换，避免重写已拼接的数据段。之所以没有引入 `zesven::sfx` 或 7-Zip SFX 模块：前者只负责 stub+配置+7z 拼接且仍需要外部 stub，后者是 LGPL 二进制并需额外合规。交互式自解压窗口曾尝试 GPUI 官方组件，但 360 QVM 会把带 GPUI/DirectX 的 stub 判为木马；当前改为原生 Win32 设置/进度窗口，左侧品牌栏用 GDI 绘制，不把 `lumark-ui`、归档、任务和渲染依赖带入 stub。进度窗口用独立后台线程和 80ms 定时器刷新，取消标记在读写块之间检查。
-- XZ 编解码统一使用纯 Rust `lzma-rust2`（RPM/XAR 解码、TAR/单文件流创建），不再直接依赖 `xz2`；本地 `vendor/xz2` 适配层把本地 `lumark-legacy` 的 XZ/LZMA 调用转到 `lzma-rust2`，SquashFS 的 XZ 后端起用 `liblzma`。`lumark-legacy` 从 GeeZipX 0.7.4 裁剪，只保留实际使用的传统格式读取器，外部 `geezipx-core` 及其重复 ZIP 2/7z 0.21 依赖已移除；WIM 和 AES 容器使用自有标准后端。
-- 伪装容器使用自有格式，不与 Apate 做二进制互通：Apate 为 GPL-3.0，读取或生成其格式需要研究并受其许可约束；Lumark 只借鉴“伪装/一键还原”的功能形态，容器、实现和内置面具均为独立实现。容器固定为“面具 + 混淆载荷 + 512 字节尾部”，尾部保存载荷边界、原文件名、混淆盐和载荷类型，因此还原不依赖面具内容。
-- ZIP/7Z/LZH/TAR 系列/单文件流以及 ZPAQ（含密码）边生成边写入伪装容器；ZPAQ 密码流由写入器生成盐并用 AES-CTR 加密，不再落完整内层归档。
-- 伪装归档的打开策略分两类：ZIP/7Z/TAR 系列/单文件流/LZH 直接读取解密视图，不复制载荷；ZPAQ、RAR、ALZ 和 `lumark-legacy`/`unarc-rs` 传统格式只接受路径，物化到 `%TEMP%\Lumark\disguise-*` 并按（路径、长度、修改时间、盐）缓存，最多 4 项 / 16 GiB，启动时清理 24 小时前的残留。
-- 伪装只混淆载荷和文件名，不提供加密：盐随文件保存，能读取文件的人都能还原；真正的机密性仍依赖 ZIP/7Z 密码。尾部信息是还原的唯一入口，文件被截断或追加后无法还原，原文件名上限为 240 字节。
-- CPU 限制采用进程优先级而不是百分比硬限速：硬限速会把界面线程一起限流，暂停、取消和进度刷新都会变迟钝；需要更精细控制时使用压缩线程数选项。
-- 7Z 后端继续使用 `sevenz-rust2`：`zesven` 的解压进度、流式和编辑 API 更全，但更年轻（2026 年首版、下载量约为前者 1/27、七个月跨了三个大版本），整体迁移要重写 list/extract/create/edit/probe/verify 并重跑 7-Zip 互操作矩阵；现阶段用读取器包装和编码块完成量补进度（加密归档退回读取进度），等需要“7Z 编辑避免全量重压缩”等能力时再做 spike 评估。
-- LZH 创建复用 `oxiarc-lzhuf` 的 LZSS 匹配器和本地可续写块编码器，按预设映射到 lh4/lh5/lh7；跨 1 MiB 读取块保持历史窗口和位写入状态，不再限制单条目 512 MiB，并忽略“仅存储通配符”、注释和归档时间选项。
-- ISO 挂载不引入第三方驱动，直接调用系统 `Mount-DiskImage`/`Dismount-DiskImage`；挂载状态在 Lumark 退出后仍由 Windows 保留，卸载入口在 Lumark 文件列表和资源管理器右键菜单。资源管理器入口注册在 `SystemFileAssociations\.iso\shell`，不依赖 `.iso` 当前绑定的 ProgID，因此第三方软件占用文件关联也不影响。
-- Windows 分发使用 Inno Setup 安装器；安装/卸载时调用应用自身的经典右键菜单注册命令。会话锁定、Authenticode 签名脚本和 UI 自动化已覆盖。
-- 视频、图片、PDF 压缩不在当前格式矩阵内。
-
-## 许可与来源
-
-本项目使用 MIT OR Apache-2.0。压缩核心 API 和格式思路参考 MIT 许可的 [GeeZipX](https://github.com/GEELINX-LTD/geezipx)；伪装压缩和“一键还原”的功能形态参考 GPL-3.0 的 [rippod/apate](https://github.com/rippod/apate)，未复用其代码或文件格式。GPUI Kit 使用 Apache-2.0；ZIP 使用 MIT；sevenz-rust2 使用 Apache-2.0；ZPAQ 后端使用 CC0-1.0 的 [zpaq_rs](https://github.com/turtle261/zpaq-rs) 本地 fork，其内置的 libzpaq/zpaq.cpp 为公有领域软件；WIM 使用 LGPL-2.1-or-later 的 [wim](https://github.com/CaddyGlow/wim-rs)、[wim-format](https://github.com/CaddyGlow/wim-rs) 和 [ms-compress](https://github.com/CaddyGlow/ms-compress)；ALZ 后端使用 MIT 的 [unalz](https://github.com/alkegi/unalz)；LZIP/LZMA 编码使用 Apache-2.0 的 [lzma-rust2](https://github.com/hasenbanck/lzma-rust2)；传统格式适配使用 MIT OR Apache-2.0 的 [unarc-rs](https://github.com/mkrueger/unarc-rs)；裁剪的 `lumark-legacy` 源自 MIT 许可的 GeeZipX 0.7.4；界面图标来自 Apache-2.0 许可的 [IconPark](https://iconpark.oceanengine.com/official)。发布前请阅读 `THIRD_PARTY_NOTICES.md`。
-
-## 本地化
-
-主界面使用 gpui-kit 0.8.1 的组件 locale 与 `rust-i18n 4.2`。应用文案放在 `crates/lumark-ui/locales/ui.yml`，当前覆盖动作带和设置窗口；通过设置“综合 → 界面语言”切换 `zh-CN`/`en`，同时同步 gpui-kit 组件语言。
-
-## Windows 安装程序（Inno Setup，推荐）
-
-按 [GPUI Kit 桌面应用打包与分发](https://gpui-kit.com/zh-CN/docs/packaging/) 的 Windows 流程，发布给普通用户时使用 Inno Setup 安装器，而不是只分发 ZIP 或开发脚本。推荐使用一键脚本（见“一键发布构建”），它会完成编译、信任检查、签名和打包：
+### 基准与模糊测试
 
 ```powershell
-./tools/build_release.ps1 -Version 0.1.0 -UseDevCert
+cargo +nightly fuzz run archive_list
+cargo run -p lumark-browser --release --example bench_100k
+cargo run -p lumark-archive --release --example bench_archive
 ```
 
-也可以分步执行；`pack-installer.ps1` 只负责暂存、编译和签名，不清理 `target\release` 的 MOTW/Low 完整性标签：
-
-```powershell
-cargo build --release --locked -p lumark-app
-cargo build --release --locked -p lumark-sfx
-./installer/pack-installer.ps1 -Version 0.1.0 -Arch x64
-
-rustup target add i686-pc-windows-msvc
-cargo build --release --locked --target i686-pc-windows-msvc -p lumark-app
-cargo build --release --locked --target i686-pc-windows-msvc -p lumark-sfx
-./installer/pack-installer.ps1 -Version 0.1.0 -Arch x86
-```
-
-仓库内置 Inno Setup 6.7.3 编译器（`installer/tools/innosetup/ISCC.exe`），构建机不需要安装 Inno Setup，也不再从 PATH 或系统安装目录查找 `ISCC.exe`。`x64` 与 `x86` 共用同一份 `installer/lumark.iss`，由 `/DArch` 和 `/DX64`、`/DX86` 切换安装器架构。直接调用 `pack-installer.ps1` 时脚本会：
-
-- 校验 release 产物的 PE 架构与 `-Arch` 一致，防止把 x64 二进制打进 x86 安装包；
-- 把 `Lumark.exe`、`lumark-sfx.exe` 和许可文本暂存到 `target\dist-stage\<架构>`（不再放进 `dist`）；
-- 调用 `installer/lumark.iss` 生成 `dist\Lumark-Setup-<版本>-<架构>.exe`；
-- 传入 `-SignThumbprint` 或 `-SignPfxPath` 时，先签名暂存二进制，再签名最终安装器。
-
-安装器使用 `PrivilegesRequired=admin`，启动时请求 UAC 管理员权限；x64 安装包只允许 64 位 Windows，默认安装到 `C:\Program Files\Lumark`；x86 安装包可在 32 位和 64 位 Windows 上运行，在 64 位系统上默认安装到 `C:\Program Files (x86)\Lumark`。admin 模式下 `{autoprograms}`/`{autodesktop}` 自动使用公共开始菜单和公共桌面。安装/卸载时调用 `--register-shell` / `--unregister-shell`；`--register-shell` 使用 `runasoriginaluser`，以启动安装器的原始用户身份写入 HKCU，避免写入提权管理员账户。
-
-旧版（`PrivilegesRequired=lowest`，安装到 `%LOCALAPPDATA%\Programs\Lumark`）不会被新安装器识别为同一安装；升级前先在“设置 → 应用”中卸载旧版，避免残留目录和重复卸载项。`AppId` 保持不变，后续管理员安装版本可正常升级。x86 与 x64 安装包共用同一个 `AppId`：同一台机器只保留一个架构的安装，切换架构前先卸载旧架构版本。
-
-安装器本身已经包含 Inno Setup 运行时；构建机不需要安装 Inno Setup。若运行时出现 `Temp\is-*.tmp` 的 Error 5，通常是 `%TEMP%` 权限、受限令牌或安全软件拦截，而不是缺少 Inno Setup；需要为安装器放行临时目录或使用代码签名后的安装器。自签名只能让本机信任该签名，不能绕过安全软件或获得 SmartScreen 信誉。
-
-### 安装时报 Error 5 / 拒绝访问
-
-如果安装器在创建 `%TEMP%\is-*.tmp` 或 `C:\Program Files\Lumark` 时出现 `Error 5: 拒绝访问`，优先检查 360 安全卫士、其他杀毒软件或主动防御，而不是继续修改 Inno 的临时目录配置。当前机器运行 `360tray` 和 `ZhuDongFangYu` 时，用最小 Rust 程序测试 `create_dir_all` 会得到 OS error 5，但 PowerShell/cmd 可以创建同一目录；给测试程序加上有效的自签名也不会改变结果。这说明拦截来自安全软件对未知安装器进程的文件写入策略，不是 ACL、Inno 或签名链错误。
-
-处理方式：
-
-- 打开 360 的“木马查杀 → 信任区”或“安全防护中心 → 主动防御 → 信任列表”，把 `Lumark-Setup-<版本>-<架构>.exe` 加入信任；
-- 也可以临时退出 360 或关闭主动防御做一次对照测试，确认后立即恢复，并把安装器加入白名单；
-- 不要用注册表全局关闭 Windows 的附件管理器或文件写入保护来绕过；
-- 自签名证书不能解决这类拦截；对外分发应使用受信任 CA 的代码签名证书，并向安全厂商提交误报/白名单申请。
-
-Tauri 的 NSIS 安装器本身不会天然绕过这一层：如果它在同一台机器上能运行，通常是安全软件已经信任了它的签名、发布者或安装器行为，而不是 NSIS 与 Inno 的格式差异。
-
-### “打开文件 - 安全警告”的两个来源
-
-截图中的提示是 Windows 附件管理器的统一 UI，有两类独立触发条件：
-
-1. **Mark-of-the-Web（MOTW）**：文件带 `Zone.Identifier`，通常来自浏览器、聊天工具或下载的压缩包；`Get-Item <文件> -Stream *` 能看到该流。
-2. **Low 完整性标签**：文件由低完整性沙箱进程创建，`icacls <文件>` 显示 `Mandatory Label\Low Mandatory Level`。本地 Cargo 构建如果发生在被沙箱标记的工作区，`target` 下每次新生成的 exe 都会继承它；**签名不能消除这类提示**。
-
-本仓库在 2026-10-29 排查到工作区被代码代理沙箱加过 Low 标签（ACL 中可见 `CodexSandboxUsers`/`S-1-4-*` 授权），导致 `target\release\lumark-app.exe` 每次编译后双击都弹“未知发布者”。2026-11-02 又出现一次：沙箱重新把根目录标记为 Low，且 `target` 在 Low 状态下重建，新 exe 继承了 Low；修复时除了根目录，还要把 `target\release` 和 exe 设为显式 Medium，并给当前用户补上仓库根的继承完全控制（目录标签需要 WRITE_OWNER；根目录原本只有非继承的 `F`）。现在根目录、`target\release` 和 release exe 均为 Medium。
-
-```powershell
-# 区分来源
-Get-Item .\target\release\lumark-app.exe -Stream *                       # 有 Zone.Identifier → MOTW
-icacls .\target\release\lumark-app.exe | Select-String 'Mandatory'       # Low → 完整性标签
-
-# 修复 MOTW
-Unblock-File .\target\release\lumark-app.exe
-
-# 修复 Low 完整性（先补当前用户对仓库根的继承完全控制，再修复根目录和 target）
-$root = (Get-Location).Path
-$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-icacls $root /grant:r "${user}:(OI)(CI)F"
-icacls $root /setintegritylevel "(OI)(CI)Medium"
-icacls "$root\target\release" /setintegritylevel "(OI)(CI)Medium"
-icacls "$root\target\release\lumark-app.exe" /setintegritylevel Medium
-```
-
-`tools/build_release.ps1` 在构建前检测工作区根目录和 `target`/`target\release`/`target\debug`/`dist` 的 Low 标签并恢复为 Medium；目录标签权限不足时，会为当前用户补上仓库根目录的继承完全控制（只影响此工作区），再重试。随后对 release/debug exe、安装器和便携包做 MOTW/Low 检查。这样不会产出仍带 Low 标签的发布物。提升工作区标签会削弱低完整性沙箱的写隔离；如果仍要保留沙箱，请不要在工作区内构建发布产物。
-
-其它机器从网络下载安装包时，Windows 会重新写入 MOTW；接收方可执行 `Unblock-File`，或直接使用安装器（安装后的文件不再带 MOTW）。Tauri 的 NSIS 安装器同样受 MOTW 影响；MSIX 由包部署栈安装，不走 loose exe 的 MOTW 路径。
-
-### 安全软件误报（自解压 EXE）
-
-2026-11-03 的实机对照确认：旧的原生 Win32 自解压 stub 不报毒，而引入 GPUI/DirectX 的新 stub 被 360 以 `HEUR/QVM202...Malware.Gen` 拦截。360 的 QVM 是厂商云端/静态启发式判定，无法通过改代码保证消除；因此自解压运行时已回退为**原生 Win32 界面**（设置窗口参考 360 压缩布局，解压用独立原生进度窗口并支持取消），主程序 `lumark-app` 继续使用 GPUI。当前 stub 不链接 GPUI/DirectX，体积约 1.6 MiB。
-
-如果生成的自解压 EXE 仍被拦截，按以下顺序处理：
-
-1. **确认使用原生运行时**：重新构建或安装 Lumark，确认主程序旁的 `lumark-sfx.exe` 约 1.6 MiB，窗口是原生 Win32 控件；如果仍是 11 MB 左右的 GPUI 版本，说明使用了旧构建产物。
-2. **保持单层 `.exe` 扩展名**：`解码软件.zipx.exe` 这类双扩展名是安全软件的重点启发式特征；应用会把输出名归一化为 `解码软件.exe`。
-3. **加入信任或提交误报**：在安全软件中把生成的 EXE 加入信任/白名单，并通过其“误报反馈”入口提交样本。这是安全厂商的云端判定，代码无法强制解除。
-4. **对外分发时签名最终 EXE**：使用受信任 CA 的代码签名证书签名拼接完成的文件。注意不能只签名 `lumark-sfx.exe` 再追加载荷——实测追加后 Authenticode 状态会变为 `NotSigned`，必须把载荷和页脚写完后对最终文件签名。
-5. **区分载荷自身的检测**：自解压包内的第三方工具可能被单独检出，这类告警与 Lumark stub 无关，需要单独确认来源或加入信任。
-
-### GitHub Actions 自动构建
-
-`.github/workflows/windows-build.yml`：
-
-- `push`、`pull_request`、`workflow_dispatch` 运行 `check`（格式、文件行数、clippy、测试）和 `build` 矩阵（`x64`、`x86`；Rust 1.99.0、对应 rustup target、release 构建、安装器、便携包）；每个架构上传独立 artifact（`Lumark-<版本>-windows-x64` / `Lumark-<版本>-windows-x86`），artifact 内只有安装包和便携包两个文件；
-- 推送 `v*` tag 时，`release` job 汇总两个架构 artifact，重新生成覆盖四个产物的 `SHA256SUMS.txt`，然后创建或更新 GitHub Release；tag 必须与 `Cargo.toml` 版本一致；
-- 可选签名：配置仓库 secret `LUMARK_SIGN_PFX_BASE64`（PFX 的 Base64）和 `LUMARK_SIGN_PFX_PASSWORD`；自签名/无时间戳可设仓库变量 `LUMARK_SIGN_NO_TIMESTAMP=true`；未配置时构建未签名产物并给出警告。CI 签名请使用受信任 CA 的 PFX；自签名 PFX 需要先在 runner 的受信任根/发布者存储中安装，否则 `sign.ps1` 的 `signtool verify /pa` 会失败。
-- 构建机不需要安装 Inno Setup；CI runner 的工作区是正常 Medium，不会带本机 Low 标签。
-
-Release 最终只包含 5 个文件：
-
-```text
-Lumark-Setup-<版本>-x64.exe
-Lumark-Setup-<版本>-x86.exe
-Lumark-<版本>-windows-x64-portable.zip
-Lumark-<版本>-windows-x86-portable.zip
-SHA256SUMS.txt
-```
-
-发布示例：
+### 发布
 
 ```powershell
 git tag v0.1.0
