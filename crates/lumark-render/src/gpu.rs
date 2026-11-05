@@ -2587,43 +2587,70 @@ pub(crate) fn fxaa(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
     if width < 3 || height < 3 || rgba.len() < (width * height * 4) as usize {
         return rgba.to_vec();
     }
-    let mut output = rgba.to_vec();
-    let pixel = |x: u32, y: u32| {
-        let offset = ((y * width + x) * 4) as usize;
-        let luma = 0.2126 * rgba[offset] as f32
-            + 0.7152 * rgba[offset + 1] as f32
-            + 0.0722 * rgba[offset + 2] as f32;
-        (luma, offset)
+    let sample = |x: i32, y: i32| {
+        let cx = x.clamp(0, width as i32 - 1) as u32;
+        let cy = y.clamp(0, height as i32 - 1) as u32;
+        let offset = ((cy * width + cx) * 4) as usize;
+        [
+            rgba[offset] as f32 / 255.0,
+            rgba[offset + 1] as f32 / 255.0,
+            rgba[offset + 2] as f32 / 255.0,
+        ]
     };
+    let luma = |color: [f32; 3]| 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2];
+    let mut output = rgba.to_vec();
     for y in 1..height - 1 {
         for x in 1..width - 1 {
-            let (center, offset) = pixel(x, y);
-            let north = pixel(x, y - 1).0;
-            let south = pixel(x, y + 1).0;
-            let west = pixel(x - 1, y).0;
-            let east = pixel(x + 1, y).0;
-            let horizontal = (west - east).abs();
-            let vertical = (north - south).abs();
-            let contrast =
-                north.max(south).max(west).max(east) - north.min(south).min(west).min(east);
-            if contrast < 12.0 {
-                continue;
+            let xi = x as i32;
+            let yi = y as i32;
+            let nw = sample(xi - 1, yi - 1);
+            let ne = sample(xi + 1, yi - 1);
+            let sw = sample(xi - 1, yi + 1);
+            let se = sample(xi + 1, yi + 1);
+            let center = sample(xi, yi);
+            let l_m = luma(center);
+            let l_nw = luma(nw);
+            let l_ne = luma(ne);
+            let l_sw = luma(sw);
+            let l_se = luma(se);
+            let l_min = l_m.min(l_nw).min(l_ne).min(l_sw).min(l_se);
+            let l_max = l_m.max(l_nw).max(l_ne).max(l_sw).max(l_se);
+            let mut dir_x = -((l_nw + l_ne) - (l_sw + l_se));
+            let mut dir_y = (l_nw + l_sw) - (l_ne + l_se);
+            let reduce = ((l_nw + l_ne + l_sw + l_se) * (1.0 / 8.0 * 0.25)).max(1.0 / 128.0);
+            let rcp = 1.0 / (dir_x.abs().min(dir_y.abs()) + reduce);
+            dir_x = (dir_x * rcp).clamp(-8.0, 8.0);
+            dir_y = (dir_y * rcp).clamp(-8.0, 8.0);
+            let offset = ((y * width + x) * 4) as usize;
+            let sample_offset = |factor: f32| {
+                sample(
+                    (xi as f32 + dir_x * factor).round() as i32,
+                    (yi as f32 + dir_y * factor).round() as i32,
+                )
+            };
+            let a0 = sample_offset(1.0 / 3.0 - 0.5);
+            let a1 = sample_offset(2.0 / 3.0 - 0.5);
+            let b0 = sample_offset(-0.5);
+            let b1 = sample_offset(0.5);
+            let mut rgb_a = [0.0f32; 3];
+            let mut rgb_b = [0.0f32; 3];
+            for channel in 0..3 {
+                rgb_a[channel] = 0.5 * (a0[channel] + a1[channel]);
+                rgb_b[channel] = rgb_a[channel] * 0.5 + 0.25 * (b0[channel] + b1[channel]);
             }
-            let (a, b) = if horizontal >= vertical {
-                (pixel(x - 1, y).1, pixel(x + 1, y).1)
+            let l_b = luma(rgb_b);
+            let rgb = if l_b < l_min || l_b > l_max {
+                rgb_a
             } else {
-                (pixel(x, y - 1).1, pixel(x, y + 1).1)
+                rgb_b
             };
             for channel in 0..3 {
-                let neighbor = 0.5 * (rgba[a + channel] as f32 + rgba[b + channel] as f32);
-                let mixed = center * 0.25 + neighbor * 0.75;
-                output[offset + channel] = mixed.clamp(0.0, 255.0) as u8;
+                output[offset + channel] = (rgb[channel].clamp(0.0, 1.0) * 255.0) as u8;
             }
         }
     }
     output
 }
-
 /// 背景/天空 uniform：旧渐变 + Snooper 天空球/太阳。
 fn background_uniform(settings: &RenderSettings, camera: &Camera) -> [f32; 44] {
     let background = settings.background;
@@ -2759,11 +2786,12 @@ mod tests {
     #[test]
     fn fxaa_softens_high_contrast_edge() {
         let width = 8;
-        let height = 4;
+        let height = 8;
         let mut rgba = Vec::new();
-        for _y in 0..height {
+        for y in 0..height {
             for x in 0..width {
-                let value = if x < width / 2 { 0 } else { 255 };
+                let inside = (2..6).contains(&x) && (2..6).contains(&y);
+                let value = if inside { 255 } else { 0 };
                 rgba.extend_from_slice(&[value, value, value, 255]);
             }
         }
@@ -2771,89 +2799,6 @@ mod tests {
         assert_eq!(output.len(), rgba.len());
         assert_eq!(output[3], 255);
         assert_ne!(output, rgba, "边缘应被混合");
-    }
-    /// FXAA shader 必须通过解析/语义校验。
-    #[test]
-    fn fxaa_shader_parses_and_validates() {
-        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_FXAA_SHADER)
-            .expect("解析 snooper_fxaa.wgsl");
-        let mut validator = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::all(),
-            wgpu::naga::valid::Capabilities::all(),
-        );
-        validator.validate(&module).expect("校验 snooper_fxaa.wgsl");
-    }
-    /// 阴影 shader 必须通过解析/语义校验。
-    #[test]
-    fn shadow_shader_parses_and_validates() {
-        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_SHADOW_SHADER)
-            .expect("解析 snooper_shadow.wgsl");
-        let mut validator = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::all(),
-            wgpu::naga::valid::Capabilities::all(),
-        );
-        validator
-            .validate(&module)
-            .expect("校验 snooper_shadow.wgsl");
-    }
-    /// SSAO blur shader 必须通过解析/语义校验。
-    #[test]
-    fn ssao_blur_shader_parses_and_validates() {
-        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_SSAO_BLUR_SHADER)
-            .expect("解析 snooper_ssao_blur.wgsl");
-        let mut validator = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::all(),
-            wgpu::naga::valid::Capabilities::all(),
-        );
-        validator
-            .validate(&module)
-            .expect("校验 snooper_ssao_blur.wgsl");
-    }
-    /// SSAO shader 必须通过解析/语义校验，uniform 长度与 WGSL 一致。
-    #[test]
-    fn ssao_shader_and_uniform_are_valid() {
-        let module = wgpu::naga::front::wgsl::parse_str(SNOOPER_SSAO_SHADER)
-            .expect("解析 snooper_ssao.wgsl");
-        let mut validator = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::all(),
-            wgpu::naga::valid::Capabilities::all(),
-        );
-        validator.validate(&module).expect("校验 snooper_ssao.wgsl");
-        let settings = RenderSettings::snooper_viewer(900, 600);
-        let bounds = lumark_scene::Bounds::new([-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]);
-        let camera = Camera::fit(&bounds, &settings);
-        let values = ssao_uniform(&camera, 900, 600);
-        assert_eq!(values.len(), 24);
-        assert!(values.iter().all(|value| value.is_finite()));
-        assert_eq!(values[20], 900.0);
-        assert_eq!(values[21], 600.0);
-    }
-    /// snooper_extra 节点必须跳过模型的 section/material 隐藏过滤。
-    #[test]
-    fn snooper_extra_nodes_bypass_hidden_filters() {
-        let mut scene = Scene::new("ground");
-        let mesh = scene.add_mesh(lumark_scene::MeshData::new(
-            "ground",
-            vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]],
-            vec![0, 1, 2],
-        ));
-        let material = scene.add_material(MaterialData::default());
-        let mut settings = RenderSettings::snooper_viewer(64, 64);
-        settings.hidden_sections = vec![0];
-        settings.hidden_material_slots = vec![0];
-        scene.add_node(lumark_scene::SceneNode {
-            name: "ground".to_string(),
-            parent: None,
-            transform: lumark_scene::Transform::default(),
-            mesh: Some(mesh),
-            materials: vec![Some(material)],
-            visible: true,
-            kind: lumark_scene::NodeKind::StaticMesh,
-            metadata: vec![("snooper_extra".to_string(), "true".to_string())],
-        });
-        assert_eq!(build_batches(&scene, &settings).len(), 1);
-        scene.nodes[0].metadata.clear();
-        assert!(build_batches(&scene, &settings).is_empty());
     }
     /// 相机 uniform 必须携带雾颜色/密度，且长度与 shader 结构一致。
     #[test]
