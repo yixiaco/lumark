@@ -75,6 +75,48 @@ pub(crate) fn render(
                         color[channel] += disc * 50.0 * (color[channel] / brightest) * horizon;
                     }
                 }
+                // 全屏 grid：与 GPU 延迟路径一致，直接对背景像素做地面求交。
+                if settings.show_grid && direction[2] < -1e-6 {
+                    let t = -camera.eye[2] / direction[2];
+                    if t > 0.0 {
+                        let hit = [
+                            camera.eye[0] + direction[0] * t,
+                            camera.eye[1] + direction[1] * t,
+                        ];
+                        let cell = 20.0f32;
+                        let major = 100.0f32;
+                        let minor = {
+                            let coord = [hit[0] / cell, hit[1] / cell];
+                            let fx = (coord[0] - coord[0].floor() - 0.5).abs();
+                            let fy = (coord[1] - coord[1].floor() - 0.5).abs();
+                            (1.0 - (fx.min(fy) * 2.0 / 0.05).min(1.0)).max(0.0) * 0.35
+                        };
+                        let major_line = {
+                            let coord = [hit[0] / major, hit[1] / major];
+                            let fx = (coord[0] - coord[0].floor() - 0.5).abs();
+                            let fy = (coord[1] - coord[1].floor() - 0.5).abs();
+                            (1.0 - (fx.min(fy) * 2.0 / 0.04).min(1.0)).max(0.0) * 0.5
+                        };
+                        let checker =
+                            ((hit[0] / cell).floor() + (hit[1] / cell).floor()) as i32 & 1;
+                        let base = if checker == 0 {
+                            [0.12f32, 0.13, 0.15]
+                        } else {
+                            [0.15f32, 0.16, 0.18]
+                        };
+                        let sun = settings.key_color;
+                        let ndotl = normalize(settings.key_direction)[2].max(0.0);
+                        let shade = 0.45 + 0.55 * ndotl;
+                        let fade = (1.0 - t / camera.far.max(1.0)).clamp(0.0, 1.0);
+                        let line_color = [0.28f32, 0.30, 0.33];
+                        for channel in 0..3 {
+                            color[channel] = (base[channel] * shade
+                                + (line_color[channel] - base[channel]) * minor
+                                + (sun[channel] * 0.25 - base[channel]) * major_line)
+                                * fade;
+                        }
+                    }
+                }
                 frame.color[y as usize * width as usize + x as usize] = color;
             }
         }
@@ -170,7 +212,11 @@ pub(crate) fn render(
     frame.resolve_translucent();
     apply_cpu_ssao(&mut frame, settings, camera);
     apply_cpu_shadow(&mut frame, settings, camera);
-    draw_overlays(scene, settings, camera, &mut frame);
+    let mut overlay_settings = settings.clone();
+    if settings.lighting_mode == LightingMode::Snooper {
+        overlay_settings.show_grid = false;
+    }
+    draw_overlays(scene, &overlay_settings, camera, &mut frame);
     frame.to_rgba8(settings.lighting_mode == LightingMode::Snooper)
 }
 

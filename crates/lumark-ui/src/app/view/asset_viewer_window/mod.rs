@@ -174,8 +174,6 @@ pub(crate) struct AssetViewerWindowView {
     shading: ShadingMode,
     /// 是否显示地面网格
     show_grid: bool,
-    /// 是否显示可选地面平台
-    show_platform: bool,
     /// 是否启用 Snooper 环境效果（雾/天空/地面/FXAA）
     snooper_effects: bool,
     /// 查看器输出分辨率倍率
@@ -286,7 +284,6 @@ impl AssetViewerWindowView {
             shading: ShadingMode::Lit,
             // 3D 查看器默认显示地面网格（与 FModel 查看器一致）。
             show_grid: true,
-            show_platform: false,
             snooper_effects: true,
             render_resolution: render::ViewerResolution::X15,
             show_bones: false,

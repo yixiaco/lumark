@@ -95,8 +95,8 @@ pub struct GpuRenderer {
     gbuffer_pipeline: wgpu::RenderPipeline,
     deferred_layout: wgpu::BindGroupLayout,
     deferred_pipeline: wgpu::RenderPipeline,
-    _grid_layout: wgpu::BindGroupLayout,
-    _grid_pipeline: wgpu::RenderPipeline,
+    grid_layout: wgpu::BindGroupLayout,
+    grid_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -497,8 +497,8 @@ impl GpuRenderer {
                 gbuffer_pipeline: resources.gbuffer_pipeline,
                 deferred_layout: resources.deferred_layout,
                 deferred_pipeline: resources.deferred_pipeline,
-                _grid_layout: resources._grid_layout,
-                _grid_pipeline: resources._grid_pipeline,
+                grid_layout: resources.grid_layout,
+                grid_pipeline: resources.grid_pipeline,
                 ssao_sampler: resources.ssao_sampler,
                 shadow_camera_layout: resources.shadow_camera_layout,
                 shadow_pipeline: resources.shadow_pipeline,
@@ -833,6 +833,93 @@ impl GpuRenderer {
             }
         }
 
+        if use_deferred && settings.show_grid {
+            let mut values = Vec::with_capacity(56);
+            for column in &camera.view_projection {
+                values.extend_from_slice(column);
+            }
+            values.extend_from_slice(&camera.eye);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&camera.right);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&camera.up);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&camera.forward);
+            values.extend_from_slice(&[0.0]);
+            values.extend_from_slice(&[camera.tan_half_fov, camera.aspect, 20.0, 100.0]);
+            values.extend_from_slice(&[0.12, 0.13, 0.15, 1.0]);
+            values.extend_from_slice(&[0.15, 0.16, 0.18, 1.0]);
+            values.extend_from_slice(&[0.28, 0.30, 0.33, 0.35]);
+            values.extend_from_slice(&[0.45, 0.48, 0.52, 0.5]);
+            values.extend_from_slice(&[camera.near, camera.far, 0.0, 0.0]);
+            let uniform = self.create_buffer(
+                "lumark-grid",
+                (values.len() * 4) as u64,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+            self.queue.write_buffer(&uniform, 0, &f32_bytes(&values));
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lumark-grid"),
+                layout: &self.grid_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                }],
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lumark-grid-pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_position_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_normal_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_albedo_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &targets.gbuffer_specular_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.gbuffer_depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.grid_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         if use_deferred {
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("lumark-deferred"),
@@ -933,7 +1020,9 @@ impl GpuRenderer {
                 let pipeline = self.select_material_pipeline(1, material.two_sided, true);
                 self.draw_batch(&mut pass, settings, batch, material, pipeline);
             }
-            let (line_data, line_count) = overlay_line_vertices(scene, settings);
+            let mut overlay_settings = settings.clone();
+            overlay_settings.show_grid = false;
+            let (line_data, line_count) = overlay_line_vertices(scene, &overlay_settings);
             if line_count > 0 {
                 let line_buffer = self.create_buffer(
                     "lumark-lines",
@@ -1448,8 +1537,8 @@ struct Resources {
     gbuffer_pipeline: wgpu::RenderPipeline,
     deferred_layout: wgpu::BindGroupLayout,
     deferred_pipeline: wgpu::RenderPipeline,
-    _grid_layout: wgpu::BindGroupLayout,
-    _grid_pipeline: wgpu::RenderPipeline,
+    grid_layout: wgpu::BindGroupLayout,
+    grid_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -2504,8 +2593,8 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         gbuffer_pipeline,
         deferred_layout,
         deferred_pipeline,
-        _grid_layout: grid_layout,
-        _grid_pipeline: grid_pipeline,
+        grid_layout,
+        grid_pipeline,
         ssao_sampler,
         shadow_camera_layout,
         shadow_pipeline,
