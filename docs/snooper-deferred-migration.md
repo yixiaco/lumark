@@ -1,4 +1,4 @@
-﻿# Snooper 延迟管线迁移
+# Snooper 延迟管线迁移
 
 ## 已完成
 
@@ -8,7 +8,8 @@
 
 ## 进行中
 
-- 延迟光照 pass：G-buffer → PBR/级联阴影/雾。
+- 延迟光照 pass：G-buffer → 简化 PBR（已接入，待补级联阴影/雾/天空 LUT）。
+- 半透明前向叠加与 overlay：已接入延迟后的 color Load + G-buffer 深度。
 - 全屏 grid：替换几何地面 + overlay 网格。
 - 半透明前向叠加与 combine。
 - 切换 Snooper 默认路径，旧前向保留回退。

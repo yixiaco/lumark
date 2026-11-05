@@ -24,6 +24,7 @@ const SNOOPER_SHADOW_SHADER: &str = include_str!("snooper_shadow.wgsl");
 const SNOOPER_FXAA_SHADER: &str = include_str!("snooper_fxaa.wgsl");
 const SNOOPER_SSAO_BLUR_SHADER: &str = include_str!("snooper_ssao_blur.wgsl");
 const SNOOPER_GBUFFER_SHADER: &str = include_str!("snooper_gbuffer.wgsl");
+const SNOOPER_DEFERRED_SHADER: &str = include_str!("snooper_deferred.wgsl");
 
 /// 颜色目标格式（着色器手动 gamma 编码）。
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -91,6 +92,8 @@ pub struct GpuRenderer {
     ssao_blur_layout: wgpu::BindGroupLayout,
     ssao_blur_pipeline: wgpu::RenderPipeline,
     gbuffer_pipeline: wgpu::RenderPipeline,
+    deferred_layout: wgpu::BindGroupLayout,
+    deferred_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -489,6 +492,8 @@ impl GpuRenderer {
                 ssao_blur_layout: resources.ssao_blur_layout,
                 ssao_blur_pipeline: resources.ssao_blur_pipeline,
                 gbuffer_pipeline: resources.gbuffer_pipeline,
+                deferred_layout: resources.deferred_layout,
+                deferred_pipeline: resources.deferred_pipeline,
                 ssao_sampler: resources.ssao_sampler,
                 shadow_camera_layout: resources.shadow_camera_layout,
                 shadow_pipeline: resources.shadow_pipeline,
@@ -533,6 +538,8 @@ impl GpuRenderer {
         let use_ssao =
             settings.lighting_mode == LightingMode::Snooper && settings.snooper.ssao.enabled;
         let use_fxaa = settings.lighting_mode == LightingMode::Snooper && settings.snooper.fxaa;
+        let use_deferred = settings.lighting_mode == LightingMode::Snooper
+            && settings.shading == crate::ShadingMode::Lit;
         // SSAO 需要单采样颜色/深度纹理。
         let samples = if use_ssao {
             1
@@ -640,7 +647,7 @@ impl GpuRenderer {
                 }
             }
         }
-        if settings.lighting_mode == LightingMode::Snooper {
+        if use_deferred {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("lumark-gbuffer-pass"),
                 color_attachments: &[
@@ -821,6 +828,120 @@ impl GpuRenderer {
             }
         }
 
+        if use_deferred {
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lumark-deferred"),
+                layout: &self.deferred_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &targets.gbuffer_position_view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&targets.gbuffer_normal_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&targets.gbuffer_albedo_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(
+                            &targets.gbuffer_specular_view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::Sampler(&self.ssao_sampler),
+                    },
+                ],
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lumark-deferred-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.color_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.deferred_pipeline);
+            pass.set_bind_group(0, &camera_bind_group, &[]);
+            pass.set_bind_group(1, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        if use_deferred {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("lumark-deferred-forward-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.color_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.gbuffer_depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            pass.set_bind_group(0, &camera_bind_group, &[]);
+            let fallback_material = MaterialData::default();
+            let mut translucent: Vec<&Batch> = batches
+                .iter()
+                .filter(|batch| batch.material(scene, &fallback_material).translucent)
+                .collect();
+            translucent.sort_by(|left, right| {
+                let left_distance = [
+                    left.sort_center[0] - camera.eye[0],
+                    left.sort_center[1] - camera.eye[1],
+                    left.sort_center[2] - camera.eye[2],
+                ];
+                let right_distance = [
+                    right.sort_center[0] - camera.eye[0],
+                    right.sort_center[1] - camera.eye[1],
+                    right.sort_center[2] - camera.eye[2],
+                ];
+                let left_dot = dot(left_distance, left_distance);
+                let right_dot = dot(right_distance, right_distance);
+                right_dot
+                    .partial_cmp(&left_dot)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for batch in translucent {
+                let material = batch.material(scene, &fallback_material);
+                let pipeline = self.select_material_pipeline(1, material.two_sided, true);
+                self.draw_batch(&mut pass, settings, batch, material, pipeline);
+            }
+            let (line_data, line_count) = overlay_line_vertices(scene, settings);
+            if line_count > 0 {
+                let line_buffer = self.create_buffer(
+                    "lumark-lines",
+                    line_data.len() as u64,
+                    wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                );
+                self.queue.write_buffer(&line_buffer, 0, &line_data);
+                pass.set_bind_group(0, &camera_bind_group, &[]);
+                pass.set_pipeline(&self.line_pipeline);
+                pass.set_vertex_buffer(0, line_buffer.slice(..));
+                pass.draw(0..line_count, 0..1);
+            }
+        }
         if use_ssao {
             let uniform = ssao_uniform(&camera, (width / 2).max(1), (height / 2).max(1));
             let uniform_buffer = self.create_buffer(
@@ -1316,6 +1437,8 @@ struct Resources {
     ssao_blur_layout: wgpu::BindGroupLayout,
     ssao_blur_pipeline: wgpu::RenderPipeline,
     gbuffer_pipeline: wgpu::RenderPipeline,
+    deferred_layout: wgpu::BindGroupLayout,
+    deferred_pipeline: wgpu::RenderPipeline,
     ssao_sampler: wgpu::Sampler,
     shadow_camera_layout: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
@@ -2192,6 +2315,91 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         multiview_mask: None,
         cache: None,
     });
+    let deferred_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lumark-deferred-layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let deferred_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lumark-deferred-shader"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SNOOPER_DEFERRED_SHADER)),
+    });
+    let deferred_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("lumark-deferred-pipeline-layout"),
+        bind_group_layouts: &[Some(&camera_layout), Some(&deferred_layout)],
+        immediate_size: 0,
+    });
+    let deferred_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("lumark-deferred-pipeline"),
+        layout: Some(&deferred_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &deferred_shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &deferred_shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: COLOR_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
     Ok(Resources {
         pipeline_single,
         pipeline_double,
@@ -2213,6 +2421,8 @@ fn create_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Resour
         ssao_blur_layout,
         ssao_blur_pipeline,
         gbuffer_pipeline,
+        deferred_layout,
+        deferred_pipeline,
         ssao_sampler,
         shadow_camera_layout,
         shadow_pipeline,
