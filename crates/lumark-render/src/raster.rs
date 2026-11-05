@@ -53,7 +53,8 @@ pub(crate) fn render(
                 let gl = normalize([direction[0], direction[2], direction[1]]);
                 let azimuth = gl[2].atan2(gl[0]);
                 let elevation = gl[1].clamp(-1.0, 1.0).asin();
-                let row = elevation.signum() * (elevation.abs() / (0.5 * std::f32::consts::PI)).sqrt();
+                let row =
+                    elevation.signum() * (elevation.abs() / (0.5 * std::f32::consts::PI)).sqrt();
                 let u = (azimuth / (2.0 * std::f32::consts::PI) + 0.5).rem_euclid(1.0);
                 let v = (row * 0.5 + 0.5).clamp(0.0, 1.0);
                 let lx = ((u * lut_width as f32) as usize).min(lut_width as usize - 1);
@@ -64,7 +65,8 @@ pub(crate) fn render(
                     lut[offset + 1] as f32 / 255.0,
                     lut[offset + 2] as f32 / 255.0,
                 ];
-                let mu = direction[0] * sun_gl[0] + direction[1] * sun_gl[1] + direction[2] * sun_gl[2];
+                let mu =
+                    direction[0] * sun_gl[0] + direction[1] * sun_gl[1] + direction[2] * sun_gl[2];
                 let disc = ((mu - 0.999_989) / 2.0e-5).clamp(0.0, 1.0);
                 if disc > 0.0 {
                     let brightest = color[0].max(color[1]).max(color[2]).max(1e-4);
@@ -164,6 +166,7 @@ pub(crate) fn render(
     }
     frame.resolve_translucent();
     apply_cpu_ssao(&mut frame, settings, camera);
+    apply_cpu_shadow(&mut frame, settings, camera);
     draw_overlays(scene, settings, camera, &mut frame);
     frame.to_rgba8(settings.lighting_mode == LightingMode::Snooper)
 }
@@ -191,8 +194,8 @@ fn apply_cpu_ssao(frame: &mut Frame, settings: &RenderSettings, camera: &Camera)
                 + camera.right[2] * ndc_x * camera.tan_half_fov * camera.aspect
                 + camera.up[2] * ndc_y * camera.tan_half_fov,
         ]);
-        let view_z = camera.near * camera.far
-            / (camera.far - depth * (camera.far - camera.near)).max(1e-5);
+        let view_z =
+            camera.near * camera.far / (camera.far - depth * (camera.far - camera.near)).max(1e-5);
         let along = dot(ray, camera.forward).max(1e-5);
         [
             camera.eye[0] + ray[0] * view_z / along,
@@ -249,13 +252,57 @@ fn apply_cpu_ssao(frame: &mut Frame, settings: &RenderSettings, camera: &Camera)
                 if horizon_sq <= 1e-6 || horizon_sq > radius_sq {
                     continue;
                 }
-                let contribution = dot(normalize(horizon), normal).max(0.0)
-                    * (1.0 - horizon_sq / radius_sq);
+                let contribution =
+                    dot(normalize(horizon), normal).max(0.0) * (1.0 - horizon_sq / radius_sq);
                 occlusion = occlusion.max(contribution);
             }
             let ao: f32 = (1.0 - occlusion * 0.45).clamp(0.35, 1.0);
             for channel in 0..3 {
                 frame.color[offset][channel] *= ao;
+            }
+        }
+    }
+}
+/// CPU 回退的屏幕空间太阳阴影；用于 GPU 阴影不可用时的近似。
+fn apply_cpu_shadow(frame: &mut Frame, settings: &RenderSettings, camera: &Camera) {
+    if settings.lighting_mode != LightingMode::Snooper || !settings.snooper.shadows.enabled {
+        return;
+    }
+    let light = normalize(settings.key_direction);
+    let screen_x = dot(light, camera.right);
+    let screen_y = -dot(light, camera.up);
+    let length = (screen_x * screen_x + screen_y * screen_y).sqrt();
+    if length <= 1e-4 {
+        return;
+    }
+    let step = [screen_x / length, screen_y / length];
+    let width = frame.width as i32;
+    let height = frame.height as i32;
+    let width_usize = frame.width as usize;
+    for y in 0..height {
+        for x in 0..width {
+            let offset = y as usize * width_usize + x as usize;
+            let depth = frame.depth[offset];
+            if !(0.0..1.0).contains(&depth) {
+                continue;
+            }
+            let mut occluded = 0.0;
+            for distance in 2..14 {
+                let sx = (x as f32 + step[0] * distance as f32 * 3.0).round() as i32;
+                let sy = (y as f32 + step[1] * distance as f32 * 3.0).round() as i32;
+                if sx < 0 || sy < 0 || sx >= width || sy >= height {
+                    break;
+                }
+                let sample_depth = frame.depth[sy as usize * width_usize + sx as usize];
+                if sample_depth < depth - 0.0002 {
+                    occluded = 1.0;
+                    break;
+                }
+            }
+            if occluded > 0.0 {
+                for channel in 0..3 {
+                    frame.color[offset][channel] *= 0.65;
+                }
             }
         }
     }
